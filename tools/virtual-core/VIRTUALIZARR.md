@@ -2,7 +2,8 @@
 
 virtual-core is the set of wrappers and workarounds our ingests needed on top
 of VirtualiZarr to run end to end: repo setup, faster indexing of remote files,
-and a few layouts VirtualiZarr has no parser for.
+and a few layouts VirtualiZarr has no parser for. Nearly all of it is headed
+upstream; only the ingest bookkeeping (progress, decisions, benchmarks) stays.
 
 | virtual-core | What it does | In VirtualiZarr | Upstream |
 | --- | --- | --- | --- |
@@ -11,7 +12,7 @@ and a few layouts VirtualiZarr has no parser for.
 | `multiscale` | OME-Zarr pyramid with a referenced level 0 and native levels written by ngff-zarr | None | not filed; likely ngff-zarr |
 | `fetch` | Fetches a remote file, or only the regions a parser needs, by parallel range requests so it can be indexed locally | None | not filed; possibly obstore |
 | `remote` | Seekable, caching reader over a remote file for parsers that walk their own index | Overlaps obspec-utils' readers | not filed; obspec-utils |
-| `registry` | Builds an `ObjectStoreRegistry` for a path or URL, with anonymous S3 and the region from the environment | You build the registry yourself | stays local |
+| `registry` | Builds an `ObjectStoreRegistry` for a path or URL, with anonymous S3 and the region from the environment | You build the registry yourself | not filed |
 | `inspect` | Asks a remote TIFF where its directories sit and what decoding it needs, before indexing | None | moves to `virtual-tifffile` |
 | `progress`, `decisions`, `bench` | Progress lines for long jobs, recorded judgement calls, remote read benchmarks | Out of scope | stays local |
 
