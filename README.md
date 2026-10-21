@@ -2,7 +2,7 @@
 
 Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https://icechunk.io).
 
-- `src/minus80/`: one Python package, part staging for rapid iteration on what's headed upstream, part the domain layer that stays
+- `src/minus80/`: one Python package: shared layers and format parsers
 - `ingests/`: one directory per archive, with its scripts, layout notes and demo notebook
 
 ```python
@@ -12,13 +12,14 @@ from minus80.parsers import tiff
 
 ## src/minus80/
 
-- **Headed upstream:** generic pieces, iterated on here first. That's most of
-  `core`, and each parser's chunk locating, for VirtualiZarr, virtual-tiff,
-  imagecodecs, async-tiff, obspec-utils and ngff-zarr.
-- **Stays:** domain knowledge. That's how each format's structure maps onto
-  axes, units and coordinates, the OME-Zarr annotation and provenance
-  conventions in `ome`, and the ingest bookkeeping in `core` (progress,
-  decisions, benchmarks).
+Staging for rapid iteration: generic pieces are headed upstream, domain
+knowledge stays.
+
+| | Headed upstream | Stays here |
+| --- | --- | --- |
+| `core` | repo setup, remote indexing, flat binary, pyramids | progress, decisions, benchmarks |
+| `ome` | hybrid pyramids (ngff-zarr) | annotation and provenance conventions |
+| `parsers` | locating chunks | mapping a format onto axes, units, coordinates |
 
 **Shared layers**
 
