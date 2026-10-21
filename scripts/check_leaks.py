@@ -1,9 +1,8 @@
 """Reject files that contain local paths, cloud account identifiers or secrets.
 
-Generic patterns live here. Extra patterns are read from the file named by
-``LEAK_PATTERNS`` (default ``~/.config/minus-80/leak-patterns.txt``)
-when it exists; its contents are never part of the repository. Each line is a
-regex, optionally followed by a tab and a glob of paths where it is allowed.
+Generic patterns live here. Extra patterns are read from the file named by the
+local git config key ``leaks.patterns``, if set. Each line is a regex,
+optionally followed by a tab and a glob of paths where it is allowed.
 
 Usage: ``check_leaks.py [--all] [FILE ...]``. ``--all`` scans every tracked
 file and the full history.
@@ -12,7 +11,6 @@ file and the full history.
 from __future__ import annotations
 
 import fnmatch
-import os
 import re
 import subprocess
 import sys
@@ -27,16 +25,16 @@ GENERIC = [
     r"(?i)aws_secret_access_key\s*[=:]",
 ]
 
-DEFAULT_PRIVATE = Path("~/.config/minus-80/leak-patterns.txt")
-
 Rule = Tuple["re.Pattern[str]", Optional[str]]
 
 
 def load_rules() -> list[Rule]:
     rules: list[Rule] = [(re.compile(p), None) for p in GENERIC]
-    private = Path(os.environ.get("LEAK_PATTERNS", DEFAULT_PRIVATE)).expanduser()
-    if private.exists():
-        for line in private.read_text().splitlines():
+    configured = subprocess.run(
+        ["git", "config", "--get", "leaks.patterns"], capture_output=True, text=True
+    ).stdout.strip()
+    if configured:
+        for line in Path(configured).expanduser().read_text().splitlines():
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
             regex, _, allow = line.partition("\t")
