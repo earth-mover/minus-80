@@ -7,19 +7,48 @@ Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https:/
 
 ## tools/
 
+**Shared**
+
 | Package | What it does |
 | --- | --- |
 | `virtual-core` | Object-store registry, Icechunk read and write helpers, progress reporting |
 | `virtual-ome` | OME-Zarr metadata over referenced arrays: images, labels, plates, collections |
-| `virtual-tifffile` | TIFF pages, tiles and strips as chunk references, from tifffile's parse |
-| `virtual-zip` | Zip members as chunk references, and the raw-Deflate codec that decodes them |
+
+**Microscopy and pathology formats**
+
+| Package | What it does |
+| --- | --- |
+| `virtual-tifffile` | TIFF pages, tiles and strips, from tifffile's parse |
 | `virtual-dicom` | DICOM CT volumes, whole-slide and multiplex images |
-| `virtual-nwb` | Neurodata Without Borders (NWB) files, which are HDF5 |
+| `virtual-czi` | Zeiss CZI |
+| `virtual-nd2` | Nikon ND2 |
 | `virtual-mrc` | MRC and MRCS cryo-EM and cryo-ET volumes |
-| `virtual-czi` | Zeiss CZI microscopy |
-| `virtual-nd2` | Nikon ND2 microscopy |
+
+**Other modalities**
+
+| Package | What it does |
+| --- | --- |
+| `virtual-nwb` | Neurodata Without Borders (NWB) recordings, which are HDF5 |
 | `virtual-oct` | Optical coherence tomography vendor files and raw spectra |
-| `virtual-flac` | FLAC audio frames as chunk references |
+| `virtual-flac` | FLAC audio frames |
+
+**Containers**
+
+| Package | What it does |
+| --- | --- |
+| `virtual-zip` | Zip members, and the raw-Deflate codec that decodes them |
+
+### Upstream or local
+
+These tools are staging grounds. Anything that isn't specific to biology, such
+as a parser fix, a codec or a write path, is meant to move into the library
+that owns it: VirtualiZarr, virtual-tiff, imagecodecs, async-tiff or
+obspec-utils. `UPSTREAM.md` tracks each item and its status, and the local
+copy is deleted once the fix is released.
+
+What stays here is domain knowledge: how a format's own structure (NWB groups,
+MRC headers, DICOM frames) maps onto named axes, units and coordinates, plus
+the per-archive code in `ingests/`.
 
 ## ingests/
 
