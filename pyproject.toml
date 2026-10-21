@@ -1,7 +1,7 @@
 [project]
 name = "minus-80"
 version = "0.0.0"
-description = "Public bioimaging archives as navigable OME-Zarr in Icechunk, referencing the original bytes in place."
+description = "Tooling and scripts for zero-copy ingest of biology data into Icechunk."
 license = "Apache-2.0"
 requires-python = ">=3.12"
 

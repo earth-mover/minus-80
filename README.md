@@ -1,6 +1,6 @@
 # minus-80
 
-Public bioimaging archives as OME-Zarr in [Icechunk](https://icechunk.io), without copying the data.
+Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https://icechunk.io).
 
 - `tools/`: format parsers and shared OME-Zarr and Icechunk helpers
 - `ingests/`: one directory per archive, with its scripts, layout notes and demo notebook
