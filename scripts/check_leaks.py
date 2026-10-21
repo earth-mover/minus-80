@@ -1,7 +1,7 @@
 """Reject files that contain local paths, cloud account identifiers or secrets.
 
 Generic patterns live here. Extra patterns are read from the file named by
-``LEAK_PATTERNS`` (default ``~/.config/bio-virtualization/leak-patterns.txt``)
+``LEAK_PATTERNS`` (default ``~/.config/minus-80/leak-patterns.txt``)
 when it exists; its contents are never part of the repository. Each line is a
 regex, optionally followed by a tab and a glob of paths where it is allowed.
 
@@ -27,7 +27,7 @@ GENERIC = [
     r"(?i)aws_secret_access_key\s*[=:]",
 ]
 
-DEFAULT_PRIVATE = Path("~/.config/bio-virtualization/leak-patterns.txt")
+DEFAULT_PRIVATE = Path("~/.config/minus-80/leak-patterns.txt")
 
 Rule = Tuple["re.Pattern[str]", Optional[str]]
 

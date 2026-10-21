@@ -1,5 +1,5 @@
 [project]
-name = "bio-virtualization"
+name = "minus-80"
 version = "0.0.0"
 description = "Public bioimaging archives as navigable OME-Zarr in Icechunk, referencing the original bytes in place."
 requires-python = ">=3.12"
