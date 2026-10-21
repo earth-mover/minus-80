@@ -2,6 +2,7 @@
 name = "minus-80"
 version = "0.0.0"
 description = "Public bioimaging archives as navigable OME-Zarr in Icechunk, referencing the original bytes in place."
+license = "Apache-2.0"
 requires-python = ">=3.12"
 
 [tool.uv]
