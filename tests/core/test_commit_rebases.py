@@ -13,7 +13,7 @@ import icechunk
 import numpy as np
 import pytest
 import zarr
-from virtual_core.icechunk_io import commit
+from minus80.core.icechunk_io import commit
 
 
 def _repo(path):

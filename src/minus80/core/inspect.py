@@ -32,7 +32,7 @@ Each returns data rather than printing, so it can be used in a notebook, and
 each has a line in the command-line interface below for when a shell is what
 you have.
 
-**Why this is in virtual_core and not in a collection project.** Nothing here
+**Why this is in minus80.core and not in an ingest.** Nothing here
 knows what IDR is. "Where does this TIFF keep its directories" and "is this
 codec in the core" are asked identically of Cell Painting plates and OCT
 volumes, and both projects have reached for the same answers.

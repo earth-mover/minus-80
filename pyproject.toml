@@ -4,13 +4,30 @@ version = "0.0.0"
 description = "Tooling and scripts for zero-copy ingest of biology data into Icechunk."
 license = "Apache-2.0"
 requires-python = ">=3.12"
+dependencies = [
+    "icechunk>=2.3.0,<2.4",
+    "jsonschema",
+    "ngff-zarr>=0.46",
+    "numpy>=2.1",
+    "obspec-utils",
+    "obstore>=0.7.0",
+    "ome-zarr-models>=1.8",
+    "virtualizarr>=2.8.0",
+    "zarr>=3.1.0",
+]
 
-[tool.uv]
-package = false
-constraint-dependencies = ["icechunk>=2.3.0,<2.4"]
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/minus80"]
 
 [tool.uv.workspace]
-members = ["tools/*", "ingests/*"]
+members = ["ingests/*"]
 
 [tool.uv.sources]
 # v2.8.0 plus zarr-developers/VirtualiZarr#1108 (ManifestStore.to_icechunk) and
@@ -19,3 +36,4 @@ virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da04771
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+testpaths = ["tests"]

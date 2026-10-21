@@ -55,13 +55,20 @@ ingest, the work is not done. That rules out:
 
 ## Layout
 
-- `tools/virtual-<format>/` holds a parser or shared layer. It knows nothing
-  about any one archive.
-- `ingests/ingest-<archive>/` holds one archive's ingest: scripts, `LAYOUTS.md`,
-  a verify script and a demo notebook.
-- An ingest imports from tools, never from another ingest. Code only one
+- `src/minus80/` is one package. `minus80.core` and `minus80.ome` are the
+  shared layers; `minus80.parsers.<format>` holds one parser per format. None
+  of it knows about any one archive.
+- Tests mirror the package under `tests/`.
+- Each parser's third-party reader is an optional extra named after the
+  parser. `minus80/__init__.py` and `minus80/parsers/__init__.py` import
+  nothing, so a parser's dependencies load only when it is imported;
+  `tests/test_imports.py` checks this.
+- `ingests/<archive>/` holds one archive's ingest: scripts, `LAYOUTS.md`, a
+  verify script and a demo notebook. Each is a workspace member that depends on
+  `minus-80`.
+- An ingest imports from `minus80`, never from another ingest. Code only one
   archive needs stays in that ingest. Anything a second archive could use moves
-  to a tool.
+  into `minus80`.
 - OME-Zarr output is version 0.5 metadata; ingest an older source by upgrading
   it.
 - Tabular data without a Zarr convention (per-target annotations, edge lists,
@@ -70,10 +77,11 @@ ingest, the work is not done. That rules out:
 
 ## Working in the workspace
 
-- One uv workspace, one lockfile. Run everything through it:
-  `uv run --package <name> pytest tools/<name>`. Dependency sources, including
-  the VirtualiZarr pin, are set once in the root `pyproject.toml`. Never add a
-  per-package source or a path dependency outside the repository.
+- One uv workspace, one lockfile. Run everything through it: `uv run pytest`,
+  or `uv run --package <ingest> python ingests/<archive>/ingest.py`.
+  Dependency sources, including the VirtualiZarr pin, are set once in the root
+  `pyproject.toml`. Never add a per-ingest source or a path dependency outside
+  the repository.
 - Install the hooks with `prek install` (or `pre-commit install`). They run
   gitleaks, strip notebook outputs, cap file size at 1 MB and run
   `scripts/check_leaks.py`.

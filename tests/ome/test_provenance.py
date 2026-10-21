@@ -2,8 +2,8 @@ import icechunk
 import numpy as np
 import zarr
 
-import virtual_ome as vo
-from virtual_ome.verify import GATES, provenance
+from minus80 import ome as vo
+from minus80.ome.verify import GATES, provenance
 
 SLIDE = "s3://bucket/slides/slide.tif"
 MASK = "s3://bucket/masks/slide_mask.tif"

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import io
 
-from virtual_core.progress import Progress, _clock
+from minus80.core.progress import Progress, _clock
 
 
 def _run(total, steps, *, every, sleep=0.0):
@@ -21,7 +21,7 @@ def _run(total, steps, *, every, sleep=0.0):
     with Progress("walking directories", total, unit="pages",
                   every=every, stream=out) as note:
         note._started = note._last = 0.0
-        import virtual_core.progress as mod
+        import minus80.core.progress as mod
         real = mod.time.monotonic
         mod.time.monotonic = lambda: now[0]
         try:

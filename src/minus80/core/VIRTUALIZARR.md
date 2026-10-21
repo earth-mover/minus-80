@@ -1,11 +1,11 @@
-# virtual-core and VirtualiZarr
+# minus80.core and VirtualiZarr
 
-virtual-core is the set of wrappers and workarounds our ingests needed on top
+minus80.core is the set of wrappers and workarounds our ingests needed on top
 of VirtualiZarr to run end to end: repo setup, faster indexing of remote files,
 and a few layouts VirtualiZarr has no parser for. Nearly all of it is headed
 upstream; only the ingest bookkeeping (progress, decisions, benchmarks) stays.
 
-| virtual-core | What it does | In VirtualiZarr | Upstream |
+| Module | What it does | In VirtualiZarr | Upstream |
 | --- | --- | --- | --- |
 | `icechunk_io` | Creates a repo with a virtual chunk container and credentials per source prefix; reopens it authorized to read them; commits with rebase onto concurrent writers | `to_icechunk` writes references into a store you already opened ([#1108](https://github.com/zarr-developers/VirtualiZarr/pull/1108)); container and credential setup is the caller's | not filed |
 | `builders.flat_binary` | Any uncompressed C-ordered array from shape, dtype, offset and stride, including per-record headers | No general parser; `ENVIParser` covers one flat format | not filed |

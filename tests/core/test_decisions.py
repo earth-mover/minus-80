@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from virtual_core.decisions import Decision, applicable
+from minus80.core.decisions import Decision, applicable
 
 
 def test_a_value_call_quotes_the_source_then_what_was_written():

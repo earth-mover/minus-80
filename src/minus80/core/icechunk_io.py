@@ -41,7 +41,7 @@ def _access_for(prefix: str):
     """Icechunk virtual-chunk-access credential for a source prefix (replaces the
     deprecated ``None`` sentinel). Local sources use ``LocalFileSystemAccess``;
     ``s3://`` uses anonymous or env credentials (see
-    :func:`virtual_core.registry.s3_anonymous`); ``http(s)`` sources use the
+    :func:`minus80.core.registry.s3_anonymous`); ``http(s)`` sources use the
     ``HttpAccess`` sentinel (anonymous -- the store config carries the connection
     details)."""
     import icechunk
@@ -63,7 +63,7 @@ def _store_for(prefix: str):
     """The Icechunk object store backing a container prefix.
 
     ``s3://`` uses ``s3_store`` (region and anonymity from the environment, see
-    :mod:`virtual_core.registry`) so a repo of references into a public S3 bucket
+    :mod:`minus80.core.registry`) so a repo of references into a public S3 bucket
     resolves without local credentials -- and so it is Arraylake-ingestable, which
     blocks HTTP-backed containers but accepts S3-backed ones. ``http(s)`` uses
     ``http_store`` with ``allow_http`` so plain-http origins work (a localhost
@@ -196,7 +196,7 @@ def create_repo(
     One :class:`VirtualChunkContainer` per distinct source prefix (local ``file://``,
     ``s3://`` or ``http(s)://``); the repo is self-describing (``open_repo`` reads
     these prefixes back from its config). Shared by :func:`write_manifest_group` and
-    :mod:`virtual_core.multiscale`.
+    :mod:`minus80.core.multiscale`.
 
     When any source is remote, the repo's storage
     ``ideal_concurrent_request_size`` is set to a large, object-store-appropriate

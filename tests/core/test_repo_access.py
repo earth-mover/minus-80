@@ -1,4 +1,4 @@
-from virtual_core.icechunk_io import ensure_repo_access
+from minus80.core.icechunk_io import ensure_repo_access
 
 
 class Client:

@@ -17,7 +17,7 @@ from .progress import Progress
 from .registry import store_and_key
 
 #: ``virtual_oct.parser`` imports this name; the rule lives in
-#: :func:`virtual_core.registry.store_and_key`, which is the single place a URL
+#: :func:`minus80.core.registry.store_and_key`, which is the single place a URL
 #: becomes an object-store key.
 _store_and_key = store_and_key
 

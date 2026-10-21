@@ -1,7 +1,7 @@
-"""virtual-core: the small, shared layer under the bio-virtualization subprojects.
+"""minus80.core: the shared layer under the parsers and ingests.
 
 Deliberately thin. It holds only what VirtualiZarr does **not** already give you
-for bio formats (see ../../UPSTREAM.md for the parts destined to be contributed back):
+for bio formats (see VIRTUALIZARR.md for what is headed upstream):
 
 * ``builders.flat_binary`` -- virtualize a flat/headerless uncompressed array
   (MRC, raw ephys, ...) that VirtualiZarr has no parser for.

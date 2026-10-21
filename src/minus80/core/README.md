@@ -1,8 +1,8 @@
-# virtual-core
+# minus80.core
 
-The small, shared layer under the bio-virtualization subprojects. Deliberately thin:
+The shared layer under the parsers and ingests. Deliberately thin:
 it holds only what VirtualiZarr does **not** already give you for bio formats, and
-those pieces are staged for upstream contribution (see [../../UPSTREAM.md](../../UPSTREAM.md)).
+those pieces are staged for upstream contribution (see [UPSTREAM.md](../../../UPSTREAM.md)).
 
 For HDF5/NetCDF/TIFF/Zarr/GRIB, use VirtualiZarr's own parsers or the
 `icechunk-datacube-ingestion` skill directly — **not** this.
@@ -33,7 +33,7 @@ uv sync            # add --group bench for snailmail
 
 Done:
 - [x] `open_repo` self-authorizes from repo config (both subprojects delegate to it).
-- [x] `write_multiscale` promoted to `virtual_core.multiscale` (cryoet is a thin MRC
+- [x] `write_multiscale` promoted to `minus80.core.multiscale` (cryoet is a thin MRC
   adapter over it); `create_repo` factored out of `icechunk_io` and shared.
 - [x] Deprecated `authorize_virtual_chunk_access={prefix: None}` replaced with the
   `LocalFileSystemAccess` sentinel (in `create_repo` + `open_repo`); warning gone.

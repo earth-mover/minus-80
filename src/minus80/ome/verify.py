@@ -269,7 +269,7 @@ def provenance(root) -> list[str]:
     array with virtual chunks, image levels and label levels alike, must carry
     a ``source_url`` -- a URL or a list of them -- on itself or on the group
     that holds it, the latter being where one file backs every level. The
-    ``annotations`` block that :func:`virtual_ome.image_annotation` writes
+    ``annotations`` block that :func:`minus80.ome.image_annotation` writes
     counts as the group's own attrs.
 
     Every declared URL must also be one the store's virtual chunks actually

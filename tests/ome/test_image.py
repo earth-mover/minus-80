@@ -1,6 +1,6 @@
 import pytest
 
-import virtual_ome as vo
+from minus80 import ome as vo
 
 PYRAMID = dict(name="slide", dims=("c", "y", "x"),
                level_shapes=[(3, 1000, 2000), (3, 250, 500)],

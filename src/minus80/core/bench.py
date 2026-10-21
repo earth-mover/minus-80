@@ -74,7 +74,7 @@ class RemoteCollectionTarget(Protocol):
         ``urls`` are the ``http(s)`` URLs of the source files on the benchmark
         server, in ``source_files`` order; the built repo must *reference* those
         URLs (needs HTTP virtual-chunk containers -- see
-        :mod:`virtual_core.icechunk_io`), so its reads go over the network.
+        :mod:`minus80.core.icechunk_io`), so its reads go over the network.
         """
         ...
 
@@ -108,7 +108,7 @@ def _virtual_job(target, repo_path, q):  # runs in a fresh (cold-cache) subproce
 
 
 def _download_job(target, urls, dest_dir, q):  # fresh subprocess: pull, then read
-    from virtual_core.fetch import download_then_index
+    from minus80.core.fetch import download_then_index
 
     t = time.perf_counter()
     local_paths = [download_then_index(u, dest_dir) for u in urls]  # full files, over the link

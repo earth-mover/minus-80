@@ -1,4 +1,4 @@
-"""Hybrid virtual + native OME-Zarr multiscale (staged for upstream — see ../../UPSTREAM.md).
+"""Hybrid virtual + native OME-Zarr multiscale (staged for upstream — see UPSTREAM.md at the repo root).
 
 Virtualize the full-resolution **base** level (references, no copy) and materialize
 the small downsampled levels **natively**, in one Icechunk OME-Zarr group. In a 3D

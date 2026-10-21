@@ -1,4 +1,4 @@
-# virtual-ome
+# minus80.ome
 
 Turn a set of virtual Zarr arrays into an OME-Zarr hierarchy a viewer can open.
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from virtual_core.fetch import download_then_index
-from virtual_core.registry import as_url
+from minus80.core.fetch import download_then_index
+from minus80.core.registry import as_url
 
 
 @pytest.fixture
