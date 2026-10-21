@@ -7,48 +7,31 @@ Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https:/
 
 ## tools/
 
-**Shared**
+**Shared layers**
 
 | Package | What it does |
 | --- | --- |
-| `virtual-core` | Object-store registry, Icechunk read and write helpers, progress reporting |
+| `virtual-core` | Repo creation, remote-file indexing, layouts VirtualiZarr lacks ([vs VirtualiZarr](tools/virtual-core/VIRTUALIZARR.md)) |
 | `virtual-ome` | OME-Zarr metadata over referenced arrays: images, labels, plates, collections |
 
-**Microscopy and pathology formats**
+**Parsers**: one format each, emitting VirtualiZarr chunk references.
 
-| Package | What it does |
+| Package | Format |
 | --- | --- |
-| `virtual-tifffile` | TIFF pages, tiles and strips, from tifffile's parse |
-| `virtual-dicom` | DICOM CT volumes, whole-slide and multiplex images |
+| `virtual-tifffile` | TIFF, including whole-slide pyramids |
+| `virtual-dicom` | DICOM CT, whole-slide and multiplex |
 | `virtual-czi` | Zeiss CZI |
 | `virtual-nd2` | Nikon ND2 |
-| `virtual-mrc` | MRC and MRCS cryo-EM and cryo-ET volumes |
+| `virtual-mrc` | MRC and MRCS (cryo-EM, cryo-ET) |
+| `virtual-nwb` | NWB (HDF5) |
+| `virtual-oct` | OCT vendor files and raw spectra |
+| `virtual-flac` | FLAC audio |
+| `virtual-zip` | Zip members, with a raw-Deflate codec |
 
-**Other modalities**
-
-| Package | What it does |
-| --- | --- |
-| `virtual-nwb` | Neurodata Without Borders (NWB) recordings, which are HDF5 |
-| `virtual-oct` | Optical coherence tomography vendor files and raw spectra |
-| `virtual-flac` | FLAC audio frames |
-
-**Containers**
-
-| Package | What it does |
-| --- | --- |
-| `virtual-zip` | Zip members, and the raw-Deflate codec that decodes them |
-
-### Upstream or local
-
-These tools are staging grounds. Anything that isn't specific to biology, such
-as a parser fix, a codec or a write path, is meant to move into the library
-that owns it: VirtualiZarr, virtual-tiff, imagecodecs, async-tiff or
-obspec-utils. `UPSTREAM.md` tracks each item and its status, and the local
-copy is deleted once the fix is released.
-
-What stays here is domain knowledge: how a format's own structure (NWB groups,
-MRC headers, DICOM frames) maps onto named axes, units and coordinates, plus
-the per-archive code in `ingests/`.
+Anything here that isn't biology-specific is headed upstream (VirtualiZarr,
+virtual-tiff, imagecodecs, async-tiff, obspec-utils), tracked in `UPSTREAM.md`.
+What stays is domain knowledge: how a format's structure maps onto axes, units
+and coordinates.
 
 ## ingests/
 
