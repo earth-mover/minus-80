@@ -1,9 +1,8 @@
 # virtual-core and VirtualiZarr
 
-VirtualiZarr turns a file into chunk references (`ManifestArray`,
-`ManifestGroup`) and writes them into an Icechunk store. virtual-core covers
-what an ingest needs around that: opening remote files to index them, creating
-the repository, and a few array layouts VirtualiZarr has no parser for.
+virtual-core is the set of wrappers and workarounds our ingests needed on top
+of VirtualiZarr to run end to end: repo setup, faster indexing of remote files,
+and a few layouts VirtualiZarr has no parser for.
 
 | virtual-core | What it does | In VirtualiZarr | Upstream |
 | --- | --- | --- | --- |
