@@ -1,0 +1,57 @@
+# Data, stores and caches: never committed
+data/
+repo/
+repos/
+cache/
+scancache/
+logs/
+scratch/
+*.log
+*.npz
+*.dcm
+*.tif
+*.tiff
+*.ndpi
+*.svs
+*.mrc
+*.nd2
+*.czi
+*.vol
+*.nwb
+*.h5
+*.h5ad
+*.flac
+*.raw
+
+# Environments
+.venv/
+.venv-*/
+.pixi/
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks and editors
+.ipynb_checkpoints/
+.jupyter/
+*.ystore.db
+.jupyter_ystore*.db
+__marimo__/
+.DS_Store
+
+# Tool and agent state
+.claude/
+.render-md-*
+.migration-backup/
+.backup-*/
+.private/
+
+# Build output
+_build/
+dist/
+site/_output/

@@ -1,0 +1,21 @@
+[project]
+name = "bio-virtualization"
+version = "0.0.0"
+description = "Public bioimaging archives as navigable OME-Zarr in Icechunk, referencing the original bytes in place."
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+# One icechunk for every member; coalescing-zarr's fork wheel stays opt-in.
+constraint-dependencies = ["icechunk>=2.3.0,<2.4"]
+
+[tool.uv.workspace]
+members = ["tools/*", "ingests/*"]
+
+[tool.uv.sources]
+# v2.8.0 plus zarr-developers/VirtualiZarr#1108 (ManifestStore.to_icechunk) and
+# the numpy-style stack/expand_dims and with_dimension_names commits.
+virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da047711558dfb4fc004db45641d28a6687f61" }
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
