@@ -12,8 +12,8 @@ from minus80.parsers import tiff
 
 ## src/minus80/
 
-Staging for rapid iteration: generic pieces are headed upstream, domain
-knowledge stays.
+Generic pieces will be upstreamed when they are ready; domain-specific pieces
+will stay here.
 
 | | Headed upstream | Stays here |
 | --- | --- | --- |
