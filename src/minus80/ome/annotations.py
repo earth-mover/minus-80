@@ -1,12 +1,9 @@
 """Per-image annotation that travels with the bytes.
 
-Referencing a file's bytes is only half the job. In most studies the thing that
-makes an image findable — which animal, which bone, which day — is encoded in
-its filename, and a store that keeps the pixels but drops that has made the data
-reachable without making it usable.
-
-So the fields go in twice: on each image, so opening one tells you what it is,
-and as a table on the collection, so a reader can find the image it wants
+In many studies what identifies an image (which animal, which slide, which day)
+is encoded only in its filename, and a store that drops the filename loses it.
+These functions write those fields twice: on each image, so opening one tells
+you what it is, and as a table on the collection, so a reader can find an image
 without opening all of them.
 
 These live under their own top-level key rather than inside ``ome``. OME-Zarr

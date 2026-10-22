@@ -1,17 +1,15 @@
-"""Saying what a long job is doing, often enough to tell working from hung.
+"""Progress lines for a long job, printed often enough to tell working from hung.
 
-An ingest can spend minutes inside one call — walking a directory chain,
-fetching a metadata region, asking an archive's API about every image — and a
-process that prints nothing for three minutes is indistinguishable from one
-that has stalled. The usual reflex is to shorten a timeout, which only turns an
-unreadable wait into an unexplained failure.
+An ingest can spend minutes inside one call, such as walking a TIFF directory
+chain, and a process that prints nothing for three minutes looks the same as
+one that has stalled.
 
-So report on a **time interval, not a count**. A count threshold cannot know
-how long its work takes: 100,000 pages is thirty seconds of silence for one
-file and forty minutes for another. An interval reports the slow thing and
-stays quiet about the fast one, which is what makes the output worth reading.
+:class:`Progress` reports on a time interval rather than every N items. A count
+threshold cannot know how long its work takes: 100,000 pages is thirty seconds
+of silence for one file and forty minutes for another. An interval reports on
+the slow job and stays quiet about the fast one.
 
-Two rules the callers here follow:
+Callers follow two rules:
 
 - **Say what it is before saying how far.** "walking 829,080 directories" first,
   then the fractions. A fraction alone does not say what is being counted.
@@ -51,8 +49,8 @@ class Progress:
         return self
 
     def __exit__(self, *exc) -> None:
-        # A closing line only where one was promised: a job that finished
-        # before the first interval said nothing and needs no epilogue.
+        # A job that finished before the first interval printed no progress
+        # line, so it gets no closing line either.
         if self._reported and exc[0] is None:
             elapsed = time.monotonic() - self._started
             print(f"    {self._amount(self.done)} in {_clock(elapsed)}",

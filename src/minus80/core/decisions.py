@@ -1,4 +1,4 @@
-"""A choice the files do not make, and the evidence for making it.
+"""Judgement calls an ingest makes that the source files do not, with their evidence.
 
 Every ingest writes something into its store that no file states: a pixel
 size where the file's tag is a placeholder, three samples read as one colour, a
@@ -7,9 +7,9 @@ images are one acquisition. Those are the parts of an ingest a reader
 cannot check against the source, so they are the parts that most need saying.
 
 A judgement call nobody hears about is indistinguishable from a fact. So each
-is one :class:`Decision` object, and the store attribute, the per-study record
-and ``LAYOUTS.md`` are three renderings of it rather than three hand-written
-copies that drift.
+is one :class:`Decision` object. :meth:`Decision.prose` renders it for the store
+attribute and an ingest's ``LAYOUTS.md``, and :meth:`Decision.as_record` for the
+per-study record, so the three cannot drift apart.
 
 Two distinctions the object keeps that prose loses:
 

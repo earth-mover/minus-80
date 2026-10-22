@@ -1,23 +1,22 @@
 """Questions to ask a remote TIFF before indexing it.
 
 :func:`directory_layout`
-    Where a TIFF keeps its image file directories, and whether they are a
+    Where a BigTIFF keeps its image file directories, and whether they are a
     contiguous array that can be fetched in one read. Walking the chain costs
     one round trip per directory; fetching the array costs one. Neither the
     file's size nor its name says which applies.
 :func:`codec_chain`
-    What decoders a page needs, and whether any of them is outside Zarr's v3
-    core. A store nobody can open without a format-specific import is a
-    different artifact from one that opens anywhere, and you want to know which
-    you are about to build.
+    What codecs a page needs, and whether any of them is outside Zarr's v3
+    core. A store with only core codecs opens in any Zarr reader; one with
+    others needs the package that registers them.
 :func:`indexing_cost`
-    Round trips, bytes moved and parse time against fetch time. Indexing cost
-    is round trips times chain length, not bytes, and the two strategies --
-    range-read the metadata, or fetch the file and read it locally -- invert
-    depending on where you run.
+    The time to walk the directories over range reads, sampled and
+    extrapolated, beside the size of the metadata region a bulk fetch would
+    read. Which of the two is faster depends on bandwidth and latency, so on
+    where you run.
 :func:`survey`
-    A directory listing with a header summary per file, which is what you want
-    first when handed an archive prefix and no documentation.
+    A directory listing, from an HTTP index or a local directory, with each
+    file's size, magic bytes and TIFF flavour.
 
 Each returns data rather than printing, so it can be used in a notebook, and
 each has a subcommand in the command-line interface below::
@@ -80,22 +79,15 @@ class DirectoryLayout:
 def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> DirectoryLayout:
     """Where this TIFF keeps its directories, and whether they are an array.
 
-    Four requests and no walk: the file size, the 16-byte header, and
-    directories one and two for the stride. A writer that emits every plane's
-    pixels first and every directory afterwards leaves the directories
-    contiguous and equally sized. Then::
-
-        (end of file - second directory offset) % stride == 0
-
-    holds only for a uniform array, and the quotient is how many directories
-    there are. The stride comes from the second gap, not the first, because the
-    first directory often carries the OME-XML and is larger than the rest.
-
-    Even spacing does not prove adjacency: a writer that emits each page as
-    directory-then-pixels also has a constant stride. So a stride more than
-    ``padding`` bytes beyond one directory's size is refused, and so is a file
-    with fewer than ``minimum`` directories, where a clean division is chance
-    and walking the chain is cheap anyway.
+    Reads the file size, the 16-byte header, and the entry counts and next
+    pointers of the first two directories, without walking the chain. The
+    spacing of the second and third directories is taken as the stride. If the
+    file from the second directory on is a whole number of strides, and a
+    stride exceeds one directory's size by at most ``padding`` bytes, the
+    directories are treated as an array that one read of
+    :attr:`DirectoryLayout.region` fetches. Fewer than ``minimum``
+    directories are reported as not worth a bulk read. Only BigTIFF is judged.
+    docs/upstream.md says where this belongs upstream.
     """
     store, key, _ = patient_store(url)
     size = obstore.head(store, key)["size"]

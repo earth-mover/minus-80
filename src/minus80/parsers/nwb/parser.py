@@ -5,7 +5,7 @@ neurodata objects), so the parser is VirtualiZarr's ``HDFParser``. ``h5py`` is
 used only to walk the tree and classify each leaf dataset: numeric (a
 byte-range-referenceable chunk grid) or variable-length string / compound /
 scalar (lives in the HDF5 global heap, not byte-range referenceable; see
-``minus80/core/GOTCHAS.md``).
+``docs/formats.md``).
 
 What this module adds is the NWB schema layer:
 

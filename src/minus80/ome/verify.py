@@ -1,20 +1,16 @@
 """The gates any OME-Zarr store of images has to pass, whatever archive it came from.
 
 Each gate takes the group that holds the images and returns a list of
-problems, empty when it passes. They are code because a description of a check
-("compare against the source") is a check each person writes differently, and
-the point of gates is that every store was held to the same one.
+problems, empty when it passes. Running the same code against every store holds
+them all to the same check.
 
-**A floor, not a ceiling.** Each gate exists because something got through
-once, so together they recognise the mistakes already made and described. They
-cannot recognise a new one, and the largest classes of error are not gateable
-at all: a shape that does not suit the experiment, a collection only partly
-ingested, metadata the format expects that no source states.
+The gates catch specific known mistakes. They cannot judge whether a store's
+shape suits the experiment, whether a collection was fully ingested, or whether
+metadata the format expects is missing from every source.
 
-What is not here is the one gate every archive needs and none can share:
-reading pixels back against the source, which has to use the source format's
-own reader. An archive adds that to :data:`GATES` and hands the whole table to
-:func:`run_gates`.
+The gate every archive needs and none can share, reading pixels back against
+the source with the source format's own reader, is not here. An ingest adds it
+to a copy of :data:`GATES` and passes the whole table to :func:`run_gates`.
 """
 
 from __future__ import annotations
@@ -40,12 +36,12 @@ LEVEL_CORRELATION = 0.5
 #: are wide because one range has to cover electron microscopy (nanometres) and
 #: macro imaging (near a millimetre) at once.
 #:
-#: That width is the limitation: it catches a unit mistake of the size a TIFF
-#: with no resolution tags produces -- one pixel per inch, 25400 -- and a small
-#: -direction error of a thousandfold or more. A ten- or hundredfold error in
+#: The width limits what it catches: a unit mistake of the size a TIFF with no
+#: resolution tags produces (one pixel per inch, 25400 um), and an error of a
+#: thousandfold or more toward small values. A ten- or hundredfold error in
 #: either direction passes, because for some modality it would be a real
-#: number. Narrowing it needs the imaging modality, which this gate is not
-#: given.
+#: number. Narrowing the range needs the imaging modality, which this gate is
+#: not given.
 PLAUSIBLE_PIXEL_UM = (1e-5, 1e3)
 
 
@@ -199,9 +195,9 @@ def levels_aligned(root, sample: int) -> list[str]:
     level half the size of level 0 has pixels twice as large, to within a
     pixel of rounding. That is exact, cheap, and catches a mis-stated scale.
     And each level small enough to read whole must be what the next finer one
-    averages down to, which catches a level whose *pixels* are not what its
-    metadata says -- the wrong page, the wrong directory -- and which no
-    arithmetic on shapes can see. The largest levels go unexamined; their
+    averages down to. That catches a level whose *pixels* are not what its
+    metadata says, such as the wrong page or directory, which no arithmetic on
+    shapes can see. The largest levels go unexamined; their
     scale is what the others are measured against.
     """
     problems = []
@@ -211,7 +207,7 @@ def levels_aligned(root, sample: int) -> list[str]:
                    for d in ms.get("datasets", [])}
         paths = levels(image)
         if len(paths) < 2:
-            continue                        # one level: nothing to align it against
+            continue
         base_shape, base_scale = image[paths[0]].shape, by_path[paths[0]]
         for p in paths[1:]:
             for axis in (-2, -1):
@@ -267,7 +263,7 @@ def provenance(root) -> list[str]:
     A store whose attrs say only which folder a study came from lets a reader
     see the pixels without being able to say which file holds them. So each
     array with virtual chunks, image levels and label levels alike, must carry
-    a ``source_url`` -- a URL or a list of them -- on itself or on the group
+    a ``source_url`` (a URL or a list of them) on itself or on the group
     that holds it, the latter being where one file backs every level. The
     ``annotations`` block that :func:`minus80.ome.image_annotation` writes
     counts as the group's own attrs.

@@ -2,8 +2,9 @@
 
 Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https://icechunk.io).
 
-- `src/minus80/`: one Python package: shared layers and format parsers
+- `src/minus80/`: one Python package, with shared layers and format parsers
 - `ingests/`: one directory per archive, with its scripts, layout notes and demo notebook
+- [`docs/`](docs/README.md): how to ingest an archive, what each format allows, and upstream work
 
 ```python
 from minus80 import core, ome
@@ -12,21 +13,12 @@ from minus80.parsers import tiff
 
 ## src/minus80/
 
-Generic pieces will be upstreamed when they are ready; domain-specific pieces
-will stay here.
-
-| | Headed upstream | Stays here |
-| --- | --- | --- |
-| `core` | repo setup, remote indexing, flat binary, pyramids | progress, decisions, benchmarks |
-| `ome` | hybrid pyramids (ngff-zarr) | annotation and provenance conventions |
-| `parsers` | locating chunks | mapping a format onto axes, units, coordinates |
-
 **Shared layers**
 
 | Module | What it does | Status |
 | --- | --- | --- |
-| `minus80.core` | Wrappers over VirtualiZarr: repo setup, remote-file indexing, flat-binary arrays, hybrid pyramids ([vs VirtualiZarr](src/minus80/core/VIRTUALIZARR.md)) | in repo |
-| `minus80.ome` | OME-Zarr metadata over referenced arrays: images, labels, plates, collections | in repo |
+| [`minus80.core`](src/minus80/core/README.md) | Wrappers over VirtualiZarr: repo setup, remote-file indexing, flat-binary arrays, hybrid pyramids | in repo |
+| [`minus80.ome`](src/minus80/ome/README.md) | OME-Zarr metadata over referenced arrays: images, labels, plates, collections | in repo |
 
 **Parsers**: one format each, emitting VirtualiZarr chunk references. Each
 parser's reader library is an extra: `uv sync --extra dicom`.

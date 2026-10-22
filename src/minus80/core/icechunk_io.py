@@ -1,16 +1,13 @@
-"""Persist a ManifestGroup to Icechunk, and reopen it -- shared by all subprojects.
+"""Create, write and reopen Icechunk repos of virtual chunk references.
 
-The subtle, reusable parts live here:
+A repo gets one :class:`icechunk.VirtualChunkContainer` per source prefix, so
+its references resolve back into the original files, and every container's
+prefix is passed to ``authorize_virtual_chunk_access``, without which Icechunk
+refuses to read virtual chunks. The containers are saved in the repo's config,
+so :func:`open_repo` can authorize them again without being told the sources.
 
-* one :class:`icechunk.VirtualChunkContainer` per source prefix, so reads resolve
-  references back into the original files;
-* ``authorize_virtual_chunk_access`` gating (Icechunk refuses virtual reads unless
-  the source prefix is authorized).
-
-Local-filesystem, ``s3://`` and ``http(s)`` sources are handled directly (the last
-so a repo can reference bytes served over the network -- e.g. a ``snailmail``
-benchmark server or a real object store fronted by HTTP); for other cloud schemes
-pass your own already-configured registry/store.
+Local, ``s3://`` and ``http(s)://`` sources are supported. Any other scheme
+raises ``ValueError``.
 """
 from __future__ import annotations
 
@@ -31,19 +28,20 @@ def _url_prefix(url: str) -> str:
     shares it into a single container.
     """
     if urlparse(url).scheme in ("", "file"):
-        # unquote so the prefix matches registry_for's (which unquotes too); without
-        # it a source dir with a space etc. re-encodes to %2520 and never matches.
+        # Unquoted to match registry_for, which unquotes too; otherwise a
+        # directory with a space in it re-encodes to %2520 and never matches.
         return Path(unquote(urlparse(url).path)).resolve().parent.as_uri() + "/"
     return url_dir(url)
 
 
 def _access_for(prefix: str):
-    """Icechunk virtual-chunk-access credential for a source prefix (replaces the
-    deprecated ``None`` sentinel). Local sources use ``LocalFileSystemAccess``;
-    ``s3://`` uses anonymous or env credentials (see
-    :func:`minus80.core.registry.s3_anonymous`); ``http(s)`` sources use the
-    ``HttpAccess`` sentinel (anonymous -- the store config carries the connection
-    details)."""
+    """The credential ``authorize_virtual_chunk_access`` takes for a source prefix.
+
+    Local sources get ``LocalFileSystemAccess``. ``s3://`` gets anonymous or
+    environment credentials (see :func:`minus80.core.registry.s3_anonymous`).
+    ``http(s)`` gets ``HttpAccess``, which is anonymous; the container's store
+    carries the connection settings.
+    """
     import icechunk
 
     scheme = urlparse(prefix).scheme
@@ -55,7 +53,7 @@ def _access_for(prefix: str):
             if s3_anonymous()
             else icechunk.credentials.s3_from_env_credentials()
         )
-        return icechunk.credentials.Credentials.S3(cred)  # authorize wants the wrapper
+        return icechunk.credentials.Credentials.S3(cred)
     return icechunk.credentials.HttpAccess
 
 
@@ -63,11 +61,11 @@ def _store_for(prefix: str):
     """The Icechunk object store backing a container prefix.
 
     ``s3://`` uses ``s3_store`` (region and anonymity from the environment, see
-    :mod:`minus80.core.registry`) so a repo of references into a public S3 bucket
-    resolves without local credentials -- and so it is Arraylake-ingestable, which
-    blocks HTTP-backed containers but accepts S3-backed ones. ``http(s)`` uses
-    ``http_store`` with ``allow_http`` so plain-http origins work (a localhost
-    ``snailmail`` benchmark server, an internal cache); TLS origins are equally served.
+    :mod:`minus80.core.registry`), so a repo of references into a public S3
+    bucket resolves without local credentials. Arraylake accepts S3-backed
+    containers and refuses HTTP-backed ones. ``http(s)`` uses ``http_store``
+    with ``allow_http``, so plain-http origins such as a localhost server work
+    as well as TLS ones.
     """
     import icechunk
 
@@ -84,28 +82,26 @@ def _store_for(prefix: str):
     )
 
 
-# Object storage wants a large "ideal request size" so a multi-chunk read merges into
-# one big range GET; a locally-stored repo defaults this to a tiny (4 KiB) local-disk
-# value that a remote virtual read would inherit, shattering a read into dozens of
-# latency-bound GETs (icechunk#2256). We set the remote-appropriate size explicitly
-# whenever any source is remote, so reads coalesce to a handful of ~12 MiB requests.
+# A repo stored on local disk defaults its ideal request size to 4 KiB, and a
+# virtual read from a remote source inherits it, splitting one multi-chunk read
+# into dozens of latency-bound GETs (icechunk#2256). Any repo with a remote
+# source gets this size instead, so reads coalesce into a few ~12 MiB requests.
 REMOTE_IDEAL_REQUEST_SIZE = 12 * 1024 * 1024
 
 
 #: Icechunk fetches manifests one at a time while committing unless told otherwise,
-#: which makes commit cost scale with the number of arrays times the round trip --
-#: 11.45s versus 0.83s for 200 arrays at 50 ms. Nothing wants the default of 1, so
-#: it is raised here rather than offered as a knob every caller has to remember.
+#: so a commit costs one round trip per array: 200 arrays at 50 ms latency took
+#: 11.45 s that way and 0.83 s with concurrent fetches. No caller wants the
+#: default of 1, so it is set here rather than offered as an argument.
 MANIFEST_FETCH_CONCURRENCY = 32
 
 
 def manifest_config():
-    """Icechunk's manifest settings, or None where this version has no such knob.
+    """Icechunk's manifest settings, or None on a release without the concurrency argument.
 
-    The subprojects sharing this module pin different icechunk versions, and the
-    concurrency argument does not exist in all of them. Committing serially is
-    slower, not wrong, so a version without the argument keeps its default
-    rather than failing to build a repo at all.
+    Committing serially is slower, not wrong, so an icechunk release without
+    ``max_concurrent_manifest_fetches_during_commit`` keeps its default rather
+    than failing to build a repo.
     """
     import icechunk
 
@@ -131,7 +127,7 @@ def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
     Icechunk's own conflict solver replays this session's changes on top of the
     newer ancestry, which resolves the case every ingest hits: two writers
     touching different nodes of the same store. A conflict the solver cannot
-    resolve -- the same array written twice, differently -- still raises
+    resolve, such as the same array written twice differently, still raises
     ``RebaseFailedError``, because picking a winner there is the caller's call.
     """
     import inspect
@@ -193,17 +189,16 @@ def create_repo(
     ``open_existing`` reopens the repo if one is already there, for an ingest that
     adds to a collection over several runs rather than building it in one.
 
-    One :class:`VirtualChunkContainer` per distinct source prefix (local ``file://``,
-    ``s3://`` or ``http(s)://``); the repo is self-describing (``open_repo`` reads
-    these prefixes back from its config). Shared by :func:`write_manifest_group` and
-    :mod:`minus80.core.multiscale`.
+    The repo gets one :class:`VirtualChunkContainer` per distinct prefix (local
+    ``file://``, ``s3://`` or ``http(s)://``), saved in its config so that
+    :func:`open_repo` can read the prefixes back.
 
-    When any source is remote, the repo's storage
-    ``ideal_concurrent_request_size`` is set to a large, object-store-appropriate
-    value (default :data:`REMOTE_IDEAL_REQUEST_SIZE`; override via
-    ``ideal_request_size``) rather than inheriting the local-filesystem default that
-    would fragment a remote read into many tiny GETs (icechunk#2256). This is
-    persisted in the repo config, so every reader benefits.
+    When any prefix is remote, the repo's ``ideal_concurrent_request_size`` is
+    set to ``ideal_request_size``, or :data:`REMOTE_IDEAL_REQUEST_SIZE` by
+    default, instead of the local-disk default that splits a remote read into
+    many small GETs (icechunk#2256). The setting is saved in the repo config,
+    so it applies to every reader. Reopening with ``open_existing`` does not
+    change the setting of an existing repo.
     """
     import icechunk
 
@@ -228,11 +223,10 @@ def create_repo(
     storage = storage_for(repo_path)
     if open_existing and icechunk.Repository.exists(storage):
         # A config passed to ``open`` replaces the persisted one for this
-        # session only, and ``open_or_create`` ignores it entirely on an
-        # existing repo. So an ingest adding a second study to a repo left its
-        # new source prefixes unregistered, and every chunk of that study
-        # unreadable. Merge into the persisted config and save it, so the repo
-        # stays self-describing for readers that know nothing of the ingest.
+        # session only, and ``open_or_create`` ignores it on an existing repo.
+        # Either way a second study's new prefixes would go unregistered and its
+        # chunks unreadable. Merging into the persisted config and saving it
+        # keeps the containers readable by anyone who opens the repo.
         persisted = icechunk.Repository.open(storage=storage).config
         if persisted.manifest is not None:
             # Field by field, not a fresh ManifestConfig: a repo's splitting and
@@ -272,9 +266,11 @@ def write_manifest_group(
     source_urls: list[str],
     message: str = "virtualize",
 ) -> str:
-    """Write the group to a new local Icechunk repo (references only). Returns the
-    commit snapshot id. ``source_urls`` are the original files whose bytes the repo
-    references; their containing prefixes are authorized for virtual access.
+    """Write the group to a new Icechunk repo and commit it. Returns the snapshot id.
+
+    ``repo_path`` is a local directory or an ``s3://bucket/prefix`` URL.
+    ``source_urls`` are the files whose bytes the group references; their
+    containing prefixes become the repo's virtual chunk containers.
 
     To write into a session this module did not create (an Arraylake repo, a group
     of an existing store), call ``group.to_icechunk(session.store, group=...)``.
@@ -291,8 +287,8 @@ def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None 
     ``repo_path`` is a local directory or an ``s3://bucket/prefix`` URL. Returns
     the :class:`icechunk.Repository` itself, for a caller that writes to it or
     picks its own session; :func:`open_repo` is the read-only group on top.
-    Self-describing: unless ``source_prefixes`` is given, the prefixes to
-    authorize are read back from the repo's own config.
+    Unless ``source_prefixes`` is given, the prefixes to authorize are read
+    from the repo's own config.
     """
     import icechunk
 
@@ -326,22 +322,19 @@ def open_repo(
     carries alternative descriptions of the same chunks -- a second OME-Zarr
     version, say -- without a second copy of the references.
 
-    Self-describing by default: if ``source_prefixes`` is not given, the authorized
-    source prefixes are read back from the repo's own config
-    (``virtual_chunk_containers``), so a reader needs no prior knowledge of where the
-    referenced data lives (GOTCHAS.md "Icechunk virtual-chunk authorization").
+    Unless ``source_prefixes`` is given, the prefixes to authorize are read
+    from the repo's ``virtual_chunk_containers`` config, so the caller does not
+    need to know where the referenced data lives (docs/ingest.md).
 
-    ``coalesce=True`` reads through ``coalescing_zarr`` (the ``bench`` extra): its
-    range-coalescing codec pipeline is installed as zarr's default and reads the
-    *native* Icechunk session store directly (the pipeline detects a native store and
-    merges adjacent chunk byte-ranges into one bulk ``get_many_chunks``; ``max_gap`` is
-    the most unwanted bytes tolerated between two chunks before merging, capped by
-    ``max_coalesced_bytes``). This is the configuration that makes remote reads fast
-    -- a scattered multi-chunk region collapses to a few range GETs instead of one
-    per chunk. **Side effect:** it installs the coalescing pipeline process-wide, via
-    ``zarr.config`` (the ``max_gap``/``max_coalesced_bytes`` knobs are read when an
-    array is first opened, so they are set before the group is opened); use it in a
-    read-dedicated process, which is how the shared benchmark runs each read.
+    ``coalesce=True`` reads through ``coalescing_zarr``, which is not a
+    dependency of minus-80 and must be installed separately. Its codec pipeline
+    becomes zarr's default and merges the byte ranges of nearby chunks into one
+    ``get_many_chunks`` call on the Icechunk session store: ``max_gap`` is the
+    most unrequested bytes allowed between two chunks it merges, and
+    ``max_coalesced_bytes`` caps a merged read. A scattered multi-chunk region
+    then takes a few range GETs instead of one per chunk. The pipeline and both
+    settings are installed process-wide through ``zarr.config`` and stay
+    installed, so use it in a process that only reads.
     """
     repo = open_repository(repo_path, source_prefixes=source_prefixes)
     session = repo.readonly_session(branch)
@@ -353,7 +346,7 @@ def open_repo(
 
     # An array reads these knobs when it is opened, so they are set before open_group.
     zarr.config.set({MAX_GAP_KEY: max_gap, MAX_COALESCED_BYTES_KEY: max_coalesced_bytes})
-    cz.register_pipeline()  # left installed for this (read-dedicated) process
+    cz.register_pipeline()
     return zarr.open_group(session.store, mode="r")
 
 

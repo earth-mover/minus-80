@@ -29,7 +29,7 @@ ingest, the work is not done. That rules out:
   imagecodecs. The local code turns a library's parsed output into chunk
   references. If you are writing a parser, a chunk-grid calculator or an
   OME-Zarr JSON document by hand, stop and find the library that does it.
-  `UPSTREAM.md` lists every local workaround and the upstream fix it waits on.
+  `docs/upstream.md` lists every local workaround and the upstream fix it waits on.
 - **Fix a bug once, in one place.** A trap that bites twice is in the wrong
   layer. Push the fix down to the shared package where no caller can get it
   wrong, instead of repeating a workaround at each call site.
@@ -49,9 +49,13 @@ ingest, the work is not done. That rules out:
 - **Long runs report progress.** A job that runs for more than a minute prints
   a line at a steady interval: how far it has got, what is left, the current
   rate. Remote jobs forward those lines to the launching terminal.
-- **Write down what the source taught you.** Format limits go in `LIMITS.md`,
-  file-to-axis mappings in `LAYOUTS.md`, findings general enough to share in
-  the package's `FINDINGS.md`.
+- **Write down what the source taught you.** File-to-axis mappings go in the
+  ingest's `LAYOUTS.md`. A lesson that applies beyond one archive goes in
+  `docs/ingest.md` or `docs/formats.md`, stated as a general rule.
+- **Plan, then report.** Before writing any data, write the ingest's `PLAN.md`
+  for a human to approve; after the ingest, write its `REPORT.md`. The sections
+  each needs are in `docs/ingest.md`. Both are public: no local paths, keys or
+  credentials.
 
 ## Layout
 
