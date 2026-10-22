@@ -63,7 +63,7 @@ def test_remote_scan_matches_local(tmp_path, range_server):
 def test_open_file_needs_url(tmp_path):
     path = flac(tmp_path / "a.flac", 20_000)
     with open(path, "rb") as f:
-        with pytest.raises(TypeError, match="url is required"):
+        with pytest.raises(ValueError, match="url is required"):
             scan_frames(f)
         scan = scan_frames(f, url="s3://bucket/a.flac")
     assert scan.url == "s3://bucket/a.flac"

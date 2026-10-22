@@ -29,7 +29,7 @@ write_array(group, "waveform", table)                  # group in a writable Ice
 - a remote URL (`http(s)://`, `s3://`, or any scheme `minus80.core.registry`
   resolves), read through `minus80.core.remote.reader` in 8 MiB blocks;
 - an open binary file, which needs `url=`, the address the references record.
-  Without it, `scan_frames` raises `TypeError`.
+  Without it, `scan_frames` raises `ValueError`.
 
 Pass `url=` with a path or URL too when the references should point somewhere
 else, such as a local copy of a remote file.

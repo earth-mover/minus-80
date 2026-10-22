@@ -89,7 +89,7 @@ def scan_frames(source: str | Path | BinaryIO, *, url: str | None = None) -> Fra
         opened = (contextlib.nullcontext(str(path)) if path is not None
                   else reader(str(source), block=SCAN_BLOCK))
     elif url is None:
-        raise TypeError("url is required when source is an open file")
+        raise ValueError("url is required when source is an open file")
     else:
         opened = contextlib.nullcontext(source)
     with opened as f:
