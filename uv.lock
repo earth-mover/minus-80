@@ -350,6 +350,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dicom = [
+    { name = "imagecodecs" },
+    { name = "imagecodecs-zarr" },
+    { name = "pydicom" },
+]
 nd2 = [
     { name = "nd2" },
 ]
@@ -371,7 +376,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "icechunk", specifier = ">=2.3.0,<2.4" },
+    { name = "imagecodecs", marker = "extra == 'dicom'", specifier = ">=2026.8.16" },
     { name = "imagecodecs", marker = "extra == 'tiff'", specifier = ">=2026.1" },
+    { name = "imagecodecs-zarr", marker = "extra == 'dicom'" },
     { name = "imagecodecs-zarr", marker = "extra == 'tiff'" },
     { name = "jsonschema" },
     { name = "nd2", marker = "extra == 'nd2'", specifier = ">=0.10" },
@@ -380,11 +387,12 @@ requires-dist = [
     { name = "obspec-utils" },
     { name = "obstore", specifier = ">=0.7.0" },
     { name = "ome-zarr-models", specifier = ">=1.8" },
+    { name = "pydicom", marker = "extra == 'dicom'", specifier = ">=3.0" },
     { name = "tifffile", marker = "extra == 'tiff'", specifier = ">=2025.1.1" },
     { name = "virtualizarr", git = "https://github.com/ianhi/VirtualiZarr?rev=83da047711558dfb4fc004db45641d28a6687f61" },
     { name = "zarr", specifier = ">=3.1.0" },
 ]
-provides-extras = ["nd2", "tiff", "zip"]
+provides-extras = ["dicom", "nd2", "tiff", "zip"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -993,6 +1001,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2f/57/aac9e500abe15719b7406d55871fc8787e7d0ebf83de5f98d44471139f70/pydantic_zarr-0.10.0.tar.gz", hash = "sha256:996b5b4225fb05757e7fff831ee7a75c61f54514a4c2493c7b79635bade7b415", size = 80374, upload-time = "2026-04-23T14:23:12.575Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/05/04af0ca9c5747c95591a549509ebbb0a986155015de59f1e4c984e3af9ab/pydantic_zarr-0.10.0-py3-none-any.whl", hash = "sha256:d15769dab43346b070051fdf6e83509d7f55259dd00c6d12be2400935117e230", size = 52809, upload-time = "2026-04-23T14:23:11.011Z" },
+]
+
+[[package]]
+name = "pydicom"
+version = "3.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/de/52aaf905f1f0ae7aba85996e2592ea2c1fe49157f3cfbcd1871965bdb51d/pydicom-3.0.2.tar.gz", hash = "sha256:5942bfc2d72c6fa4b3b5b62c527f54b7f2355f21d6f5d296df6bb30188df6a4f", size = 2886792, upload-time = "2026-03-19T21:46:20.935Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/e0/60466c6d712dad2cf807df315e39863e91609ffd1064ecb835994460bbda/pydicom-3.0.2-py3-none-any.whl", hash = "sha256:abf971a5440f84dbaf42c4b6758e30e62480902584f8b270b9a5d146e278a07b", size = 2376822, upload-time = "2026-03-19T21:46:19.042Z" },
 ]
 
 [[package]]
