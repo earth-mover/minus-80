@@ -80,7 +80,7 @@ def test_an_open_file_indexes_like_its_path_and_needs_url(tmp_path):
     kw = dict(shape=(1, 4, 4), chunk_shape=(1, 4, 4), dtype="uint16", serializer=TIFF)
     with open(path, "rb") as f:
         assert zip_index(f) == zip_index(path)
-        with pytest.raises(TypeError, match="url"):
+        with pytest.raises(ValueError, match="url"):
             member_array(f, _grid("seq/a.tif"), **kw)
         from_file = member_array(f, _grid("seq/a.tif"), url="s3://bucket/one.zip", **kw)
     from_path = member_array(path, _grid("seq/a.tif"), **kw).manifest.dict()

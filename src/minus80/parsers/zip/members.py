@@ -126,7 +126,7 @@ def member_array(
     """
     if url is None:
         if _source.is_file(source):
-            raise TypeError("url is required when source is an open file")
+            raise ValueError("url is required when source is an open file")
         url = as_url(source)
     if index is None:
         index = zip_index(source)

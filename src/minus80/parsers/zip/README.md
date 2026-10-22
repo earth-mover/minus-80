@@ -33,7 +33,7 @@ for a grid position the archive has no file for, which reads as the fill value.
 `serializer` is the codec that decodes one member's bytes, here a TIFF.
 
 Every function's `source` is a URL, a local path, or an open binary file. An
-open file has no address to record, so `member_array` raises `TypeError` unless
+open file has no address to record, so `member_array` raises `ValueError` unless
 `url=` gives one. `url=` also lets the manifest name a different copy of the
 archive than the one read, such as the remote original of a local copy.
 
