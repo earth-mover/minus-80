@@ -61,8 +61,21 @@ def store_and_key(url: str) -> tuple:
     can produce that failure, while the URL kept in the manifest stays valid.
     """
     url = as_url(url)
+    if url.startswith(("http://", "https://")) and urlparse(url).query:
+        # The query of a signed or tokened link is part of the object's address,
+        # and a store keyed on the directory drops it. A store rooted at the
+        # whole URL, read with an empty key, sends it.
+        return _store_for_url(url), ""
     store, key = _registry_for_dir(url_dir(url)).resolve(url)
     return store, unquote(key)
+
+
+@lru_cache(maxsize=64)
+def _store_for_url(url: str):
+    from obstore.store import from_url
+
+    opts = {"client_options": {"allow_http": True}} if url.startswith("http://") else {}
+    return from_url(url, **opts)
 
 
 def registry_for(url: str) -> ObjectStoreRegistry:
