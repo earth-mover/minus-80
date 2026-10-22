@@ -1,7 +1,8 @@
 # minus80.parsers.flac
 
 FLAC audio files as Icechunk virtual references, decoded by a `flac` Zarr v3 codec.
-One file or many become one array on a single time axis; no audio is copied.
+One file or many become one array on a single time axis, and the audio stays in
+the source files.
 
 ```bash
 uv sync --extra flac
@@ -10,17 +11,28 @@ uv sync --extra flac
 ```python
 from minus80.parsers.flac import chunk_table, scan_frames, write_array
 
-scans = [scan_frames(path) for path in paths]
-table = chunk_table(scans)                   # one frame per chunk
-write_array(group, "waveform", table)        # group in a writable Icechunk session
+scans = [scan_frames(source) for source in sources]   # paths or URLs
+table = chunk_table(scans)                             # one frame per chunk
+write_array(group, "waveform", table)                  # group in a writable Icechunk session
 ```
 
 | Function | What it does |
 | --- | --- |
-| `scan_frames(source, url=None)` | Byte offset, byte length and sample count of every frame in one file, read with libavformat (PyAV) |
+| `scan_frames(source, url=None)` | Byte offset, byte length and sample count of every frame in one file, read with libavformat (PyAV). Returns a `FrameScan`. |
 | `chunk_table(scans, frames_per_chunk=1)` | Groups each file's frames into chunks and checks that one codec configuration decodes them all. Returns a `ChunkTable`. |
 | `ChunkTable.save` / `.load` | Round-trip a table through `.npz`, so an array can be rebuilt without reading audio again |
-| `write_array(group, name, table)` | Creates the array and sets its virtual references in the group's Icechunk store |
+| `write_array(group, name, table, dimension_names=None, attributes=None)` | Creates the array and sets its virtual references in the group's Icechunk store. `attributes` are made JSON-safe, so NaN is stored as `null`. |
+
+`source` is one of:
+
+- a local path or `file://` URL, which PyAV opens itself;
+- a remote URL (`http(s)://`, `s3://`, or any scheme `minus80.core.registry`
+  resolves), read through `minus80.core.remote.reader` in 8 MiB blocks;
+- an open binary file, which needs `url=`, the address the references record.
+  Without it, `scan_frames` raises `TypeError`.
+
+Pass `url=` with a path or URL too when the references should point somewhere
+else, such as a local copy of a remote file.
 
 ## What it buys
 
@@ -52,6 +64,21 @@ configuration (`blocksize`, `sample_rate`) serves every file that shares them.
   omit it, and where present it indexes only every few hundred frames, at
   irregular spacing.
 
+## Icechunk directly, not through VirtualiZarr
+
+The other parsers build VirtualiZarr manifests and leave writing to
+`minus80.core.icechunk_io`. This one writes into Icechunk itself, because the
+grid it needs is rectilinear and `ManifestArray` accepts only regular chunk
+grids ([VirtualiZarr#954](https://github.com/zarr-developers/VirtualiZarr/pull/954)).
+
+`write_array` calls Icechunk's `set_virtual_refs`, which skips a reference that
+matches no virtual chunk container and returns its index instead of raising.
+`write_array` raises in that case, and when a chunk has no bytes, rather than
+leave an array that reads as fill.
+
+When VirtualiZarr accepts rectilinear grids, `write_array` can give way to a
+function that returns a `ManifestArray`.
+
 ## Limits
 
 - **16-bit only.** The codec decodes 16-bit samples, so `chunk_table` refuses
@@ -62,11 +89,6 @@ configuration (`blocksize`, `sample_rate`) serves every file that shares them.
   Files that differ go in separate arrays.
 - **The codec is unreleased.** It lives on a tag of flac-numcodecs, which the
   root `pyproject.toml` pins in `[tool.uv.sources]`.
-- **No VirtualiZarr `ManifestArray`.** VirtualiZarr accepts only regular chunk
-  grids ([VirtualiZarr#954](https://github.com/zarr-developers/VirtualiZarr/pull/954)),
-  so `write_array` writes the references into Icechunk directly. It raises if a
-  reference has no bytes or matches no virtual chunk container, rather than leave
-  an array that reads as fill.
 - **Synthetic test files are regular.** libsndfile writes FLAC with no SEEKTABLE
   and a uniform frame grid. The tests cover the decode path; check a new archive
   against one of its own files, decoded by libsndfile.

@@ -10,8 +10,8 @@ axis.
 
 Three steps, each usable alone:
 
-* :func:`scan_frames` reads one file through libavformat (PyAV) and returns every
-  frame's byte offset, byte length and sample count.
+* :func:`scan_frames` reads one file, local or remote, through libavformat (PyAV)
+  and returns every frame's byte offset, byte length and sample count.
 * :func:`chunk_table` groups the frames of one or more scans into chunks and
   checks that one codec configuration can decode them all.
 * :func:`write_array` creates the array in an Icechunk store and sets its virtual
@@ -25,9 +25,11 @@ references with Icechunk's ``set_virtual_refs`` rather than through a
 """
 from __future__ import annotations
 
+import contextlib
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 import zarr
@@ -35,6 +37,8 @@ import zarr
 #: libavformat's names for 16-bit integer samples, interleaved and planar. The
 #: codec decodes 16-bit FLAC only.
 INT16_FORMATS = {"s16", "s16p"}
+
+SCAN_BLOCK = 8 << 20
 
 
 @dataclass(frozen=True)
@@ -59,28 +63,43 @@ class FrameScan:
         return int(self.samples.sum())
 
 
-def scan_frames(source, *, url: str | None = None) -> FrameScan:
+def scan_frames(source: str | Path | BinaryIO, *, url: str | None = None) -> FrameScan:
     """Locate every frame of a FLAC file with libavformat.
 
-    ``source`` is anything ``av.open`` reads: a local path, an ``http(s)`` URL
-    that ffmpeg streams itself, or a seekable file-like object. ``url`` is what the
-    references will record; it defaults to ``source`` as a URL, and must be given
-    when ``source`` is a file-like object or a different spelling of the same
-    object (an HTTPS mirror of a ``gs://`` key, say).
+    ``source`` is a local path, a URL (``file://``, ``http(s)://``, ``s3://`` or
+    any scheme :mod:`minus80.core.registry` resolves), or an open binary file.
+    ``url`` is what the references will record. It defaults to ``source`` as a
+    URL and must be given for an open file; give it also when ``source`` is a
+    local copy of a remote object or a mirror of it.
 
     The scan reads the whole file. A SEEKTABLE would locate seekpoints from the
     file's first megabyte, but it is an optional metadata block that many
     encoders omit, and it indexes only every few hundred frames.
     """
+    from minus80.core.registry import as_url, file_path
+    from minus80.core.remote import reader
+
+    if isinstance(source, (str, Path)):
+        if url is None:
+            url = as_url(source)
+        path = file_path(source)
+        # The scan reads every byte in order, so a remote file is read in large
+        # blocks rather than remote.reader's default, which is sized for
+        # scattered metadata reads.
+        opened = (contextlib.nullcontext(str(path)) if path is not None
+                  else reader(str(source), block=SCAN_BLOCK))
+    elif url is None:
+        raise TypeError("url is required when source is an open file")
+    else:
+        opened = contextlib.nullcontext(source)
+    with opened as f:
+        return _scan(f, url)
+
+
+def _scan(f, url: str) -> FrameScan:
     import av
 
-    from minus80.core import as_url
-
-    if url is None:
-        if not isinstance(source, (str, Path)):
-            raise TypeError("url is required when source is a file-like object")
-        url = as_url(source)
-    with av.open(source) as container:
+    with av.open(f) as container:
         stream = container.streams.audio[0]
         if stream.codec_context.name != "flac":
             raise ValueError(f"{url}: audio stream is {stream.codec_context.name}, not flac")
@@ -198,11 +217,16 @@ def write_array(group: zarr.Group, name: str, table: ChunkTable, *,
     so mono and multi-channel arrays index the same way. FLAC interleaves
     channels within a frame, so a chunk always holds every channel.
 
+    ``attributes`` pass through :func:`minus80.core.jsonable.jsonable`, so NaN
+    becomes ``null``.
+
     Reading the array needs ``zarr.config.set({"array.rectilinear_chunks": True})``
     and the ``flac`` codec registered.
     """
     import icechunk
     from flac_numcodecs.zarr3 import Flac
+
+    from minus80.core.jsonable import jsonable
 
     sample_rate, blocksize = int(table.sample_rate), int(table.blocksize)
     channels = int(table.channels)
@@ -218,7 +242,7 @@ def write_array(group: zarr.Group, name: str, table: ChunkTable, *,
             name, shape=shape, chunks=chunks, dtype="<i2",
             dimension_names=dimension_names or ("time", "channel"),
             serializer=Flac(blocksize=blocksize, sample_rate=sample_rate),
-            compressors=None, attributes=attributes or {}, overwrite=True)
+            compressors=None, attributes=jsonable(attributes or {}), overwrite=True)
     uris = [str(u) for u in table.source_uri]
     specs = [icechunk.VirtualChunkSpec(index=[k] + [0] * (len(shape) - 1),
                                        location=uris[r], offset=int(o), length=int(n))
