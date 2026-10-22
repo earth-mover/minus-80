@@ -19,9 +19,10 @@ dependencies = [
 [project.optional-dependencies]
 nd2 = ["nd2>=0.10"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
+zip = []
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["imagecodecs", "imagecodecs-zarr", "pytest>=8", "safetensors", "tifffile>=2025.1.1"]
 
 [build-system]
 requires = ["hatchling"]
