@@ -1,50 +1,28 @@
-"""Questions to ask a remote file before deciding anything about it.
-
-An ingest has three stages and only the last two have had code. **Explore** —
-what is this file, what will it cost, can we reference it at all — has been
-one-off scripts written, run once, and left at a repository root. The answers
-were real and the scripts were not reusable, so the same questions got asked
-again by hand each time.
-
-These are the four that earned their place by being asked repeatedly and by
-changing a decision:
+"""Questions to ask a remote TIFF before indexing it.
 
 :func:`directory_layout`
     Where a TIFF keeps its image file directories, and whether they are a
-    contiguous array that can be fetched in one read. This is the difference
-    between a 40-minute index and a 100-second one, and it is not knowable by
-    looking at the file's size or name.
+    contiguous array that can be fetched in one read. Walking the chain costs
+    one round trip per directory; fetching the array costs one. Neither the
+    file's size nor its name says which applies.
 :func:`codec_chain`
     What decoders a page needs, and whether any of them is outside Zarr's v3
-    core. A store nobody can open without a project-specific import is a
+    core. A store nobody can open without a format-specific import is a
     different artifact from one that opens anywhere, and you want to know which
     you are about to build.
 :func:`indexing_cost`
     Round trips, bytes moved and parse time against fetch time. Indexing cost
-    is round trips times chain length, not bytes, and the two strategies —
-    range-read the metadata, or fetch the file and read it locally — invert
+    is round trips times chain length, not bytes, and the two strategies --
+    range-read the metadata, or fetch the file and read it locally -- invert
     depending on where you run.
 :func:`survey`
     A directory listing with a header summary per file, which is what you want
     first when handed an archive prefix and no documentation.
 
 Each returns data rather than printing, so it can be used in a notebook, and
-each has a line in the command-line interface below for when a shell is what
-you have.
+each has a subcommand in the command-line interface below::
 
-**Why this is in minus80.core and not in an ingest.** Nothing here
-knows what IDR is. "Where does this TIFF keep its directories" and "is this
-codec in the core" are asked identically of Cell Painting plates and OCT
-volumes, and both projects have reached for the same answers.
-
-**What was archived rather than ported.** `virtual-idr/archive/explore-scripts/`
-holds the one-off crawlers this replaces: `format_census.py`, `probe_http.py`,
-`probe_tiff.py`, `survey.py`, `crawl.py`, `sweep.py`, `catalog.py`,
-`catalog_html.py`, `filelist.py`, `study_meta.py`, `virtualize.py`. They were
-survey archaeology — written to answer one question about one archive on one
-day, and their answers are in `notes/` and `LAYOUTS.md`. They are kept because
-the numbers in those notes came from them, not because they should be run
-again.
+    python -m minus80.parsers.tiff.inspect layout s3://bucket/image.ome.tif
 """
 
 from __future__ import annotations
@@ -61,7 +39,7 @@ from urllib.request import url2pathname
 
 import obstore
 
-from .remote import patient_store
+from minus80.core.remote import patient_store
 
 #: Codecs Zarr v3 defines itself. Anything else needs a package to register it,
 #: which a reader in another language may simply not have.
@@ -103,9 +81,21 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
     """Where this TIFF keeps its directories, and whether they are an array.
 
     Four requests and no walk: the file size, the 16-byte header, and
-    directories one and two for the stride. Then the arithmetic. See
-    ``virtual-idr``'s ``tiff_pyramid.directory_region`` for the reasoning and
-    ``UPSTREAM.md`` for where this belongs.
+    directories one and two for the stride. A writer that emits every plane's
+    pixels first and every directory afterwards leaves the directories
+    contiguous and equally sized. Then::
+
+        (end of file - second directory offset) % stride == 0
+
+    holds only for a uniform array, and the quotient is how many directories
+    there are. The stride comes from the second gap, not the first, because the
+    first directory often carries the OME-XML and is larger than the rest.
+
+    Even spacing does not prove adjacency: a writer that emits each page as
+    directory-then-pixels also has a constant stride. So a stride more than
+    ``padding`` bytes beyond one directory's size is refused, and so is a file
+    with fewer than ``minimum`` directories, where a clean division is chance
+    and walking the chain is cheap anyway.
     """
     store, key, _ = patient_store(url)
     size = obstore.head(store, key)["size"]
@@ -158,7 +148,7 @@ def codec_chain(url: str) -> dict[str, Any]:
     """
     import tifffile
 
-    from .remote import reader as remote_reader
+    from minus80.core.remote import reader as remote_reader
 
     with tifffile.TiffFile(remote_reader(url)) as tif:
         page = tif.pages[0]
@@ -189,7 +179,7 @@ def indexing_cost(url: str, *, pages: int = 200) -> dict[str, Any]:
     """
     import tifffile
 
-    from .remote import reader as remote_reader
+    from minus80.core.remote import reader as remote_reader
 
     layout = directory_layout(url)
     started = time.perf_counter()

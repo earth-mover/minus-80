@@ -13,7 +13,6 @@ upstream; only the ingest bookkeeping (progress, decisions, benchmarks) stays.
 | `fetch` | Fetches a remote file, or only the regions a parser needs, by parallel range requests so it can be indexed locally | None | not filed; possibly obstore |
 | `remote` | Seekable, caching reader over a remote file for parsers that walk their own index | Overlaps obspec-utils' readers | not filed; obspec-utils |
 | `registry` | Builds an `ObjectStoreRegistry` for a path or URL, with anonymous S3 and the region from the environment | You build the registry yourself | not filed |
-| `inspect` | Asks a remote TIFF where its directories sit and what decoding it needs, before indexing | None | moves to `virtual-tifffile` |
 | `progress`, `decisions`, `bench` | Progress lines for long jobs, recorded judgement calls, remote read benchmarks | Out of scope | stays local |
 
 ## The pinned VirtualiZarr

@@ -33,7 +33,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 
 | Module | Format | Status |
 | --- | --- | --- |
-| `minus80.parsers.tiff` | TIFF, including whole-slide pyramids | moving |
+| [`minus80.parsers.tiff`](src/minus80/parsers/tiff/README.md) | TIFF, including whole-slide pyramids | in repo |
 | `minus80.parsers.dicom` | DICOM CT, whole-slide and multiplex | moving |
 | [`minus80.parsers.nd2`](src/minus80/parsers/nd2/README.md) | Nikon ND2 | in repo |
 | `minus80.parsers.nwb` | NWB (HDF5) | moving |
