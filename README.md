@@ -35,11 +35,8 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | --- | --- | --- |
 | `minus80.parsers.tiff` | TIFF, including whole-slide pyramids | moving |
 | `minus80.parsers.dicom` | DICOM CT, whole-slide and multiplex | moving |
-| `minus80.parsers.czi` | Zeiss CZI | moving |
 | `minus80.parsers.nd2` | Nikon ND2 | moving |
-| `minus80.parsers.mrc` | MRC and MRCS (cryo-EM, cryo-ET) | moving |
 | `minus80.parsers.nwb` | NWB (HDF5) | moving |
-| `minus80.parsers.oct` | OCT vendor files and raw spectra | moving |
 | `minus80.parsers.flac` | FLAC audio | moving |
 | `minus80.parsers.zip` | Zip members, with a raw-Deflate codec | moving |
 
