@@ -1,45 +1,63 @@
 # minus80.parsers.tiff
 
-TIFF pages as VirtualiZarr arrays, built from what tifffile has already parsed.
+Turns the levels of a TIFF series into VirtualiZarr arrays whose chunks are the
+file's own tiles or strips. tifffile parses the file; the parser restates each
+level as a chunk manifest and names imagecodecs' Zarr 3 codecs to decode it. A
+store written from it reads with icechunk, zarr, imagecodecs and
+imagecodecs-zarr installed, and nothing else.
 
 ```bash
 uv sync --extra tiff
 ```
 
-tifffile walks the file and records where every tile's bytes sit. This parser
-restates a page as a chunk manifest, one chunk per tile or strip, and names
-imagecodecs' own Zarr 3 codecs to decode them. A store written from it reads
-with icechunk, zarr, imagecodecs and imagecodecs-zarr installed, and nothing
-else.
+## Usage
 
 ```python
-import tifffile
-from minus80.parsers.tiff import series_arrays
+from minus80.parsers.tiff import tiff_levels
 
-tf = tifffile.TiffFile(open_the_file_somehow)
-levels = series_arrays(tf.series[0], "s3://bucket/slide.tif")  # {"0": ManifestArray, ...}
+levels = tiff_levels("s3://bucket/slide.ome.tif")  # {"0": ManifestArray, "1": ...}
 ```
 
-| Function | What it returns |
-| --- | --- |
-| `page_array(page, url, shape=None)` | One page as a `ManifestArray`, `(c, y, x)` for interleaved RGB, `(y, x)` otherwise. `shape` overrides the page's own when tifffile reports a trimmed level shape. |
-| `series_arrays(series, url)` | Every level of a tifffile series, keyed `"0"`, `"1"`, … |
-| `page_codecs(page)` | The Zarr codec chain for one page's tiles. JPEG colour spaces come from tifffile's own `jpeg_decode_colorspace`. |
-| `resolution_um(page)` | The (y, x) pixel size the resolution tags state, or `None` unless all three tags are present. |
+`tiff_levels(source, *, url=None, series=0, prefetch="ranges", attributes=None)`
+returns every resolution level of one series, keyed `"0"`, `"1"`, … from full
+resolution down.
 
-A tile or strip stored with zero bytes becomes a missing chunk, read as the
-fill value 0.
+- `source` is a URL, a local path, or an open binary file. A file object has no
+  address, so it must come with `url=`, which is what the manifest records.
+- `series` is an index into tifffile's series or a series name.
+- `prefetch` chooses how a remote file's directories are read:
+  - `"ranges"` walks them through a block-cached range reader;
+  - `"directories"` fetches the header and the directory region into a sparse
+    local file, when `inspect.directory_layout` finds the directories packed
+    at the end of a BigTIFF;
+  - `"whole"` downloads the file into the cache first.
+- `attributes` are merged into every level's attributes.
+
+Each page is one `(y, x)` grid of chunks. The series' other axes (`t`, `c`,
+`z`) index pages, one chunk per page along each. Interleaved RGB becomes a `c`
+axis in front of `y` and `x`. An axis tifffile cannot name, such as a plain
+stack of pages, is left unnamed.
+
+Each level carries what its own first page states:
+
+- `scale` and `units` for `y` and `x`, in micrometers, from the resolution
+  tags;
+- `channel_names` of `["R", "G", "B"]` for an RGB or YCbCr page;
+- `source_url`, the file the manifest references.
+
+A tile or strip stored with zero bytes, and a page the series lists as absent,
+become missing chunks, which read as the fill value 0.
 
 ## Before indexing: `inspect`
 
-`minus80.parsers.tiff.inspect` answers questions about a remote TIFF without
-indexing it. Each function returns data; each also has a subcommand.
+`minus80.parsers.tiff.inspect` answers questions about a TIFF, local or remote,
+without indexing it. Each function returns data, and each has a subcommand.
 
 | Function | Subcommand | What it answers |
 | --- | --- | --- |
-| `directory_layout(url)` | `layout` | Where the image file directories sit, and whether they are one contiguous array that can be fetched in a single read instead of walked one round trip at a time. |
-| `codec_chain(url)` | `codecs` | Which codecs a page needs, and whether any is outside Zarr's v3 core. |
-| `indexing_cost(url)` | `cost` | The measured time to walk a sample of directories over range requests, extrapolated to the whole file. |
+| `directory_layout(source)` | `layout` | Where the image file directories sit, and whether they are one contiguous array that can be fetched in a single read instead of walked one round trip at a time. |
+| `codec_chain(source)` | `codecs` | The codec chain the parser would write for the first page, whether any codec is outside Zarr's v3 core, or why the parser refuses the page. |
+| `indexing_cost(source)` | `cost` | The measured time to walk a sample of directories over range requests, extrapolated to the whole file. |
 | `survey(prefix)` | `survey` | A listing of an HTTP index or local directory, with size and TIFF header per file. |
 
 ```bash
@@ -48,8 +66,8 @@ uv run python -m minus80.parsers.tiff.inspect layout s3://bucket/image.ome.tif
 
 ## Limits
 
-Only combinations checked tile for tile against tifffile's own decode are
-accepted:
+The parser accepts only combinations it has checked tile for tile against
+tifffile's own decode:
 
 - compression: JPEG (with or without `JPEGTables`, RGB or YCbCr), LZW, or none;
 - samples: one, or three interleaved;
@@ -58,6 +76,21 @@ accepted:
 
 Anything else raises `NotImplementedError` rather than writing references that
 decode wrong.
+
+Physical metadata comes from the resolution tags only. A reduced level gets a
+`scale` only when its own page states one; it is never derived from level 0's.
+Physical sizes and channel names in OME-XML or ImageJ metadata are not read
+yet, so an OME-TIFF whose resolution tags state no unit (as tifffile writes
+them) comes out without `scale`. tifffile already parses them
+into `series.coord_scales` and `series.coord_units`.
+
+The names `R`, `G` and `B` are a judgement call: the photometric tag states a
+colour model, not channel names.
+
+`prefetch="directories"` fills everything outside the fetched region with
+zeros. It raises `ValueError` if a full page's tag lies outside the region, or
+if a page's tile offsets all read as 0. The second check also refuses a page
+with no stored tile at all; `"ranges"` reads that file.
 
 ## Bio TIFFs here, geospatial TIFFs in virtual-tiff
 

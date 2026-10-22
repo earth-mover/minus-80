@@ -1,9 +1,9 @@
-"""One TIFF page as a VirtualiZarr array, from what tifffile has already parsed.
+"""A TIFF series level as a VirtualiZarr array, from what tifffile has already parsed.
 
-tifffile does the parsing: it walks the directories, knows each page's tile
-grid, and records where every tile's bytes sit (``dataoffsets`` and
-``databytecounts``). What is left is to restate that as a chunk manifest and to
-name codecs a Zarr reader can decode the tiles with, and that is all this does.
+tifffile walks the directories, groups pages into series and resolution
+levels, and records where every tile's bytes sit (``dataoffsets`` and
+``databytecounts``). This module restates that as a chunk manifest and names
+codecs a Zarr reader can decode the tiles with.
 
 The codecs are imagecodecs' own Zarr 3 codecs (``imagecodecs_jpeg``,
 ``imagecodecs_lzw``, registered by the ``imagecodecs-zarr`` package), so a
@@ -18,7 +18,8 @@ Anything else raises, rather than writing references that decode wrong.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import math
+from collections.abc import Mapping
 
 import numpy as np
 import tifffile
@@ -32,13 +33,19 @@ _JPEG = 7
 _LZW = 5
 _NONE = 1
 
+#: tifffile's axis codes that mean the same as an OME-Zarr axis name. Any other
+#: code (``Q`` for "unknown", ``I`` for "image sequence") names no physical
+#: axis, so the dimension is left unnamed rather than given a made-up name.
+_AXIS_NAMES = {"T": "t", "C": "c", "Z": "z"}
 
-def page_codecs(page: tifffile.TiffPage) -> list[dict]:
+
+def page_codecs(page: tifffile.TiffPage, *, leading: int = 0) -> list[dict]:
     """The Zarr codec chain that decodes one of ``page``'s tiles or strips.
 
     A multi-sample page stores its samples interleaved, (y, x, s), and the
     array is declared (c, y, x) because OME-Zarr puts the channel axis before
-    space; the leading ``transpose`` maps one to the other.
+    space; the leading ``transpose`` maps one to the other. ``leading`` is the
+    number of axes in front of (c, y, x), each of chunk length 1.
 
     JPEG's colour handling is tifffile's: the JPEG and output colour spaces come
     from ``jpeg_decode_colorspace``, the function tifffile's own decoder calls,
@@ -49,7 +56,7 @@ def page_codecs(page: tifffile.TiffPage) -> list[dict]:
     samples = page.samplesperpixel
     if samples > 1 and page.planarconfig != tifffile.PLANARCONFIG.CONTIG:
         raise NotImplementedError(f"page {page.index}: planar configuration {page.planarconfig!r}")
-    head = [channel_last_transpose(3)] if samples > 1 else []
+    head = [channel_last_transpose(3 + leading)] if samples > 1 else []
     if page.compression == _JPEG:
         colorspace, outcolorspace = jpeg_decode_colorspace(
             page.photometric, page.planarconfig, page.extrasamples, page.is_jfif)
@@ -81,51 +88,89 @@ def _chunk_shape(page: tifffile.TiffPage, height: int) -> tuple[int, int]:
     return rows, page.imagewidth
 
 
-def page_array(page: tifffile.TiffPage, url: str, *, shape: Sequence[int] | None = None,
-               attributes: Mapping | None = None) -> ManifestArray:
-    """``page`` as a virtual array whose chunks are its own tiles or strips.
+def level_array(level: tifffile.TiffPageSeries, url: str, *,
+                attributes: Mapping | None = None) -> ManifestArray:
+    """One resolution level of a tifffile series as a virtual array of its own tiles or strips.
 
     ``url`` is where the file's bytes live, as the manifest should record it.
 
-    ``shape`` is the image's (rows, columns[, samples]) when it is not the
-    page's own. tifffile reports a smaller shape for some formats' reduced
-    levels than their tags state (a Philips TIFF pads each level's width up to
-    whole tiles); the tile grid must still be the page's, which is checked.
+    Each page is one (y, x) grid of chunks. The series' other axes index pages,
+    one chunk per page along each. Interleaved samples become a ``c`` axis
+    before ``y`` and ``x``. A page tifffile reports as absent, and a tile or
+    strip stored with zero bytes, become missing chunks, read as the fill
+    value 0.
 
-    A tile or strip stored with zero bytes becomes a missing chunk, read as the
-    fill value 0.
+    The level's shape is tifffile's, not the page's tags: tifffile reports a
+    smaller shape for some formats' reduced levels than their tags state (a
+    Philips TIFF pads each level's width up to whole tiles). The tile grid must
+    still be the page's, which is checked.
+
+    ``attributes`` are merged over what the page states: ``scale`` and
+    ``units`` for ``y`` and ``x`` from the resolution tags, and
+    ``channel_names`` for an RGB or YCbCr page.
     """
-    shape = tuple(shape or page.shape)
-    if len(shape) not in (2, 3):
-        raise NotImplementedError(f"page {page.index}: shape {shape}")
-    height, width = shape[:2]
-    samples = shape[2] if len(shape) == 3 else 1
-    if samples != page.samplesperpixel:
-        raise ValueError(f"page {page.index}: {samples} samples in shape, {page.samplesperpixel} in the page")
+    page = level.keyframe
+    samples = page.samplesperpixel
+    planar = "YXS" if samples > 1 else "YX"
+    axes = level.axes
+    if not axes.endswith(planar) or (samples > 1 and "C" in axes):
+        raise NotImplementedError(f"series {level.name!r}: axes {axes}")
+    leading_axes = axes[: len(axes) - len(planar)]
+    leading = tuple(level.shape[: len(leading_axes)])
+    height, width = level.shape[len(leading_axes):][:2]
+    pages = list(level.pages)
+    if len(pages) != math.prod(leading):
+        raise NotImplementedError(
+            f"series {level.name!r}: {len(pages)} pages for leading shape {leading}")
+
+    codecs = page_codecs(page, leading=len(leading))
     rows, cols = _chunk_shape(page, height)
     grid = (-(-height // rows), -(-width // cols))
-    offsets = np.asarray(page.dataoffsets, dtype=np.uint64)
-    lengths = np.asarray(page.databytecounts, dtype=np.uint64)
-    if offsets.size != grid[0] * grid[1]:
-        raise ValueError(f"page {page.index}: {offsets.size} tiles for a {grid} grid over {shape}")
-    offsets, lengths = offsets.reshape(grid), lengths.reshape(grid)
+    offsets = np.zeros((len(pages), *grid), dtype=np.uint64)
+    lengths = np.zeros_like(offsets)
+    for i, p in enumerate(pages):
+        if p is None:
+            continue
+        if len(p.dataoffsets) != grid[0] * grid[1]:
+            raise ValueError(f"page {p.index}: {len(p.dataoffsets)} tiles for a {grid} grid "
+                             f"over {height}x{width}")
+        offsets[i] = np.reshape(p.dataoffsets, grid)
+        lengths[i] = np.reshape(p.databytecounts, grid)
+    offsets = offsets.reshape(*leading, *grid)
+    lengths = lengths.reshape(*leading, *grid)
+
+    dims = [_AXIS_NAMES.get(a) for a in leading_axes]
     if samples > 1:
-        array_shape, chunks, dims = (samples, height, width), (samples, rows, cols), ("c", "y", "x")
-        offsets, lengths = offsets[None], lengths[None]
+        offsets, lengths = offsets[..., None, :, :], lengths[..., None, :, :]
+        shape = (*leading, samples, height, width)
+        chunks = (*(1,) * len(leading), samples, rows, cols)
+        dims.append("c")
     else:
-        array_shape, chunks, dims = (height, width), (rows, cols), ("y", "x")
+        shape = (*leading, height, width)
+        chunks = (*(1,) * len(leading), rows, cols)
+    dims += ["y", "x"]
     return manifest_array(
-        url, offsets, lengths, shape=array_shape, chunk_shape=chunks, dtype=page.dtype,
-        codecs=page_codecs(page), dimension_names=dims, attributes=attributes)
+        url, offsets, lengths, shape=shape, chunk_shape=chunks, dtype=page.dtype,
+        codecs=codecs, dimension_names=dims,
+        attributes={**_stated(page), **(attributes or {})})
 
 
-def series_arrays(series: tifffile.TiffPageSeries, url: str) -> dict[str, ManifestArray]:
-    """Every level of ``series`` as ``{"0": level 0, "1": level 1, ...}``, at tifffile's shapes."""
-    return {str(i): page_array(level.keyframe, url, shape=level.shape)
-            for i, level in enumerate(series.levels)}
+def _stated(page: tifffile.TiffPage) -> dict:
+    """The physical metadata ``page``'s own tags state, as array attributes."""
+    out: dict = {}
+    if (um := _resolution_um(page)) is not None:
+        out["scale"] = {"y": um[0], "x": um[1]}
+        out["units"] = {"y": "micrometer", "x": "micrometer"}
+    # The photometric tag states a colour model, not channel names; R, G and B
+    # are what any viewer would call the three samples of an RGB model, and
+    # libjpeg decodes YCbCr to RGB.
+    if page.samplesperpixel == 3 and page.photometric in (
+            tifffile.PHOTOMETRIC.RGB, tifffile.PHOTOMETRIC.YCBCR):
+        out["channel_names"] = ["R", "G", "B"]
+    return out
 
 
-def resolution_um(page: tifffile.TiffPage) -> tuple[float, float] | None:
+def _resolution_um(page: tifffile.TiffPage) -> tuple[float, float] | None:
     """The pixel size the resolution tags state, as (y, x) micrometres, or None.
 
     None unless ``XResolution``, ``YResolution`` and ``ResolutionUnit`` are all

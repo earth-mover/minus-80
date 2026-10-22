@@ -1,5 +1,5 @@
-"""TIFF pages as VirtualiZarr arrays, from tifffile's own parse."""
+"""TIFF series levels as VirtualiZarr arrays, from tifffile's own parse."""
 
-from .pages import page_array, page_codecs, resolution_um, series_arrays
+from .levels import tiff_levels
 
-__all__ = ["page_array", "page_codecs", "resolution_um", "series_arrays"]
+__all__ = ["tiff_levels"]

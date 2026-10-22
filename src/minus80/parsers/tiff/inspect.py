@@ -1,4 +1,4 @@
-"""Questions to ask a remote TIFF before indexing it.
+"""Questions to ask a TIFF, by URL or local path, before indexing it.
 
 :func:`directory_layout`
     Where a BigTIFF keeps its image file directories, and whether they are a
@@ -33,13 +33,18 @@ import time
 import urllib.request
 from typing import Any
 
+import tifffile
+
+from minus80.core import remote
 from minus80.core.fetch import object_size, read_range
 from minus80.core.registry import file_path
+
+from .pages import page_codecs
 
 #: Codecs Zarr v3 defines itself. Anything else needs a package to register it,
 #: which a reader in another language may simply not have.
 CORE_CODECS = frozenset({
-    "bytes", "endian", "transpose", "blosc", "gzip", "zstd", "crc32c",
+    "bytes", "transpose", "blosc", "gzip", "zstd", "crc32c",
     "sharding_indexed",
 })
 
@@ -72,7 +77,7 @@ class DirectoryLayout:
         return (self.first_directory, self.size) if self.bulk_readable else None
 
 
-def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> DirectoryLayout:
+def directory_layout(source: str, *, minimum: int = 64, padding: int = 64) -> DirectoryLayout:
     """Where this TIFF keeps its directories, and whether they are an array.
 
     Reads the file size, the 16-byte header, and the entry counts and next
@@ -85,8 +90,8 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
     directories are reported as not worth a bulk read. Only BigTIFF is judged.
     docs/upstream.md says where this belongs upstream.
     """
-    size = object_size(url, patient=True)
-    head = _read(url, 0, 16)
+    size = object_size(source, patient=True)
+    head = _read(source, 0, 16)
     if head[:2] not in (b"II", b"MM"):
         return DirectoryLayout(size, 0, False, refused="not a TIFF")
     endian = "<" if head[:2] == b"II" else ">"
@@ -97,15 +102,15 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
                                refused="classic TIFF, capped at 4 GB")
 
     (first,) = struct.unpack_from(endian + "Q", head, 8)
-    entries = _entries(url, first, endian)
-    second = _next(url, first, endian)
-    third = _next(url, second, endian) if second else None
+    entries = _entries(source, first, endian)
+    second = _next(source, first, endian)
+    third = _next(source, second, endian) if second else None
     if not second or not third:
         return DirectoryLayout(size, first, True, entries=entries,
                                refused="fewer than three directories")
 
     stride = third - second
-    entries = _entries(url, second, endian) or entries
+    entries = _entries(source, second, endian) or entries
     common = {"size": size, "first_directory": first, "bigtiff": True,
               "stride": stride, "entries": entries}
     if stride <= 0 or entries is None:
@@ -126,37 +131,30 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
     return DirectoryLayout(**common, directories=count)
 
 
-def codec_chain(url: str) -> dict[str, Any]:
-    """What decoding one page needs, and whether a plain Zarr reader has it.
+def codec_chain(source: str) -> dict[str, Any]:
+    """What decoding the first page needs, and whether a plain Zarr reader has it.
 
-    ``portable`` is the question that matters: a store whose codecs are all in
-    Zarr's v3 core opens with ``zarr`` and nothing else, in any language. One
-    outside it means every reader needs the package that registers it.
+    The chain is :func:`~minus80.parsers.tiff.pages.page_codecs`', the one a
+    store written from this file would carry. ``portable`` is the question that
+    matters: a store whose codecs are all in Zarr's v3 core opens with ``zarr``
+    and nothing else, in any language. One outside it means every reader needs
+    the package that registers it. A page the parser refuses is reported with
+    ``supported`` false and the reason.
     """
-    import tifffile
-
-    from minus80.core.remote import reader as remote_reader
-
-    with tifffile.TiffFile(remote_reader(url)) as tif:
-        page = tif.pages[0]
-        names = ["bytes"]
-        compression = int(page.compression)
-        if compression != 1:
-            names.append(f"imagecodecs_{tifffile.COMPRESSION(compression).name.lower()}")
-        if int(page.planarconfig) == 1 and int(page.samplesperpixel) > 1:
-            names.append("transpose")
-        outside = sorted(n for n in names if n not in CORE_CODECS)
-        return {
-            "compression": tifffile.COMPRESSION(compression).name,
-            "samples_per_pixel": int(page.samplesperpixel),
-            "interleaved": int(page.planarconfig) == 1 and int(page.samplesperpixel) > 1,
-            "codecs": names,
-            "outside_core": outside,
-            "portable": not outside,
-        }
+    with tifffile.TiffFile(remote.reader(source)) as tif:
+        page = tif.pages.first
+        compression = tifffile.COMPRESSION(page.compression).name
+        try:
+            codecs = page_codecs(page)
+        except NotImplementedError as exc:
+            return {"compression": compression, "supported": False, "reason": str(exc)}
+    names = [c["name"] for c in codecs]
+    outside = sorted(set(names) - CORE_CODECS)
+    return {"compression": compression, "supported": True, "codecs": names,
+            "outside_core": outside, "portable": not outside}
 
 
-def indexing_cost(url: str, *, pages: int = 200) -> dict[str, Any]:
+def indexing_cost(source: str, *, pages: int = 200) -> dict[str, Any]:
     """What indexing this file costs, both ways, measured rather than guessed.
 
     Times a sample of the directory walk over byte ranges and reports what the
@@ -164,13 +162,9 @@ def indexing_cost(url: str, *, pages: int = 200) -> dict[str, Any]:
     region and parsing it locally would cost. The two invert depending on
     bandwidth and latency, so neither is the answer in general.
     """
-    import tifffile
-
-    from minus80.core.remote import reader as remote_reader
-
-    layout = directory_layout(url)
+    layout = directory_layout(source)
     started = time.perf_counter()
-    with tifffile.TiffFile(remote_reader(url)) as tif:
+    with tifffile.TiffFile(remote.reader(source)) as tif:
         tif.pages.useframes = True
         tif.pages.set_keyframe(0)
         walked = 0
@@ -281,18 +275,18 @@ def main(argv: list[str] | None = None) -> None:
         ("cost", "what indexing costs, range-reading against fetching"),
     ):
         one = sub.add_parser(name, help=help_text)
-        one.add_argument("url")
+        one.add_argument("source")
     listing = sub.add_parser("survey", help="a directory listing with header summaries")
     listing.add_argument("prefix")
     listing.add_argument("--limit", type=int, default=20)
 
     args = ap.parse_args(argv)
     if args.question == "layout":
-        print(json.dumps(dataclasses.asdict(directory_layout(args.url)), indent=2))
+        print(json.dumps(dataclasses.asdict(directory_layout(args.source)), indent=2))
     elif args.question == "codecs":
-        print(json.dumps(codec_chain(args.url), indent=2))
+        print(json.dumps(codec_chain(args.source), indent=2))
     elif args.question == "cost":
-        print(json.dumps(indexing_cost(args.url), indent=2))
+        print(json.dumps(indexing_cost(args.source), indent=2))
     else:
         print(json.dumps(survey(args.prefix, limit=args.limit), indent=2))
 
