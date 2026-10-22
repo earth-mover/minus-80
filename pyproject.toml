@@ -16,6 +16,9 @@ dependencies = [
     "zarr>=3.1.0",
 ]
 
+[project.optional-dependencies]
+nd2 = ["nd2>=0.10"]
+
 [dependency-groups]
 dev = ["pytest>=8"]
 
@@ -37,3 +40,4 @@ virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da04771
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
 testpaths = ["tests"]
+markers = ["network: reads a real file over HTTPS"]
