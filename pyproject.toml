@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nd2 = ["nd2>=0.10"]
+tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
