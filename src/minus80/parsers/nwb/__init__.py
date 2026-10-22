@@ -13,7 +13,6 @@ from .datasets import file_datasets
 from .parser import (
     native_parts,
     open_collection,
-    open_one,
     virtual_arrays,
 )
 
@@ -21,6 +20,5 @@ __all__ = [
     "file_datasets",
     "native_parts",
     "open_collection",
-    "open_one",
     "virtual_arrays",
 ]

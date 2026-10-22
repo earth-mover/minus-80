@@ -16,26 +16,6 @@ from collections.abc import Sequence
 from .progress import Progress
 from .registry import store_and_key
 
-#: Parsers import this name from here. The rule itself lives in
-#: :func:`minus80.core.registry.store_and_key`, the one place a URL becomes an
-#: object-store key.
-_store_and_key = store_and_key
-
-
-def fetch_head(url: str, nbytes: int) -> bytes:
-    """Fetch the first ``nbytes`` of a remote ``url`` with one range GET.
-
-    For a format such as MRC that keeps its whole layout in a leading header,
-    the first few kilobytes are enough to compute every chunk's byte range, and
-    the body is never downloaded.
-    """
-    import obstore
-
-    store, key = store_and_key(url)
-    buf = obstore.get_range(store, key, start=0, end=nbytes)
-    return bytes(memoryview(buf))
-
-
 def download_then_index(
     url: str,
     dest_dir: str,

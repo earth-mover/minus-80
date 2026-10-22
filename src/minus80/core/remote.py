@@ -14,17 +14,14 @@ tracks moving these defaults into ``obspec_utils``.
 
 from __future__ import annotations
 
-import contextlib
 import datetime
 from typing import NamedTuple
 from urllib.parse import unquote
 
 from obspec_utils.readers import BlockStoreReader
 from obstore.store import HTTPStore
-from obspec_utils.registry import ObjectStoreRegistry
 
-from .fetch import download_then_index
-from .registry import as_url, registry_for, store_and_key, url_dir
+from .registry import as_url, store_and_key, url_dir
 
 #: obstore builds an HTTP store on object_store's defaults, which abandon a
 #: request after three minutes. An index walk is thousands of sequential range
@@ -63,11 +60,10 @@ CACHED_BLOCKS = 256
 
 
 class Remote(NamedTuple):
-    """One remote file as an object store, a key within it, and a registry holding the store."""
+    """One remote file as an object store and a key within it."""
 
     store: object
     key: str
-    registry: object
 
 
 def patient_store(url: str) -> Remote:
@@ -79,13 +75,13 @@ def patient_store(url: str) -> Remote:
     url = as_url(url)
     if not url.startswith(("http://", "https://")):
         store, key = store_and_key(url)
-        return Remote(store, key, registry_for(url))
+        return Remote(store, key)
     base = url_dir(url)
     store = HTTPStore.from_url(base.rstrip("/"), client_options=CLIENT_OPTIONS,
                                retry_config=RETRY_CONFIG)
     # The manifest records the URL as given, so the key is decoded here, at the
     # point it becomes an object-store key, and nowhere else.
-    return Remote(store, unquote(url[len(base):]), ObjectStoreRegistry({base: store}))
+    return Remote(store, unquote(url[len(base):]))
 
 
 def reader(url: str, *, block: int = BLOCK_SIZE,
@@ -96,34 +92,5 @@ def reader(url: str, *, block: int = BLOCK_SIZE,
     read, because a pointer in a directory or an index node often refers to
     something written earlier. The cache keeps those seeks from refetching.
     """
-    store, key, _ = patient_store(url)
+    store, key = patient_store(url)
     return BlockStoreReader(store, key, block_size=block, max_cached_blocks=cached_blocks)
-
-
-@contextlib.contextmanager
-def buffered(url: str, *, block: int = BLOCK_SIZE,
-             cached_blocks: int = CACHED_BLOCKS):
-    """:func:`reader` as a context manager, for a parser that wants ``with``.
-
-    Suited to a run where bandwidth to the source is limited, such as from a
-    laptop or outside the source's cloud region: only the metadata the parser
-    reads is fetched, never the pixel data.
-    """
-    yield reader(url, block=block, cached_blocks=cached_blocks)
-
-
-def downloaded(cache_dir: str):
-    """An opener that fetches the whole file once, then lets the parser read it locally.
-
-    Suited to a run in the source's region, where bandwidth is plentiful and
-    round trips are the cost: a file with hundreds of directories scattered
-    through it takes hundreds of sequential round trips under :func:`buffered`
-    and one bulk transfer here. Copies in ``cache_dir`` are reused on a re-run.
-    """
-
-    @contextlib.contextmanager
-    def opener(url: str):
-        with open(download_then_index(url, cache_dir), "rb") as f:
-            yield f
-
-    return opener

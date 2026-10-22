@@ -3,7 +3,7 @@ import numpy as np
 import zarr
 
 from minus80 import ome as vo
-from minus80.ome.verify import GATES, provenance
+from minus80.ome.verify import provenance
 
 SLIDE = "s3://bucket/slides/slide.tif"
 MASK = "s3://bucket/masks/slide_mask.tif"
@@ -47,7 +47,7 @@ def test_passes_with_source_on_array_as_list():
     assert provenance(_store({}, {"source_url": [SLIDE]})) == []
 
 
-def test_missing_source_url():
+def test_virtual_array_without_source_url_is_flagged():
     (problem,) = provenance(_store({}))
     assert problem.startswith("slide/0: virtual, but")
 
@@ -57,11 +57,7 @@ def test_source_url_not_among_references():
     assert problem.startswith("slide/labels/mask/0: source_url s3://bucket/masks/other.tif is not")
 
 
-def test_not_icechunk():
+def test_non_icechunk_store_is_flagged():
     root = zarr.group(zarr.storage.MemoryStore())
     (problem,) = provenance(root)
     assert "not Icechunk" in problem
-
-
-def test_registered():
-    assert "provenance" in GATES

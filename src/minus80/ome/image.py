@@ -41,15 +41,6 @@ from ome_zarr_models.v06 import multiscales as v06_ms
 #: What ``version`` to write for each supported spec version.
 VERSIONS = {"0.5": "0.5", "0.6": "0.6"}
 
-#: What to *validate* as, which is not always what to write. ngff-zarr vendors
-#: its own copy of each schema, and that copy can lag the published one: a
-#: vendored 0.6 schema whose version enum holds only "0.6rc0" rejects a document
-#: declaring the released "0.6". Validating under the spelling the vendored
-#: schema knows still checks the whole document; the version string itself is
-#: checked against :data:`_PUBLISHED_VERSIONS`. Collapse this once the vendored
-#: and published enums agree.
-_VALIDATE_AS = {"0.5": "0.5", "0.6": str(nz.V06_ONDISK_VERSION.value)}
-
 #: The version strings the published 0.6 schema accepts
 #: (https://ngff.openmicroscopy.org/0.6/schemas/_version.schema).
 _PUBLISHED_VERSIONS = {"0.5": {"0.5"}, "0.6": {"0.6", "0.6rc0"}}
@@ -365,10 +356,10 @@ def validate(attrs: Mapping, version: str, *, model: str, strict: bool = False) 
     """Check an ``ome`` document against the spec schema.
 
     The declared version string is checked against :data:`_PUBLISHED_VERSIONS`,
-    and the rest of the document is validated by ngff-zarr under the version
-    spelling its vendored schema accepts (:data:`_VALIDATE_AS`).
+    then the document is validated as ``version``, so one declaring ``0.6rc0``
+    is held to the released 0.6 schema.
     """
     if attrs["version"] not in _PUBLISHED_VERSIONS[version]:
         raise ValueError(f"{attrs['version']!r} is not a published {version} version")
-    nz.validate({"ome": {**attrs, "version": _VALIDATE_AS[version]}},
-                version=_VALIDATE_AS[version], model=model, strict=strict)
+    nz.validate({"ome": {**attrs, "version": version}},
+                version=version, model=model, strict=strict)

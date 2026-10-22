@@ -25,7 +25,6 @@ levels = series_arrays(tf.series[0], "s3://bucket/slide.tif")  # {"0": ManifestA
 | `page_array(page, url, shape=None)` | One page as a `ManifestArray`, `(c, y, x)` for interleaved RGB, `(y, x)` otherwise. `shape` overrides the page's own when tifffile reports a trimmed level shape. |
 | `series_arrays(series, url)` | Every level of a tifffile series, keyed `"0"`, `"1"`, … |
 | `page_codecs(page)` | The Zarr codec chain for one page's tiles. JPEG colour spaces come from tifffile's own `jpeg_decode_colorspace`. |
-| `page_tags(page)` | Every tag but the tile locations and JPEG tables, as JSON. |
 | `resolution_um(page)` | The (y, x) pixel size the resolution tags state, or `None` unless all three tags are present. |
 
 A tile or strip stored with zero bytes becomes a missing chunk, read as the

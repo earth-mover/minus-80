@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-import ngff_zarr as nz
 import numpy as np
 import zarr
 from zarr.core.sync import sync
 
 from .annotations import KEY as ANNOTATIONS
 from .hierarchy import images, multiscale_groups, series
+from .image import validate
 
 #: The least a coarse level may correlate with the next finer level averaged
 #: down to its size. A level that is really some other page or directory scores
@@ -64,13 +64,12 @@ def schema(root, version: str) -> list[str]:
     problems = []
     for name, image in images(root).items():
         try:
-            nz.validate({"ome": dict(image.attrs)["ome"]},
-                        version=version, model="image", strict=True)
+            validate(dict(image.attrs)["ome"], version, model="image", strict=True)
         except Exception as exc:
             problems.append(f"{name}: {type(exc).__name__}: {exc}"[:120])
     for node, model in ((root, "bf2raw"), (root["OME"], "ome")):
         try:
-            nz.validate(dict(node.attrs), version=version, model=model)
+            validate(dict(node.attrs)["ome"], version, model=model)
         except Exception as exc:
             problems.append(f"{model}: {type(exc).__name__}: {exc}"[:120])
     return problems

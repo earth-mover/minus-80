@@ -18,8 +18,6 @@ Anything else raises, rather than writing references that decode wrong.
 
 from __future__ import annotations
 
-import base64
-import enum
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -29,11 +27,6 @@ from tifffile.tifffile import jpeg_decode_colorspace
 from virtualizarr.manifests import ChunkManifest, ManifestArray
 from virtualizarr.manifests.manifest import MISSING_CHUNK_PATH
 from virtualizarr.manifests.utils import create_v3_array_metadata
-
-#: Tags whose content the manifest and codecs already carry: where each tile's
-#: bytes are, and the JPEG tables every tile shares.
-DATA_TAGS = frozenset({"TileOffsets", "TileByteCounts", "StripOffsets", "StripByteCounts",
-                       "JPEGTables"})
 
 _JPEG = 7
 _LZW = 5
@@ -136,32 +129,6 @@ def series_arrays(series: tifffile.TiffPageSeries, url: str) -> dict[str, Manife
     """Every level of ``series`` as ``{"0": level 0, "1": level 1, ...}``, at tifffile's shapes."""
     return {str(i): page_array(level.keyframe, url, shape=level.shape)
             for i, level in enumerate(series.levels)}
-
-
-def _jsonable(value):
-    if isinstance(value, enum.Enum):
-        return value.name
-    if isinstance(value, bytes):
-        return {"base64": base64.b64encode(value).decode()}
-    if isinstance(value, (tuple, list)):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
-
-
-def page_tags(page: tifffile.TiffPage, *, exclude: Sequence[str] = ("ImageDescription",)) -> dict:
-    """Every tag of ``page`` as JSON, by tag name, except where the tiles are.
-
-    Enumerated values are written by name, rationals as ``[numerator,
-    denominator]`` and byte strings as base64. ``exclude`` names further tags to
-    leave out; by default the ImageDescription, which can be megabytes and is
-    usually wanted on its own.
-    """
-    skip = DATA_TAGS | set(exclude)
-    return {tag.name: _jsonable(tag.value) for tag in page.tags if tag.name not in skip}
 
 
 def resolution_um(page: tifffile.TiffPage) -> tuple[float, float] | None:

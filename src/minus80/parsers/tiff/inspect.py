@@ -89,7 +89,7 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
     directories are reported as not worth a bulk read. Only BigTIFF is judged.
     docs/upstream.md says where this belongs upstream.
     """
-    store, key, _ = patient_store(url)
+    store, key = patient_store(url)
     size = obstore.head(store, key)["size"]
     head = _read(store, key, 0, 16)
     if head[:2] not in (b"II", b"MM"):
@@ -228,7 +228,7 @@ def survey(prefix: str, *, limit: int = 20) -> list[dict[str, Any]]:
         url = prefix + name
         row: dict[str, Any] = {"name": name}
         try:
-            store, key, _ = patient_store(url)
+            store, key = patient_store(url)
             row["bytes"] = obstore.head(store, key)["size"]
             head = _read(store, key, 0, 16)
             row["magic"] = head[:4].hex()

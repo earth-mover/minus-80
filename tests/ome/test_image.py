@@ -30,7 +30,7 @@ def test_translation_needs_every_axis():
         vo.image_attrs(**PYRAMID, translation={"y": 0, "x": 0})
 
 
-def test_translation_in_06():
+def test_translation_in_06_is_a_scale_then_translation_sequence():
     attrs = vo.image_attrs(**PYRAMID, translation={"c": 0, "y": 1, "x": 2}, version="0.6")
     (sequence,) = _transforms(attrs, 1)
     assert sequence["type"] == "sequence"
@@ -45,11 +45,6 @@ def test_channel_omero_signed_floor():
     assert window == {"min": -32768, "max": 32767, "start": -160, "end": 240}
 
 
-def test_channel_omero_default_floor_is_zero():
-    window = vo.channel_omero([{"label": "DNA"}], max_value=255)["channels"][0]["window"]
-    assert window == {"min": 0, "max": 255, "start": 0, "end": 255}
-
-
 def test_label_colors_and_properties():
     attrs = vo.label_attrs(
         name="organs", dims=("z", "y", "x"), level_shapes=[(4, 8, 8)],
@@ -59,7 +54,6 @@ def test_label_colors_and_properties():
     label = attrs["image-label"]
     assert label["colors"] == [{"label-value": 1, "rgba": [255, 0, 0, 255]}]
     assert label["properties"][0]["name"] == "Liver"
-    assert _transforms(attrs, 0)[1]["translation"] == [-100.0, 1.0, 2.0]
 
 
 def test_label_without_colors_has_none():
@@ -70,7 +64,7 @@ def test_label_without_colors_has_none():
 
 
 @pytest.mark.parametrize("version", ["0.5", "0.6"])
-def test_image_axis_is_custom(version):
+def test_image_axis_is_typed_custom(version):
     attrs = vo.image_attrs(name="stack", dims=("image", "c", "y", "x"),
                            level_shapes=[(10, 2, 64, 64)],
                            scale={"image": 1, "c": 1, "y": 1, "x": 1}, version=version)

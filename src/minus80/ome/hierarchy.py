@@ -57,16 +57,3 @@ def images(study) -> dict[str, zarr.Group]:
         if isinstance(node, zarr.Group):
             out[path] = node
     return out
-
-
-def require_path(root: zarr.Group, path: str) -> zarr.Group:
-    """``require_group`` for a nested path, creating each intermediate group.
-
-    Intermediate groups get explicit metadata so a reader listing the tree
-    finds them, rather than relying on implicit groups.
-    """
-    group = root
-    for part in path.split("/"):
-        if part:
-            group = group.require_group(part)
-    return group
