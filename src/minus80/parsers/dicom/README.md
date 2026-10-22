@@ -55,9 +55,10 @@ table; the measurements are in
 - **Transfer syntaxes.** Explicit and Implicit VR Little Endian everywhere;
   JPEG Baseline, JPEG Extended and JPEG 2000 for whole-slide levels only.
   Anything else raises `ValueError`.
-- **Bits.** 8 or 16 bits allocated. When `BitsStored` is less than
-  `BitsAllocated`, the unused high bits are read as stored, where pydicom masks
-  or sign-extends them.
+- **Bits.** 8 or 16 bits allocated, all of them stored. An instance whose
+  `BitsStored` is less than `BitsAllocated`, such as 12-bit CT in 16 bits,
+  raises `ValueError`: pydicom masks or sign-extends the unused high bits, and a
+  Zarr read would return them as stored.
 - **Whole-slide levels** are one `TILED_FULL` instance each, with one fragment
   per frame. `TILED_SPARSE`, levels concatenated across instances, and a
   frame split into several fragments raise `ValueError`.

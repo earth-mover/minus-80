@@ -86,6 +86,18 @@ def test_volume_orders_slices_by_position_and_states_spacing(tmp_path):
     np.testing.assert_array_equal(image, expected)
 
 
+def test_fewer_bits_stored_than_allocated_is_refused(tmp_path):
+    import pydicom
+
+    paths, _ = write_volume_series(tmp_path, [0.0, 1.0])
+    for path in paths:
+        ds = pydicom.dcmread(path)
+        ds.BitsStored, ds.HighBit = 12, 11
+        ds.save_as(path)
+    with pytest.raises(ValueError, match="12 of 16 bits stored"):
+        volume_array(paths)
+
+
 def test_volume_without_positions_orders_by_instance_number_and_omits_z_scale(tmp_path):
     paths, expected = write_volume_series(tmp_path, [None, None, None], spacing=None)
     marr = volume_array(paths)

@@ -112,6 +112,11 @@ def _dtype(ds, name: str) -> np.dtype:
     bits = int(ds.BitsAllocated)
     if bits not in (8, 16):
         raise ValueError(f"{name}: {bits} bits allocated; only 8 and 16 are supported")
+    # pydicom masks the unused high bits, or sign-extends into them, and no
+    # Zarr codec does either, so a store would silently read different values.
+    if (stored := int(ds.BitsStored)) != bits:
+        raise ValueError(f"{name}: {stored} of {bits} bits stored; a store would read the "
+                         "unused high bits as stored, where pydicom masks or sign-extends them")
     return pixel_dtype(ds)
 
 

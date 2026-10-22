@@ -81,8 +81,11 @@ extraction. Frames read from S3 through Zarr equalled pydicom's `pixel_array`.
 so signed data reads as signed. A hand-written mapping from `BitsAllocated`
 alone reads signed data as unsigned.
 
-**`BitsStored` below `BitsAllocated` is not masked.** pydicom masks or
-sign-extends to `BitsStored`; a Zarr read returns the stored bits as they are.
+**Refuse `BitsStored` below `BitsAllocated`.** pydicom masks the unused high
+bits of unsigned data and sign-extends signed data into them. No Zarr codec does
+either, so a Zarr read returns the high bits as stored. When they hold overlay
+data, or a signed value that was not sign-extended, every affected pixel reads
+differently from pydicom, with no error.
 
 ## Codecs
 
