@@ -112,6 +112,22 @@ def test_ome_physical_sizes_win_over_resolution_tags(tmp_path):
     assert attrs["units"] == {"z": "micrometer", "y": "micrometer", "x": "micrometer"}
 
 
+def test_imagej_unit_and_spacing_give_scale(tmp_path):
+    path = tmp_path / "hyperstack.tif"
+    tifffile.imwrite(path, np.zeros((3, 2, 16, 16), np.uint16), imagej=True, resolution=(5, 5),
+                     metadata={"spacing": 0.2, "unit": "um", "axes": "ZCYX"})
+    attrs = tiff_levels(path)["0"].metadata.attributes
+    assert attrs["scale"] == pytest.approx({"z": 0.2, "y": 0.2, "x": 0.2})
+    assert attrs["units"] == {"z": "micrometer", "y": "micrometer", "x": "micrometer"}
+
+
+def test_imagej_without_unit_gets_no_scale(tmp_path):
+    path = tmp_path / "unitless.tif"
+    tifffile.imwrite(path, np.zeros((3, 2, 16, 16), np.uint16), imagej=True, resolution=(5, 5),
+                     metadata={"spacing": 0.2, "axes": "ZCYX"})
+    assert "scale" not in tiff_levels(path)["0"].metadata.attributes
+
+
 def test_ome_tiff_stating_no_size_gets_no_scale(tmp_path):
     path = tmp_path / "unsized.ome.tif"
     tifffile.imwrite(path, np.zeros((3, 16, 16), np.uint8), ome=True, metadata={"axes": "ZYX"})

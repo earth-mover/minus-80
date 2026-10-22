@@ -55,8 +55,10 @@ def tiff_levels(
     Each level is built by :func:`~minus80.parsers.tiff.pages.level_array`;
     ``attributes`` are merged into every level's. On an OME-TIFF, the pixel
     sizes the OME-XML states take precedence over the resolution tags on
-    level ``"0"``. The OME-XML describes only the full-resolution image, so
-    reduced levels keep what their own tags state.
+    level ``"0"``; on an ImageJ hyperstack, the ImageJ ``unit`` and
+    ``spacing`` do, and OME-XML wins over both. That metadata describes only
+    the full-resolution image, so reduced levels keep what their own tags
+    state.
     """
     if prefetch not in ("ranges", "directories", "whole"):
         raise ValueError(f"prefetch {prefetch!r}: expected 'ranges', 'directories' or 'whole'")
@@ -64,7 +66,8 @@ def tiff_levels(
         chosen = _series(tif, series)
         if fetched is not None:
             _check_fetched(tif, chosen, fetched)
-        full = merge_attributes(_ome_physical(tif, chosen), attributes)
+        stated = merge_attributes(_imagej_physical(tif, chosen), _ome_physical(tif, chosen))
+        full = merge_attributes(stated, attributes)
         return {str(i): level_array(level, url, attributes=full if i == 0 else attributes)
                 for i, level in enumerate(chosen.levels)}
 
@@ -137,6 +140,44 @@ def _ome_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> di
     if not scale:
         return {}
     return {"scale": scale, "units": dict.fromkeys(scale, "micrometer")}
+
+
+def _imagej_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> dict:
+    """The pixel sizes and channel labels ImageJ metadata states for ``series``.
+
+    ImageJ writes ``ResolutionUnit`` NONE and keeps the unit in its own
+    ``unit`` key, so the resolution tags give ``y`` and ``x`` in that unit and
+    ``spacing`` gives ``z``. Without a ``unit`` nothing is stated, and a unit
+    ``SU2UM`` does not convert is dropped. ``Labels`` holds one label per
+    plane, so it names channels only when every plane is a channel.
+    """
+    meta = tif.imagej_metadata
+    if not meta or series.kind != "imagej":
+        return {}
+    out: dict = {}
+    unit = str(meta.get("unit", ""))
+    if "\\u" in unit:
+        # ImageJ escapes non-ASCII characters in its description, so "µm" arrives as "µm".
+        unit = unit.encode("ascii", "backslashreplace").decode("unicode_escape")
+    factor = SU2UM.get(unit.lower())
+    if factor is not None:
+        page = series.keyframe
+        scale = {}
+        if all(t in page.tags for t in ("XResolution", "YResolution")):
+            x, y = page.get_resolution()
+            if x > 0 and y > 0:
+                scale |= {"y": factor / y, "x": factor / x}
+        spacing = meta.get("spacing")
+        if "Z" in series.axes and isinstance(spacing, (int, float)) and spacing > 0:
+            scale["z"] = spacing * factor
+        if scale:
+            out = {"scale": scale, "units": dict.fromkeys(scale, "micrometer")}
+    labels = meta.get("Labels")
+    channels = meta.get("channels")
+    if (labels and "C" in series.axes and series.keyframe.samplesperpixel == 1
+            and len(labels) == channels == meta.get("images")):
+        out["channel_names"] = list(labels)
+    return out
 
 
 def _check_fetched(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries,
