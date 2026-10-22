@@ -72,6 +72,12 @@ retired in favour of virtual-tiff.
 | --- | --- | --- | --- |
 | The `flac` Zarr 3 codec exists only on the `zarr3-flac-codec-2026-10-19` tag of a flac-numcodecs fork, which the root `pyproject.toml` pins in `[tool.uv.sources]`. | `minus80.parsers.flac` | Merge the codec into flac-numcodecs and release it. | not filed |
 
+## zarr
+
+| Workaround | Module | Upstream | Status |
+| --- | --- | --- | --- |
+| `submit` starts a coroutine on zarr's IO loop through the private `zarr.core.sync._get_loop`, so range GETs can be cancelled and the loop's daemon thread does not hold the interpreter open. `zarr.core.sync.sync` runs a coroutine to completion but returns no handle to cancel it. | `minus80.core.aio` | Expose a public way to submit a coroutine to zarr's IO loop and get a cancellable future. | no issue found |
+
 ## Python standard library
 
 | Workaround | Module | Upstream | Status |
