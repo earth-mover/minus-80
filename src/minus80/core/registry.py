@@ -76,9 +76,57 @@ def s3_anonymous() -> bool:
     return os.environ.get("MINUS80_S3_ANONYMOUS", "").lower() in ("1", "true", "yes")
 
 
-def s3_region() -> str | None:
-    """The S3 region from the environment, or None to leave it to the backend."""
-    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+#: Where a bucket's region is asked for. Path-style, because a virtual-hosted
+#: name for a bucket with a dot in it fails TLS verification.
+S3_REGION_ENDPOINT = "https://s3.amazonaws.com"
+
+
+def s3_region(bucket: str | None = None) -> str | None:
+    """The region to address ``bucket`` in.
+
+    ``AWS_REGION`` or ``AWS_DEFAULT_REGION`` wins when set. Otherwise the
+    bucket's own region is asked of S3, because obstore and icechunk fall back
+    to us-east-1 and a bucket elsewhere answers that with a redirect neither
+    follows. None, leaving the region to the backend, when there is no bucket,
+    when ``AWS_ENDPOINT_URL`` or ``AWS_ENDPOINT`` points at a store that is not
+    AWS, or when the lookup fails.
+    """
+    if region := os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"):
+        return region
+    if not bucket or os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT"):
+        return None
+    try:
+        return bucket_region(bucket, S3_REGION_ENDPOINT)
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=256)
+def bucket_region(bucket: str, endpoint: str = S3_REGION_ENDPOINT) -> str:
+    """The region S3 reports for ``bucket``, from an unsigned ``HEAD``.
+
+    S3 names the region in an ``x-amz-bucket-region`` header on the answer
+    whether that is a 200, a 301 to the regional endpoint or a 403 for a
+    private bucket, so the request needs no credentials and no redirect is
+    followed. A failure raises ``OSError`` and is not cached.
+    """
+    from urllib.error import HTTPError
+    from urllib.parse import quote
+    from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+    class _NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    request = Request(f"{endpoint.rstrip('/')}/{quote(bucket)}", method="HEAD")
+    try:
+        with build_opener(_NoRedirect).open(request, timeout=10) as response:
+            headers = response.headers
+    except HTTPError as error:
+        headers = error.headers
+    if region := headers.get("x-amz-bucket-region"):
+        return region
+    raise OSError(f"S3 did not report a region for bucket {bucket!r}")
 
 
 def store_and_key(url: str, *, patient: bool = False) -> tuple:
@@ -179,7 +227,7 @@ def _build_registry(directory: str, patient: bool = False) -> ObjectStoreRegistr
     root, opts = directory, {}
     if scheme == "s3":
         cfg = {}
-        if region := s3_region():
+        if region := s3_region(urlparse(directory).netloc):
             cfg["region"] = region
         if s3_anonymous():
             cfg["skip_signature"] = True

@@ -51,6 +51,11 @@ open_repo("repo")["volume"][1]
   `http(s)://` sources only. Any other scheme raises `ValueError`.
 - `s3://` sources are read with credentials from the environment. Set
   `MINUS80_S3_ANONYMOUS=1` to read a public bucket unsigned.
+- An S3 bucket's region is `AWS_REGION` or `AWS_DEFAULT_REGION` when set.
+  Otherwise it is asked of S3 once per bucket, with an unsigned `HEAD` to
+  `s3.amazonaws.com`. When `AWS_ENDPOINT_URL` or `AWS_ENDPOINT` is set, or the
+  lookup fails, the region is left to obstore and icechunk, which assume
+  us-east-1.
 
 Format pitfalls are collected in [docs/formats.md](../../../docs/formats.md),
 and the parts of this package that belong upstream in

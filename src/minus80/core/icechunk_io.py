@@ -60,8 +60,8 @@ def _access_for(prefix: str):
 def _store_for(prefix: str):
     """The Icechunk object store backing a container prefix.
 
-    ``s3://`` uses ``s3_store`` (region and anonymity from the environment, see
-    :mod:`minus80.core.registry`), so a repo of references into a public S3
+    ``s3://`` uses ``s3_store`` (the bucket's region and anonymity, see
+    :func:`minus80.core.registry.s3_region`), so a repo of references into a public S3
     bucket resolves without local credentials. Arraylake accepts S3-backed
     containers and refuses HTTP-backed ones. ``http(s)`` uses ``http_store``
     with ``allow_http``, so plain-http origins such as a localhost server work
@@ -73,7 +73,9 @@ def _store_for(prefix: str):
     if (path := file_path(prefix)) is not None:
         return icechunk.local_filesystem_store(str(path))
     if scheme == "s3":
-        return icechunk.s3_store(region=s3_region(), anonymous=s3_anonymous())
+        return icechunk.s3_store(
+            region=s3_region(urlparse(prefix).netloc), anonymous=s3_anonymous()
+        )
     if scheme in ("http", "https"):
         return icechunk.http_store({"allow_http": "true"})
     raise ValueError(
@@ -125,7 +127,8 @@ def storage_for(location: str | Path):
 
     An ingest run on a cloud worker has to leave its repo somewhere that outlives
     the worker, so the repo location may be an S3 prefix as well as a path. S3
-    credentials and region come from the environment.
+    credentials come from the environment, the region as for
+    :func:`minus80.core.registry.s3_region`.
     """
     import icechunk
 
@@ -134,7 +137,7 @@ def storage_for(location: str | Path):
         return icechunk.Storage.new_local_filesystem(str(Path(text).resolve()))
     bucket, _, prefix = text[len("s3://") :].partition("/")
     return icechunk.s3_storage(
-        bucket=bucket, prefix=prefix or None, region=s3_region(), from_env=True
+        bucket=bucket, prefix=prefix or None, region=s3_region(bucket), from_env=True
     )
 
 
