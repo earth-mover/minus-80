@@ -1,91 +1,105 @@
 # minus80.parsers.nd2
 
-Address the frames of a Nikon **ND2** file where they already lie, as
-[VirtualiZarr](https://virtualizarr.readthedocs.io) references into
-[Icechunk](https://icechunk.io). No pixel is copied and no ND2 chunk is parsed
-here: the parsing is [`nd2`](https://github.com/tlambert03/nd2)'s.
+Turns the frames of an uncompressed Nikon **ND2** file into
+[VirtualiZarr](https://virtualizarr.readthedocs.io) `ManifestArray`s whose
+chunks reference the file's own bytes. The ND2 parsing is done by
+[`nd2`](https://github.com/tlambert03/nd2); this package does not decode an ND2
+chunk itself.
 
 ```bash
 uv sync --extra nd2
 ```
 
-## Why it is cheap
-
-An ND2 ends with a **chunk map**: a flat table of `name -> (offset, size)`
-covering every chunk in the file, image frames included. A reader that can
-fetch the tail therefore addresses the whole file arithmetically, with no walk
-from one frame to the next. Measured against `ftp.ebi.ac.uk`, one file costs
-**four requests and about 685 KB**, whatever the file weighs:
-
-| | |
-| --- | --- |
-| Requests | a HEAD, a head block, a tail block, one coalesced metadata range |
-| Bytes fetched | 685 KB for a 101 MB file |
-| Pixel bytes fetched | none |
-
-## The one function
+## Usage
 
 ```python
 from minus80.parsers.nd2 import index_nd2
 
-index = index_nd2("https://…/0X.nd2")       # a URL, or a local path
+index = index_nd2("https://…/0X.nd2")      # a URL, a local path, or an open file with url=
 index.positions        # 4 stage positions
-index.frame_shape      # (3, 2048, 2048) — (c, y, x)
-index.channel_names    # ('Phase', 'Tx Red', 'YFP'), in the file's own order
-index.pixel_size_um    # {'y': 0.064468…, 'x': 0.064468…}
+index.frame_shape      # (3, 2048, 2048), as (c, y, x)
 
-marr = index.position_array(0)             # a VirtualiZarr ManifestArray
+arrays = index.position_arrays()          # {"0": ManifestArray, "1": …}
+stacked = index.stacked_array(attributes={"study": "idr0095"})
 ```
 
-`index_nd2(url)` returns an `ND2Index`: everything the file states about itself,
-plus the byte offset of every frame. Two methods turn that into VirtualiZarr
-`ManifestArray`s, which a `ManifestGroup` writes to a store with
-`to_icechunk`:
+`index_nd2(source, *, url=None)` returns an `ND2Index`: what the file states
+about itself, and the byte offset of every frame. `source` is a URL, a local
+path, or an open binary file. `url` is the address the arrays record, and
+defaults to the source's own. An open file has no address, so passing one
+without `url` raises `ValueError`.
 
-| Method | Shape | A chunk is |
-| --- | --- | --- |
-| `position_array(p)` | `(c, y, x)` | the whole frame |
-| `stacked_array(attrs=…)` | `(position, c, y, x)` | one frame |
+Three methods turn the index into arrays. Each takes `attributes=`, which is
+merged over the attributes the parser sets.
 
-Both address the same bytes, so writing both costs references and no storage.
+| Method | Returns | Shape | A chunk is |
+| --- | --- | --- | --- |
+| `position_array(p)` | one `ManifestArray` | `(c, y, x)` | the whole frame |
+| `position_arrays()` | `{"0": …, "1": …}`, one per position in file order | `(c, y, x)` | the whole frame |
+| `stacked_array()` | one `ManifestArray` | `(position, c, y, x)` | one frame |
 
-**Chunking is never chosen here.** A chunk of the store is a chunk of the
-source, so no read of these arrays asks the server for a range the file does
-not already have.
+The stacked array references the same bytes as the position arrays, so writing
+both costs references and no storage. A `ManifestGroup` writes any of them to
+Icechunk with `to_icechunk`.
 
-**The channel axis leads without moving a byte.** An ND2 frame is stored
-`(y, x, c)`, channel-interleaved, but Zarr v3's `transpose` codec is an
-array-to-array codec that declares exactly that relation. The arrays are
-spec-shaped `(c, y, x)` over untouched bytes, with codecs
-`[transpose(order=(1, 2, 0)), bytes]`. The tests check this byte for byte
+Every array carries these attributes:
+
+- `channel_names`, in the file's channel order;
+- `scale` and `units` for `y` and `x` in micrometer, for each axis the file
+  marks as calibrated;
+- `source_url`, the file the manifest references.
+
+A position array also carries `stage_position_um`, the stage's `[x, y, z]` as
+the file states it. It is not turned into an OME-Zarr `translation`, because
+the stage's axes can differ from the image's in orientation and sign.
+
+An ND2 frame is stored `(y, x, c)`, with channels interleaved. The arrays are
+declared `(c, y, x)` and decode through Zarr v3's `transpose` codec, so the
+channel axis leads without rewriting a byte. The tests check every position
 against `nd2.ND2File.asarray()`.
+
+## Remote files
+
+An ND2 ends with a chunk map: a table of `name -> (offset, size)` for every
+chunk in the file, frames included. Reading the tail is therefore enough to
+address every frame, without walking from one to the next. Against
+`ftp.ebi.ac.uk`, indexing a 101 MB file took four requests and 685 KB:
+
+- a HEAD for the length;
+- a 64 KiB block from the start and a 512 KiB block from the end;
+- one range covering the metadata chunks between them, merged across gaps of
+  up to 1 MiB, since a megabyte of padding costs less than another round trip.
+
+`nd2.ND2File` reads by seeking a file, so these ranges are written into a
+temporary sparse file of the source's length, and `nd2` reads that. No frame
+byte is fetched. `index.requests` and `index.fetched_bytes` report the cost,
+and are 0 for a local path or an open file, which `nd2` reads in place.
 
 ## Limits
 
-- **Compressed ND2 is refused.** `UnsupportedND2`, because no Zarr codec
-  decodes ND2's compression, so its bytes cannot be referenced.
+- **Compressed ND2 is refused** with `UnsupportedND2`. Only uncompressed frames
+  are referenced.
 - **Padded rows are refused.** A row occupying more bytes than its pixels need
   is not a Zarr chunk.
-- **Only a stage-position loop is read.** A frame becomes one position, so a
-  file that also loops over time or z would have those frames presented as
-  fields of view. Such a file raises `UnsupportedND2` rather than being
-  described wrongly.
-- **A chunk spans every channel**, so reading one channel reads all of them.
-  Tiling within a frame is not available either: the file's chunk is the frame.
-- **No z scale is reported.** `nd2` answers 1.0 for a file with no z loop,
-  which is a placeholder for an absent axis rather than a micrometre, so
-  `pixel_size_um` carries `y` and `x` only.
+- **Only a stage-position loop is read.** Each frame becomes one position, so
+  a file that also loops over time or z would have those frames presented as
+  fields of view. Such a file raises `UnsupportedND2`.
+- **A chunk spans every channel and the whole frame**, because that is the
+  file's storage unit. Reading one channel or one tile reads the frame.
+- **An uncalibrated axis has no scale.** `nd2`'s `voxel_size()` reports 1.0
+  for it, which would read as a real micrometre, so `scale` lists only the axes
+  the file marks as calibrated.
+- **Frame offsets come from a private attribute** of `nd2`'s reader,
+  `ND2File._rdr._frame_offsets`, since `nd2` has no public API for them.
 
 ## Tests
 
 ```bash
-uv run pytest tests/parsers/nd2                                # byte-identity tests skip without a fixture
+uv run pytest tests/parsers/nd2                                # read-back tests skip without the fixture
 MINUS80_ND2_TEST_DOWNLOAD=1 uv run pytest tests/parsers/nd2    # fetch the 101 MB fixture once
 ```
 
-The remote test reads only the index, so it is quick over any connection, and
-it skips when the host is not answering: a server that is down is not a failure
-of this parser. The byte-identity test needs the whole file, because `nd2`'s
-reader takes a path. It caches the download in `tests/parsers/nd2/.cache/`
-(or `MINUS80_ND2_TEST_CACHE`) and reuses that copy on every later run, so the
-rest of the suite needs no network at all.
+The remote test fetches only the index and skips when the host is not
+answering. The other tests need the whole file, because they compare against
+`nd2`'s own decode. It is cached in `tests/parsers/nd2/.cache/`, or in
+`MINUS80_ND2_TEST_CACHE`, and reused on later runs.
