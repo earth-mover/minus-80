@@ -18,21 +18,18 @@ import pytest
 pynwb = pytest.importorskip("pynwb")
 
 from minus80.core import as_url, icechunk_io  # noqa: E402
-from minus80.parsers.nwb import file_datasets  # noqa: E402
+from minus80.parsers.nwb import file_datatree  # noqa: E402
 
 
 def _write(source, repo_path):
-    """Write one file's Datasets under ``d/s`` and return a read-only store."""
-    url = as_url(source)
-    repo = icechunk_io.create_repo(str(repo_path), [url])
+    """Write one file's tree and return a read-only store."""
+    repo = icechunk_io.create_repo(str(repo_path), [as_url(source)])
     session = repo.writable_session("main")
-    datasets, _ = file_datasets(source)
     with warnings.catch_warnings():
         # A one-column table is only its own index coordinate, which the writer
         # flags as an entirely non-virtual Dataset.
         warnings.filterwarnings("ignore", message=".*entirely non-virtual Dataset.*")
-        for parent in sorted(datasets, key=lambda p: p.count("/")):
-            datasets[parent].vz.to_icechunk(session.store, group=f"d/s/{parent}")
+        file_datatree(source).vz.to_icechunk(session.store)
     session.commit("test")
     return repo.readonly_session("main").store
 
@@ -56,7 +53,7 @@ def nwbfile(source):
 def _open(store, group):
     import xarray as xr
 
-    return xr.open_zarr(store, group=f"d/s/{group}", consolidated=False, zarr_format=3)
+    return xr.open_zarr(store, group=group, consolidated=False, zarr_format=3)
 
 
 def test_timeseries_values_and_axis(store, nwbfile):
@@ -73,7 +70,7 @@ def test_timeseries_values_and_axis(store, nwbfile):
     expected = ref.starting_time + np.arange(ref.data.shape[0]) / ref.rate
     np.testing.assert_allclose(ds["time"].values, expected, rtol=0, atol=1e-9)
     assert ds["data"].attrs["unit"] == ref.unit
-    assert ds.attrs["rate"] == ref.rate
+    assert ds["starting_time"].attrs["rate"] == ref.rate
 
 
 def test_irregular_series_uses_its_own_timestamps(store, nwbfile):

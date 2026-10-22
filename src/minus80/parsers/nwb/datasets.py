@@ -1,26 +1,20 @@
-"""NWB files as one ``xr.Dataset`` per parent group, with shared, indexed axes.
+"""One NWB file as an ``xr.DataTree``, with shared, indexed axes.
 
 :func:`~minus80.parsers.nwb.parser.open_collection` keeps every array on its own
 unnamed axes. This layout instead makes the store selectable without knowing NWB:
 
-* one virtual Dataset **per NWB parent group**, every numeric child a sibling
-  variable (so ``ElectricalSeries`` holds ``data`` and ``timestamps`` together);
+* one Dataset **per NWB group**, every child dataset a sibling variable (so
+  ``ElectricalSeries`` holds ``data`` and ``timestamps`` together);
 * shared dim names from the NWB schema: ``time`` for a TimeSeries, the group's
   own name for a DynamicTable's row axis;
-* real index coordinates on those axes (sample times, row ids, electrode ids);
-* the file's non-virtualizable data and NWB metadata returned beside the
-  Datasets, for the caller to put on the file's group.
-
-Write each Dataset with ``ds.vz.to_icechunk(session.store, group=...)``,
-shallowest parent first: some NWB groups hold data *and* are ancestors of other
-data groups, and writing a deep one first auto-creates the shallow group.
+* real index coordinates on those axes (sample times, row ids, electrode ids).
 """
 from __future__ import annotations
 
-from minus80.core import as_url, registry_for
-from minus80.core.fetch import local_copy
+from minus80.core import registry_for
+from minus80.core.jsonable import jsonable
 
-from .parser import _manifest_arrays_for_file, _walk, native_parts
+from .parser import _opened, file_contents
 
 # A regular time axis is a linear ramp, which blosc's byte shuffle plus zstd compresses
 # ~230x (a 2.88 M-sample 4.8 kHz axis: 23 MB of float64 down to 100 KB), so materializing
@@ -34,7 +28,7 @@ MAX_COORD_POINTS = 50_000_000
 MAX_INDEX_COORD = 1_000_000
 
 
-def _primary_coord(ds, parent: str, primary_dim: str, native: dict, leaves: dict, src):
+def _primary_coord(ds, parent: str, primary_dim: str, leaves: dict, src):
     """Index the shared primary axis, so the opened Dataset is selectable.
 
     A TimeSeries gets ``time`` in seconds: an irregular one from its own ``timestamps``,
@@ -47,7 +41,7 @@ def _primary_coord(ds, parent: str, primary_dim: str, native: dict, leaves: dict
     if primary_dim not in ds.dims:
         return ds
     n = ds.sizes[primary_dim]
-    if n > MAX_COORD_POINTS or src is None:
+    if n > MAX_COORD_POINTS:
         return ds
 
     if primary_dim == "time":
@@ -64,15 +58,15 @@ def _primary_coord(ds, parent: str, primary_dim: str, native: dict, leaves: dict
             )
             return ds
 
-        entry = native.get(f"{parent}/starting_time" if parent else "starting_time")
-        if entry is None:
+        if "starting_time" not in leaves:
             return ds
-        start, attrs = native_parts(entry)
+        dset = src[f"{parent}/starting_time"]
+        start, attrs = dset[()], jsonable(dict(dset.attrs))
         rate = attrs.get("rate")
-        if not isinstance(start, (int, float)) or not isinstance(rate, (int, float)) or not rate:
+        if dset.ndim or dset.dtype.kind not in "iuf" or not isinstance(rate, (int, float)) \
+                or not rate:
             return ds
-        ds = ds.assign_attrs(starting_time=start, rate=rate)
-        values = start + np.arange(n, dtype="float64") / rate
+        values = float(start) + np.arange(n, dtype="float64") / rate
         ds = _materialize(ds, "time", values, units=attrs.get("unit", "seconds"))
         ds["time"].attrs["monotonic"] = True  # computed from a positive rate
         return ds
@@ -171,12 +165,11 @@ def _materialize(ds, name: str, values, *, dim: str | None = None,
     return ds
 
 
-def _parent_datasets(by_parent: dict, registry, group_attrs: dict | None = None,
-                     native: dict | None = None, local: str | None = None):
-    """``{parent_path: xr.Dataset}`` — one Dataset per NWB parent, ready to select on.
+def _group_dataset(group: str, leaves: dict, attrs: dict, registry, src):
+    """One NWB group as an ``xr.Dataset``, ready to select on.
 
-    NWB's HDF5 datasets carry no dimension names, so VirtualiZarr would leave
-    ``phony_dim_0`` and every array would sit on its own unrelated axis. Per parent:
+    NWB's HDF5 datasets carry no dimension names, so every array would sit on its
+    own unrelated axis. Per group:
 
     * the primary axis (``data``'s first axis, else the most common first-axis length)
       is ``time`` for a TimeSeries-like group, else the group's own name — so a
@@ -186,85 +179,64 @@ def _parent_datasets(by_parent: dict, registry, group_attrs: dict | None = None,
     * the axis that has an index gets a real coordinate (see :func:`_materialize`), so
       ``.sel`` works on an opened Dataset without the reader knowing NWB;
     * any remaining axis is ``<var>_<i>``.
+
+    The file root has no primary axis: its datasets (``identifier``,
+    ``file_create_date``) describe the session, not samples of one thing.
     """
     from collections import Counter
 
-    import h5py
     import xarray as xr
     from virtualizarr.manifests import ManifestGroup, ManifestStore
 
-    group_attrs = group_attrs or {}
-    out = {}
-    src = h5py.File(local, "r") if local else None
-    try:
-        for parent, leaves in by_parent.items():
-            first_lens = {leaf: m.shape[0] for leaf, m in leaves.items()
-                          if getattr(m, "ndim", 0) >= 1}
-            primary = first_lens.get("data")
-            if primary is None and first_lens:
-                primary = Counter(first_lens.values()).most_common(1)[0][0]
-            nd = str(group_attrs.get(parent, {}).get("neurodata_type", ""))
-            time_like = "timestamps" in leaves or nd.endswith("Series")
-            primary_dim = "time" if time_like else parent.rsplit("/", 1)[-1]
-            if primary_dim in leaves and primary_dim != "timestamps":
-                primary_dim += "_rows"  # never collide with a same-named variable
-            secondary = _secondary_indexes(leaves, primary)
+    first_lens = {leaf: m.shape[0] for leaf, m in leaves.items() if m.ndim >= 1}
+    primary = first_lens.get("data")
+    if primary is None and first_lens and group:
+        primary = Counter(first_lens.values()).most_common(1)[0][0]
+    nd = str(attrs.get("neurodata_type", ""))
+    time_like = "timestamps" in leaves or nd.endswith("Series")
+    primary_dim = "time" if time_like else group.rsplit("/", 1)[-1]
+    if primary_dim in leaves and primary_dim != "timestamps":
+        primary_dim += "_rows"  # never collide with a same-named variable
+    secondary = _secondary_indexes(leaves, primary)
 
-            parts = []
-            for leaf, marr in leaves.items():
-                vds = ManifestStore(
-                    ManifestGroup(arrays={leaf: marr}), registry=registry
-                ).to_virtual_dataset(loadable_variables=[])
-                rename = {}
-                for i, d in enumerate(vds[leaf].dims):
-                    n = marr.shape[i]
-                    if i == 0 and n == primary:
-                        rename[d] = primary_dim
-                    elif n in secondary:
-                        rename[d] = _placeholder(secondary[n])
-                    else:
-                        rename[d] = f"{leaf}_{i}"
-                parts.append(vds.rename_dims(rename))
+    parts = []
+    for leaf, marr in leaves.items():
+        dims = []
+        for i, n in enumerate(marr.shape):
+            if i == 0 and n == primary:
+                dims.append(primary_dim)
+            elif n in secondary:
+                dims.append(_placeholder(secondary[n]))
+            else:
+                dims.append(f"{leaf}_{i}")
+        named = marr.with_dimension_names(dims or None)
+        parts.append(ManifestStore(
+            ManifestGroup(arrays={leaf: named}), registry=registry
+        ).to_virtual_dataset(loadable_variables=[]))
 
-            ds = xr.merge(parts)
-            ds.attrs.update(group_attrs.get(parent, {}))  # neurodata_type, description, …
-            for leaf in secondary.values():
-                if src is not None:
-                    ds = _materialize(ds, leaf, _index_values(src, f"{parent}/{leaf}"),
-                                      dim=_placeholder(leaf), replaces=leaf)
-                else:  # no source to read: leave the axis unindexed, but named plainly
-                    ds = ds.rename_dims({_placeholder(leaf): f"{leaf}_0"})
-            out[parent] = _primary_coord(ds, parent, primary_dim, native or {}, leaves, src)
-    finally:
-        if src is not None:
-            src.close()
-    return out
+    ds = xr.merge(parts) if parts else xr.Dataset()
+    ds.attrs.update(attrs)
+    for leaf in secondary.values():
+        ds = _materialize(ds, leaf, _index_values(src, f"{group}/{leaf}"),
+                          dim=_placeholder(leaf), replaces=leaf)
+    return _primary_coord(ds, group, primary_dim, leaves, src)
 
 
-def file_datasets(source, *, registry=None):
-    """Build one NWB file's per-parent Datasets without writing them.
+def file_datatree(source, *, url=None, attributes=None):
+    """One NWB file as an ``xr.DataTree`` whose nodes are the file's groups.
 
-    Returns ``(datasets, nwb_attrs)``: ``datasets`` is ``{parent_path: xr.Dataset}``,
-    one virtual Dataset per NWB parent (see :func:`_parent_datasets`), and
-    ``nwb_attrs`` is the file's non-virtualizable data and NWB metadata, for the
-    file group's ``_nwb`` attribute.
+    ``source`` is a path, a URL or an open binary file; ``url`` is the address
+    the manifests record, required for an open file. ``attributes`` are merged
+    into the root node's. Write the tree with ``tree.vz.to_icechunk(store)``.
     """
-    url = as_url(source)
-    reg = registry or registry_for(url)
-    local = local_copy(url)
-    numeric_by_parent, native, group_attrs, root_attrs = _walk(local)
-    marrs = _manifest_arrays_for_file(url, reg, numeric_by_parent)  # {full_path: marr}
+    import h5py
+    import xarray as xr
 
-    by_parent: dict = {}
-    for full, marr in marrs.items():
-        parent, _, leaf = full.rpartition("/")
-        by_parent.setdefault(parent, {})[leaf] = marr
-
-    datasets = _parent_datasets(by_parent, reg, group_attrs, native, local)
-    nwb_attrs = {
-        "source": url,
-        "root_attrs": root_attrs,
-        "group_attrs": group_attrs,
-        "native": native,
-    }
-    return datasets, nwb_attrs
+    with _opened(source, url) as (fh, recorded):
+        contents = file_contents(fh, recorded)
+        registry = registry_for(recorded)
+        with h5py.File(fh, "r") as src:
+            nodes = {f"/{group}": _group_dataset(group, arrays, attrs, registry, src)
+                     for group, (arrays, attrs) in contents.items()}
+    nodes["/"].attrs.update(jsonable(dict(attributes or {})))
+    return xr.DataTree.from_dict(nodes)
