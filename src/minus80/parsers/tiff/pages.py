@@ -107,7 +107,8 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
 
     ``attributes`` are merged over what the page states: ``scale`` and
     ``units`` for ``y`` and ``x`` from the resolution tags, and
-    ``channel_names`` for an RGB or YCbCr page.
+    ``channel_names`` for an RGB or YCbCr page. ``scale`` and ``units`` merge
+    per dimension, so a caller's ``z`` keeps the page's ``y`` and ``x``.
     """
     page = level.keyframe
     samples = page.samplesperpixel
@@ -151,8 +152,15 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     dims += ["y", "x"]
     return manifest_array(
         url, offsets, lengths, shape=shape, chunk_shape=chunks, dtype=page.dtype,
-        codecs=codecs, dimension_names=dims,
-        attributes={**_stated(page), **(attributes or {})})
+        codecs=codecs, dimension_names=dims, attributes=merge_attributes(_stated(page), attributes))
+
+
+def merge_attributes(base: Mapping, over: Mapping | None) -> dict:
+    """``over`` merged into ``base``; ``scale`` and ``units`` merge per dimension."""
+    out = dict(base)
+    for key, value in (over or {}).items():
+        out[key] = {**out.get(key, {}), **value} if key in ("scale", "units") else value
+    return out
 
 
 def _stated(page: tifffile.TiffPage) -> dict:

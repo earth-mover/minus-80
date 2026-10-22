@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import BinaryIO, Literal
 
 import tifffile
+from tifffile.tifffile import SU2UM
 from virtualizarr.manifests import ManifestArray
 
 from minus80.core import remote
@@ -15,7 +16,7 @@ from minus80.core.fetch import download_then_index, sparse_local
 from minus80.core.registry import as_url, file_path
 
 from .inspect import directory_layout
-from .pages import level_array
+from .pages import level_array, merge_attributes
 
 Prefetch = Literal["ranges", "directories", "whole"]
 
@@ -52,7 +53,10 @@ def tiff_levels(
     - ``"whole"`` downloads the file into the cache first.
 
     Each level is built by :func:`~minus80.parsers.tiff.pages.level_array`;
-    ``attributes`` are merged into every level's.
+    ``attributes`` are merged into every level's. On an OME-TIFF, the pixel
+    sizes the OME-XML states take precedence over the resolution tags on
+    level ``"0"``. The OME-XML describes only the full-resolution image, so
+    reduced levels keep what their own tags state.
     """
     if prefetch not in ("ranges", "directories", "whole"):
         raise ValueError(f"prefetch {prefetch!r}: expected 'ranges', 'directories' or 'whole'")
@@ -60,7 +64,8 @@ def tiff_levels(
         chosen = _series(tif, series)
         if fetched is not None:
             _check_fetched(tif, chosen, fetched)
-        return {str(i): level_array(level, url, attributes=attributes)
+        full = merge_attributes(_ome_physical(tif, chosen), attributes)
+        return {str(i): level_array(level, url, attributes=full if i == 0 else attributes)
                 for i, level in enumerate(chosen.levels)}
 
 
@@ -98,6 +103,40 @@ def _series(tif: tifffile.TiffFile, series: int | str) -> tifffile.TiffPageSerie
         if s.name == series:
             return s
     raise KeyError(f"no series named {series!r}; the file has {[s.name for s in tif.series]}")
+
+
+def _ome_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> dict:
+    """The pixel sizes the OME-XML states for ``series``, as micrometer ``scale`` and ``units``.
+
+    Read from the ``Pixels`` element rather than ``series.coord_scales``:
+    tifffile reports a scale of 1.0 for an axis the file states nothing about,
+    and converts a unit it does not recognise as if it were micrometres. Here
+    an axis is kept only when its size is stated and positive and its unit is
+    one tifffile's ``SU2UM`` table converts. An absent unit is the OME
+    schema's default, µm.
+    """
+    if not tif.is_ome or series.kind != "ome":
+        return {}
+    images = tifffile.xml2dict(tif.ome_metadata).get("OME", {}).get("Image", [])
+    images = images if isinstance(images, list) else [images]
+    named = [im for im in images if im.get("Name") == series.name]
+    if len(named) == 1:
+        pixels = named[0].get("Pixels", {})
+    elif len(images) == len(tif.series):
+        pixels = images[tif.series.index(series)].get("Pixels", {})
+    else:
+        return {}
+    scale = {}
+    for axis in "ZYX":
+        if axis not in series.axes:
+            continue
+        size = pixels.get(f"PhysicalSize{axis}")
+        factor = SU2UM.get(str(pixels.get(f"PhysicalSize{axis}Unit", "µm")).lower())
+        if isinstance(size, (int, float)) and size > 0 and factor is not None:
+            scale[axis.lower()] = size * factor
+    if not scale:
+        return {}
+    return {"scale": scale, "units": dict.fromkeys(scale, "micrometer")}
 
 
 def _check_fetched(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries,

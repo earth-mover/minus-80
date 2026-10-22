@@ -99,3 +99,21 @@ def test_scale_only_from_a_stated_resolution_unit(tmp_path):
     assert attrs["scale"] == pytest.approx({"y": 0.5, "x": 0.25})
     assert attrs["units"] == {"y": "micrometer", "x": "micrometer"}
     assert "scale" not in tiff_levels(unitless)["0"].metadata.attributes
+
+
+def test_ome_physical_sizes_win_over_resolution_tags(tmp_path):
+    path = tmp_path / "sized.ome.tif"
+    tifffile.imwrite(path, np.zeros((3, 16, 16), np.uint8), ome=True,
+                     resolution=(4.0, 4.0), resolutionunit="MICROMETER",
+                     metadata={"axes": "ZYX", "PhysicalSizeX": 200, "PhysicalSizeXUnit": "nm",
+                               "PhysicalSizeY": 0.3, "PhysicalSizeZ": 2.0})
+    attrs = tiff_levels(path)["0"].metadata.attributes
+    assert attrs["scale"] == pytest.approx({"z": 2.0, "y": 0.3, "x": 0.2})
+    assert attrs["units"] == {"z": "micrometer", "y": "micrometer", "x": "micrometer"}
+
+
+def test_ome_tiff_stating_no_size_gets_no_scale(tmp_path):
+    path = tmp_path / "unsized.ome.tif"
+    tifffile.imwrite(path, np.zeros((3, 16, 16), np.uint8), ome=True, metadata={"axes": "ZYX"})
+    attrs = tiff_levels(path)["0"].metadata.attributes
+    assert "scale" not in attrs and "units" not in attrs

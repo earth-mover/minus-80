@@ -40,8 +40,9 @@ stack of pages, is left unnamed.
 
 Each level carries what its own first page states:
 
-- `scale` and `units` for `y` and `x`, in micrometers, from the resolution
-  tags;
+- `scale` and `units`, in micrometers: on an OME-TIFF's level `"0"`, from the
+  OME-XML's `PhysicalSizeX`, `Y` and `Z`; otherwise, and on any axis the
+  OME-XML leaves out, for `y` and `x` from the resolution tags;
 - `channel_names` of `["R", "G", "B"]` for an RGB or YCbCr page;
 - `source_url`, the file the manifest references.
 
@@ -77,12 +78,12 @@ tifffile's own decode:
 Anything else raises `NotImplementedError` rather than writing references that
 decode wrong.
 
-Physical metadata comes from the resolution tags only. A reduced level gets a
-`scale` only when its own page states one; it is never derived from level 0's.
-Physical sizes and channel names in OME-XML or ImageJ metadata are not read
-yet, so an OME-TIFF whose resolution tags state no unit (as tifffile writes
-them) comes out without `scale`. tifffile already parses them
-into `series.coord_scales` and `series.coord_units`.
+A reduced level gets a `scale` only when its own page's resolution tags state
+one; it is never derived from level 0's. The OME-XML describes only the
+full-resolution image, so its sizes apply to level `"0"` alone. An OME size
+in a unit tifffile does not recognise is dropped rather than read as
+micrometers. Channel names in OME-XML, and physical sizes and channel names in
+ImageJ metadata, are not read yet.
 
 The names `R`, `G` and `B` are a judgement call: the photometric tag states a
 colour model, not channel names.
