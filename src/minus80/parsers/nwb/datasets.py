@@ -18,8 +18,9 @@ data groups, and writing a deep one first auto-creates the shallow group.
 from __future__ import annotations
 
 from minus80.core import as_url, registry_for
+from minus80.core.fetch import local_copy
 
-from .parser import _manifest_arrays_for_file, _walk, native_parts, url_to_local
+from .parser import _manifest_arrays_for_file, _walk, native_parts
 
 # A regular time axis is a linear ramp, which blosc's byte shuffle plus zstd compresses
 # ~230x (a 2.88 M-sample 4.8 kHz axis: 23 MB of float64 down to 100 KB), so materializing
@@ -250,7 +251,7 @@ def file_datasets(source, *, registry=None):
     """
     url = as_url(source)
     reg = registry or registry_for(url)
-    local = url_to_local(url)
+    local = local_copy(url)
     numeric_by_parent, native, group_attrs, root_attrs = _walk(local)
     marrs = _manifest_arrays_for_file(url, reg, numeric_by_parent)  # {full_path: marr}
 

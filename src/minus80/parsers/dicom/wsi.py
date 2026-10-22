@@ -18,9 +18,8 @@ from pathlib import Path
 
 import numpy as np
 from minus80.core import as_url
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.manifest import MISSING_CHUNK_PATH
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from minus80.core.manifest import channel_last_transpose, manifest_array
+from virtualizarr.manifests import ManifestArray
 
 from .parser import PIXEL_DATA_TAG, native_pixeldata_byte_range
 
@@ -123,31 +122,21 @@ def wsi_level_array(
         # the decoded interleaved layout to channel-first, keeping the array and its
         # downsampled pyramid axis-consistent.
         shape, chunk, grid, dims = (s, Y, X), (s, ty, tx), (1, n_rows, n_cols), ("c", "y", "x")
-        codecs = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, serializer]
+        codecs = [channel_last_transpose(3), serializer]
     else:
         shape, chunk, grid, dims = (Y, X), (ty, tx), (n_rows, n_cols), ("y", "x")
         codecs = [serializer]
 
     # Frames are raster-ordered (row-major over the tile grid), so a C-order reshape of
     # the frame-index list onto the grid puts frame r*n_cols+c at cell (…, r, c).
-    url = url_for(path)
+    # An encapsulated frame whose fragment Item is empty has no stored bytes, and
+    # manifest_array makes it a missing chunk that reads as fill.
     offsets = np.array([o for o, _ in ranges], dtype=np.uint64).reshape(grid)
     lengths = np.array([ln for _, ln in ranges], dtype=np.uint64).reshape(grid)
-    paths = np.full(grid, url, dtype=np.dtypes.StringDType())
-    # An encapsulated frame whose fragment Item is empty has no stored bytes; a
-    # zero-length reference is rejected by Icechunk, so it reads as fill instead.
-    paths[lengths == 0] = MISSING_CHUNK_PATH
-    metadata = create_v3_array_metadata(
-        shape=shape,
-        data_type=m["dtype"],
-        chunk_shape=chunk,
-        fill_value=0,
-        codecs=codecs,
-        dimension_names=dims,
-        attributes={"tile_size": [ty, tx], "transfer_syntax": xfer},
-    )
-    manifest = ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths)
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest)
+    return manifest_array(
+        url_for(path), offsets, lengths, shape=shape, chunk_shape=chunk, dtype=m["dtype"],
+        codecs=codecs, dimension_names=dims,
+        attributes={"tile_size": [ty, tx], "transfer_syntax": xfer})
 
 
 def pyramid_levels(sources: list[str | Path]) -> list[tuple[int, int, str | Path]]:

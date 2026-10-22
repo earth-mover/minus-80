@@ -63,11 +63,16 @@ Some NWB numeric datasets are contiguous rather than HDF5-chunked. `HDFParser`
 maps each to a single chunk at the dataset's storage offset, which references
 correctly but reads at whole-array granularity.
 
-## Filenames with `+`
+## Local paths with `+` or spaces
 
 DANDI paths such as `..._behavior+ecephys.nwb` become `%2B` through
-`Path.as_uri()` and then fail local-store prefix matching in the registry. Name
-local copies without `+`. The fix belongs in `as_url` and the registry.
+`Path.as_uri()`. `HDFParser` resolves that URL through obspec-utils'
+`ObjectStoreRegistry`, which returns the key still encoded, so `a+b.nwb` is
+looked up as `a%2Bb.nwb`, and which strips the store's decoded prefix from the
+encoded path, so a file under `sp ace/` or `pl+us/` gets its whole path as the
+key. Both raise `FileNotFoundError`. `minus80.core.registry.store_and_key`
+works around both for every fetch, but `HDFParser` calls `resolve` itself.
+Name local copies without them until obspec-utils decodes the path.
 
 ## Selectable axes: what an index coordinate costs
 

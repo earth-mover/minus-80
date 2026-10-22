@@ -24,9 +24,9 @@ import numpy as np
 import tifffile
 from imagecodecs.zarr import Jpeg, Lzw
 from tifffile.tifffile import jpeg_decode_colorspace
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.manifest import MISSING_CHUNK_PATH
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from virtualizarr.manifests import ManifestArray
+
+from minus80.core.manifest import channel_last_transpose, manifest_array
 
 _JPEG = 7
 _LZW = 5
@@ -49,7 +49,7 @@ def page_codecs(page: tifffile.TiffPage) -> list[dict]:
     samples = page.samplesperpixel
     if samples > 1 and page.planarconfig != tifffile.PLANARCONFIG.CONTIG:
         raise NotImplementedError(f"page {page.index}: planar configuration {page.planarconfig!r}")
-    head = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}}] if samples > 1 else []
+    head = [channel_last_transpose(3)] if samples > 1 else []
     if page.compression == _JPEG:
         colorspace, outcolorspace = jpeg_decode_colorspace(
             page.photometric, page.planarconfig, page.extrasamples, page.is_jfif)
@@ -109,20 +109,14 @@ def page_array(page: tifffile.TiffPage, url: str, *, shape: Sequence[int] | None
     if offsets.size != grid[0] * grid[1]:
         raise ValueError(f"page {page.index}: {offsets.size} tiles for a {grid} grid over {shape}")
     offsets, lengths = offsets.reshape(grid), lengths.reshape(grid)
-    paths = np.full(grid, url, dtype=np.dtypes.StringDType())
-    empty = lengths == 0
-    paths[empty] = MISSING_CHUNK_PATH
-    offsets[empty] = 0
     if samples > 1:
         array_shape, chunks, dims = (samples, height, width), (samples, rows, cols), ("c", "y", "x")
-        paths, offsets, lengths = paths[None], offsets[None], lengths[None]
+        offsets, lengths = offsets[None], lengths[None]
     else:
         array_shape, chunks, dims = (height, width), (rows, cols), ("y", "x")
-    metadata = create_v3_array_metadata(
-        shape=array_shape, data_type=page.dtype, chunk_shape=chunks, fill_value=0,
-        codecs=page_codecs(page), dimension_names=dims, attributes=dict(attributes or {}))
-    manifest = ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths)
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest)
+    return manifest_array(
+        url, offsets, lengths, shape=array_shape, chunk_shape=chunks, dtype=page.dtype,
+        codecs=page_codecs(page), dimension_names=dims, attributes=attributes)
 
 
 def series_arrays(series: tifffile.TiffPageSeries, url: str) -> dict[str, ManifestArray]:

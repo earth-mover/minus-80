@@ -16,8 +16,8 @@ from pathlib import Path
 
 import numpy as np
 from minus80.core import as_url
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from minus80.core.manifest import manifest_array
+from virtualizarr.manifests import ManifestArray
 
 from .parser import NATIVE_TRANSFER_SYNTAXES, native_pixeldata_byte_range
 
@@ -84,18 +84,11 @@ def volume_array(
     zc = len(metas)
     grid = (zc, 1, 1)
     geometry = {"z_positions": z_positions, "z_spacing": spacing}
-    metadata = create_v3_array_metadata(
-        shape=(zc, y, x),
-        data_type=dtype,
-        chunk_shape=(1, y, x),
-        fill_value=0,
+    marr = manifest_array(
+        np.array([url_for(s) for _, s in metas], dtype=object).reshape(grid),
+        np.array([m["data_offset"] for m, _ in metas], dtype=np.uint64).reshape(grid),
+        np.array([m["length"] for m, _ in metas], dtype=np.uint64).reshape(grid),
+        shape=(zc, y, x), chunk_shape=(1, y, x), dtype=dtype,
         codecs=[{"name": "bytes", "configuration": {"endian": "little"}}],
-        dimension_names=("z", "y", "x"),
-        attributes=dict(geometry),
-    )
-    manifest = ChunkManifest.from_arrays(
-        paths=np.array([url_for(s) for _, s in metas], dtype=np.dtypes.StringDType()).reshape(grid),
-        offsets=np.array([m["data_offset"] for m, _ in metas], dtype=np.uint64).reshape(grid),
-        lengths=np.array([m["length"] for m, _ in metas], dtype=np.uint64).reshape(grid),
-    )
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest), geometry
+        dimension_names=("z", "y", "x"), attributes=geometry)
+    return marr, geometry

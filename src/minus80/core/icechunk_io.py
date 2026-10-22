@@ -12,12 +12,12 @@ raises ``ValueError``.
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import zarr
 from virtualizarr.manifests import ManifestGroup
 
-from .registry import s3_anonymous, s3_region, url_dir
+from .registry import file_path, s3_anonymous, s3_region, url_dir
 
 
 def _url_prefix(url: str) -> str:
@@ -27,10 +27,10 @@ def _url_prefix(url: str) -> str:
     scheme/host and drop the final path segment. One prefix groups every source that
     shares it into a single container.
     """
-    if urlparse(url).scheme in ("", "file"):
-        # Unquoted to match registry_for, which unquotes too; otherwise a
+    if (path := file_path(url)) is not None:
+        # Decoded to match registry_for, which decodes too; otherwise a
         # directory with a space in it re-encodes to %2520 and never matches.
-        return Path(unquote(urlparse(url).path)).resolve().parent.as_uri() + "/"
+        return path.resolve().parent.as_uri() + "/"
     return url_dir(url)
 
 
@@ -70,8 +70,8 @@ def _store_for(prefix: str):
     import icechunk
 
     scheme = urlparse(prefix).scheme
-    if scheme in ("", "file"):
-        return icechunk.local_filesystem_store(urlparse(prefix).path)
+    if (path := file_path(prefix)) is not None:
+        return icechunk.local_filesystem_store(str(path))
     if scheme == "s3":
         return icechunk.s3_store(region=s3_region(), anonymous=s3_anonymous())
     if scheme in ("http", "https"):

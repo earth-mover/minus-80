@@ -3,8 +3,9 @@
 A flat array has no internal chunk index. Given its shape, dtype and the byte
 offset where its data starts, all read from the file's header or sidecar by the
 format's own library, each chunk's offset is arithmetic. The array is chunked
-along one axis (the slowest-varying by default), so each chunk is one contiguous
-slab: one slice, one frame or one particle.
+along its outermost axis, so each chunk is one contiguous slab: one slice, one
+frame or one particle. Along any inner axis a chunk would be scattered through
+the file whenever an outer axis is longer than one.
 
 The slabs need not be adjacent. Many acquisition formats interleave a per-record
 header before each slab (a Heidelberg ``.vol`` B-scan header, a Bioptigen ``.OCT``
@@ -29,8 +30,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from virtualizarr.manifests import ManifestArray
+
+from ..manifest import manifest_array
 
 
 def flat_manifest_array(
@@ -43,17 +45,15 @@ def flat_manifest_array(
     # so it has to come from the header.
     endian: str,
     stride: int | None = None,
-    chunk_along: int = 0,
     dimension_names: tuple[str, ...] | None = None,
-    attrs: dict | None = None,
+    attributes: dict | None = None,
 ) -> ManifestArray:
-    """Virtualize a flat C-ordered array as one Zarr array chunked along one axis.
+    """Virtualize a flat C-ordered array as one Zarr array chunked along its first axis.
 
     ``data_offset`` is the byte position in the file where element ``[0, 0, ...]``
     begins. ``endian`` (``"little"``/``"big"``) comes from the file header.
 
-    ``stride`` is the byte distance between the starts of successive slabs along
-    ``chunk_along``. It defaults to the slab size (a fully contiguous array); pass a
+    ``stride`` is the byte distance between the starts of successive slabs. It defaults to the slab size (a fully contiguous array); pass a
     larger value for a format that writes a per-record header before each slab, and
     keep ``data_offset`` pointing at the first slab's *pixels*, past that header.
     """
@@ -61,15 +61,12 @@ def flat_manifest_array(
     shape = tuple(int(s) for s in shape)
     itemsize = dtype.itemsize
 
-    n = shape[chunk_along]
-    chunk_shape = list(shape)
-    chunk_shape[chunk_along] = 1
-    chunk_shape = tuple(chunk_shape)
+    n = shape[0]
+    chunk_shape = (1, *shape[1:])
 
     # math.prod, not np.prod: np.prod overflows a fixed-width int on a huge slab
     # and corrupts every offset. math.prod([]) == 1 covers the 1-D case.
-    other = [shape[i] for i in range(len(shape)) if i != chunk_along]
-    slab_bytes = math.prod(other) * itemsize
+    slab_bytes = math.prod(shape[1:]) * itemsize
     if stride is None:
         stride = slab_bytes
     elif stride < slab_bytes:
@@ -78,22 +75,12 @@ def flat_manifest_array(
             "successive chunks would overlap."
         )
 
-    grid = [1] * len(shape)
-    grid[chunk_along] = n
+    grid = (n,) + (1,) * (len(shape) - 1)
     offsets = (
         np.uint64(data_offset) + np.arange(n, dtype=np.uint64) * np.uint64(stride)
     ).reshape(grid)
     lengths = np.full(grid, slab_bytes, dtype=np.uint64)
-    paths = np.full(grid, url, dtype=np.dtypes.StringDType())
-
-    metadata = create_v3_array_metadata(
-        shape=shape,
-        data_type=dtype,
-        chunk_shape=chunk_shape,
-        fill_value=0,
+    return manifest_array(
+        url, offsets, lengths, shape=shape, chunk_shape=chunk_shape, dtype=dtype,
         codecs=[{"name": "bytes", "configuration": {"endian": endian}}],
-        dimension_names=dimension_names,
-        attributes=attrs,
-    )
-    manifest = ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths)
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest)
+        dimension_names=dimension_names, attributes=attributes)

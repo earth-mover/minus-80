@@ -13,16 +13,16 @@ their own.
 
 from __future__ import annotations
 
-import asyncio
 import zlib
 from collections.abc import Mapping, Sequence
 
 import numpy as np
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.manifest import MISSING_CHUNK_PATH
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from virtualizarr.manifests import ManifestArray
 from virtualizarr.parsers.zarr.zip import ZipEntry, parse_zip_index
 
+from minus80.core.aio import run_sync
+from minus80.core.fetch import iter_ranges, read_range
+from minus80.core.manifest import manifest_array
 from minus80.core.registry import store_and_key
 
 STORED = 0
@@ -39,14 +39,12 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
     member's 30-byte local header; no member data.
     """
     store, name = store_and_key(url)
-    return asyncio.run(parse_zip_index(store, name))
+    return run_sync(parse_zip_index(store, name))
 
 
 def read_member(url: str, entry: ZipEntry) -> bytes:
     """One member's uncompressed bytes, fetched by a single range request."""
-    store, name = store_and_key(url)
-    data = bytes(store.get_range(
-        name, start=entry.data_offset, length=entry.compressed_length))
+    data = read_range(url, entry.data_offset, entry.data_offset + entry.compressed_length)
     return member_bytes(data, entry)
 
 
@@ -68,14 +66,16 @@ def inflate_prefix(url: str, entry: ZipEntry, size: int, *, block: int = 1 << 20
     """
     if entry.method != DEFLATE:
         raise NotImplementedError(f"zip method {entry.method_name}")
-    store, name = store_and_key(url)
     inflater = zlib.decompressobj(RAW_WBITS)
     out, pulled = bytearray(), 0
-    while len(out) < size and pulled < entry.compressed_length:
-        length = min(block, entry.compressed_length - pulled)
-        data = bytes(store.get_range(name, start=entry.data_offset + pulled, length=length))
+    span = (entry.data_offset, entry.data_offset + entry.compressed_length)
+    pieces = iter_ranges(url, [span], block=block, concurrency=1, progress=False)
+    for _, data in pieces:
         pulled += len(data)
         out += inflater.decompress(data)
+        if len(out) >= size:
+            break
+    pieces.close()
     return bytes(out), pulled
 
 
@@ -108,9 +108,10 @@ def member_array(
     """An array whose chunk at each grid position is the named member of the archive at ``url``.
 
     ``members`` is shaped like the chunk grid and holds a member name, or
-    ``None`` where the source has no file (a missing chunk, read as
-    ``fill_value``). ``serializer`` is the array-to-bytes codec that decodes one
-    member's uncompressed bytes into a chunk, such as ``imagecodecs_tiff``.
+    ``None`` where the source has no file. That, or a zero-length member, is a
+    missing chunk, read as ``fill_value``. ``serializer`` is the array-to-bytes
+    codec that decodes one member's uncompressed bytes into a chunk, such as
+    ``imagecodecs_tiff``.
     """
     members = np.asarray(members, dtype=object)
     grid = tuple(-(-s // c) for s, c in zip(shape, chunk_shape))
@@ -121,9 +122,7 @@ def member_array(
     if missing:
         raise KeyError(f"not in {url}: {missing[:3]}")
     entries = [index[m] for m in present]
-    if any(e.compressed_length == 0 for e in entries):
-        raise ValueError("a zero-length member cannot be a chunk; pass None for it instead")
-    paths = np.full(grid, MISSING_CHUNK_PATH, dtype=np.dtypes.StringDType())
+    paths = np.full(grid, None, dtype=object)
     offsets = np.zeros(grid, dtype=np.uint64)
     lengths = np.zeros(grid, dtype=np.uint64)
     for position, name in np.ndenumerate(members):
@@ -131,10 +130,7 @@ def member_array(
             paths[position] = url
             offsets[position] = index[name].data_offset
             lengths[position] = index[name].compressed_length
-    metadata = create_v3_array_metadata(
-        shape=tuple(shape), data_type=np.dtype(dtype), chunk_shape=tuple(chunk_shape), fill_value=fill_value,
+    return manifest_array(
+        paths, offsets, lengths, shape=shape, chunk_shape=chunk_shape, dtype=dtype,
         codecs=member_codecs(entries, serializer), dimension_names=dimension_names,
-        attributes=dict(attributes or {}),
-    )
-    manifest = ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths)
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest)
+        fill_value=fill_value, attributes=attributes)

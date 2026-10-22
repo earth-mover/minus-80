@@ -11,14 +11,17 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 
 | Module | What it does |
 | --- | --- |
-| `registry` | `as_url` turns a local path into a `file://` URL. `store_and_key` resolves a URL to an obstore store and the key within it, undoing percent-encoding. `registry_for` builds an `ObjectStoreRegistry` for a file's directory. |
-| `fetch` | `download_then_index` copies a whole file into a local cache with parallel range GETs. `sparse_local` writes only the byte ranges you name into a sparse local file. |
-| `remote` | `reader` gives a parser a seekable, block-cached file object over a remote file, with long timeouts and a slow retry backoff. `patient_store` returns the object store and key behind it. |
+| `registry` | `as_url` turns a local path into a `file://` URL, and `file_path` turns a `file://` URL back into a decoded local path. `store_and_key` resolves a URL to an obstore store and the key within it, undoing percent-encoding. `registry_for` builds an `ObjectStoreRegistry` for a file's directory. Both take `patient=True` for an index walk: a 300 s timeout and a retry backoff over 20 minutes, where the default fails fast. |
+| `fetch` | `read_range` and `object_size` read one range or one length. `iter_ranges` and `write_ranges` fetch many ranges, one GET per block with a bounded number in flight, and raise on a short read. `download_then_index` copies a whole file into `cache_dir()`; `sparse_local` writes only the byte ranges you name into a sparse local file; `local_copy` returns a local path for any source. |
+| `remote` | `reader` gives a parser a seekable, block-cached file object over a remote file, read through the patient store. |
+| `manifest` | `manifest_array` builds a `ManifestArray` from a grid of paths, offsets and lengths: zero-length or path-less chunks become missing, attributes are made JSON-safe, and `source_url` is set from the paths. `channel_last_transpose` is the codec for channel-interleaved bytes declared channel-first. |
 | `builders.flat_binary` | `flat_manifest_array` builds a `ManifestArray` for an uncompressed, C-ordered array from its shape, dtype, byte order and data offset. Each chunk is one slab along one axis; `stride` handles a format that puts a header before each slab. |
 | `icechunk_io` | `create_repo` creates or reopens a repo with one virtual chunk container per source prefix. `write_manifest_group` writes a `ManifestGroup` and commits. `open_repo` and `open_repository` reopen a repo and authorize the prefixes stored in its config. `commit` rebases onto commits that landed first. |
 | `multiscale` | `write_multiscale` writes an OME-Zarr 0.5 image whose full-resolution level is virtual and whose downsampled levels are computed by ngff-zarr and stored as real chunks. |
 | `decisions` | `Decision` records a value or interpretation that the source files do not state, with the evidence for it, and renders it as a sentence or as a record. |
 | `progress` | `Progress` prints a status line at a fixed time interval while a long job runs. |
+| `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |
+| `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's. |
 
 ## Usage
 
