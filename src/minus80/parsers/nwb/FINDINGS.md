@@ -1,7 +1,7 @@
 # Virtualizing NWB: findings
 
 What virtualizes cleanly in NWB (Neurodata Without Borders) and what fights
-back. The cross-format traps in [../../core/GOTCHAS.md](../../core/GOTCHAS.md)
+back. The cross-format traps in [docs/formats.md](../../../../docs/formats.md)
 (heap-backed strings, phony-dim collisions) all apply here.
 
 Measured on DANDI dandiset [000582](https://dandiarchive.org/dandiset/000582)

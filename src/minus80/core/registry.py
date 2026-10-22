@@ -18,8 +18,8 @@ def as_url(source: str | Path) -> str:
 
     A URL passed in is returned as given, percent-encoding and all, because this is
     what gets written into chunk manifests and virtual-chunk-container prefixes and
-    read back by clients in other languages. Decoding belongs at the point a URL
-    becomes an object-store key -- see :func:`store_and_key` -- not here.
+    read back by clients in other languages. Decoding happens where a URL
+    becomes an object-store key, in :func:`store_and_key`.
     """
     s = str(source)
     if "://" in s:
@@ -89,7 +89,7 @@ def registry_for(url: str) -> ObjectStoreRegistry:
 
 @lru_cache(maxsize=64)
 def _registry_for_dir(directory: str) -> ObjectStoreRegistry:
-    """One registry -- and so one connection pool -- per source directory.
+    """One registry, and so one connection pool, per source directory.
 
     Every file of a study shares a directory, and building a registry per file
     builds an HTTP client per file: a fresh TLS handshake on each, and as many

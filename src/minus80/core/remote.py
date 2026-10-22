@@ -1,30 +1,15 @@
-"""Reading a remote file's own metadata, before there is a manifest to read it by.
+"""File objects over a remote file, for a parser to index it before a manifest exists.
 
-Virtualizing a file happens in two phases, and they want opposite things from
-the network.
+A parser such as tifffile, h5py or nd2 is handed a seekable file object and
+walks the file's own structures (its directories, its B-tree) to find where
+every chunk lives. This module supplies that file object. Reading chunks
+afterwards goes through VirtualiZarr's ``ManifestStore`` and does not use it.
 
-**Indexing** comes first. A parser -- tifffile, h5py, nd2 -- is handed a
-seekable file-like object and walks the file's own structures, its directories
-or its B-tree, to find out where every chunk lives. No manifest exists yet.
-That is what this module serves.
-
-**Reading** comes afterwards. VirtualiZarr's ``ManifestStore`` is a zarr store
-that resolves entries in a manifest that already exists to byte ranges through
-obstore. Different job, different consumer, different time. This module is not
-a slower version of it and does not replace it.
-
-What is actually here is thin, and it is configuration rather than mechanism:
-an HTTP store, a retry ladder, a block size and a cache, all four sitting on
-top of somebody else's reader. Each is a measured default rather than a guess,
-and each is measured against the same thing -- a parser making thousands of
-small, partly backward reads over one connection to a public archive.
-
-That generality is the point. None of it is specific to one archive or one
-format, and two formats in this repo grew the same four settings independently
-before they were put here. Its eventual home is ``obspec_utils``: a 1 MB
-read-ahead default is a trap for any chunked remote read, and a cached reader
-with a patient backoff is the general fix rather than a bioimaging one. See
-``UPSTREAM.md``.
+The module is configuration on top of ``obspec_utils.readers.BlockStoreReader``
+and obstore's ``HTTPStore``: a timeout, a retry backoff, a block size and a
+cache size, each measured against a parser making thousands of small, partly
+backward reads over one connection to a public archive. docs/upstream.md
+tracks moving these defaults into ``obspec_utils``.
 """
 
 from __future__ import annotations
@@ -78,7 +63,7 @@ CACHED_BLOCKS = 256
 
 
 class Remote(NamedTuple):
-    """One remote file, addressed three ways because three callers need it so."""
+    """One remote file as an object store, a key within it, and a registry holding the store."""
 
     store: object
     key: str
@@ -105,12 +90,11 @@ def patient_store(url: str) -> Remote:
 
 def reader(url: str, *, block: int = BLOCK_SIZE,
            cached_blocks: int = CACHED_BLOCKS) -> BlockStoreReader:
-    """A seekable file-like over the remote file, caching what it has fetched.
+    """A seekable file object over the remote file that caches the blocks it fetches.
 
-    The cache is the point. A parser walking a file's structures seeks
-    backwards into regions it has already passed, because a pointer inside a
-    directory or an index node routinely refers to something written earlier.
-    An uncached reader refetches on each of those.
+    A parser walking a file's structures seeks back into regions it has already
+    read, because a pointer in a directory or an index node often refers to
+    something written earlier. The cache keeps those seeks from refetching.
     """
     store, key, _ = patient_store(url)
     return BlockStoreReader(store, key, block_size=block, max_cached_blocks=cached_blocks)
@@ -121,20 +105,20 @@ def buffered(url: str, *, block: int = BLOCK_SIZE,
              cached_blocks: int = CACHED_BLOCKS):
     """:func:`reader` as a context manager, for a parser that wants ``with``.
 
-    Right when bandwidth to the source is the scarce thing: from a laptop, or
-    anywhere outside the source's region. The gigabytes of pixel data are never
-    touched.
+    Suited to a run where bandwidth to the source is limited, such as from a
+    laptop or outside the source's cloud region: only the metadata the parser
+    reads is fetched, never the pixel data.
     """
     yield reader(url, block=block, cached_blocks=cached_blocks)
 
 
 def downloaded(cache_dir: str):
-    """An opener that fetches the whole file once, then walks it locally.
+    """An opener that fetches the whole file once, then lets the parser read it locally.
 
-    Right in-region, where bandwidth is plentiful and round trips are what
-    costs: a file that scatters hundreds of directories through itself pays
-    hundreds of sequential round trips under :func:`buffered` and one bulk
-    transfer here. ``cache_dir`` is reused, so a re-run costs nothing.
+    Suited to a run in the source's region, where bandwidth is plentiful and
+    round trips are the cost: a file with hundreds of directories scattered
+    through it takes hundreds of sequential round trips under :func:`buffered`
+    and one bulk transfer here. Copies in ``cache_dir`` are reused on a re-run.
     """
 
     @contextlib.contextmanager

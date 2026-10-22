@@ -1,20 +1,13 @@
-"""Archetype builders.
+"""Chunk-manifest builders for layouts VirtualiZarr has no parser for.
 
-**Buy the parser.** For any format VirtualiZarr already reads -- HDF5/NetCDF, TIFF,
-Zarr, GRIB, Kerchunk -- do NOT add a builder here. Call VirtualiZarr's parser
-directly (e.g. ``virtualizarr.parsers.HDFParser``) or use the
-`icechunk-datacube-ingestion` skill. Wrapping them would add nothing.
+:mod:`~minus80.core.builders.flat_binary` covers an uncompressed array stored
+contiguously, or at a fixed stride, after a header: an MRC volume, a SpikeGLX or
+Open Ephys recording, an uncompressed NIfTI or NRRD image. It reads no bytes
+itself. The caller reads the header with the format's own library and passes in
+the shape, dtype, byte order and data offset.
 
-The one archetype VirtualiZarr does *not* cover, and the reason this package
-exists, is the flat/headerless binary array:
-
-* :mod:`~minus80.core.builders.flat_binary` -- one contiguous uncompressed array
-  chunked by byte math from a header/sidecar. Covers MRC, SpikeGLX/Neuropixels,
-  Open Ephys, uncompressed NIfTI/NRRD/LIF, .2bit.
-
-This is a legitimate, general (non-bio) gap in VirtualiZarr -- it is staged here
-for use across the bio subprojects and is a candidate upstream ``FlatBinaryParser``
-contribution (see UPSTREAM.md at the repo root). It parses no bytes itself: the caller uses
-the format's own maintained library to read the header, then hands shape / dtype /
-data-offset here.
+For a format VirtualiZarr already reads (HDF5, NetCDF, TIFF, Zarr, GRIB,
+Kerchunk), call its parser, such as ``virtualizarr.parsers.HDFParser``, instead
+of adding a builder here. docs/upstream.md tracks ``flat_binary`` as a candidate
+``FlatBinaryParser`` for VirtualiZarr.
 """

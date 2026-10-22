@@ -1,10 +1,10 @@
-"""Flat-binary archetype: an uncompressed, C-ordered array laid out at a regular stride.
+"""Chunk references for an uncompressed, C-ordered array laid out at a regular stride.
 
-The simplest archetype -- there is *no* internal chunk index to parse. Given the
-array's shape/dtype and the byte offset where its data starts (both read from the
-file's header or sidecar by the format's own library), the chunk manifest is pure
-arithmetic. We chunk along one axis (the slowest-varying by default), so each chunk
-is one contiguous slab -- ideal for lazy per-slice / per-frame / per-particle reads.
+A flat array has no internal chunk index. Given its shape, dtype and the byte
+offset where its data starts, all read from the file's header or sidecar by the
+format's own library, each chunk's offset is arithmetic. The array is chunked
+along one axis (the slowest-varying by default), so each chunk is one contiguous
+slab: one slice, one frame or one particle.
 
 The slabs need not be adjacent. Many acquisition formats interleave a per-record
 header before each slab (a Heidelberg ``.vol`` B-scan header, a Bioptigen ``.OCT``
@@ -17,10 +17,11 @@ Example (MRC volume, header parsed by ``mrcfile``)::
     import mrcfile
     with mrcfile.open(local_path, header_only=True) as m:
         shape = (int(m.header.nz), int(m.header.ny), int(m.header.nx))
-        dtype = m.data.dtype                       # from mode
+        dtype = mrcfile.utils.data_dtype_from_header(m.header)
         data_offset = 1024 + int(m.header.nsymbt)  # base header + extended header
-    marr = flat_manifest_array(url, shape=shape, dtype=dtype,
-                               data_offset=data_offset, endian="little",  # from the header
+    marr = flat_manifest_array(url, shape=shape, dtype=dtype.newbyteorder("="),
+                               data_offset=data_offset,
+                               endian="big" if dtype.byteorder == ">" else "little",
                                dimension_names=("z", "y", "x"))
 """
 from __future__ import annotations
@@ -38,8 +39,9 @@ def flat_manifest_array(
     shape: tuple[int, ...],
     dtype,
     data_offset: int,
-    endian: str,  # required, no default: byte order must be read from the header,
-                  # never assumed (GOTCHAS.md) — a wrong guess silently byte-swaps.
+    # No default: a wrong guess at byte order silently byte-swaps every value,
+    # so it has to come from the header.
+    endian: str,
     stride: int | None = None,
     chunk_along: int = 0,
     dimension_names: tuple[str, ...] | None = None,
@@ -64,9 +66,8 @@ def flat_manifest_array(
     chunk_shape[chunk_along] = 1
     chunk_shape = tuple(chunk_shape)
 
-    # bytes in one slab (the whole array with the chunked axis pinned to 1);
-    # math.prod is exact big-int arithmetic (np.prod overflows a fixed int dtype on a
-    # huge slab, corrupting every offset); math.prod([]) == 1 handles the 1-D case.
+    # math.prod, not np.prod: np.prod overflows a fixed-width int on a huge slab
+    # and corrupts every offset. math.prod([]) == 1 covers the 1-D case.
     other = [shape[i] for i in range(len(shape)) if i != chunk_along]
     slab_bytes = math.prod(other) * itemsize
     if stride is None:

@@ -1,35 +1,28 @@
-"""Shared remote read-time benchmark: what a user actually waits for.
+"""Time reading a collection through a virtual repo against downloading it, under network latency.
 
-## The metric: read TIME under remote conditions (never local)
+:func:`compare_remote` serves a target's source files from a local HTTP range
+server that injects lognormal latency per request, with an optional bandwidth
+cap. The target builds a virtual repo referencing those URLs. Then, at each
+latency, it times these reads of the same region of every file:
 
-Report the end-to-end wall-clock **read time a user experiences**, measured under
-realistic network latency (via ``snailmail``'s injected lognormal latency + optional
-shared-pipe bandwidth, or a real remote store). **Never headline a local time** --
-locally it is memory-bandwidth-bound, so virtualization only adds indirection and
-reads *slower*, which is irrelevant to the question. And **do not report GET counts
-or round-trips** -- that is internal mechanism, not what the user feels. Report
-seconds.
+- ``virtual``: through the repo, which fetches just the byte ranges the read needs;
+- ``download``: fetching each whole file with
+  :func:`~minus80.core.fetch.download_then_index`, then reading it with the
+  format's own library (mrcfile, h5py, czifile);
+- ``h5py_remote``, when the target defines ``read_remote``: streaming each file
+  in place with its own library over range requests.
 
-## What we compare: download-then-read vs. virtual lazy read, over a COLLECTION
+The results are wall-clock seconds and bytes transferred. A local read time is
+not a useful comparison: on local disk the virtual path only adds indirection.
 
-The realistic alternative to a virtual store is to **fully download the source
-file(s)** and open each the normal way (its own library: mrcfile, h5py, czifile).
-Under latency the virtual path wins because it fetches only the byte ranges a query
-touches and never re-downloads whole files or re-walks their scattered internal
-metadata -- and a **collection amplifies it**: N files to otherwise pull in full.
-:func:`compare_remote` measures both, in seconds, across a latency sweep, on a
-collection.
+Icechunk and the HTTP store cache fetched bytes for the life of a process, so a
+second read in the same process would move nothing. Every timed read therefore
+runs in a freshly spawned subprocess, which means a
+:class:`RemoteCollectionTarget` must be picklable (a small dataclass of paths
+and parameters) and importable from its module.
 
-## Cold cache, honestly
-
-Icechunk (and the HTTP store) cache fetched bytes process-globally, so a warm process
-would read zero bytes on the second pass and report a fictional zero. Every timed read
-therefore runs in a **fresh spawned subprocess**; the ``snailmail`` server injects the
-same latency per request regardless. Because the work runs in a subprocess, a
-:class:`RemoteCollectionTarget` must be picklable (a small dataclass of paths/params)
-and importable from its module.
-
-snailmail is the bought latency server -- never hand-roll one.
+The latency server is imported inside :func:`compare_remote` and is not a
+dependency of minus-80.
 """
 from __future__ import annotations
 
@@ -48,7 +41,7 @@ import numpy as np
 
 @runtime_checkable
 class RemoteCollectionTarget(Protocol):
-    """What a subproject supplies so the shared runner can benchmark its format.
+    """What a format supplies so :func:`compare_remote` can benchmark it.
 
     Must be **picklable** (it is sent to a spawned subprocess) -- a small dataclass
     holding source paths and read parameters, no open handles. The reads must
@@ -73,26 +66,25 @@ class RemoteCollectionTarget(Protocol):
 
         ``urls`` are the ``http(s)`` URLs of the source files on the benchmark
         server, in ``source_files`` order; the built repo must *reference* those
-        URLs (needs HTTP virtual-chunk containers -- see
+        URLs, through HTTP virtual chunk containers (see
         :mod:`minus80.core.icechunk_io`), so its reads go over the network.
         """
         ...
 
     def read_virtual(self, repo_path: str) -> list[np.ndarray]:
-        """Read the representative region of every file **through the repo** (lazy;
-        fetches only the byte ranges it needs)."""
+        """Read the representative region of every file through the repo."""
         ...
 
     def read_native(self, local_paths: list[str]) -> list[np.ndarray]:
-        """Read the same representative region of every file the STANDARD way (the
-        format's own library) from already-downloaded local copies, in the order of
-        ``local_paths`` (which matches ``source_files``)."""
+        """Read the same region of every file with the format's own library.
+
+        ``local_paths`` are downloaded copies, in ``source_files`` order.
+        """
         ...
 
 
 def _digest(arrays: list[np.ndarray]):
-    """A cheap order-preserving fingerprint of a read's result, for the round-trip
-    assertion across two independent IO paths (and two processes)."""
+    """Shape, dtype and SHA-1 of each array, in order, to compare reads across processes."""
     return tuple(
         (tuple(np.asarray(a).shape), str(np.asarray(a).dtype),
          hashlib.sha1(np.ascontiguousarray(a).tobytes()).hexdigest())
@@ -100,24 +92,24 @@ def _digest(arrays: list[np.ndarray]):
     )
 
 
-def _virtual_job(target, repo_path, q):  # runs in a fresh (cold-cache) subprocess
+def _virtual_job(target, repo_path, q):
     t = time.perf_counter()
     arrays = target.read_virtual(repo_path)
     elapsed = time.perf_counter() - t
     q.put((elapsed, _digest(arrays)))
 
 
-def _download_job(target, urls, dest_dir, q):  # fresh subprocess: pull, then read
+def _download_job(target, urls, dest_dir, q):
     from minus80.core.fetch import download_then_index
 
     t = time.perf_counter()
-    local_paths = [download_then_index(u, dest_dir) for u in urls]  # full files, over the link
+    local_paths = [download_then_index(u, dest_dir) for u in urls]
     arrays = target.read_native(local_paths)
     elapsed = time.perf_counter() - t
     q.put((elapsed, _digest(arrays)))
 
 
-def _remote_job(target, urls, q):  # fresh subprocess: stream the source in place, no download
+def _remote_job(target, urls, q):
     t = time.perf_counter()
     arrays = target.read_remote(urls)
     elapsed = time.perf_counter() - t
@@ -125,18 +117,19 @@ def _remote_job(target, urls, q):  # fresh subprocess: stream the source in plac
 
 
 def _run_cold(server, fn, *args):
-    """Run ``fn(*args, q)`` in a fresh (cold-cache) spawned process while counting the
-    bytes it pulls from ``server``. Returns ``(elapsed_seconds, bytes_transferred,
-    digest)`` -- ``elapsed`` is timed inside the child (excludes spawn overhead) and
-    ``bytes`` is what actually crossed the wire (the "total download amount")."""
+    """Run ``fn(*args, q)`` in a freshly spawned process, counting the bytes it pulls from ``server``.
+
+    Returns ``(elapsed_seconds, bytes_transferred, digest)``. ``elapsed`` is
+    timed inside the child, so it excludes spawn overhead.
+    """
     server.reset_counts()
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
     p = ctx.Process(target=fn, args=(*args, q))
     p.start()
-    # Poll rather than a bare q.get(): if the child dies before putting a result
-    # (read raises, OOM, C-level crash) a bare get() would block forever. A slow but
-    # live read just loops and keeps waiting.
+    # A bare q.get() blocks forever if the child dies before putting a result
+    # (an exception, OOM, a crash in C). Polling notices the death; a slow but
+    # live read keeps looping.
     while True:
         try:
             elapsed, digest = q.get(timeout=2.0)
@@ -163,27 +156,23 @@ def compare_remote(
     workdir: str | None = None,
     seed: int = 0,
 ) -> list[dict]:
-    """Time **download-then-read vs. virtual lazy read** over a collection.
+    """Time a virtual read of a collection against downloading it and reading locally.
 
-    The query spans the whole collection -- the representative region of *every*
-    file -- which is where virtualization wins most: N small (coalesced) range reads
-    vs. downloading N whole files. For each latency in ``latencies_ms`` the collection
-    is read both ways, each in a cold subprocess, ``trials`` times. Returns a flat
+    Each read covers the representative region of every file in the
+    collection. For each latency in ``latencies_ms`` the collection is read
+    each way ``trials`` times, each read in a fresh subprocess. Returns a flat
     list of records::
 
         {"latency_ms": float, "method": "download"|"virtual"|"h5py_remote",
          "trial": int, "seconds": float, "bytes": int}
 
-    A target that defines ``read_remote`` (stream the source in place via its own
-    library, e.g. h5py over range requests) gets a third method, ``h5py_remote``,
-    timed alongside the other two.
+    A target that defines ``read_remote`` gets a third method, ``h5py_remote``.
 
-    Two honest metrics, no round-trip counts: **seconds** a user waits (under injected
-    latency) and **bytes actually moved** (the total download amount -- data volume,
-    hence transfer cost, independent of bandwidth). The two paths are asserted
-    byte-identical before timing. ``bandwidth_mbs`` optionally caps the shared pipe
-    (leave ``None`` for latency-only, so the byte-volume gap speaks for itself);
-    ``workdir`` holds the repo and per-trial download scratch (a temp dir by default).
+    Before timing, every method's result is read once at zero latency and must
+    be byte-identical, or an ``AssertionError`` is raised. ``bandwidth_mbs``
+    caps the server's bandwidth; ``None`` leaves only latency. ``workdir``
+    holds the repo and the per-trial downloads, and defaults to a temporary
+    directory that is removed afterwards.
     """
     from snailmail import Fixed, HTTPRangeServer, LogNormal
 
@@ -204,14 +193,13 @@ def compare_remote(
     records: list[dict] = []
     try:
         urls = [server.url(k) for k in keys]
-        target.build_repo(urls, repo_path)  # built at zero latency; references the URLs
+        target.build_repo(urls, repo_path)
 
         def latency(ms):
             return LogNormal(mode_ms=ms, seed=seed) if ms else Fixed(0.0)
 
         has_remote = hasattr(target, "read_remote")
 
-        # Round-trip check once (cheap latency): every path must return the same bytes.
         server.set_latency(latency(0))
         _, _, dig_v = _run_cold(server, _virtual_job, target, repo_path)
         _, _, dig_d = _run_cold(server, _download_job, target, urls, os.path.join(workdir, "dl_check"))
@@ -244,11 +232,11 @@ def compare_remote(
 
 
 def summarize(records: list[dict]) -> dict:
-    """Plot-ready reduction of :func:`compare_remote`'s records (median over trials).
+    """Median over trials of :func:`compare_remote`'s records.
 
     Returns ``{method: {"seconds": {latency_ms: median_s}, "bytes": median_bytes}}``.
-    ``bytes`` is a single number per method (the read moves the same data at every
-    latency), so it summarizes the total download amount directly.
+    ``bytes`` is one number per method, the median over every latency, because a
+    read moves the same data at every latency.
     """
     secs: dict[tuple[str, float], list[float]] = {}
     byts: dict[str, list[int]] = {}

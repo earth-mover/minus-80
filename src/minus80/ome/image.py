@@ -1,24 +1,20 @@
 """The ``ome`` attributes for one multiscale image, in OME-Zarr 0.5 or 0.6.
 
-The arrays are already in the store — written by VirtualiZarr as byte-range
-references — so nothing here touches pixels. All this produces is the JSON a
-reader needs to see those arrays as an image: which axes they have, what a pixel
-measures, and which array is which resolution level.
+The arrays are already in the store as byte-range references, so nothing here
+touches pixels. The functions return the JSON a reader needs to see those arrays
+as an image: which axes they have, what a pixel measures, and which array is
+which resolution level.
 
-Two versions are supported because they describe the same arrays differently and
-neither is redundant. 0.5 is what viewers read today. 0.6 restructured the
-document — axes moved inside a named ``coordinateSystems`` entry and every
-transform gained an ``input`` and ``output`` — and readers are still catching up.
-Since the metadata is the only thing that differs, one store can carry both: the
-chunk references are identical, so a second version costs a branch and some JSON,
-not a second copy of the data.
+0.5 is the default. 0.6 moves the axes inside a named ``coordinateSystems``
+entry and gives every transform an ``input`` and ``output``. Only the metadata
+differs between the two, so one store can carry both on separate branches over
+the same chunk references.
 
-Two libraries, one document. ome-zarr-models builds it: it models ``multiscales``,
-``omero``, ``image-label`` and ``labels`` for every version here, and its
-``omero`` models allow the transitional ``label``, ``active`` and ``rdefs`` that a
-viewer needs. ngff-zarr then checks the result against its vendored copy of the
-published JSON schema. Two implementations have to agree before anything is
-written, which is the point of running both.
+ome-zarr-models builds each document: it models ``multiscales``, ``omero``,
+``image-label`` and ``labels`` for both versions, and its ``omero`` models allow
+the transitional ``label``, ``active`` and ``rdefs`` fields a viewer reads.
+ngff-zarr then validates the result against its vendored copy of the published
+JSON schema.
 """
 
 from __future__ import annotations
@@ -366,7 +362,12 @@ def labels_attrs(names: Sequence[str], version: str = DEFAULT_VERSION) -> dict:
 
 
 def validate(attrs: Mapping, version: str, *, model: str, strict: bool = False) -> None:
-    """Check an ``ome`` document, working around ngff-zarr's stale 0.6 schema."""
+    """Check an ``ome`` document against the spec schema.
+
+    The declared version string is checked against :data:`_PUBLISHED_VERSIONS`,
+    and the rest of the document is validated by ngff-zarr under the version
+    spelling its vendored schema accepts (:data:`_VALIDATE_AS`).
+    """
     if attrs["version"] not in _PUBLISHED_VERSIONS[version]:
         raise ValueError(f"{attrs['version']!r} is not a published {version} version")
     nz.validate({"ome": {**attrs, "version": _VALIDATE_AS[version]}},

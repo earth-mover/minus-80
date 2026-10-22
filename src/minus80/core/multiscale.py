@@ -1,27 +1,30 @@
-"""Hybrid virtual + native OME-Zarr multiscale (staged for upstream — see UPSTREAM.md at the repo root).
+"""An OME-Zarr multiscale image with a virtual base level and stored downsampled levels.
 
-Virtualize the full-resolution **base** level (references, no copy) and materialize
-the small downsampled levels **natively**, in one Icechunk OME-Zarr group. In a 3D
-2x pyramid the base is ~88% of the total, so this saves the overwhelming majority of
-storage versus a full OME-Zarr copy while still giving a reader responsive multiscale.
+:func:`write_multiscale` writes the full-resolution level as chunk references
+into the source file and the downsampled levels as real chunks, in one Icechunk
+OME-Zarr group. In a 3D pyramid halving each axis per level, the base is about
+88% of the total, so storing only the upper levels costs about an eighth of a
+full copy.
 
-**Buy the pyramid.** ngff-zarr computes the downsampled arrays AND the OME-Zarr
-``multiscales`` metadata (``to_ngff_image`` → ``to_multiscales`` → ``to_ngff_zarr``).
-The one thing built here is injecting a VIRTUAL base scale into an otherwise-native
-ngff-zarr pyramid — an ngff-zarr × virtualizarr integration, and the upstream target.
+ngff-zarr computes the downsampled arrays and the ``multiscales`` metadata
+(``to_ngff_image``, ``to_multiscales``, ``to_ngff_zarr``). What this module adds
+is putting a virtual base level under that pyramid. docs/upstream.md tracks it
+as an ngff-zarr and VirtualiZarr integration.
 
-Two icechunk quirks worked around (both icechunk limitations, not our metadata):
-1. ngff-zarr's OME 0.4 = Zarr v2 metadata, which icechunk rejects → use OME **0.5**.
-2. ``to_ngff_zarr`` always calls ``zarr.consolidate_metadata`` (unsupported by
-   icechunk) and would materialize the native base. So we capture ngff-zarr's exact
-   ``ome`` dict from a transient in-memory write (the only faithful serializer —
-   ``asdict`` doesn't reproduce ngff's version-specific flattening), then write only
-   the native upper levels + inject the virtual base into the repo ourselves.
+Two constraints shape the code:
 
-Requires ngff-zarr (the ``imaging`` extra); the base package does not import it.
-Format subprojects supply the base level as a ``ManifestArray``, the
-full-resolution array (used only to derive the tiny upper levels), and the axis
-names/scale — nothing format-specific lives here.
+1. Icechunk stores Zarr v3 only, and ngff-zarr writes OME-Zarr 0.4 as Zarr v2,
+   so the metadata is written as OME-Zarr 0.5.
+2. ``to_ngff_zarr`` calls ``zarr.consolidate_metadata``, which Icechunk does not
+   support, and would write the base level as real chunks. So the pyramid is
+   written once to an in-memory store with consolidation disabled, its ``ome``
+   attributes are copied from there (``asdict`` on ngff-zarr's model does not
+   reproduce its version-specific layout), and only the upper levels and the
+   virtual base go into the repo.
+
+The caller supplies the base level as a ``ManifestArray``, the full-resolution
+data (read only to compute the upper levels), and the axis names and scale.
+ngff-zarr is imported inside the functions that use it.
 """
 from __future__ import annotations
 
@@ -46,7 +49,7 @@ def _no_consolidate():
 
 
 def _build_pyramid(full_res, *, name, dims, scale, axes_units, n_levels, method, downsample_dims):
-    """BUY: ngff-zarr computes the pyramid arrays + captures its exact OME metadata."""
+    """The downsampled levels and their ``ome`` attributes, both from ngff-zarr."""
     import ngff_zarr as nz
     import zarr
 
@@ -89,13 +92,14 @@ def write_multiscale(
     axes_units=None,
     message: str = "virtualize hybrid multiscale",
 ) -> str:
-    """Write an OME-Zarr multiscale: virtual base (``base``) + native levels 1..N.
+    """Write an OME-Zarr multiscale: virtual level 0 (``base``) and stored levels 1..N.
 
     ``name`` is the OME-Zarr image name and ``base`` the virtual full-res level.
     ``full_res`` is the full-resolution array, used only to derive the
     small downsampled levels. ``dims``/``scale`` are ngff axis names and pixel sizes;
     ``downsample_dims`` restricts which axes are reduced (e.g. keep a stack/particle
-    axis at 1x). Returns the commit snapshot id.
+    axis at 1x). ``method`` defaults to ``ITKWASM_BIN_SHRINK``. The repo is created
+    at ``repo_path`` and authorized for ``source_url``. Returns the commit snapshot id.
     """
     import ngff_zarr as nz
     import zarr
@@ -119,7 +123,6 @@ def write_multiscale(
     session = repo.writable_session("main")
     root = zarr.open_group(session.store, mode="w")
 
-    # Native downsampled levels (ngff-zarr's arrays, real chunks).
     for i in range(1, len(paths)):
         data = np.asarray(multiscales.images[i].data)
         chunks = (1, *data.shape[1:]) if data.ndim > 1 else data.shape
@@ -127,7 +130,6 @@ def write_multiscale(
             name=paths[i], shape=data.shape, dtype=data.dtype, chunks=chunks
         )[:] = data
 
-    # Virtual base level, beside the native levels already in the group.
     grp_path, arr_name = paths[0].rsplit("/", 1)
     ManifestGroup(arrays={arr_name: base}).to_icechunk(
         session.store, group=grp_path, mode="a"
