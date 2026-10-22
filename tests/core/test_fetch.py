@@ -1,4 +1,6 @@
 import io
+import subprocess
+import sys
 from functools import partial
 
 import numpy as np
@@ -37,6 +39,23 @@ def test_a_short_response_raises(url, range_server):
         list(iter_ranges(url, [(0, 100)], progress=False))
     with pytest.raises(OSError, match="short range read"):
         read_range(url, 0, 100)
+
+
+def test_an_error_leaves_no_request_holding_the_process_open(url, range_server):
+    # The GETs still in flight when the first piece fails go to a server that
+    # never answers them; a patient store would wait 300 s on each, then retry.
+    range_server.short = 1
+    range_server.stall_from = 200
+    script = (
+        "from minus80.core.fetch import iter_ranges\n"
+        f"pieces = iter_ranges({url!r}, [(0, 4000)], block=200, concurrency=8,\n"
+        "                     progress=False, patient=True)\n"
+        "try:\n"
+        "    list(pieces)\n"
+        "except OSError:\n"
+        "    pass\n"
+    )
+    subprocess.run([sys.executable, "-c", script], check=True, timeout=30)
 
 
 def test_read_range_is_one_request(url, range_server):

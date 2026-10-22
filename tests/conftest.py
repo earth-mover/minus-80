@@ -10,13 +10,17 @@ class RangeServer:
     ``files`` maps a request path, query string included, to the bytes served
     there; any other path is a 404. ``requests`` holds ``(method, path, range)``
     per request. ``short`` drops that many bytes from the end of every ranged
-    response, to stand in for a server that answers short.
+    response, to stand in for a server that answers short. A GET whose range
+    starts at or past ``stall_from`` gets no answer until the test ends, to stand
+    in for a server that has stopped responding.
     """
 
     def __init__(self):
         self.files: dict[str, bytes] = {}
         self.requests: list[tuple[str, str, str | None]] = []
         self.short = 0
+        self.stall_from: int | None = None
+        self.released = threading.Event()
         self.url = ""
 
     def gets(self) -> list[str | None]:
@@ -48,6 +52,9 @@ def _handler(server: RangeServer):
             if rng := self.headers.get("Range"):
                 lo, hi = rng.removeprefix("bytes=").split("-")
                 start, end = int(lo), min(int(hi), len(data) - 1)
+                if server.stall_from is not None and start >= server.stall_from:
+                    server.released.wait()
+                    return
             body = data[start:end + 1]
             if rng and server.short:
                 body = body[:-server.short]
@@ -71,4 +78,5 @@ def range_server():
     threading.Thread(target=httpd.serve_forever, args=(0.01,), daemon=True).start()
     server.url = f"http://127.0.0.1:{httpd.server_address[1]}"
     yield server
+    server.released.set()
     httpd.shutdown()

@@ -19,11 +19,11 @@ import hashlib
 import os
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
 from pathlib import Path
 from typing import BinaryIO
 
+from .aio import submit
 from .progress import Progress
 from .registry import as_url, file_path, store_and_key
 
@@ -214,7 +214,19 @@ def _get(store, key: str, url: str, start: int, end: int) -> bytes:
 
     if end <= start:
         return b""
-    data = bytes(obstore.get_range(store, key, start=start, end=end))
+    return _checked(obstore.get_range(store, key, start=start, end=end), url, start, end)
+
+
+async def _get_async(store, key: str, url: str, start: int, end: int) -> bytes:
+    import obstore
+
+    if end <= start:
+        return b""
+    return _checked(await obstore.get_range_async(store, key, start=start, end=end), url, start, end)
+
+
+def _checked(buf, url: str, start: int, end: int) -> bytes:
+    data = bytes(buf)
     if len(data) != end - start:
         raise OSError(f"short range read for {url} bytes [{start}, {end}): "
                       f"got {len(data)} of {end - start}")
@@ -223,19 +235,22 @@ def _get(store, key: str, url: str, start: int, end: int) -> bytes:
 
 def _fetch_pieces(url: str, pieces: list[tuple[int, int]], concurrency: int,
                   patient: bool) -> Iterator[tuple[int, bytes]]:
+    # Each GET is a coroutine rather than a thread-pool task because a running
+    # thread cannot be stopped: after an error or an early stop by the caller,
+    # a patient store's GETs would keep retrying for up to twenty minutes and
+    # hold the interpreter open at exit. Cancelling the coroutine drops the
+    # request.
     store, key = store_and_key(url, patient=patient)
-    ex = ThreadPoolExecutor(max(1, concurrency))
+    it = iter(pieces)
+    pending = deque((s, submit(_get_async(store, key, url, s, e)))
+                    for s, e in islice(it, max(1, concurrency)))
     try:
-        it = iter(pieces)
-        pending = deque((s, ex.submit(_get, store, key, url, s, e))
-                        for s, e in islice(it, max(1, concurrency)))
         while pending:
             start, future = pending.popleft()
             data = future.result()
             if (piece := next(it, None)) is not None:
-                pending.append((piece[0], ex.submit(_get, store, key, url, *piece)))
+                pending.append((piece[0], submit(_get_async(store, key, url, *piece))))
             yield start, data
     finally:
-        # A caller that stops early, as inflate_prefix does, should not wait
-        # for pieces it will never read.
-        ex.shutdown(wait=False, cancel_futures=True)
+        for _, future in pending:
+            future.cancel()

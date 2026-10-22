@@ -21,7 +21,7 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 | `decisions` | `Decision` records a value or interpretation that the source files do not state, with the evidence for it, and renders it as a sentence or as a record. |
 | `progress` | `Progress` prints a status line at a fixed time interval while a long job runs. |
 | `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |
-| `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's. |
+| `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's; `submit` starts one on the same loop and returns a cancellable future. |
 
 ## Usage
 
