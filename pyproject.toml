@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dicom = ["imagecodecs>=2026.8.16", "imagecodecs-zarr", "pydicom>=3.0"]
+flac = ["av", "flac-numcodecs", "soundfile"]
 nd2 = ["nd2>=0.10"]
 nwb = ["h5py>=3.16", "pynwb>=2.8", "virtualizarr[hdf]"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
@@ -40,6 +41,8 @@ members = ["ingests/*"]
 # v2.8.0 plus zarr-developers/VirtualiZarr#1108 (ManifestStore.to_icechunk) and
 # the numpy-style stack/expand_dims and with_dimension_names commits.
 virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da047711558dfb4fc004db45641d28a6687f61" }
+# The "flac" Zarr v3 codec is on this tag only; no release carries it yet.
+flac-numcodecs = { git = "https://github.com/ianhi/flac-numcodecs", tag = "zarr3-flac-codec-2026-10-19" }
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
