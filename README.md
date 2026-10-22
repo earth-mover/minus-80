@@ -37,7 +37,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | [`minus80.parsers.dicom`](src/minus80/parsers/dicom/README.md) | DICOM CT, whole-slide and multiplex | in repo |
 | [`minus80.parsers.nd2`](src/minus80/parsers/nd2/README.md) | Nikon ND2 | in repo |
 | [`minus80.parsers.nwb`](src/minus80/parsers/nwb/README.md) | NWB (HDF5) | in repo |
-| `minus80.parsers.flac` | FLAC audio | moving |
+| [`minus80.parsers.flac`](src/minus80/parsers/flac/README.md) | FLAC audio | in repo |
 | [`minus80.parsers.zip`](src/minus80/parsers/zip/README.md) | Uncompressed zip members as chunks | in repo |
 
 ## ingests/
