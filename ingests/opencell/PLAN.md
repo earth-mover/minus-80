@@ -19,12 +19,12 @@ nine judgement calls, each with a recommended default.
 
 | # | Decision | Recommended |
 |---|---|---|
-| 1 | The 6,301 maximum projections | Reference them, as a second set of plates |
-| 2 | The 86 cell lines the API does not publish (390 fields of view) | A separate `bioformats2raw.layout` collection beside the plates |
-| 3 | The hierarchy and keys | HCS plates; fields named `FID<fid>`; the API's Ensembl ID |
+| 1 | The 6,301 maximum projections | **Decided:** nested in each field image as `proj`, and repeated in `projections/` plates for browsing |
+| 2 | The 86 cell lines the OpenCell website does not list (390 fields of view) | **Decided:** the `unlisted/` collection beside the plates |
+| 3 | The hierarchy and keys | **Decided:** HCS plates; fields named `FID<fid>`; the API's Ensembl ID |
 | 4 | The API's records of how each image was made | Store them as attributes, with the snapshot date |
 | 5 | The study's results on the website and in the supplement, and the API's localization grades | Ask opencell@czbiohub.org for a licence first |
-| 6 | The pixel size: 0.2 µm in the TIFFs, 0.2063 µm from the optics | Write 0.206349 µm; keep the TIFF's value beside it |
+| 6 | The pixel size: 0.2 µm in the TIFFs, 0.2063 µm from the optics | **Decided:** 13 / 63 µm; the TIFF's value kept under `tiff` (LAYOUTS.md) |
 | 7 | The 179 GB of Thermo raw files | List them by URL and checksum, beside MaxQuant's scan tables |
 | 8 | The 5.6 TB of timsTOF raw files, deflated inside PRIDE's zips | List them now; ask PRIDE for uncompressed zips, then read frames in place with a new codec |
 | 9 | SubCell's crops of the projections (another group's processing) | Link them from the root attributes |
@@ -86,20 +86,20 @@ LAYOUTS.md has the depth table, the axes and every key mismatch.
 
 ```
 /                                          annotations: title, citation, DOI, licence, source, channel source,
-                                           API snapshot date, every deposit's accession; related datasets
+                                           pixel size and its source, API snapshot date, every deposit's accession
                                            wells: one row per well (path, gene, cell_line_id, ensg_id, fields)
-z-stacks/                                  plates: the 176 plate names
-z-stacks/<plate>                           ome.plate: rows A-H, columns 1-12, wells holding images
-z-stacks/<plate>/<row>/<column>            ome.well: field images; annotations: gene, Ensembl ID, how the line was made
-z-stacks/<plate>/<row>/<column>/FID<fid>   image; annotations: the field's API record and source_url; tiff: the TIFF's metadata
-z-stacks/<plate>/<row>/<column>/FID<fid>/0 virtual array (c, z, y, x)
-projections/<plate>/<row>/<column>/FID<fid>/0   virtual array (c, y, x), same plates, wells and fields
-unpublished/                               bioformats2raw.layout collection of the 86 unpublished lines
-unpublished/<GENE>/CID<cid>/FID<fid>/{stack,proj}   images, with only the path's facts
+plates/<plate>                             ome.plate: rows A-H, columns 1-12, wells holding images (176 plates)
+plates/<plate>/<row>/<column>              ome.well: field images; annotations: gene, Ensembl ID, how the line was made
+plates/<plate>/<row>/<column>/FID<fid>     image: the z-stack, array 0 (c, z, y, x); derived_images: {proj}
+plates/.../FID<fid>/proj                   image: the projection, array 0 (c, y, x)
+projections/<plate>/.../FID<fid>           the same plates holding only the projections, same bytes
+unlisted/                                  bioformats2raw.layout collection of the 86 unlisted lines
+unlisted/<GENE>/CID<cid>/FID<fid>[/proj]   stack and nested projection, with only the path's facts
 ```
 
-AAMP's field FID 13888 is at `z-stacks/PML0116/B/12/FID00013888`: an array of
-shape (2, 51, 600, 600), chunks (1, 1, 600, 600).
+AAMP's field FID 13888 is at `plates/PML0116/B/12/FID00013888`: an array of
+shape (2, 51, 600, 600), chunks (1, 1, 600, 600), with its projection at
+`plates/PML0116/B/12/FID00013888/proj`.
 
 ### Axes, units, levels
 
@@ -107,9 +107,10 @@ shape (2, 51, 600, 600), chunks (1, 1, 600, 600).
   `minus80.core.manifest.permute_dims`. One chunk is one plane, so no transpose
   codec is needed.
 - **Projections** are `(c, y, x)` as stored.
-- **Pixel size.** `y` and `x` are 0.206349 µm, from the Methods' optics: a 63×
-  objective and an Andor iXon Ultra 888 camera with 13 µm pixels. The TIFFs
-  state 0.2 µm, which is kept under `tiff` (decision 6). `z` is 0.5 or 0.2 µm,
+- **Pixel size.** `y` and `x` are 13 / 63 = 0.2063 µm, from the Methods'
+  optics: a 63× objective and an Andor iXon Ultra 888 camera with 13 µm
+  pixels. The TIFFs state 0.2 µm, which is kept under `tiff` (decision 6;
+  LAYOUTS.md records the source and the assumption). `z` is 0.5 or 0.2 µm,
   from each TIFF's ImageJ `spacing`. The API states the same z step for all
   5,911 published fields.
 - **Units** are `micrometer`.
@@ -122,7 +123,7 @@ shape (2, 51, 600, 600), chunks (1, 1, 600, 600).
 
 | product | how |
 |---|---|
-| stacks, projections, unpublished lines' images | referenced: virtual arrays over the TIFF strips |
+| stacks, projections, unlisted lines' images | referenced: virtual arrays over the TIFF strips |
 | plate, well and image documents; per-field acquisition records; each line's guide, terminus, library well | written: JSON attributes |
 | Figshare embeddings and IP-MS pairs; both PRIDE projects' MaxQuant tables; the kallisto table; the sample tables | Iceberg tables beside the store |
 | Thermo `.raw`, timsTOF zips, mzTab, FASTA, RNA-seq and amplicon reads | Iceberg tables of files: URL at every host, size, checksum, and the sample each belongs to |
@@ -155,32 +156,37 @@ All runs read from a laptop in California, outside AWS.
 - **Sample ingest**: five genes, chosen to cover the cases:
   - AAMP, with stacks at 0.5 µm and 0.2 µm;
   - ABCE1, with 131 slices;
-  - AKAP13, with two lines;
+  - AKAP13, with two lines, one unlisted;
   - BAG6, with a mismatched Ensembl ID;
-  - HSP90B1, with no published line.
+  - HSP90B1, with no listed line.
 
-  The run wrote 19 published fields of view on 8 plates, 38 images, in 2.1 s of
-  parsing and 0.2 s of writing. That run predates the `unpublished/`
-  collection and the corrected pixel size.
-- **Verification of the sample**:
-  - All of `verify.py`'s gates pass: the shared schema, dimension, size,
-    declared-image, level and provenance gates, and the completeness, z-step
-    and Ensembl ID gates.
-  - The reference gate matched every chunk of all 38 images to tifffile's
-    strip index.
-  - The sampled pixel gate fails when an Icechunk virtual-chunk read drops its
-    connection ("connection closed before message completed"), with a single
-    reader and no other load. An earlier full pixel pass had compared 10 of 19
-    fields equal before failing the same way. The cause is under
-    investigation.
+  The run wrote 19 listed fields on 8 plates and 8 fields of 2 unlisted lines,
+  73 images, in 2.1 s of parsing and 0.3 s of writing.
+- **Verification of the sample**: every gate in `verify.py` passes on all 73
+  images:
+  - the shared gates (schema, dimension names, physical size, declared images,
+    levels, provenance);
+  - completeness, z step, pixel size and Ensembl ID;
+  - the reference gate, every chunk against tifffile's strip index;
+  - the sampled pixel gate, three fields decoded equal to tifffile, each
+    projection equal to its stack's maximum over z.
+
+  Two earlier pixel passes failed when an Icechunk virtual-chunk read dropped
+  its connection ("connection closed before message completed"), once with a
+  single reader. The cause is under investigation.
+- **The whole bucket**: all 12,602 files parse with `TiffParser` through the
+  ingest's own code, with no refusals. Every file matches a header survey made
+  with tifffile on shape, dtype, axes, z spacing and units. Every chunk
+  reference lies inside its object, is non-empty and overlaps no other. 105
+  planes from 21 stacks across every depth, and their projections, equal
+  tifffile's decode. Parsing took a median of 1.08 s per stack under 32
+  threads from a laptop, 1,056 s in all.
 - **Commit size**: 12,602 images built from real parsed arrays wrote in 26 s
   and committed in 1.9 s to a local repo. The cost on S3 is unmeasured.
 - **timsTOF frames**: once unzipped, a run's frames read back through Zarr's
   zstd and shuffle codecs on rectilinear chunks with Icechunk virtual
   references, equal to a reference decoder on 88 frames. Every member of
   PRIDE's zips is deflated, which blocks this in place.
-- **The whole bucket**: every stack and projection parsed through the ingest's
-  own code and checked against a header survey of every file. Results pending.
 
 ## Judgement calls
 
@@ -250,32 +256,39 @@ All runs read from a laptop in California, outside AWS.
 
 ## Steps, scope and risk
 
-**Steps.**
+**Phases.** Phase 1 is the images alone; the tables follow beside the store
+without changing it.
 
-1. Snapshot the API: `/api/lines?publication_ready=true`, and
-   `/api/lines/<cid>/fovs` for each of the 1,396 bucket CIDs. That is about
-   1,400 GETs, one at a time.
-2. Run `ingest.py` beside the bucket, in us-west-2, into a local or
-   own-prefix Icechunk repo. It lists the bucket and places each field, then
-   parses all 12,602 files with `TiffParser`. It writes the plates, wells,
-   images and the `unpublished/` collection, and commits once, printing
-   progress at a steady interval.
-3. Build the Iceberg tables:
+**Phase 1, the images. Approved, into an Icechunk repo in the managed R2
+bucket.**
+
+1. The API snapshot of 2026-10-23 is the source of record. It was taken with
+   about 1,400 GETs, one at a time.
+2. Run `ingest.py` into the repo. It lists the bucket and places each field,
+   then parses all 12,602 files with `TiffParser`. It writes the plates, wells
+   and field images, the `projections/` plates and the `unlisted/` collection,
+   and commits once, printing progress at a steady interval.
+3. Run `verify.py`. It checks every chunk reference, read back from the store,
+   against tifffile's strip index of its file, reading only each file's
+   directories (about 0.8 GB in all). It decodes the pixels of one stack and
+   projection per depth in each tree, and checks the pixel size on every
+   image.
+4. Open the store cold in a fresh shell, and in a plate viewer.
+5. Write REPORT.md and a demo notebook that opens the store cold.
+
+**Phase 2, the tables.** Each write is approved separately.
+
+1. Build the Iceberg tables:
    - the Figshare tables;
    - the MaxQuant tables of both PRIDE projects, melted long;
    - the kallisto table and the sample tables;
    - the tables of raw files, from PRIDE's, SRA's and ENA's file reports with
      their checksums.
-4. Test whether Icechunk reads the cytoself `.npy` files over Drive URLs. If it
-   does, reference them as virtual arrays, one chunk per crop.
-5. Run `verify.py`. It checks every chunk reference, read back from the store,
-   against tifffile's strip index of its file, reading only each file's
-   directories (about 0.8 GB in all), and decodes the pixels of one stack and
-   projection per depth. Check every table's row count against its source.
-6. Open the store cold in a fresh shell, and in a plate viewer.
-7. Write REPORT.md and a demo notebook that opens the store and its tables
-   cold.
-8. With separate approval, copy or write the store to Arraylake.
+2. Test whether Icechunk reads the cytoself `.npy` files over Drive URLs.
+   Icechunk drops a URL's query string on read (earth-mover/icechunk#2444),
+   and Drive's download URLs are all query string, so expect a table of files
+   until that is fixed.
+3. Check every table's row count against its source.
 
 **In scope:** everything in the source table above, raw and processed. The
 site's and supplement's results are in scope too, but wait for a licence.

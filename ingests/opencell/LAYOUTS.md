@@ -35,7 +35,39 @@ z depth and spacing, from a header survey of all 6,301 stacks:
 | 121 | 0.2 | 41 |
 | 131 | 0.2 | 28 |
 
-xy spacing is 0.2 µm in every file (`XResolution` 5/1 with ImageJ `unit` `um`).
+Every file states an xy spacing of 0.2 µm (`XResolution` 5/1 with ImageJ
+`unit` `um`). The store does not use it; see the pixel size below.
+
+## Pixel size
+
+The store's y and x scale is 13 / 63 = 0.2063492 µm, not the 0.2 µm the TIFFs
+state.
+
+- **Source.** The paper's Materials and Methods (supplement-1 of the NIH
+  author manuscript, PMC9119736, mirrored at EBI BioStudies S-EPMC9119736),
+  section "Live-cell fluorescence microscopy":
+
+  > Cells were imaged on a DMI-8 inverted microscope (Leica) equipped with a
+  > Dragonfly spinning-disk confocal system (Andor), a 63x 1.47NA oil objective
+  > (Leica), and a 16-bit iXon Ultra 888 EMCCD camera (Andor, pixel size:
+  > 13x13 µm2).
+
+  A 13 µm camera pixel through a 63x objective is 13 / 63 = 0.2063 µm at the
+  sample.
+- **Corroboration.** CZI's SubCell evaluation data, made from the same
+  bucket's projections, states 0.206349 µm per pixel.
+- **The TIFFs' value.** 0.2 µm is 3% smaller and reads as rounded. It is kept,
+  as stated, in each image's `tiff.resolution` (`XResolution` [5, 1]) and
+  `tiff.imagej` attributes.
+- **Where it is written.** `ome.multiscales[0]` scale and each array's `scale`
+  attribute carry 13 / 63 for y and x. The root's `annotations.pixel_size_um`
+  states the value and this source. `verify.py`'s pixel-size gate checks every
+  image.
+- **Assumption.** No relay lens between objective and camera changes the
+  magnification. The Methods mention none. Confirming this with the OpenCell
+  team is part of the plan's email.
+- **z.** It is unaffected. The z step is the stage's step, 0.2 or 0.5 µm,
+  stated by the TIFFs and the API alike.
 
 ## Axes
 
@@ -58,34 +90,56 @@ OpenCell imaged its cell lines in 96-well plates, so the store is a set of
 OME-Zarr HCS plates (0.5 §1.2, §2.7, §2.8), one per imaging plate:
 
 ```
-/                                         dataset description, licence, citation; a table of every well
-z-stacks/                                 one HCS plate per imaging plate
-z-stacks/<plate>                          plate: rows A-H, columns 1-12, the wells that hold images
-z-stacks/<plate>/<row>/<column>           well: one cell line; gene, Ensembl ID, the line's API record
-z-stacks/<plate>/<row>/<column>/FID<fid>  field image, array 0: (c, z, y, x); acquisition settings
-projections/...                           the same paths; field image array 0: (c, y, x)
+/                                       dataset description, licence, citation, pixel size and its source;
+                                        a table of every well (path, gene, cell_line_id, ensg_id, fields)
+plates/<plate>                          plate: rows A-H, columns 1-12, the wells that hold images
+plates/<plate>/<row>/<column>           well: one cell line; gene, Ensembl ID, how the line was made
+plates/<plate>/<row>/<column>/FID<fid>  field image, array 0: the z-stack (c, z, y, x); acquisition record
+plates/.../FID<fid>/proj                image, array 0: the field's projection (c, y, x)
+projections/<plate>/.../FID<fid>        the same plates with only the projections, for browsing
+unlisted/<GENE>/CID<cid>/FID<fid>       bioformats2raw collection: fields of the 86 unlisted lines,
+unlisted/.../FID<fid>/proj              each with its projection nested the same way
 ```
 
-- The imaging plate is the API's `pml_id` (`PML0116`). The cell line's own
+- **Imaging plate.** It is the API's `pml_id` (`PML0116`). The cell line's own
   `plate_id` and `well_id` (`P0012`, `B12`) are where the line was made, and
-  sit in the well's `cell_line` record.
-- The well and the microscope's position in it come from the API's
-  `src_filename`, the original Micro-Manager file: `B12_14_AAMP.ome.tif` on the
-  earlier plates, `MMStack_451-B12-19.ome.tif` on the later ones. All 5,911
-  published fields of view parse; rows run A-H and columns 1-12.
-- The 5,911 published fields of view sit on 176 plates in 2,193 wells.
-  Every well holds exactly one cell line, and every plate was imaged at one
-  z depth. A cell line's fields of view are spread over 1 to 4 plates (578
-  lines on one, 588 on two, 137 on three, 7 on four).
-- Each field image is named `FID<fid>`, OpenCell's field-of-view ID, and keeps
-  the microscope's position number as `position_in_well`.
-- Each field is its own image, as the spec's HCS layout requires. Fields of the
-  same shape are not stacked into one array: an image may have only one
-  channel or custom axis (§2.4), and `c` already takes that place.
-- The projections are a second set of plates over the same paths, because a
-  projection has no z axis and cannot be a level of its stack's image.
-- The 86 unpublished cell lines (390 fields of view) have no API record, so no
-  plate or well, and are left out (PLAN.md).
+  sit in the well's `cell_line` record. The imaging well equals the library
+  well for 4,062 of the 5,911 listed fields.
+- **Well and position.** They come from the API's `src_filename`, the original
+  Micro-Manager file: `B12_14_AAMP.ome.tif` on the earlier plates,
+  `MMStack_451-B12-19.ome.tif` on the later ones. All 5,911 listed fields
+  parse; rows run A-H and columns 1-12.
+- **Counts.** The 5,911 listed fields sit on 176 plates in 2,193 wells. Every
+  well holds exactly one cell line, and every plate was imaged at one z
+  depth. A cell line's fields are spread over 1 to 4 plates: 578 lines on one,
+  588 on two, 137 on three and 7 on four.
+- **Field names.** Each field image is named `FID<fid>`, OpenCell's
+  field-of-view ID. It keeps the microscope's position number as
+  `position_in_well`.
+- **One image per field.** Fields of the same shape are not stacked into one
+  array. An image may have only one channel or custom axis (§2.4), and `c`
+  already takes that place.
+- **The projection nested in its field.** The projection is derived from its
+  stack, so it lives inside the stack's image group as `proj`. It can't be a
+  resolution level, because it has no z. It can't be a second field of the
+  well either, because a well's image paths are single names and a viewer
+  would count it as another field of view. The spec names no such subgroup,
+  so the field image lists it in `derived_images`
+  (`{"proj": "maximum intensity over z …"}`), where `minus80.ome.hierarchy`
+  and the verify gates find it.
+- **`projections/`.** It repeats the projections as plates of their own, so a
+  plate viewer can browse them as 2-D images. Its images reference the same
+  bytes as `plates/.../proj`, so it costs only metadata and manifests.
+- **`unlisted/`.** It holds the 390 fields of the 86 cell lines that are in the
+  bucket but that the OpenCell website and its API do not list. The API answers
+  404 for them, so there is no plate, well or acquisition record, and the
+  fields are grouped by gene and cell line, with only what the path states
+  (`listed_by_opencell: false`). The spec forbids one group from being both a
+  plate and a collection, so `unlisted/` is a sibling of the plate trees.
+- **The root.** It holds plates and a collection side by side. OME-Zarr has no
+  structure for that, so the root carries no `ome` metadata: a viewer opens a
+  plate (`plates/PML0116`) or the collection (`unlisted/`), not the root. The
+  root's `annotations.trees` says what each tree holds.
 
 ## Keys and joins
 
@@ -147,11 +201,11 @@ projections/...                           the same paths; field image array 0: (
 
   The well reproduces the path's value and does not correct it.
 
-- **Unpublished cell lines.** 86 cell lines, 390 fields of view, are in the
+- **Unlisted cell lines.** 86 cell lines, 390 fields of view, are in the
   bucket but answer 404 from `/api/lines/<cid>`. 85 are second lines of a gene
   that also has a published line (AKAP13: 599 published, 1932 not). One,
   HSP90B1 (CID 43), is the only line of its gene. The API has no record of
-  them, so they have no plate or well and are not in the store.
+  them, so they have no plate or well, and they go in `unlisted/`.
 - **Per-protein tables** on the site are keyed on Ensembl ID and gene name,
   with no cell line ID. The localization table's Ensembl IDs match the API's
   for all 1,310 published lines. The library-metadata table matches 1,300 of
