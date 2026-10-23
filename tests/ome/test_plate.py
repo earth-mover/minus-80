@@ -76,3 +76,33 @@ def test_schema_gate_checks_plate_documents():
     root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
     root.create_group("P1").attrs.update({"ome": {"version": "0.5", "plate": {"rows": []}}})
     assert [p.split(":")[0] for p in schema(root, "0.5")] == ["P1"]
+
+
+def test_verify_finds_derived_images_and_nested_collections():
+    import zarr
+
+    from minus80.ome import image_attrs, root_attrs, series_attrs
+    from minus80.ome.hierarchy import DERIVED, images
+    from minus80.ome.verify import series_matches
+
+    def image(group, dims, shape):
+        group.attrs.update({"ome": image_attrs(name=group.name, dims=dims, level_shapes=[shape],
+                                               scale={d: 1 for d in dims})})
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    rows, columns = plate_grid(96)
+    root.create_group("plates/P1").attrs.update(
+        plate_attrs(name="P1", rows=rows, columns=columns, wells=[("A", "1")]))
+    root.create_group("plates/P1/A/1").attrs.update(well_attrs(["F1"]))
+    field = root.create_group("plates/P1/A/1/F1")
+    image(field, ("z", "y", "x"), (3, 4, 4))
+    image(field.create_group("proj"), ("y", "x"), (4, 4))
+    collection = root.create_group("others")
+    collection.attrs.update(root_attrs())
+    collection.create_group("OME").attrs.update(series_attrs(["G/F2"]))
+    image(collection.create_group("G/F2"), ("y", "x"), (4, 4))
+
+    assert series_matches(root) == ["1 groups missing from series and plates: ['plates/P1/A/1/F1/proj']"]
+    field.attrs.update({DERIVED: {"proj": "maximum over z"}})
+    assert series_matches(root) == []
+    assert sorted(images(root)) == ["others/G/F2", "plates/P1/A/1/F1", "plates/P1/A/1/F1/proj"]

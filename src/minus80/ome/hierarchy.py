@@ -7,7 +7,13 @@ so the study group's direct children are not the images, and anything that
 walks the store has to follow the same rule the spec gives a reader.
 
 An HCS plate declares its images differently: the plate lists its wells and
-each well its fields. A study may hold several plates, at any depth.
+each well its fields. A study may hold several plates and collections, at any
+depth, since the spec forbids one group from being both.
+
+An image may also hold images derived from it, such as a projection, as
+subgroups. The spec names no such subgroup, so the image lists them in its
+:data:`DERIVED` attribute, and a reader finds them there rather than by
+walking the tree.
 """
 
 from __future__ import annotations
@@ -18,6 +24,10 @@ OME = "OME"
 
 #: The subgroup an image's label images live in, which the spec names.
 LABELS = "labels"
+
+#: An image's attribute naming the image subgroups derived from it, each with
+#: a description of how: ``{"proj": "maximum over z"}``.
+DERIVED = "derived_images"
 
 
 def series(study) -> list[str]:
@@ -47,9 +57,32 @@ def plate_fields(study) -> list[str]:
     return found
 
 
+def collection_series(study) -> list[str]:
+    """The images every ``bioformats2raw.layout`` collection in the study lists, the root's included."""
+    found = series(study)
+    for path, node in study.members(max_depth=None):
+        ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
+        if isinstance(ome, dict) and "bioformats2raw.layout" in ome:
+            found += [f"{path}/{p}" for p in series(node)]
+    return found
+
+
+def derived(study, images: list[str]) -> list[str]:
+    """The derived images each of ``images`` lists in its :data:`DERIVED` attribute."""
+    found = []
+    for path in images:
+        try:
+            names = dict(study[path].attrs).get(DERIVED) or {}
+        except KeyError:
+            continue
+        found += [f"{path}/{name}" for name in names]
+    return found
+
+
 def declared(study) -> list[str]:
-    """Every image path the study declares, as collection series or plate fields."""
-    return series(study) + plate_fields(study)
+    """Every image path the study declares: collection series, plate fields and derived images."""
+    primary = collection_series(study) + plate_fields(study)
+    return primary + derived(study, primary)
 
 
 def multiscale_groups(study) -> dict[str, zarr.Group]:
@@ -62,7 +95,8 @@ def multiscale_groups(study) -> dict[str, zarr.Group]:
     """
     found = {}
     for path, node in study.members(max_depth=None):
-        if isinstance(node, zarr.Group) and path != OME and f"/{LABELS}/" not in f"/{path}/":
+        if (isinstance(node, zarr.Group) and path.rsplit("/", 1)[-1] != OME
+                and f"/{LABELS}/" not in f"/{path}/"):
             ome = dict(node.attrs).get("ome")
             if isinstance(ome, dict) and "multiscales" in ome:
                 found[path] = node
