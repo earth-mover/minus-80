@@ -5,18 +5,20 @@ and a few fields of view per well. The store follows that: an HCS plate per
 imaging plate, a well per cell line, and a field image per field of view,
 referencing the bucket's TIFF strips without copying or decoding them.
 
-Two plate trees share those paths:
-
-- ``z-stacks/<plate>/<row>/<column>/<field>``: the live-cell z-stack, (c, z, y, x);
-- ``projections/<plate>/<row>/<column>/<field>``: the maximum over z that
-  OpenCell published beside each stack, (c, y, x).
+- ``plates/<plate>/<row>/<column>/FID<fid>``: the field's live-cell z-stack,
+  (c, z, y, x), with the maximum over z that OpenCell published beside it
+  nested as ``proj``, (c, y, x);
+- ``projections/<plate>/<row>/<column>/FID<fid>``: the same projections as a
+  plate of their own, for browsing, referencing the same bytes;
+- ``unlisted/<GENE>/CID<cid>/FID<fid>``: the fields of the 86 cell lines the
+  OpenCell website does not list, as a ``bioformats2raw.layout`` collection.
 
 The bucket's paths name only the gene, cell line and field of view. The
 imaging plate, the well and each field's acquisition settings come from a
-snapshot of the OpenCell site's JSON API, the only place they are published,
-so the 86 cell lines the API does not publish have no plate to go in and are
-left out. LAYOUTS.md records how the bucket maps onto this tree, and PLAN.md
-the choices behind it.
+snapshot of the OpenCell website's JSON API, the only place they are
+published; the unlisted lines have no such record, so no plate or well.
+LAYOUTS.md records how the bucket maps onto this tree, and PLAN.md the
+choices behind it.
 
     MINUS80_S3_ANONYMOUS=1 uv run --package opencell-ingest python ingests/opencell/ingest.py \\
         --api <snapshot dir> --repo <icechunk dir> [--genes AAMP,BAG6]
@@ -41,7 +43,8 @@ from minus80.core.manifest import permute_dims
 from minus80.core.progress import Progress
 from minus80.core.registry import s3_region
 from minus80.ome import (annotation_table, channel_omero, image_annotation, image_attrs,
-                         plate_attrs, plate_grid, well_attrs)
+                         plate_attrs, plate_grid, root_attrs, series_attrs, well_attrs)
+from minus80.ome.hierarchy import DERIVED
 from minus80.parsers.tiff import TiffParser
 from obstore.store import S3Store
 from virtualizarr.manifests import ManifestGroup
@@ -59,8 +62,20 @@ NAME = re.compile(
 #: ``.../MMStack_451-B12-19.ome.tif`` on the later ones.
 SOURCE_WELL = re.compile(r"(?:/|MMStack_\d+-)(?P<row>[A-H])(?P<column>\d{1,2})[-_](?P<position>\d+)")
 
-TREES = {"stack": "z-stacks", "proj": "projections"}
+PLATES, PROJECTIONS, UNLISTED = "plates", "projections", "unlisted"
+#: The name of each field image's nested projection.
+PROJ = "proj"
 ORDER = {"stack": ("c", "z", "y", "x"), "proj": ("c", "y", "x")}
+
+#: The sample's pixel size in µm: the Methods' camera pixel, 13 µm (Andor iXon
+#: Ultra 888), through the 63x objective. The TIFFs state 0.2 µm, a rounded
+#: value, which stays in each image's ``tiff`` attributes (LAYOUTS.md).
+PIXEL_UM = 13 / 63
+PIXEL_SOURCE = ("13 µm camera pixel (Andor iXon Ultra 888) / 63x objective, from "
+                "Cho et al. 2022, Materials and Methods, Live-cell fluorescence microscopy; "
+                "the TIFFs state 0.2 µm (XResolution 5/1, unit um)")
+PROJ_DESCRIPTION = ("maximum intensity over z of each channel, as published by OpenCell "
+                    "in the bucket's _proj.tif")
 
 #: Channel order and stains as the OpenCell download page states them; the
 #: TIFFs name neither.
@@ -94,6 +109,16 @@ DATASET = {
     "website": "https://opencell.sf.czbiohub.org",
     "channels_source": "https://opencell.sf.czbiohub.org/download",
     "metadata_source": "OpenCell API /api/lines and /api/lines/<cid>/fovs, 2026-10-23",
+    "pixel_size_um": {"y": PIXEL_UM, "x": PIXEL_UM, "source": PIXEL_SOURCE},
+    "trees": {
+        PLATES: "one OME-Zarr HCS plate per imaging plate; each field image is the z-stack, "
+                "with its projection nested as proj",
+        PROJECTIONS: "the same plates holding only the projections, for browsing; "
+                     "they reference the same bytes as plates/.../proj",
+        UNLISTED: "the fields of view of the 86 cell lines that are in the bucket but that the "
+                  "OpenCell website does not list; no plate, well or acquisition record exists "
+                  "for them, so they are grouped by gene and cell line",
+    },
     "related_accessions": {
         "PRIDE PXD024909": "IP-MS interactome raw data",
         "PRIDE PXD029191": "whole-cell proteome, protein abundance",
@@ -193,21 +218,27 @@ def parse_all(urls: list[str], workers: int) -> dict[str, ManifestGroup]:
 
 
 def image_group(parsed: ManifestGroup, *, name: str, order: tuple[str, ...],
-                omero: dict, annotations: dict | None = None) -> ManifestGroup:
+                omero: dict, annotations: dict | None = None,
+                derived: dict | None = None) -> ManifestGroup:
     """One OME-Zarr image from a parsed TIFF, its axes in OME-Zarr order.
 
-    The parser's group attributes (the TIFF's series, resolution tags and
-    ImageJ metadata) stay on the image under ``tiff``, as the file states them.
+    y and x take :data:`PIXEL_UM`; the parser's group attributes (the TIFF's
+    series, resolution tags and ImageJ metadata) stay on the image under
+    ``tiff``, as the file states them. ``derived`` names the image subgroups
+    derived from this one (``minus80.ome.hierarchy.DERIVED``).
     """
     array = permute_dims(parsed["0"], order)
     attrs = array.metadata.attributes
+    attrs["scale"] = attrs["scale"] | {"y": PIXEL_UM, "x": PIXEL_UM}
+    # The channel axis is a list of labels; its scale entry exists only
+    # because the spec gives every axis one.
     ome = image_attrs(name=name, dims=order, level_shapes=[array.shape],
-                      scale={d: attrs["scale"].get(d, 1.0) for d in order},
+                      scale={"c": 1.0} | attrs["scale"],
                       units=attrs["units"], dimensions=attrs["dimensions"], omero=omero,
                       description="the TIFF's single full-resolution level")
     return ManifestGroup(arrays={"0": array},
                          attributes={"ome": ome, "tiff": dict(parsed.metadata.attributes)}
-                         | (annotations or {}))
+                         | (annotations or {}) | ({DERIVED: derived} if derived else {}))
 
 
 def field_name(fov: Fov) -> str:
@@ -223,6 +254,12 @@ def fov_fields(fov: Fov, record: dict, where: Place) -> dict:
                "roi_position_top": annotation.get("roi_position_top")})
 
 
+def path_fields(fov: Fov) -> dict:
+    """What a bucket path alone states, for a field the API has no record of."""
+    return {"gene": fov.gene, "ensg_id_in_path": fov.path_ensg, "cell_line_id": fov.cid,
+            "fov_id": fov.fid, "listed_by_opencell": False}
+
+
 def well_fields(fov: Fov, line: dict) -> dict:
     """What the API says about how the well's cell line was made.
 
@@ -235,13 +272,23 @@ def well_fields(fov: Fov, line: dict) -> dict:
             "cell_line": {k: meta.get(k) for k in LINE_FIELDS}}
 
 
+def write_field(store, path: str, fov: Fov, parsed: dict, fields: dict, omero: dict) -> None:
+    """The field's stack at ``path`` and its projection nested inside it."""
+    stack, proj = fov.url("stack"), fov.url("proj")
+    image_group(parsed[stack], name=f"{fov.gene} {field_name(fov)}", order=ORDER["stack"],
+                omero=omero, annotations=image_annotation(fields, source_url=stack),
+                derived={PROJ: PROJ_DESCRIPTION}).to_icechunk(store, group=path)
+    image_group(parsed[proj], name=f"{fov.gene} {field_name(fov)} projection", order=ORDER["proj"],
+                omero=omero, annotations=image_annotation(fields, source_url=proj)
+                ).to_icechunk(store, group=f"{path}/{PROJ}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--api", type=Path, required=True,
                     help="directory holding lines.json and fovs.json from the OpenCell API")
     ap.add_argument("--repo", required=True, help="Icechunk repo, a directory or s3:// URL")
     ap.add_argument("--genes", help="comma-separated gene symbols; default every gene")
-    ap.add_argument("--no-proj", action="store_true", help="leave out the projections")
     ap.add_argument("--workers", type=int, default=32)
     args = ap.parse_args(argv)
 
@@ -252,19 +299,16 @@ def main(argv: list[str] | None = None) -> None:
         if missing := wanted - {f.gene for f in bucket}:
             raise SystemExit(f"not in the bucket: {sorted(missing)}")
         bucket = {f: k for f, k in bucket.items() if f.gene in wanted}
-    unpublished = [f for f in bucket if f.cid not in lines]
-    if unpublished:
-        print(f"leaving out {len(unpublished)} fields of view of "
-              f"{len({f.cid for f in unpublished})} unpublished cell lines")
-    kinds = ["stack"] if args.no_proj else ["stack", "proj"]
-    fovs = {}
     for fov, have in bucket.items():
+        if lacking := {"stack", "proj"} - have:
+            raise ValueError(f"FID {fov.fid} has no {sorted(lacking)} file")
+    unlisted = sorted((f for f in bucket if f.cid not in lines), key=lambda f: (f.gene, f.cid, f.fid))
+    fovs = {}
+    for fov in bucket:
         if fov.cid not in lines:
             continue
-        if lacking := set(kinds) - have:
-            raise ValueError(f"FID {fov.fid} has no {sorted(lacking)} file")
         if fov.fid not in fov_records:
-            raise ValueError(f"FID {fov.fid} of published cell line {fov.cid} has no API record")
+            raise ValueError(f"FID {fov.fid} of listed cell line {fov.cid} has no API record")
         fovs[fov] = place(fov_records[fov.fid])
     wells: dict[str, list[Fov]] = {}
     for fov, where in sorted(fovs.items(), key=lambda kv: (kv[1].well, kv[0].fid)):
@@ -273,17 +317,20 @@ def main(argv: list[str] | None = None) -> None:
         if len({f.cid for f in members}) > 1:
             raise ValueError(f"{well} holds more than one cell line: {sorted({f.cid for f in members})}")
     plates = sorted({w.split("/")[0] for w in wells})
-    print(f"{len(fovs)} fields of view in {len(wells)} wells on {len(plates)} plates")
+    print(f"{len(fovs)} fields of view in {len(wells)} wells on {len(plates)} plates; "
+          f"{len(unlisted)} fields of {len({f.cid for f in unlisted})} unlisted cell lines")
 
     started = time.monotonic()
-    parsed = parse_all([f.url(k) for f in fovs for k in kinds], args.workers)
+    parsed = parse_all([f.url(k) for f in [*fovs, *unlisted] for k in ("stack", "proj")],
+                       args.workers)
     print(f"parsed in {time.monotonic() - started:.1f} s")
 
     omero = channel_omero(CHANNELS, max_value=65535)
     rows, columns = plate_grid(96)
     repo = create_repo(args.repo, [], prefixes=[PREFIX])
     session = repo.writable_session("main")
-    root = zarr.open_group(session.store, mode="a")
+    store = session.store
+    root = zarr.open_group(store, mode="a")
     root.attrs.update(
         {"annotations": DATASET}
         | {"wells": annotation_table({
@@ -292,35 +339,48 @@ def main(argv: list[str] | None = None) -> None:
             for w, m in wells.items()})["annotations"]})
 
     started = time.monotonic()
-    with Progress("writing fields of view", len(fovs), unit="fields of view") as progress:
-        for kind in kinds:
-            tree = root.require_group(TREES[kind])
-            tree.attrs.update({"plates": plates})
-            for plate in plates:
-                in_plate = {w: m for w, m in wells.items() if w.startswith(f"{plate}/")}
-                tree.create_group(plate).attrs.update(plate_attrs(
-                    name=plate, rows=rows, columns=columns,
-                    wells=[tuple(w.split("/")[1:]) for w in in_plate],
-                    field_count=max(len(m) for m in in_plate.values())))
-                for well, members in in_plate.items():
-                    tree.create_group(well).attrs.update(
-                        well_attrs([field_name(f) for f in members])
-                        | image_annotation(well_fields(members[0], lines[members[0].cid])))
-                    for fov in members:
-                        url = fov.url(kind)
-                        group = image_group(
-                            parsed[url], name=f"{fov.gene} FID{fov.fid:08d} {kind}",
-                            order=ORDER[kind], omero=omero,
-                            annotations=image_annotation(
-                                fov_fields(fov, fov_records[fov.fid], fovs[fov]), source_url=url))
-                        group.to_icechunk(session.store,
-                                          group=f"{TREES[kind]}/{well}/{field_name(fov)}")
-                        if kind == "stack":
-                            progress.advance()
+    with Progress("writing fields of view", len(fovs) + len(unlisted),
+                  unit="fields of view") as progress:
+        for tree in (PLATES, PROJECTIONS):
+            root.require_group(tree).attrs.update({"plates": plates})
+        for plate in plates:
+            in_plate = {w: m for w, m in wells.items() if w.startswith(f"{plate}/")}
+            document = plate_attrs(name=plate, rows=rows, columns=columns,
+                                   wells=[tuple(w.split("/")[1:]) for w in in_plate],
+                                   field_count=max(len(m) for m in in_plate.values()))
+            for tree in (PLATES, PROJECTIONS):
+                root.create_group(f"{tree}/{plate}").attrs.update(document)
+            for well, members in in_plate.items():
+                attrs = (well_attrs([field_name(f) for f in members])
+                         | image_annotation(well_fields(members[0], lines[members[0].cid])))
+                for tree in (PLATES, PROJECTIONS):
+                    root.create_group(f"{tree}/{well}").attrs.update(attrs)
+                for fov in members:
+                    fields = fov_fields(fov, fov_records[fov.fid], fovs[fov])
+                    write_field(store, f"{PLATES}/{well}/{field_name(fov)}", fov, parsed,
+                                fields, omero)
+                    proj = fov.url("proj")
+                    image_group(parsed[proj], name=f"{fov.gene} {field_name(fov)} projection",
+                                order=ORDER["proj"], omero=omero,
+                                annotations=image_annotation(fields, source_url=proj)
+                                ).to_icechunk(store, group=f"{PROJECTIONS}/{well}/{field_name(fov)}")
+                    progress.advance()
+        collection = root.create_group(UNLISTED)
+        collection.attrs.update(root_attrs() | image_annotation({
+            "description": DATASET["trees"][UNLISTED],
+            "cell_lines": sorted({f.cid for f in unlisted})}))
+        series = []
+        for fov in unlisted:
+            path = f"{fov.gene}/CID{fov.cid:06d}/{field_name(fov)}"
+            write_field(store, f"{UNLISTED}/{path}", fov, parsed, path_fields(fov), omero)
+            series.append(path)
+            progress.advance()
+        collection.create_group("OME").attrs.update(series_attrs(series))
     written = time.monotonic() - started
     started = time.monotonic()
-    snapshot = commit(session, f"OpenCell: {len(fovs)} fields of view on {len(plates)} plates")
-    print(f"wrote {len(fovs) * len(kinds)} images in {written:.1f} s, "
+    snapshot = commit(session, f"OpenCell: {len(fovs)} fields of view on {len(plates)} plates, "
+                               f"{len(unlisted)} unlisted")
+    print(f"wrote {len(fovs) + len(unlisted)} fields in {written:.1f} s, "
           f"committed {snapshot} in {time.monotonic() - started:.1f} s")
 
 

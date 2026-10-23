@@ -2,9 +2,12 @@
 
 Runs the shared gates from ``minus80.ome.verify`` and these OpenCell gates:
 
-- every published field of view the bucket holds for the ingested genes has a
-  stack and a projection at its plate, well and field;
-- each stack's z scale equals the z step the OpenCell API states for it;
+- every field of view the bucket holds for the ingested genes is in the
+  store: a listed line's field at its plate, well and field, with its
+  projection nested and in ``projections/``; an unlisted line's field in
+  ``unlisted/``;
+- each stack's z scale equals the z step the OpenCell API states for it, and
+  every image's y and x scale is the optics' pixel size, ``ingest.PIXEL_UM``;
 - each well's Ensembl ID is the one its cell line's API record states;
 - every chunk reference, read back from the store, has the path, offset and
   length of its plane's strip in tifffile's index of the file, and the file's
@@ -40,39 +43,63 @@ from minus80.ome.verify import GATES, run_gates
 import ingest
 
 
-def _fields(root, kind: str) -> dict[str, dict]:
-    """Each field image of one tree, with its annotations."""
-    prefix = ingest.TREES[kind] + "/"
-    return {name: dict(image.attrs)["annotations"]
-            for name, image in images(root).items() if name.startswith(prefix)}
+def _stacks(root) -> dict[str, dict]:
+    """Each field's stack image, in the plates and the unlisted collection, with its annotations."""
+    return {name: dict(image.attrs)["annotations"] for name, image in images(root).items()
+            if name.startswith((f"{ingest.PLATES}/", f"{ingest.UNLISTED}/"))
+            and not name.endswith(f"/{ingest.PROJ}")}
 
 
-def complete(root, bucket, lines, fov_records, kinds) -> list[str]:
-    genes = {a["gene"] for a in _fields(root, "stack").values()}
+def complete(root, bucket, lines, fov_records) -> list[str]:
+    """Every field of the ingested genes is in the store, with its projection in both places."""
+    genes = {a["gene"] for a in _stacks(root).values()}
     problems = []
     for fov in bucket:
-        if fov.gene not in genes or fov.cid not in lines:
+        if fov.gene not in genes:
             continue
-        well = ingest.place(fov_records[fov.fid]).well
-        for kind in kinds:
-            path = f"{ingest.TREES[kind]}/{well}/{ingest.field_name(fov)}"
-            if path not in root:
-                problems.append(f"{path}: FID {fov.fid} is in the bucket, not in the store")
+        name = ingest.field_name(fov)
+        if fov.cid in lines:
+            well = ingest.place(fov_records[fov.fid]).well
+            paths = [f"{ingest.PLATES}/{well}/{name}", f"{ingest.PLATES}/{well}/{name}/{ingest.PROJ}",
+                     f"{ingest.PROJECTIONS}/{well}/{name}"]
+        else:
+            path = f"{ingest.UNLISTED}/{fov.gene}/CID{fov.cid:06d}/{name}"
+            paths = [path, f"{path}/{ingest.PROJ}"]
+        problems += [f"{p}: FID {fov.fid} is in the bucket, not in the store"
+                     for p in paths if p not in root]
     return problems
 
 
 def z_step(root) -> list[str]:
+    """Each listed stack's z scale is the API's z step."""
     problems = []
-    for name, fields in _fields(root, "stack").items():
+    for name, fields in _stacks(root).items():
+        if "z_step_size" not in fields:
+            continue
         scale = dict(root[f"{name}/0"].attrs)["scale"]["z"]
         if fields["z_step_size"] != scale:
             problems.append(f"{name}: z scale {scale}, API z_step_size {fields['z_step_size']}")
     return problems
 
 
+def pixel_size(root) -> list[str]:
+    """Every image's y and x scale is the pixel size the optics give, in the array and in ome."""
+    problems = []
+    for name, image in images(root).items():
+        ms = dict(image.attrs)["ome"]["multiscales"][0]
+        axes = [a["name"] for a in ms["axes"]]
+        scale = dict(zip(axes, ms["datasets"][0]["coordinateTransformations"][0]["scale"]))
+        stated = dict(image["0"].attrs)["scale"]
+        for axis in ("y", "x"):
+            if scale[axis] != ingest.PIXEL_UM or stated[axis] != ingest.PIXEL_UM:
+                problems.append(f"{name}: {axis} scale {scale[axis]} (array {stated[axis]}), "
+                                f"expected {ingest.PIXEL_UM}")
+    return problems
+
+
 def ensembl(root, lines) -> list[str]:
     problems = []
-    for name in {n.rsplit("/", 1)[0] for n in _fields(root, "stack")}:
+    for name in {n.rsplit("/", 1)[0] for n in _stacks(root) if n.startswith(f"{ingest.PLATES}/")}:
         fields = dict(root[name].attrs)["annotations"]
         stated = lines[fields["cell_line_id"]]["metadata"]["ensg_id"]
         if fields["ensg_id"] != stated:
@@ -140,12 +167,12 @@ def references(root, session, workers: int) -> list[str]:
 
 
 def pixel_sample(root) -> list[str]:
-    """One stack per (slices, z step), each with its projection."""
+    """One stack per tree and (slices, z step), each with its projection."""
     picked = {}
-    for name in _fields(root, "stack"):
+    for name in _stacks(root):
         shape = root[f"{name}/0"].shape
         scale = dict(root[f"{name}/0"].attrs)["scale"]["z"]
-        picked.setdefault((shape[1], scale), name)
+        picked.setdefault((name.split("/")[0], shape[1], scale), name)
     return sorted(picked.values())
 
 
@@ -158,7 +185,7 @@ def pixels(root) -> list[str]:
             url = dict(root[name].attrs)["annotations"]["source_url"]
             if not np.array_equal(stack, _decode(url).transpose(1, 0, 2, 3)):
                 problems.append(f"{name}: differs from tifffile's decode of {url}")
-            proj_name = ingest.TREES["proj"] + name.removeprefix(ingest.TREES["stack"])
+            proj_name = f"{name}/{ingest.PROJ}"
             if proj_name in root:
                 proj = root[f"{proj_name}/0"][:]
                 url = dict(root[proj_name].attrs)["annotations"]["source_url"]
@@ -184,11 +211,11 @@ def main(argv: list[str] | None = None) -> None:
     root = zarr.open_group(session.store, mode="r")
     lines, fov_records = ingest.load_api(args.api)
     bucket = ingest.list_bucket()
-    kinds = [k for k in ingest.TREES if ingest.TREES[k] in root]
-    print(f"{len(images(root))} images in the store, trees {kinds}")
+    print(f"{len(images(root))} images in the store")
     gates = dict(GATES) | {
-        "complete": lambda s, n: complete(s, bucket, lines, fov_records, kinds),
+        "complete": lambda s, n: complete(s, bucket, lines, fov_records),
         "z step": lambda s, n: z_step(s),
+        "pixel size": lambda s, n: pixel_size(s),
         "ensembl id": lambda s, n: ensembl(s, lines),
         "references": lambda s, n: references(s, session, args.workers),
     }
