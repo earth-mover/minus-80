@@ -336,3 +336,35 @@ def open_repo(
     repo = open_repository(repo_path, source_prefixes=source_prefixes)
     session = repo.readonly_session(branch)
     return zarr.open_group(session.store, mode="r")
+
+
+#: A repo location of this form, ``arraylake://<org>/<repo>``, names an
+#: existing Arraylake repo instead of a storage location.
+ARRAYLAKE = "arraylake://"
+
+
+def arraylake_repository(location: str, *, source_prefixes: list[str] | None = None):
+    """Open the Arraylake repo ``location`` names (``arraylake://<org>/<repo>``).
+
+    Arraylake owns the repo's storage and its virtual chunk containers, and
+    applies the containers itself when the repo opens, so nothing is passed
+    beyond the name: a reader that adds containers of its own is refused.
+    Each of ``source_prefixes`` must fall under one of the repo's containers,
+    or the references written would not be readable; that raises
+    ``ValueError`` naming the setup the repo lacks. Needs the ``arraylake``
+    package and a login (``al auth login``) or ``ARRAYLAKE_TOKEN``.
+    """
+    from arraylake import Client
+
+    name = location.removeprefix(ARRAYLAKE)
+    client = Client()
+    containers = dict(client.get_virtual_chunk_containers(name))
+    uncovered = [p for p in source_prefixes or []
+                 if not any(p.startswith(c) for c in containers)]
+    if uncovered:
+        raise ValueError(
+            f"{name} has no virtual chunk container covering {uncovered} (it has "
+            f"{sorted(containers)}). An org admin registers the source bucket as a bucket "
+            f"config and gives it a virtual chunk access policy; a repo writer then adds the "
+            f"container with Client.update_virtual_chunk_containers.")
+    return client.get_repo(name)

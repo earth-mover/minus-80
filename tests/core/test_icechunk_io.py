@@ -43,3 +43,23 @@ def test_a_local_only_repo_is_left_alone(tmp_path):
     source.write_bytes(b"x")
     create_repo(tmp_path / "repo", [source.as_uri()])
     assert _tries(open_repository(tmp_path / "repo")) == 1
+
+
+def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
+    import sys
+    import types
+
+    import pytest
+
+    class Client:
+        def get_virtual_chunk_containers(self, name):
+            return {"s3://czb-opencell/": "czb-opencell"}
+
+        def get_repo(self, name):
+            return f"repo {name}"
+
+    monkeypatch.setitem(sys.modules, "arraylake", types.SimpleNamespace(Client=Client))
+    location = "arraylake://org/opencell"
+    assert icechunk_io.arraylake_repository(location, source_prefixes=[REMOTE]) == "repo org/opencell"
+    with pytest.raises(ValueError, match="no virtual chunk container covering"):
+        icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
