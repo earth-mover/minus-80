@@ -90,6 +90,34 @@ def _store_for(prefix: str):
 # source gets this size instead, so reads coalesce into a few ~12 MiB requests.
 REMOTE_IDEAL_REQUEST_SIZE = 12 * 1024 * 1024
 
+# The same inheritance gives virtual chunk reads the local disk's single try,
+# so one dropped connection on any of an array's hundreds of GETs fails the
+# whole read ("connection closed before message completed", icechunk#1431).
+# These are the attempts a remote read gets, with backoff in milliseconds.
+REMOTE_READ_TRIES = 10
+REMOTE_READ_BACKOFF_MS = (100, 2000)
+
+
+def _remote_retries():
+    import icechunk
+
+    first, most = REMOTE_READ_BACKOFF_MS
+    return icechunk.StorageRetriesSettings(
+        max_tries=REMOTE_READ_TRIES, initial_backoff_ms=first, max_backoff_ms=most
+    )
+
+
+def _with_remote_retries(config):
+    """``config`` with :data:`REMOTE_READ_TRIES`, unless it already allows more."""
+    import icechunk
+
+    storage = config.storage or icechunk.StorageSettings()
+    retries = storage.retries
+    if retries is None or (retries.max_tries or 1) < REMOTE_READ_TRIES:
+        storage.retries = _remote_retries()
+    config.storage = storage
+    return config
+
 
 #: Icechunk fetches manifests one at a time while committing unless told otherwise,
 #: so a commit costs one round trip per array: 200 arrays at 50 ms latency took
@@ -169,9 +197,10 @@ def create_repo(
     When any prefix is remote, the repo's ``ideal_concurrent_request_size`` is
     set to ``ideal_request_size``, or :data:`REMOTE_IDEAL_REQUEST_SIZE` by
     default, instead of the local-disk default that splits a remote read into
-    many small GETs (icechunk#2256). The setting is saved in the repo config,
-    so it applies to every reader. Reopening with ``open_existing`` does not
-    change the setting of an existing repo.
+    many small GETs (icechunk#2256), and its retries to
+    :data:`REMOTE_READ_TRIES` instead of the local disk's single try. Both are
+    saved in the repo config, so they apply to every reader. Reopening with
+    ``open_existing`` does not change the settings of an existing repo.
     """
     import icechunk
 
@@ -188,7 +217,8 @@ def create_repo(
         config.storage = icechunk.StorageSettings(
             concurrency=icechunk.StorageConcurrencySettings(
                 ideal_concurrent_request_size=size
-            )
+            ),
+            retries=_remote_retries(),
         )
     for prefix in prefixes:
         config.set_virtual_chunk_container(
@@ -261,7 +291,8 @@ def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None 
     the :class:`icechunk.Repository` itself, for a caller that writes to it or
     picks its own session; :func:`open_repo` is the read-only group on top.
     Unless ``source_prefixes`` is given, the prefixes to authorize are read
-    from the repo's own config.
+    from the repo's own config. When any is remote, the session reads with at
+    least :data:`REMOTE_READ_TRIES` tries, whatever the stored config says.
     """
     import icechunk
 
@@ -275,8 +306,14 @@ def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None 
     authorize = (
         {p: _access_for(p) for p in source_prefixes} if source_prefixes else None
     )
+    config = None
+    if any(urlparse(p).scheme in ("http", "https", "s3", "gs", "az") for p in source_prefixes or []):
+        # A repo written before its config carried retries still reads with
+        # one try; the override lasts for this session and changes nothing
+        # stored.
+        config = _with_remote_retries(icechunk.Repository.open(storage=storage).config)
     return icechunk.Repository.open(
-        storage=storage, authorize_virtual_chunk_access=authorize
+        storage=storage, config=config, authorize_virtual_chunk_access=authorize
     )
 
 
