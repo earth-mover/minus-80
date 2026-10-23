@@ -13,16 +13,15 @@ library, and turns what it reports into VirtualiZarr ``ManifestArray``\ s.
 from __future__ import annotations
 
 import dataclasses
-import io
 import os
 import tempfile
 from collections.abc import Sequence
 
 import numpy as np
 from minus80.core import as_url
-from minus80.core.registry import store_and_key
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from minus80.core.fetch import object_size, write_ranges
+from minus80.core.manifest import channel_last_transpose, manifest_array
+from virtualizarr.manifests import ManifestArray
 
 #: Bytes taken from the start of the file. The version chunk lives here.
 HEAD_BLOCK = 64 << 10
@@ -124,54 +123,25 @@ class ND2Index:
 def _frames(url: str, *, shape, chunk_shape, offsets: np.ndarray, frame_bytes: int,
             dtype, codecs, dimension_names, attrs: dict | None = None) -> ManifestArray:
     """A virtual array whose every chunk is one whole frame of ``url``."""
-    manifest = ChunkManifest.from_arrays(
-        paths=np.full(offsets.shape, url, dtype=np.dtypes.StringDType()),
-        offsets=offsets,
-        lengths=np.full(offsets.shape, frame_bytes, dtype=np.uint64),
-    )
-    metadata = create_v3_array_metadata(
-        shape=shape, data_type=np.dtype(dtype), chunk_shape=chunk_shape,
-        fill_value=0, codecs=codecs, dimension_names=dimension_names,
-        attributes=attrs,
-    )
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest)
+    return manifest_array(
+        url, offsets, np.full(offsets.shape, frame_bytes, dtype=np.uint64),
+        shape=shape, chunk_shape=chunk_shape, dtype=dtype, codecs=codecs,
+        dimension_names=dimension_names, attributes=attrs)
 
 
 def _transpose_codecs(rank: int) -> list[dict]:
-    """``transpose`` then ``bytes`` for a chunk whose channel axis is stored last.
-
-    ``order`` maps the array's axes onto the stored ones, so the trailing
-    channel axis moves to the front of the spatial axes and any leading axes
-    (a position axis, say) stay where they are.
-    """
-    order = (*range(rank - 3), rank - 2, rank - 1, rank - 3)
-    return [
-        {"name": "transpose", "configuration": {"order": list(order)}},
-        {"name": "bytes", "configuration": {"endian": "little"}},
-    ]
+    """``transpose`` then ``bytes`` for a chunk whose channel axis is stored last."""
+    return [channel_last_transpose(rank), {"name": "bytes", "configuration": {"endian": "little"}}]
 
 
-class _Ranges:
-    """Counted range reads against whatever store holds the URL."""
+@dataclasses.dataclass(frozen=True)
+class _Fetched:
+    """What indexing one file cost: the URL, its length, and the requests and bytes it took."""
 
-    def __init__(self, url: str):
-        import obstore
-
-        self.url = as_url(url)
-        self._obstore = obstore
-        self._store, self._key = store_and_key(self.url)
-        self.requests = 1
-        self.bytes = 0
-        self.size = int(obstore.head(self._store, self._key)["size"])
-
-    def get(self, start: int, length: int) -> bytes:
-        end = min(start + length, self.size)
-        data = bytes(
-            self._obstore.get_range(self._store, self._key, start=start, end=end)
-        )
-        self.requests += 1
-        self.bytes += len(data)
-        return data
+    url: str
+    size: int
+    requests: int
+    bytes: int
 
 
 def _coalesce(ranges: Sequence[tuple[int, int]], gap: int = COALESCE_GAP):
@@ -182,20 +152,6 @@ def _coalesce(ranges: Sequence[tuple[int, int]], gap: int = COALESCE_GAP):
         else:
             merged.append([lo, hi])
     return [(lo, hi) for lo, hi in merged]
-
-
-def _sparse_copy(path: str, size: int) -> io.BufferedRandom:
-    """A local file of the source's true length whose contents are holes.
-
-    ``nd2.ND2File`` takes a path and memory-maps it, so the whole public API
-    needs a file that is the right length and has the right bytes wherever it
-    looks. Fetching only the metadata chunks into an otherwise empty file gives
-    it exactly that: every frame region stays a hole, and nothing here reads
-    one.
-    """
-    fh = open(path, "r+b")
-    fh.truncate(size)
-    return fh
 
 
 def _metadata_ranges(chunkmap, covered: Sequence[tuple[int, int]]):
@@ -259,27 +215,33 @@ def index_nd2(url: str) -> ND2Index:
     import nd2
     from nd2._parse._chunk_decode import get_chunkmap
 
-    ranges = _Ranges(url)
+    url = as_url(url)
+    size = object_size(url)
+    requests, fetched = 1, 0
     with tempfile.TemporaryDirectory() as tmp:
+        # ``nd2.ND2File`` takes a path and memory-maps it, so the whole public
+        # API needs a file that is the right length and has the right bytes
+        # wherever it looks. Fetching only the metadata chunks into an
+        # otherwise empty file gives it exactly that: every frame region stays
+        # a hole, and nothing here reads one.
         local = os.path.join(tmp, "source.nd2")
-        open(local, "wb").close()
-        with _sparse_copy(local, ranges.size) as sparse:
-            blocks = [(0, min(HEAD_BLOCK, ranges.size)),
-                      (max(0, ranges.size - TAIL_BLOCK), ranges.size)]
-            for lo, hi in blocks:
-                sparse.seek(lo)
-                sparse.write(ranges.get(lo, hi - lo))
+        with open(local, "wb") as sparse:
+            sparse.truncate(size)
+            blocks = [(0, min(HEAD_BLOCK, size)), (max(0, size - TAIL_BLOCK), size)]
+            fetched += write_ranges(url, blocks, sparse, progress=False)
+            requests += len(blocks)
             sparse.flush()
 
             with open(local, "rb") as fh:
                 chunkmap = get_chunkmap(fh)
-            for lo, hi in _metadata_ranges(chunkmap, blocks):
-                sparse.seek(lo)
-                sparse.write(ranges.get(lo, hi - lo))
-            sparse.flush()
+            # Each range is padded past its chunk's payload, so the last one
+            # can run past the end of the file.
+            wanted = [(lo, min(hi, size)) for lo, hi in _metadata_ranges(chunkmap, blocks)]
+            fetched += write_ranges(url, wanted, sparse, progress=False)
+            requests += len(wanted)
 
         with nd2.ND2File(local) as f:
-            return _describe(f, chunkmap, ranges)
+            return _describe(f, chunkmap, _Fetched(url, size, requests, fetched))
 
 
 def _describe(f, chunkmap, ranges) -> ND2Index:

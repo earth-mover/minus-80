@@ -30,10 +30,11 @@ with shared, indexed axes.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from minus80.core import as_url, registry_for
+from minus80.core.fetch import local_copy
+from minus80.core.jsonable import jsonable
 
 # Numeric dtype kinds whose chunks are fixed-stride byte ranges we can reference:
 # signed/unsigned int, float, complex, bool. Everything else (string 'S'/'U',
@@ -64,43 +65,6 @@ def _is_virtualizable(ds) -> bool:
     return True
 
 
-def _sanitize(value):
-    """Coerce an h5py-derived value into something JSON/zarr-attribute safe.
-
-    HDF5 object references (NWB ``DynamicTableRegion.table``, ``.specloc``) and
-    byte strings are not JSON serializable; recurse and stringify what isn't.
-    """
-    import math
-
-    import numpy as np
-
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    if isinstance(value, np.ndarray):
-        return _sanitize(value.tolist())
-    if isinstance(value, np.generic):
-        return _sanitize(value.item())
-    if isinstance(value, float):
-        # NWB stores unused amplifier settings (capacitance_slow, resistance_comp_*)
-        # as NaN. Python's json emits a bare NaN/Infinity token, which is not valid
-        # JSON and Icechunk's strict parser rejects; null is the compliant stand-in.
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {str(k): _sanitize(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_sanitize(v) for v in value]
-    try:
-        json.dumps(value, allow_nan=False)
-        return value
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _sanitize_attrs_inplace(attrs: dict) -> None:
-    for k in list(attrs):
-        attrs[k] = _sanitize(attrs[k])
-
-
 def _native_value(ds):
     """Read a non-virtualizable dataset fully into a JSON-safe Python value.
 
@@ -111,10 +75,10 @@ def _native_value(ds):
     a bare value is kept as-is (native values are never dicts, so the two forms are
     unambiguous — see :func:`native_parts`).
     """
-    value = _sanitize(ds[()])
+    value = jsonable(ds[()])
     if not ds.attrs:
         return value
-    return {"value": value, "attrs": _sanitize(dict(ds.attrs))}
+    return {"value": value, "attrs": jsonable(dict(ds.attrs))}
 
 
 def native_parts(entry) -> tuple[object, dict]:
@@ -143,12 +107,12 @@ def _walk(path: str):
     group_attrs: dict[str, dict] = {}
 
     with h5py.File(path, "r") as f:
-        root_attrs = _sanitize(dict(f["/"].attrs))
+        root_attrs = jsonable(dict(f["/"].attrs))
 
         def visit(name, obj):
             if isinstance(obj, h5py.Group):
                 if obj.attrs:
-                    group_attrs[name] = _sanitize(dict(obj.attrs))
+                    group_attrs[name] = jsonable(dict(obj.attrs))
                 return
             # obj is a Dataset
             parent = obj.parent.name.lstrip("/")  # "" for root-level datasets
@@ -173,14 +137,14 @@ def _manifest_arrays_for_file(url: str, registry, numeric_by_parent: dict):
     from virtualizarr.parsers import HDFParser
 
     out = {}  # full NWB path -> ManifestArray
-    with h5py.File(url_to_local(url), "r") as f:
+    with h5py.File(local_copy(url), "r") as f:
         for parent, wanted in numeric_by_parent.items():
             group = f["/"] if parent == "" else f[parent]
             drop = [k for k in group.keys() if k not in wanted]
             parser = HDFParser(group=parent or "/", drop_variables=drop)
             manifest_group = parser(url, registry).group
             for leaf_name, marr in manifest_group.arrays.items():
-                _sanitize_attrs_inplace(marr.metadata.attributes)
+                marr.metadata.attributes.update(jsonable(marr.metadata.attributes))
                 full = leaf_name if parent == "" else f"{parent}/{leaf_name}"
                 out[full] = marr
     return out
@@ -189,21 +153,13 @@ def _manifest_arrays_for_file(url: str, registry, numeric_by_parent: dict):
 def url_to_local(url: str) -> str:
     """A local filesystem path for a source URL, so the parser can index it.
 
-    ``file://`` (or bare) paths are used in place. Remote URLs (``http(s)``/cloud)
-    are fetched once into ``data/_cache`` via parallel range GETs and indexed from
-    that scratch copy -- the built repo still *references* the remote URL. HDF5's chunk B-tree is
-    scattered through the file, so walking it over HTTP would be thousands of
-    latency-bound round trips; pulling the file once is far faster."""
-    from urllib.parse import unquote, urlparse
-
-    p = urlparse(url)
-    if p.scheme in ("", "file"):
-        return unquote(p.path)
-    if p.scheme in ("http", "https", "s3", "gs", "az"):
-        from minus80.core.fetch import download_then_index
-
-        return download_then_index(url, "data/_cache")
-    raise ValueError(f"unsupported source url scheme for indexing: {url!r}")
+    Local paths are used in place. A remote file is fetched once into
+    :func:`minus80.core.fetch.cache_dir` and indexed from that copy; the built
+    repo still references the remote URL. HDF5's chunk B-tree is scattered
+    through the file, so walking it over HTTP would be thousands of
+    latency-bound round trips; pulling the file once is far faster.
+    """
+    return local_copy(url)
 
 
 def _unique(base: str, seen: set[str]) -> str:
@@ -224,7 +180,7 @@ def _prefix_for(url: str, seen: set[str]) -> str:
     so pass an explicit ``names`` to :func:`open_collection` for meaningful group names
     (e.g. the archive's asset path ``sub-…/ses-…``).
     """
-    return _unique(Path(url_to_local(url)).stem, seen)
+    return _unique(Path(local_copy(url)).stem, seen)
 
 
 def open_collection(sources, *, registry=None, names=None):
@@ -257,7 +213,7 @@ def open_collection(sources, *, registry=None, names=None):
     for i, url in enumerate(urls):
         prefix = _unique(names[i], seen) if names is not None else _prefix_for(url, seen)
         reg = registry or registry_for(url)
-        local = url_to_local(url)
+        local = local_copy(url)
         numeric_by_parent, native, group_attrs, root_attrs = _walk(local)
         marrs = _manifest_arrays_for_file(url, reg, numeric_by_parent)
         for full_path, marr in marrs.items():

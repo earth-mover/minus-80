@@ -22,8 +22,8 @@ from pathlib import Path
 
 import numpy as np
 from minus80.core import as_url
-from virtualizarr.manifests import ChunkManifest, ManifestArray
-from virtualizarr.manifests.utils import create_v3_array_metadata
+from minus80.core.manifest import manifest_array
+from virtualizarr.manifests import ManifestArray
 
 PIXEL_DATA_TAG = b"\xe0\x7f\x10\x00"  # (7FE0,0010), little-endian
 # Native (uncompressed) transfer syntaxes we can reference directly.
@@ -143,18 +143,11 @@ def multiplex_array(
     c = len(metas)
     grid = (c, 1, 1)
     markers = [m["marker"] for m, _ in metas]
-    metadata = create_v3_array_metadata(
-        shape=(c, y, x),
-        data_type=dtype,
-        chunk_shape=(1, y, x),
-        fill_value=0,
+    marr = manifest_array(
+        np.array([url_for(s) for _, s in metas], dtype=object).reshape(grid),
+        np.array([m["data_offset"] for m, _ in metas], dtype=np.uint64).reshape(grid),
+        np.array([m["length"] for m, _ in metas], dtype=np.uint64).reshape(grid),
+        shape=(c, y, x), chunk_shape=(1, y, x), dtype=dtype,
         codecs=[{"name": "bytes", "configuration": {"endian": "little"}}],
-        dimension_names=("c", "y", "x"),
-        attributes={"channel_names": markers},
-    )
-    manifest = ChunkManifest.from_arrays(
-        paths=np.array([url_for(s) for _, s in metas], dtype=np.dtypes.StringDType()).reshape(grid),
-        offsets=np.array([m["data_offset"] for m, _ in metas], dtype=np.uint64).reshape(grid),
-        lengths=np.array([m["length"] for m, _ in metas], dtype=np.uint64).reshape(grid),
-    )
-    return ManifestArray(metadata=metadata, chunkmanifest=manifest), markers
+        dimension_names=("c", "y", "x"), attributes={"channel_names": markers})
+    return marr, markers

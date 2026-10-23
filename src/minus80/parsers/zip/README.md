@@ -52,7 +52,8 @@ for a grid position the archive has no file for, which reads as the fill value.
 
 - Only STORED members can be chunks; any other method raises
   `NotImplementedError`. `read_member` and `buffers` also read Deflate members.
-- A zero-length member cannot be a chunk; pass `None` for it.
+- A zero-length member has no bytes to reference, so it becomes a missing chunk
+  and reads as the fill value, as `None` does.
 - `buffers` cannot step over a member whose sizes sit in a data descriptor after
   its data, and raises `ValueError` for one.
 - `buffers` imports two private functions, because nothing public reads a ZIP64

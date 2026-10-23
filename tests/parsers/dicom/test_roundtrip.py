@@ -266,3 +266,31 @@ def test_compressed_tiles_use_imagecodecs_serializers(tmp_path):
         np.testing.assert_array_equal(image, expected)
         if name.endswith("2k"):  # lossless: equal to the pixels encoded
             np.testing.assert_array_equal(image, np.concatenate(list(tiles), axis=1).transpose(2, 0, 1))
+
+
+def test_volume_orders_slices_by_position_and_reads_back(tmp_path):
+    """Slices written out of order stack by ImagePositionPatient z, signed values intact."""
+    from minus80.parsers.dicom.synthetic import write_volume_series
+    from minus80.parsers.dicom.volume import volume_array
+
+    z = [-10.0, -7.5, -5.0, -2.5]
+    paths, expected = write_volume_series(tmp_path / "ct", z)
+    marr, geometry = volume_array(paths)
+
+    assert geometry["z_positions"] == z
+    assert geometry["z_spacing"] == 2.5
+    assert marr.metadata.dimension_names == ("z", "y", "x")
+    image = _read(marr)
+    assert image.dtype == np.int16
+    np.testing.assert_array_equal(image, expected)
+
+
+def test_volume_without_positions_falls_back_to_instance_number(tmp_path):
+    from minus80.parsers.dicom.synthetic import write_volume_series
+    from minus80.parsers.dicom.volume import volume_array
+
+    paths, expected = write_volume_series(tmp_path / "ct", [None, None, None])
+    marr, geometry = volume_array(paths)
+
+    assert geometry["z_spacing"] is None
+    np.testing.assert_array_equal(_read(marr), expected)

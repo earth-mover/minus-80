@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 import tifffile
-import zarr
 from virtualizarr.manifests import ManifestGroup
 
 from minus80.core.icechunk_io import commit, create_repo, open_repo

@@ -69,6 +69,58 @@ def write_multiplex_series(
     return paths, np.stack(planes)
 
 
+def write_volume_series(
+    out_dir: str | Path,
+    z_positions: list[float | None],
+    *,
+    shape: tuple[int, int] = (6, 8),
+    seed: int = 0,
+) -> tuple[list[str], np.ndarray]:
+    """Write one single-frame int16 CT slice per entry of ``z_positions``.
+
+    Slices are written to disk in reverse order, so file order never matches
+    slice order. A ``None`` position leaves ``ImagePositionPatient`` out; each
+    slice's ``InstanceNumber`` is its index in ``z_positions``, plus one.
+    Returns the file paths and the ``(z, y, x)`` stack in ``z_positions`` order.
+    """
+    import pydicom
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian, generate_uid
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+    y, x = shape
+    planes = [rng.integers(-1024, 3000, size=(y, x), dtype=np.int16) for _ in z_positions]
+    paths = []
+    for i in reversed(range(len(z_positions))):
+        fm = FileMetaDataset()
+        fm.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2"  # CT Image Storage
+        fm.MediaStorageSOPInstanceUID = generate_uid()
+        fm.TransferSyntaxUID = ExplicitVRLittleEndian
+
+        ds = Dataset()
+        ds.file_meta = fm
+        ds.SOPClassUID = fm.MediaStorageSOPClassUID
+        ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
+        ds.InstanceNumber = i + 1
+        if z_positions[i] is not None:
+            ds.ImagePositionPatient = [0.0, 0.0, z_positions[i]]
+        ds.Rows, ds.Columns = y, x
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME2"
+        ds.BitsAllocated = 16
+        ds.BitsStored = 16
+        ds.HighBit = 15
+        ds.PixelRepresentation = 1
+        ds.PixelData = planes[i].tobytes()
+
+        path = out / f"slice_{len(paths):02d}.dcm"
+        pydicom.dcmwrite(path, ds, enforce_file_format=True)
+        paths.append(str(path))
+    return paths, np.stack(planes)
+
+
 def write_wsi_pyramid_series(
     out_dir: str | Path,
     levels: list[tuple[int, int]],

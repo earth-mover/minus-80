@@ -1,12 +1,12 @@
 """Zips written by zipfile, referenced member by member, read back through Icechunk."""
 
+import asyncio
 import io
 import zipfile
 
 import numpy as np
 import pytest
 import tifffile
-import zarr
 from virtualizarr.manifests import ManifestGroup
 
 from minus80.core.icechunk_io import commit, create_repo, open_repo
@@ -96,3 +96,25 @@ def test_inflate_prefix_stops_early(tmp_path):
     prefix, pulled = inflate_prefix(path.as_uri(), entry, 100_000, block=65536)
     assert prefix[:100_000] == data[:100_000]
     assert pulled < entry.compressed_length / 4
+
+
+def test_zip_index_inside_a_running_loop(tmp_path):
+    path = tmp_path / "one.zip"
+    _write_zip(path, {"seq/a.tif": _tiff(_frames(1, (4, 4))[0])})
+
+    async def in_a_notebook():
+        return zip_index(path.as_uri())
+
+    assert list(asyncio.run(in_a_notebook())) == ["seq/a.tif"]
+
+
+def test_zero_length_member_reads_as_fill(tmp_path):
+    frame = _frames(1, (8, 8))[0]
+    path = tmp_path / "gap.zip"
+    _write_zip(path, {"seq/t0.tif": _tiff(frame), "seq/t1.tif": b""})
+    index = zip_index(path.as_uri())
+    arr = member_array(path.as_uri(), index, np.array(["seq/t0.tif", "seq/t1.tif"], dtype=object).reshape(2, 1, 1),
+                       shape=(2, 8, 8), chunk_shape=(1, 8, 8), dtype="uint16", serializer=TIFF)
+    got = _roundtrip(tmp_path, path, {"frames": arr})["frames"][:]
+    np.testing.assert_array_equal(got[0], frame)
+    assert not got[1].any()

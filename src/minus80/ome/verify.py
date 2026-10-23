@@ -19,7 +19,7 @@ from collections.abc import Callable, Mapping
 
 import numpy as np
 import zarr
-from zarr.core.sync import sync
+from minus80.core.aio import run_sync
 
 from .annotations import KEY as ANNOTATIONS
 from .hierarchy import images, multiscale_groups, series
@@ -249,7 +249,7 @@ def _is_virtual(session, array) -> bool:
         async def first():
             async for coords in session.chunk_coordinates(path, batch_size=1):
                 return coords
-        coords = sync(first())
+        coords = run_sync(first())
         if coords is None:
             return False
         kind = session.chunk_type(path, list(coords))

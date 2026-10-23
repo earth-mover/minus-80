@@ -79,10 +79,14 @@ byte-shuffle and zstd.
 - **Contiguous datasets are one chunk.** A multi-GB contiguous array references
   fine but reads at whole-array granularity.
 - **Remote sources are downloaded once to index.** HDF5's chunk B-tree is
-  scattered through the file, so a remote file is fetched to `data/_cache`
-  first; the store still references the remote URL.
-- **Filenames containing `+` break local sources.** `+` becomes `%2B` in a
-  `file://` URL and no longer matches the store prefix.
+  scattered through the file, so a remote file is fetched to
+  `minus80.core.fetch.cache_dir()` first; the store still references the
+  remote URL.
+- **A `+`, a space or another percent-encoded character in a local path breaks
+  indexing,** in the file name or in any directory above it. `HDFParser` reads
+  through obspec-utils' `ObjectStoreRegistry`, which neither decodes the key
+  nor matches an encoded path against a decoded store prefix
+  ([docs/upstream.md](../../../../docs/upstream.md)).
 - **Time axes over 50 M samples get no coordinate.** Past `MAX_COORD_POINTS`,
   `timestamps` stays a referenced variable, and a regular series' `starting_time`
   and `rate` are only in `_nwb`.

@@ -27,18 +27,14 @@ each has a subcommand in the command-line interface below::
 from __future__ import annotations
 
 import dataclasses
-import pathlib
 import re
 import struct
 import time
 import urllib.request
 from typing import Any
-from urllib.parse import urlparse
-from urllib.request import url2pathname
 
-import obstore
-
-from minus80.core.remote import patient_store
+from minus80.core.fetch import object_size, read_range
+from minus80.core.registry import file_path
 
 #: Codecs Zarr v3 defines itself. Anything else needs a package to register it,
 #: which a reader in another language may simply not have.
@@ -89,9 +85,8 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
     directories are reported as not worth a bulk read. Only BigTIFF is judged.
     docs/upstream.md says where this belongs upstream.
     """
-    store, key = patient_store(url)
-    size = obstore.head(store, key)["size"]
-    head = _read(store, key, 0, 16)
+    size = object_size(url, patient=True)
+    head = _read(url, 0, 16)
     if head[:2] not in (b"II", b"MM"):
         return DirectoryLayout(size, 0, False, refused="not a TIFF")
     endian = "<" if head[:2] == b"II" else ">"
@@ -102,15 +97,15 @@ def directory_layout(url: str, *, minimum: int = 64, padding: int = 64) -> Direc
                                refused="classic TIFF, capped at 4 GB")
 
     (first,) = struct.unpack_from(endian + "Q", head, 8)
-    entries = _entries(store, key, first, endian)
-    second = _next(store, key, first, endian)
-    third = _next(store, key, second, endian) if second else None
+    entries = _entries(url, first, endian)
+    second = _next(url, first, endian)
+    third = _next(url, second, endian) if second else None
     if not second or not third:
         return DirectoryLayout(size, first, True, entries=entries,
                                refused="fewer than three directories")
 
     stride = third - second
-    entries = _entries(store, key, second, endian) or entries
+    entries = _entries(url, second, endian) or entries
     common = {"size": size, "first_directory": first, "bigtiff": True,
               "stride": stride, "entries": entries}
     if stride <= 0 or entries is None:
@@ -228,9 +223,8 @@ def survey(prefix: str, *, limit: int = 20) -> list[dict[str, Any]]:
         url = prefix + name
         row: dict[str, Any] = {"name": name}
         try:
-            store, key = patient_store(url)
-            row["bytes"] = obstore.head(store, key)["size"]
-            head = _read(store, key, 0, 16)
+            row["bytes"] = object_size(url, patient=True)
+            head = _read(url, 0, 16)
             row["magic"] = head[:4].hex()
             if head[:2] in (b"II", b"MM"):
                 endian = "<" if head[:2] == b"II" else ">"
@@ -253,27 +247,25 @@ def _listing(prefix: str) -> list[str]:
         with urllib.request.urlopen(prefix, timeout=120) as response:
             body = response.read().decode("utf-8", "replace")
         return sorted(set(_HREF.findall(body)))
-    local = pathlib.Path(
-        url2pathname(urlparse(prefix).path) if prefix.startswith("file://") else prefix)
+    local = file_path(prefix)
     return sorted(p.name for p in local.iterdir() if p.is_file())
 
 
-def _read(store, key, start: int, length: int) -> bytes:
-    return bytes(memoryview(
-        obstore.get_range(store, key, start=start, end=start + length).to_bytes()))
+def _read(url: str, start: int, length: int) -> bytes:
+    return read_range(url, start, start + length, patient=True)
 
 
-def _entries(store, key, at: int, endian: str) -> int | None:
-    (count,) = struct.unpack_from(endian + "Q", _read(store, key, at, 8), 0)
+def _entries(url: str, at: int, endian: str) -> int | None:
+    (count,) = struct.unpack_from(endian + "Q", _read(url, at, 8), 0)
     return count if 0 < count < 1000 else None
 
 
-def _next(store, key, at: int, endian: str) -> int | None:
-    count = _entries(store, key, at, endian)
+def _next(url: str, at: int, endian: str) -> int | None:
+    count = _entries(url, at, endian)
     if count is None:
         return None
     (nxt,) = struct.unpack_from(
-        endian + "Q", _read(store, key, at + 8 + count * 20, 8), 0)
+        endian + "Q", _read(url, at + 8 + count * 20, 8), 0)
     return nxt or None
 
 
