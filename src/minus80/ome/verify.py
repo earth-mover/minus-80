@@ -22,7 +22,7 @@ import zarr
 from minus80.core.aio import run_sync
 
 from .annotations import KEY as ANNOTATIONS
-from .hierarchy import declared, images, multiscale_groups
+from .hierarchy import OME, declared, images, multiscale_groups
 from .image import validate
 
 #: The least a coarse level may correlate with the next finer level averaged
@@ -67,11 +67,19 @@ def schema(root, version: str) -> list[str]:
             validate(dict(image.attrs)["ome"], version, model="image", strict=True)
         except Exception as exc:
             problems.append(f"{name}: {type(exc).__name__}: {exc}"[:120])
-    for node, model in ((root, "bf2raw"), (root["OME"], "ome")):
+    documents = []
+    if "bioformats2raw.layout" in (dict(root.attrs).get("ome") or {}):
+        documents += [("", root, "bf2raw"), (OME, root[OME], "ome")]
+    for path, node in root.members(max_depth=None):
+        ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
+        for model in ("plate", "well"):
+            if isinstance(ome, dict) and model in ome:
+                documents.append((path, node, model))
+    for path, node, model in documents:
         try:
             validate(dict(node.attrs)["ome"], version, model=model)
         except Exception as exc:
-            problems.append(f"{model}: {type(exc).__name__}: {exc}"[:120])
+            problems.append(f"{path or model}: {type(exc).__name__}: {exc}"[:120])
     return problems
 
 

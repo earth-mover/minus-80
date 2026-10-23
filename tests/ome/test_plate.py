@@ -51,7 +51,7 @@ def test_verify_finds_plate_fields():
 
     from minus80.ome import image_attrs
     from minus80.ome.hierarchy import images
-    from minus80.ome.verify import series_matches
+    from minus80.ome.verify import schema, series_matches
 
     root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
     rows, columns = plate_grid(96)
@@ -63,5 +63,16 @@ def test_verify_finds_plate_fields():
             name=field, dims=("y", "x"), level_shapes=[(4, 4)], scale={"y": 1, "x": 1})})
     assert sorted(images(root)) == ["stacks/P1/B/12/F1", "stacks/P1/B/12/F2"]
     assert series_matches(root) == []
+    assert schema(root, "0.5") == []
     root.create_group("stacks/P1/B/12/F3").attrs.update(dict(root["stacks/P1/B/12/F1"].attrs))
     assert series_matches(root) == ["1 groups missing from series and plates: ['stacks/P1/B/12/F3']"]
+
+
+def test_schema_gate_checks_plate_documents():
+    import zarr
+
+    from minus80.ome.verify import schema
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    root.create_group("P1").attrs.update({"ome": {"version": "0.5", "plate": {"rows": []}}})
+    assert [p.split(":")[0] for p in schema(root, "0.5")] == ["P1"]
