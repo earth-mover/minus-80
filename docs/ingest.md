@@ -48,6 +48,17 @@ attributes.
 
 ## Layout
 
+### Read the spec's structures before designing a hierarchy
+
+Before proposing a layout, read the OME-Zarr sections that could fit the
+data: the axes rules, single images, `bioformats2raw.layout` collections and
+HCS plates. Map the source onto the structure the spec defines for its kind of
+data, and quote the rule behind each choice in `PLAN.md`. A well plate is an
+HCS plate with one image per field of view, however many fields share a shape.
+The JSON schema does not enforce every rule: an image may have only one
+channel or custom axis, so stacking fields of view into `(fov, c, z, y, x)`
+breaks a MUST and still validates.
+
 ### Survey the whole archive before building anything
 
 Count every directory and file first; one study was reported finished with one
