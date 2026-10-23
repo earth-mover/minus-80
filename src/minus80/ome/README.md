@@ -16,7 +16,7 @@ validated against the JSON schemas vendored in
 
 | Module | What it does |
 | --- | --- |
-| `image` | `image_attrs` builds the `ome` attributes for one multiscale image: axes, units, per-level scale and optional translation, and an optional `omero` display block from `rgb_omero` or `channel_omero`. `label_attrs` and `labels_attrs` do the same for label images. Every document is validated before it is returned. |
+| `image` | `image_attrs` builds the `ome` attributes for one multiscale image: axes, units, per-level scale and optional translation, and an optional `omero` display block from `rgb_omero` or `channel_omero`. Each axis's type comes from the array's `dimensions` attribute, passed as `dimensions=`; without it only `t`, `time`, `c`, `channel`, `z`, `y` and `x` are typed, and any other axis name raises. `label_attrs` and `labels_attrs` do the same for label images. Every document is validated before it is returned. |
 | `collection` | `root_attrs` and `series_attrs` build the `bioformats2raw.layout` container: the root group's attributes and the `OME` subgroup listing the member images by path. |
 | `annotations` | `image_annotation` puts per-image fields under a top-level `annotations` key, outside `ome`. `annotation_table` builds a column-oriented table of every image's fields for the collection root. |
 | `hierarchy` | `series`, `images` and `multiscale_groups` find the images in a collection, following nested `series` paths and skipping `labels` subgroups. |

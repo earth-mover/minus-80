@@ -51,10 +51,12 @@ DEFAULT_VERSION = "0.5"
 #: arbitrary; "intrinsic" is what the spec's own example uses.
 INTRINSIC = "intrinsic"
 
-#: ``image`` indexes a stack of separate images (one per source file); it is
-#: neither space nor time, so it gets the spec's open-ended ``custom`` type.
-_AXIS_TYPES = {"image": "custom", "t": "time", "c": "channel", "z": "space",
-               "y": "space", "x": "space"}
+#: Axis names whose type is unambiguous: OME-Zarr's own ``t``, ``c``, ``z``,
+#: ``y``, ``x``, and ``time`` and ``channel`` spelled out. Any other name takes
+#: its type from the array's ``dimensions`` attribute or raises, because a
+#: guess of ``space`` makes a time or position axis spatial.
+_AXIS_TYPES = {"t": "time", "time": "time", "c": "channel", "channel": "channel",
+               "z": "space", "y": "space", "x": "space"}
 
 #: Axis types whose values are labels rather than positions, so a reader must not
 #: interpolate between them. The spec allows saying so; it does not require it.
@@ -63,6 +65,29 @@ _DISCRETE = {"channel"}
 #: Display colours for the samples of an RGB image, in storage order.
 RGB_COLORS = ("FF0000", "00FF00", "0000FF")
 RGB_LABELS = ("red", "green", "blue")
+
+
+def axis_types(dims: Sequence[str], dimensions: Mapping[str, Mapping] | None = None) -> list[str]:
+    """The OME-Zarr type of each axis in ``dims``.
+
+    ``dimensions`` is an array's ``dimensions`` attribute, keyed by dimension
+    name; an axis's ``type`` there is used as given. OME-Zarr 0.5 and 0.6
+    define ``space``, ``time`` and ``channel``, and their schemas accept any
+    other string for an axis those do not describe, such as ``fov``. An axis
+    ``dimensions`` leaves out is typed from :data:`_AXIS_TYPES`, and an axis
+    in neither raises ``ValueError``.
+    """
+    dimensions = dimensions or {}
+    types = []
+    for d in dims:
+        if d in dimensions:
+            types.append(dimensions[d]["type"])
+        elif d in _AXIS_TYPES:
+            types.append(_AXIS_TYPES[d])
+        else:
+            raise ValueError(f"axis {d!r}: no type in dimensions, and the name does not say "
+                             f"whether it is space, time or channel")
+    return types
 
 
 def _channel(label: str, color: str, *, minimum: float, maximum: float,
@@ -167,7 +192,7 @@ def _method_metadata(description: str):
     return {"description": description} if description else {}
 
 
-def _multiscale_05(*, name, dims, paths, scales, translations, units, downsampling,
+def _multiscale_05(*, name, dims, types, paths, scales, translations, units, downsampling,
                    description):
     def transforms(s, t):
         scale = v05_ct.VectorScale(type="scale", scale=list(s))
@@ -176,8 +201,7 @@ def _multiscale_05(*, name, dims, paths, scales, translations, units, downsampli
         return (scale, v05_ct.VectorTranslation(type="translation", translation=list(t)))
 
     return v05_ms.Multiscale(
-        axes=[v05_axes.Axis(name=d, type=_AXIS_TYPES.get(d, "space"), unit=units.get(d))
-              for d in dims],
+        axes=[v05_axes.Axis(name=d, type=t, unit=units.get(d)) for d, t in zip(dims, types)],
         datasets=[v05_image.Dataset(path=p, coordinateTransformations=transforms(s, t))
                   for p, s, t in zip(paths, scales, translations)],
         # 0.5 allows a whole-image transform beside the per-level ones; the
@@ -186,11 +210,10 @@ def _multiscale_05(*, name, dims, paths, scales, translations, units, downsampli
         name=name, type=downsampling, metadata=_method_metadata(description))
 
 
-def _multiscale_06(*, name, dims, paths, scales, translations, units, downsampling,
+def _multiscale_06(*, name, dims, types, paths, scales, translations, units, downsampling,
                    description):
     axes = []
-    for d in dims:
-        axis_type = _AXIS_TYPES.get(d, "space")
+    for d, axis_type in zip(dims, types):
         axes.append(v06_ct.Axis(name=d, type=axis_type, unit=units.get(d),
                                 discrete=True if axis_type in _DISCRETE else None))
     return v06_ms.Multiscale(
@@ -231,7 +254,7 @@ _BUILDERS = {
 
 
 def _multiscale(*, name, dims, level_shapes, scale, units, downsampling,
-                description, version, translation=None):
+                description, version, translation=None, dimensions=None):
     if version not in VERSIONS:
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, not {version!r}")
     missing = set(dims) - set(scale)
@@ -246,7 +269,7 @@ def _multiscale(*, name, dims, level_shapes, scale, units, downsampling,
             raise ValueError(f"no translation given for axes {sorted(missing)}")
         translations = list(_level_translations(dims, scales, translation))
     return _BUILDERS[version].multiscale(
-        name=name, dims=dims, paths=[str(i) for i in range(len(level_shapes))],
+        name=name, dims=dims, types=axis_types(dims, dimensions), paths=[str(i) for i in range(len(level_shapes))],
         scales=scales, translations=translations,
         units=units or {}, downsampling=downsampling, description=description)
 
@@ -263,6 +286,7 @@ def image_attrs(
     omero: Mapping | None = None,
     version: str = DEFAULT_VERSION,
     translation: Mapping[str, float] | None = None,
+    dimensions: Mapping[str, Mapping] | None = None,
 ) -> dict:
     """Build the validated ``ome`` attributes for a multiscale image.
 
@@ -273,6 +297,9 @@ def image_attrs(
     in ``units``: a CT slice's ``ImagePositionPatient``, say. Coarser levels are
     shifted so that every level's top-left corner coincides. Left out, no level
     carries a translation.
+
+    ``dimensions`` is level 0's ``dimensions`` attribute, which states each
+    axis's type; :func:`axis_types` says how an axis it leaves out is typed.
 
     ``downsampling`` and ``description`` record how the levels were produced;
     for a referenced pyramid they describe the source file's own levels.
@@ -287,7 +314,7 @@ def image_attrs(
     multiscale = _multiscale(name=name, dims=dims, level_shapes=level_shapes,
                              scale=scale, units=units, downsampling=downsampling,
                              description=description, version=version,
-                             translation=translation)
+                             translation=translation, dimensions=dimensions)
     if omero is not None:
         omero = Omero.model_validate(omero)
     attrs = _BUILDERS[version].image(version=VERSIONS[version], multiscales=[multiscale],
@@ -310,6 +337,7 @@ def label_attrs(
     translation: Mapping[str, float] | None = None,
     colors: Sequence[Mapping] | None = None,
     properties: Sequence[Mapping] | None = None,
+    dimensions: Mapping[str, Mapping] | None = None,
 ) -> dict:
     """The ``ome`` attributes for a label image beside the image it segments.
 
@@ -327,11 +355,13 @@ def label_attrs(
     integers, and ``properties`` entries any further fields describing that
     value. Pass them only when the source states them, such as a DICOM
     segment's recommended display colour and its coded name.
+
+    ``dimensions`` states each axis's type, as for :func:`image_attrs`.
     """
     multiscale = _multiscale(name=name, dims=dims, level_shapes=level_shapes,
                              scale=scale, units=units, downsampling="unknown",
                              description=description, version=version,
-                             translation=translation)
+                             translation=translation, dimensions=dimensions)
     models = _BUILDERS[version]
     label = {"source": models.label_source(image=source_image)}
     if colors is not None:

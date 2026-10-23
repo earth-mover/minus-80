@@ -9,6 +9,7 @@ from .collection import root_attrs, series_attrs
 from .image import (
     DEFAULT_VERSION,
     VERSIONS,
+    axis_types,
     channel_omero,
     image_attrs,
     label_attrs,
@@ -21,6 +22,7 @@ __all__ = [
     "DEFAULT_VERSION",
     "VERSIONS",
     "annotation_table",
+    "axis_types",
     "channel_omero",
     "image_annotation",
     "image_attrs",
