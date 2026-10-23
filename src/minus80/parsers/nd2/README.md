@@ -2,9 +2,9 @@
 
 Turns the frames of an uncompressed Nikon **ND2** file into
 [VirtualiZarr](https://virtualizarr.readthedocs.io) `ManifestArray`s whose
-chunks reference the file's own bytes. The ND2 parsing is done by
-[`nd2`](https://github.com/tlambert03/nd2); this package does not decode an ND2
-chunk itself.
+chunks reference the file's own bytes. The
+[`nd2`](https://github.com/tlambert03/nd2) library parses the file; this
+package does not decode an ND2 chunk itself.
 
 ```bash
 uv sync --extra nd2
@@ -39,8 +39,8 @@ merged over the attributes the parser sets.
 | `stacked_array()` | one `ManifestArray` | `(position, c, y, x)` | one frame |
 
 The stacked array references the same bytes as the position arrays, so writing
-both costs references and no storage. A `ManifestGroup` writes any of them to
-Icechunk with `to_icechunk`.
+both adds references and stores no extra pixels. To write any of them to
+Icechunk, put it in a `ManifestGroup` and call `to_icechunk`.
 
 Every array carries these attributes:
 
@@ -61,9 +61,9 @@ against `nd2.ND2File.asarray()`.
 ## Remote files
 
 An ND2 ends with a chunk map: a table of `name -> (offset, size)` for every
-chunk in the file, frames included. Reading the tail is therefore enough to
-address every frame, without walking from one to the next. Against
-`ftp.ebi.ac.uk`, indexing a 101 MB file took four requests and 685 KB:
+chunk in the file, frames included, so the tail alone gives the offset of
+every frame and the parser never walks the file frame by frame. Indexing a
+101 MB file from `ftp.ebi.ac.uk` makes four requests and downloads 685 KB:
 
 - a HEAD for the length;
 - a 64 KiB block from the start and a 512 KiB block from the end;
@@ -99,7 +99,7 @@ uv run pytest tests/parsers/nd2                                # read-back tests
 MINUS80_ND2_TEST_DOWNLOAD=1 uv run pytest tests/parsers/nd2    # fetch the 101 MB fixture once
 ```
 
-The remote test fetches only the index and skips when the host is not
-answering. The other tests need the whole file, because they compare against
+The remote test fetches only the index, and skips when the host does not
+respond. The other tests need the whole file, because they compare against
 `nd2`'s own decode. It is cached in `tests/parsers/nd2/.cache/`, or in
 `MINUS80_ND2_TEST_CACHE`, and reused on later runs.
