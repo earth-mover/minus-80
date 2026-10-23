@@ -22,7 +22,7 @@ import zarr
 from minus80.core.aio import run_sync
 
 from .annotations import KEY as ANNOTATIONS
-from .hierarchy import images, multiscale_groups, series
+from .hierarchy import declared, images, multiscale_groups
 from .image import validate
 
 #: The least a coarse level may correlate with the next finer level averaged
@@ -123,15 +123,15 @@ def physical_size(root) -> list[str]:
 
 
 def series_matches(root) -> list[str]:
-    """The collection lists exactly the images it holds."""
-    listed = set(series(root))
+    """The collection's series and plates declare exactly the images it holds."""
+    listed = set(declared(root))
     present = set(multiscale_groups(root))
     problems = []
     if listed - present:
-        problems.append(f"series names {len(listed - present)} absent groups: "
+        problems.append(f"series or plates name {len(listed - present)} absent groups: "
                         f"{sorted(listed - present)[:3]}")
     if present - listed:
-        problems.append(f"{len(present - listed)} groups missing from series: "
+        problems.append(f"{len(present - listed)} groups missing from series and plates: "
                         f"{sorted(present - listed)[:3]}")
     return problems
 

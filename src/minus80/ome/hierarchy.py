@@ -5,6 +5,9 @@ the collection root, and the spec lets those paths be nested. IDR's own
 conversions nest them two deep -- ``experimentA/<dataset>/<image>.ome.zarr`` --
 so the study group's direct children are not the images, and anything that
 walks the store has to follow the same rule the spec gives a reader.
+
+An HCS plate declares its images differently: the plate lists its wells and
+each well its fields. A study may hold several plates, at any depth.
 """
 
 from __future__ import annotations
@@ -23,6 +26,30 @@ def series(study) -> list[str]:
         return list(dict(study[OME].attrs)["ome"]["series"])
     except (KeyError, TypeError):
         return []
+
+
+def plate_fields(study) -> list[str]:
+    """The field images every plate under the study declares, through its wells."""
+    found = []
+    for path, node in study.members(max_depth=None):
+        if not isinstance(node, zarr.Group):
+            continue
+        plate = (dict(node.attrs).get("ome") or {}).get("plate")
+        if not isinstance(plate, dict):
+            continue
+        for well in plate.get("wells", []):
+            try:
+                ome = dict(node[well["path"]].attrs).get("ome") or {}
+            except KeyError:
+                continue
+            for image in (ome.get("well") or {}).get("images", []):
+                found.append(f"{path}/{well['path']}/{image['path']}")
+    return found
+
+
+def declared(study) -> list[str]:
+    """Every image path the study declares, as collection series or plate fields."""
+    return series(study) + plate_fields(study)
 
 
 def multiscale_groups(study) -> dict[str, zarr.Group]:
@@ -49,7 +76,7 @@ def images(study) -> dict[str, zarr.Group]:
     they are skipped here rather than raised.
     """
     out = {}
-    for path in series(study):
+    for path in declared(study):
         try:
             node = study[path]
         except KeyError:

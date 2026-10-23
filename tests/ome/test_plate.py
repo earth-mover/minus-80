@@ -44,3 +44,24 @@ def test_well_acquisitions_must_match_images():
         {"path": "0", "acquisition": 3}]
     with pytest.raises(ValueError, match="acquisition ids"):
         well_attrs(["0", "1"], acquisitions=[0])
+
+
+def test_verify_finds_plate_fields():
+    import zarr
+
+    from minus80.ome import image_attrs
+    from minus80.ome.hierarchy import images
+    from minus80.ome.verify import series_matches
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    rows, columns = plate_grid(96)
+    plate = root.create_group("stacks/P1")
+    plate.attrs.update(plate_attrs(name="P1", rows=rows, columns=columns, wells=[("B", "12")]))
+    plate.create_group("B/12").attrs.update(well_attrs(["F1", "F2"]))
+    for field in ("F1", "F2"):
+        plate.create_group(f"B/12/{field}").attrs.update({"ome": image_attrs(
+            name=field, dims=("y", "x"), level_shapes=[(4, 4)], scale={"y": 1, "x": 1})})
+    assert sorted(images(root)) == ["stacks/P1/B/12/F1", "stacks/P1/B/12/F2"]
+    assert series_matches(root) == []
+    root.create_group("stacks/P1/B/12/F3").attrs.update(dict(root["stacks/P1/B/12/F1"].attrs))
+    assert series_matches(root) == ["1 groups missing from series and plates: ['stacks/P1/B/12/F3']"]
