@@ -1,18 +1,19 @@
-"""Open a TIFF from a URL, a path or a file object, and return one series' levels."""
+"""A VirtualiZarr parser for one series of a TIFF: its levels, axis types and stated metadata."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Literal
 
 import tifffile
+from obspec_utils.registry import ObjectStoreRegistry
 from tifffile.tifffile import SU2UM
-from virtualizarr.manifests import ManifestArray
+from virtualizarr.manifests import ManifestGroup, ManifestStore
 
 from minus80.core import remote
 from minus80.core.fetch import download_then_index, sparse_local
+from minus80.core.jsonable import jsonable
 from minus80.core.registry import as_url, file_path
 
 from .inspect import directory_layout
@@ -23,25 +24,19 @@ Prefetch = Literal["ranges", "directories", "whole"]
 #: A BigTIFF header: byte order, version, offset size, and the first directory's offset.
 _HEADER = 16
 
+#: The tags that state a page's pixel size, recorded as the file states them.
+_RESOLUTION_TAGS = ("XResolution", "YResolution", "ResolutionUnit")
 
-def tiff_levels(
-    source: str | Path | BinaryIO,
-    *,
-    url: str | None = None,
-    series: int | str = 0,
-    prefetch: Prefetch = "ranges",
-    attributes: Mapping | None = None,
-) -> dict[str, ManifestArray]:
-    """Every resolution level of one series in a TIFF, keyed ``"0"``, ``"1"``, ….
 
-    ``source`` is a URL, a local path, or an open binary file. ``url`` is the
-    address the manifest records; it defaults to ``source``'s, and a file
-    object has none, so passing one without ``url`` raises ``ValueError``.
+class TiffParser:
+    """Parse one series of a TIFF into a ``ManifestStore`` of its resolution levels.
+
+    Follows VirtualiZarr's ``Parser`` protocol: ``TiffParser(...)(url, registry)``.
 
     ``series`` is an index into tifffile's series or a series name.
 
     ``prefetch`` chooses how a remote file's directories are read; a local
-    path or a file object ignores it.
+    file is always read in ranges.
 
     - ``"ranges"`` walks the directories through a block-cached range reader.
       One round trip per directory that is not already cached.
@@ -52,51 +47,87 @@ def tiff_levels(
       outside the fetched bytes.
     - ``"whole"`` downloads the file into the cache first.
 
-    Each level is built by :func:`~minus80.parsers.tiff.pages.level_array`;
-    ``attributes`` are merged into every level's. On an OME-TIFF, the pixel
-    sizes the OME-XML states take precedence over the resolution tags on
-    level ``"0"``; on an ImageJ hyperstack, the ImageJ ``unit`` and
-    ``spacing`` do, and OME-XML wins over both. That metadata describes only
-    the full-resolution image, so reduced levels keep what their own tags
-    state.
+    ``attributes`` are merged into every level's.
     """
-    if prefetch not in ("ranges", "directories", "whole"):
-        raise ValueError(f"prefetch {prefetch!r}: expected 'ranges', 'directories' or 'whole'")
-    with _opened(source, url, prefetch) as (tif, url, fetched):
-        chosen = _series(tif, series)
-        if fetched is not None:
-            _check_fetched(tif, chosen, fetched)
-        stated = merge_attributes(_imagej_physical(tif, chosen), _ome_physical(tif, chosen))
-        full = merge_attributes(stated, attributes)
-        return {str(i): level_array(level, url, attributes=full if i == 0 else attributes)
-                for i, level in enumerate(chosen.levels)}
+
+    def __init__(self, *, series: int | str = 0, prefetch: Prefetch = "ranges",
+                 attributes: Mapping | None = None) -> None:
+        if prefetch not in ("ranges", "directories", "whole"):
+            raise ValueError(f"prefetch {prefetch!r}: expected 'ranges', 'directories' or 'whole'")
+        self.series = series
+        self.prefetch = prefetch
+        self.attributes = attributes
+
+    def __call__(self, url: str, registry: ObjectStoreRegistry) -> ManifestStore:
+        """The levels of the chosen series, keyed ``"0"``, ``"1"``, … from full resolution down.
+
+        Every read goes through ``registry``, and the manifest records ``url``
+        as given. The store wraps a ``ManifestGroup`` whose attributes are
+        what the file states about the series (see the package README).
+
+        Each level is built by :func:`~minus80.parsers.tiff.pages.level_array`,
+        with each axis's type in ``dimensions``. On an OME-TIFF, the pixel
+        sizes the OME-XML states take precedence over the resolution tags on
+        level ``"0"``; on an ImageJ hyperstack, the ImageJ ``unit`` and
+        ``spacing`` do, and OME-XML wins over both. That metadata describes
+        only the full-resolution image, so reduced levels keep what their own
+        tags state. A file the parser cannot reference faithfully raises,
+        naming the reason.
+        """
+        url = as_url(url)
+        with _opened(url, registry, self.prefetch) as (tif, fetched):
+            chosen = _series(tif, self.series)
+            if fetched is not None:
+                _check_fetched(tif, chosen, fetched)
+            stated = merge_attributes(_imagej_physical(tif, chosen), _ome_physical(tif, chosen))
+            full = merge_attributes(stated, self.attributes)
+            levels = {str(i): level_array(level, url, attributes=full if i == 0 else self.attributes)
+                      for i, level in enumerate(chosen.levels)}
+            group = ManifestGroup(arrays=levels, attributes=_group_attributes(tif, chosen))
+        return ManifestStore(group, registry=registry)
 
 
 @contextmanager
-def _opened(source, url: str | None, prefetch: str) -> Iterator[
-        tuple[tifffile.TiffFile, str, list[tuple[int, int]] | None]]:
-    """``source`` open in tifffile, the URL to record, and the byte ranges fetched when only some were."""
+def _opened(url: str, registry: ObjectStoreRegistry, prefetch: str) -> Iterator[
+        tuple[tifffile.TiffFile, list[tuple[int, int]] | None]]:
+    """``url`` open in tifffile, and the byte ranges fetched when only some were."""
     fetched = None
-    if hasattr(source, "read"):
-        if url is None:
-            raise ValueError("a file object has no address of its own; pass url=, "
-                             "the address the manifest should record")
-        handle = source
-    elif (path := file_path(source)) is not None:
-        handle = path
-    elif prefetch == "ranges":
-        handle = remote.reader(str(source))
+    if prefetch == "ranges" or file_path(url) is not None:
+        handle = remote.reader(url, registry=registry)
     elif prefetch == "whole":
-        handle = download_then_index(str(source))
+        handle = download_then_index(url, registry=registry)
     else:
-        layout = directory_layout(str(source))
+        layout = directory_layout(url, registry=registry)
         if not layout.bulk_readable:
-            raise ValueError(f"{source}: directories are not bulk-readable ({layout.refused}); "
+            raise ValueError(f"{url}: directories are not bulk-readable ({layout.refused}); "
                              f"use prefetch='ranges' or 'whole'")
         fetched = [(0, _HEADER), layout.region]
-        handle = sparse_local(str(source), fetched)
+        handle = sparse_local(url, fetched, registry=registry)
     with tifffile.TiffFile(handle) as tif:
-        yield tif, url or as_url(source), fetched
+        yield tif, fetched
+
+
+def _group_attributes(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> dict:
+    """What the file states about ``series``, as the file states it.
+
+    ``series`` is tifffile's reading of which pages form the image and in
+    what axis order. ``resolution`` holds the full-resolution page's
+    resolution tags: each resolution a ``[numerator, denominator]`` in pixels
+    per unit, the unit by its TIFF name. ``imagej`` is the ImageJ metadata
+    tifffile parses from the description, and ``ome_pixels`` the
+    ``PhysicalSize`` attributes of the series' OME-XML ``Pixels`` element.
+    """
+    page = series.keyframe
+    out: dict = {"series": {"index": tif.series.index(series), "name": series.name,
+                            "kind": series.kind, "axes": series.axes,
+                            "shape": list(series.shape)}}
+    if resolution := {t: page.tags[t].value for t in _RESOLUTION_TAGS if t in page.tags}:
+        out["resolution"] = resolution
+    if tif.imagej_metadata and series.kind == "imagej":
+        out["imagej"] = dict(tif.imagej_metadata)
+    if pixels := {k: v for k, v in _ome_pixels(tif, series).items() if k.startswith("PhysicalSize")}:
+        out["ome_pixels"] = pixels
+    return jsonable(out)
 
 
 def _series(tif: tifffile.TiffFile, series: int | str) -> tifffile.TiffPageSeries:
@@ -118,17 +149,7 @@ def _ome_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> di
     one tifffile's ``SU2UM`` table converts. An absent unit is the OME
     schema's default, µm.
     """
-    if not tif.is_ome or series.kind != "ome":
-        return {}
-    images = tifffile.xml2dict(tif.ome_metadata).get("OME", {}).get("Image", [])
-    images = images if isinstance(images, list) else [images]
-    named = [im for im in images if im.get("Name") == series.name]
-    if len(named) == 1:
-        pixels = named[0].get("Pixels", {})
-    elif len(images) == len(tif.series):
-        pixels = images[tif.series.index(series)].get("Pixels", {})
-    else:
-        return {}
+    pixels = _ome_pixels(tif, series)
     scale = {}
     for axis in "ZYX":
         if axis not in series.axes:
@@ -140,6 +161,20 @@ def _ome_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> di
     if not scale:
         return {}
     return {"scale": scale, "units": dict.fromkeys(scale, "micrometer")}
+
+
+def _ome_pixels(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> dict:
+    """The attributes of the OME-XML ``Pixels`` element that describes ``series``, or ``{}``."""
+    if not tif.is_ome or series.kind != "ome":
+        return {}
+    images = tifffile.xml2dict(tif.ome_metadata).get("OME", {}).get("Image", [])
+    images = images if isinstance(images, list) else [images]
+    named = [im for im in images if im.get("Name") == series.name]
+    if len(named) == 1:
+        return named[0].get("Pixels", {})
+    if len(images) == len(tif.series):
+        return images[tif.series.index(series)].get("Pixels", {})
+    return {}
 
 
 def _imagej_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) -> dict:

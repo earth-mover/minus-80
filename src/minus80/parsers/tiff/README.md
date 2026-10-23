@@ -13,19 +13,24 @@ uv sync --extra tiff
 ## Usage
 
 ```python
-from minus80.parsers.tiff import tiff_levels
+from minus80.core import registry_for
+from minus80.parsers.tiff import TiffParser
 
-levels = tiff_levels("s3://bucket/slide.ome.tif")  # {"0": ManifestArray, "1": ...}
+url = "s3://bucket/slide.ome.tif"
+store = TiffParser()(url, registry_for(url))   # a ManifestStore
+store.group["0"]                               # the full-resolution ManifestArray
 ```
 
-`tiff_levels(source, *, url=None, series=0, prefetch="ranges", attributes=None)`
-returns every resolution level of one series, keyed `"0"`, `"1"`, … from full
-resolution down.
+`TiffParser(*, series=0, prefetch="ranges", attributes=None)` follows
+VirtualiZarr's `Parser` protocol ([docs/parsers.md](../../../../docs/parsers.md)).
+Calling it with a URL and an `ObjectStoreRegistry` returns a `ManifestStore`
+over a `ManifestGroup` holding every resolution level of one series, keyed
+`"0"`, `"1"`, … from full resolution down. Every read goes through the
+registry, and the manifest records the URL as given.
 
-- `source` is a URL, a local path, or an open binary file. A file object has no
-  address, so it must come with `url=`, which is what the manifest records.
 - `series` is an index into tifffile's series or a series name.
-- `prefetch` chooses how a remote file's directories are read:
+- `prefetch` chooses how a remote file's directories are read; a local file is
+  always read in ranges:
   - `"ranges"` walks them through a block-cached range reader;
   - `"directories"` fetches the header and the directory region into a sparse
     local file, when `inspect.directory_layout` finds the directories packed
@@ -40,6 +45,8 @@ stack of pages, is left unnamed.
 
 Each level carries what its own first page states:
 
+- `dimensions`, each named axis's type: `t` is `time`, `c` is `channel`, and
+  `z`, `y` and `x` are `space`. An unnamed axis has no entry;
 - `scale` and `units`, in micrometers. On level `"0"` they come first from
   the OME-XML's `PhysicalSizeX`, `Y` and `Z`, then from ImageJ metadata (its
   `unit` applied to the resolution tags, and `spacing` for `z`). Any axis
@@ -47,6 +54,18 @@ Each level carries what its own first page states:
   resolution tags when they carry a unit;
 - `channel_names` of `["R", "G", "B"]` for an RGB or YCbCr page;
 - `source_url`, the file the manifest references.
+
+The group's attributes hold what the file states about the series, in the
+file's own terms:
+
+| Key | What it holds |
+| --- | --- |
+| `series` | tifffile's series: `index`, `name`, `kind` (such as `imagej` or `ome`), `axes` (such as `ZCYX`) and `shape` |
+| `resolution` | the full-resolution page's `XResolution` and `YResolution`, each `[numerator, denominator]` pixels per unit, and `ResolutionUnit` by its TIFF name |
+| `imagej` | the ImageJ metadata tifffile parses from the description, such as `slices`, `channels`, `spacing` and `unit`, for an ImageJ series |
+| `ome_pixels` | the `PhysicalSize` attributes of the series' OME-XML `Pixels` element, for an OME series |
+
+A key is absent when the file states nothing for it.
 
 A tile or strip stored with zero bytes, and a page the series lists as absent,
 become missing chunks, which read as the fill value 0.

@@ -16,8 +16,9 @@ these defaults into ``obspec_utils``.
 from __future__ import annotations
 
 from obspec_utils.readers import BlockStoreReader
+from obspec_utils.registry import ObjectStoreRegistry
 
-from .registry import store_and_key
+from .registry import resolve, store_and_key
 
 #: What one read-ahead block covers. Both file structures this has been
 #: measured against want the same thing and for the same reason: the metadata
@@ -36,13 +37,17 @@ BLOCK_SIZE = 64 * 1024
 CACHED_BLOCKS = 256
 
 
-def reader(url: str, *, block: int = BLOCK_SIZE,
+def reader(url: str, *, registry: ObjectStoreRegistry | None = None, block: int = BLOCK_SIZE,
            cached_blocks: int = CACHED_BLOCKS) -> BlockStoreReader:
     """A seekable file object over the remote file that caches the blocks it fetches.
 
     A parser walking a file's structures seeks back into regions it has already
     read, because a pointer in a directory or an index node often refers to
     something written earlier. The cache keeps those seeks from refetching.
+
+    Reads go through ``registry``'s store for ``url`` when one is given, so
+    its timeouts and retries are the caller's; otherwise through the patient
+    store :func:`~minus80.core.registry.store_and_key` builds.
     """
-    store, key = store_and_key(url, patient=True)
+    store, key = resolve(registry, url) if registry is not None else store_and_key(url, patient=True)
     return BlockStoreReader(store, key, block_size=block, max_cached_blocks=cached_blocks)

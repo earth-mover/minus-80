@@ -11,6 +11,11 @@ Every range read in minus80 goes through :func:`read_range` or
 :func:`iter_ranges`, so each checks that the server sent every byte asked for:
 obstore returns a short body without complaint, and a short write into a
 pre-sized file leaves a run of zeros that reads as data.
+
+Each function takes an optional ``registry``. A parser handed one by its
+caller passes it on, so every read goes through the stores the caller
+configured; without one, the store comes from
+:func:`~minus80.core.registry.store_and_key`.
 """
 
 from __future__ import annotations
@@ -23,9 +28,11 @@ from itertools import islice
 from pathlib import Path
 from typing import BinaryIO
 
+from obspec_utils.registry import ObjectStoreRegistry
+
 from .aio import submit
 from .progress import Progress
-from .registry import as_url, file_path, store_and_key
+from .registry import as_url, file_path, resolve, store_and_key
 
 BLOCK = 32 << 20
 CONCURRENCY = 16
@@ -39,20 +46,22 @@ def cache_dir() -> str:
     return os.path.join(base, "minus80")
 
 
-def object_size(url: str, *, patient: bool = False) -> int:
+def object_size(url: str, *, patient: bool = False,
+                registry: ObjectStoreRegistry | None = None) -> int:
     """The length in bytes of the object at ``url``, from one HEAD."""
     import obstore
 
-    store, key = store_and_key(url, patient=patient)
+    store, key = _store_and_key(url, patient, registry)
     return int(obstore.head(store, key)["size"])
 
 
-def read_range(url: str, start: int, end: int, *, patient: bool = False) -> bytes:
+def read_range(url: str, start: int, end: int, *, patient: bool = False,
+               registry: ObjectStoreRegistry | None = None) -> bytes:
     """Bytes ``[start, end)`` of ``url`` in one GET.
 
     Raises ``OSError`` unless exactly ``end - start`` bytes come back.
     """
-    store, key = store_and_key(url, patient=patient)
+    store, key = _store_and_key(url, patient, registry)
     return _get(store, key, url, start, end)
 
 
@@ -64,6 +73,7 @@ def iter_ranges(
     concurrency: int = CONCURRENCY,
     progress: bool = True,
     patient: bool = False,
+    registry: ObjectStoreRegistry | None = None,
 ) -> Iterator[tuple[int, bytes]]:
     """Each ``[start, end)`` range of ``url`` as ``(start, data)``, in the order given.
 
@@ -81,7 +91,7 @@ def iter_ranges(
     labelled with the file name, counting bytes against the total asked for.
     """
     pieces = [(s, min(s + block, end)) for start, end in ranges for s in range(start, end, block)]
-    fetched = _fetch_pieces(url, pieces, concurrency, patient)
+    fetched = _fetch_pieces(url, pieces, concurrency, patient, registry)
     if not progress:
         yield from fetched
         return
@@ -112,6 +122,7 @@ def download_then_index(
     *,
     block: int = BLOCK,
     concurrency: int = CONCURRENCY,
+    registry: ObjectStoreRegistry | None = None,
 ) -> str:
     """Fetch ``url`` into ``dest_dir`` with parallel range GETs and return the path.
 
@@ -130,9 +141,9 @@ def download_then_index(
     dest = _cache_path(dest_dir, slot, name)
     if os.path.exists(dest):
         return dest
-    size = object_size(url)
+    size = object_size(url, registry=registry)
     _write_part(dest, size, lambda f: write_ranges(
-        url, [(0, size)], f, block=block, concurrency=concurrency))
+        url, [(0, size)], f, block=block, concurrency=concurrency, registry=registry))
     return dest
 
 
@@ -143,6 +154,7 @@ def sparse_local(
     *,
     block: int = BLOCK,
     concurrency: int = CONCURRENCY,
+    registry: ObjectStoreRegistry | None = None,
 ) -> str:
     """Fetch only ``regions`` of ``url`` into a local file that is otherwise a hole.
 
@@ -172,11 +184,11 @@ def sparse_local(
     dest = _cache_path(dest_dir, slot, name)
     if os.path.exists(dest):
         return dest
-    size = object_size(url)
+    size = object_size(url, registry=registry)
     if wanted[-1][1] > size:
         raise ValueError(f"{url}: asked for bytes past the end of a {size}-byte file")
     _write_part(dest, size, lambda f: write_ranges(
-        url, wanted, f, block=block, concurrency=concurrency))
+        url, wanted, f, block=block, concurrency=concurrency, registry=registry))
     return dest
 
 
@@ -209,6 +221,12 @@ def _write_part(dest: str, size: int, fill) -> None:
     os.replace(part, dest)
 
 
+def _store_and_key(url: str, patient: bool, registry: ObjectStoreRegistry | None) -> tuple:
+    if registry is not None:
+        return resolve(registry, url)
+    return store_and_key(url, patient=patient)
+
+
 def _get(store, key: str, url: str, start: int, end: int) -> bytes:
     import obstore
 
@@ -233,14 +251,14 @@ def _checked(buf, url: str, start: int, end: int) -> bytes:
     return data
 
 
-def _fetch_pieces(url: str, pieces: list[tuple[int, int]], concurrency: int,
-                  patient: bool) -> Iterator[tuple[int, bytes]]:
+def _fetch_pieces(url: str, pieces: list[tuple[int, int]], concurrency: int, patient: bool,
+                  registry: ObjectStoreRegistry | None) -> Iterator[tuple[int, bytes]]:
     # Each GET is a coroutine rather than a thread-pool task because a running
     # thread cannot be stopped: after an error or an early stop by the caller,
     # a patient store's GETs would keep retrying for up to twenty minutes and
     # hold the interpreter open at exit. Cancelling the coroutine drops the
     # request.
-    store, key = store_and_key(url, patient=patient)
+    store, key = _store_and_key(url, patient, registry)
     it = iter(pieces)
     pending = deque((s, submit(_get_async(store, key, url, s, e)))
                     for s, e in islice(it, max(1, concurrency)))

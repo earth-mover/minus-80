@@ -34,6 +34,7 @@ import urllib.request
 from typing import Any
 
 import tifffile
+from obspec_utils.registry import ObjectStoreRegistry
 
 from minus80.core import remote
 from minus80.core.fetch import object_size, read_range
@@ -77,7 +78,8 @@ class DirectoryLayout:
         return (self.first_directory, self.size) if self.bulk_readable else None
 
 
-def directory_layout(source: str, *, minimum: int = 64, padding: int = 64) -> DirectoryLayout:
+def directory_layout(source: str, *, minimum: int = 64, padding: int = 64,
+                     registry: ObjectStoreRegistry | None = None) -> DirectoryLayout:
     """Where this TIFF keeps its directories, and whether they are an array.
 
     Reads the file size, the 16-byte header, and the entry counts and next
@@ -88,10 +90,15 @@ def directory_layout(source: str, *, minimum: int = 64, padding: int = 64) -> Di
     directories are treated as an array that one read of
     :attr:`DirectoryLayout.region` fetches. Fewer than ``minimum``
     directories are reported as not worth a bulk read. Only BigTIFF is judged.
-    docs/upstream.md says where this belongs upstream.
+    Reads go through ``registry`` when one is given. docs/upstream.md says
+    where this belongs upstream.
     """
-    size = object_size(source, patient=True)
-    head = _read(source, 0, 16)
+    size = object_size(source, patient=True, registry=registry)
+
+    def read(at: int, length: int) -> bytes:
+        return read_range(source, at, at + length, patient=True, registry=registry)
+
+    head = read(0, 16)
     if head[:2] not in (b"II", b"MM"):
         return DirectoryLayout(size, 0, False, refused="not a TIFF")
     endian = "<" if head[:2] == b"II" else ">"
@@ -102,15 +109,15 @@ def directory_layout(source: str, *, minimum: int = 64, padding: int = 64) -> Di
                                refused="classic TIFF, capped at 4 GB")
 
     (first,) = struct.unpack_from(endian + "Q", head, 8)
-    entries = _entries(source, first, endian)
-    second = _next(source, first, endian)
-    third = _next(source, second, endian) if second else None
+    entries = _entries(read, first, endian)
+    second = _next(read, first, endian)
+    third = _next(read, second, endian) if second else None
     if not second or not third:
         return DirectoryLayout(size, first, True, entries=entries,
                                refused="fewer than three directories")
 
     stride = third - second
-    entries = _entries(source, second, endian) or entries
+    entries = _entries(read, second, endian) or entries
     common = {"size": size, "first_directory": first, "bigtiff": True,
               "stride": stride, "entries": entries}
     if stride <= 0 or entries is None:
@@ -218,7 +225,7 @@ def survey(prefix: str, *, limit: int = 20) -> list[dict[str, Any]]:
         row: dict[str, Any] = {"name": name}
         try:
             row["bytes"] = object_size(url, patient=True)
-            head = _read(url, 0, 16)
+            head = read_range(url, 0, 16, patient=True)
             row["magic"] = head[:4].hex()
             if head[:2] in (b"II", b"MM"):
                 endian = "<" if head[:2] == b"II" else ">"
@@ -245,21 +252,16 @@ def _listing(prefix: str) -> list[str]:
     return sorted(p.name for p in local.iterdir() if p.is_file())
 
 
-def _read(url: str, start: int, length: int) -> bytes:
-    return read_range(url, start, start + length, patient=True)
-
-
-def _entries(url: str, at: int, endian: str) -> int | None:
-    (count,) = struct.unpack_from(endian + "Q", _read(url, at, 8), 0)
+def _entries(read, at: int, endian: str) -> int | None:
+    (count,) = struct.unpack_from(endian + "Q", read(at, 8), 0)
     return count if 0 < count < 1000 else None
 
 
-def _next(url: str, at: int, endian: str) -> int | None:
-    count = _entries(url, at, endian)
+def _next(read, at: int, endian: str) -> int | None:
+    count = _entries(read, at, endian)
     if count is None:
         return None
-    (nxt,) = struct.unpack_from(
-        endian + "Q", _read(url, at + 8 + count * 20, 8), 0)
+    (nxt,) = struct.unpack_from(endian + "Q", read(at + 8 + count * 20, 8), 0)
     return nxt or None
 
 

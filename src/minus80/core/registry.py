@@ -161,6 +161,25 @@ def store_and_key(url: str, *, patient: bool = False) -> tuple:
     return store, unquote(key)
 
 
+def resolve(registry: ObjectStoreRegistry, url: str) -> tuple:
+    """The store ``registry`` holds for ``url``, and the decoded key within it.
+
+    For a parser handed a registry by its caller, which configured the stores
+    (credentials, region, timeouts) and which this must read through.
+    ``ObjectStoreRegistry.resolve`` returns the key still percent-encoded, and
+    for a local store compares its decoded prefix with the URL's encoded path,
+    so under a directory whose name holds a space or a ``+`` nothing is
+    stripped (docs/upstream.md). A local key is therefore taken from the
+    decoded path, relative to the store's own prefix.
+    """
+    url = as_url(url)
+    store, key = registry.resolve(url)
+    path, prefix = file_path(url), getattr(store, "prefix", None)
+    if path is not None and isinstance(prefix, Path) and path.is_relative_to(prefix):
+        return store, path.relative_to(prefix).as_posix()
+    return store, unquote(str(key))
+
+
 @lru_cache(maxsize=64)
 def _local_store(directory: str):
     from obstore.store import LocalStore

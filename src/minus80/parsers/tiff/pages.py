@@ -33,10 +33,11 @@ _JPEG = 7
 _LZW = 5
 _NONE = 1
 
-#: tifffile's axis codes that mean the same as an OME-Zarr axis name. Any other
-#: code (``Q`` for "unknown", ``I`` for "image sequence") names no physical
-#: axis, so the dimension is left unnamed rather than given a made-up name.
-_AXIS_NAMES = {"T": "t", "C": "c", "Z": "z"}
+#: tifffile's axis codes that mean the same as an OME-Zarr axis, with that
+#: axis's name and type. Any other code (``Q`` for "unknown", ``I`` for "image
+#: sequence") names no physical axis, so the dimension is left unnamed and
+#: untyped rather than given a made-up name or a guessed type.
+_AXES = {"T": ("t", "time"), "C": ("c", "channel"), "Z": ("z", "space")}
 
 
 def page_codecs(page: tifffile.TiffPage, *, leading: int = 0) -> list[dict]:
@@ -105,10 +106,15 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     Philips TIFF pads each level's width up to whole tiles). The tile grid must
     still be the page's, which is checked.
 
+    Each named axis's type goes in the ``dimensions`` attribute: ``t`` is
+    time, ``c`` (a channel axis or interleaved samples) is channel, and ``z``,
+    ``y`` and ``x`` are space. An unnamed axis has no entry.
+
     ``attributes`` are merged over what the page states: ``scale`` and
     ``units`` for ``y`` and ``x`` from the resolution tags, and
-    ``channel_names`` for an RGB or YCbCr page. ``scale`` and ``units`` merge
-    per dimension, so a caller's ``z`` keeps the page's ``y`` and ``x``.
+    ``channel_names`` for an RGB or YCbCr page. ``scale``, ``units`` and
+    ``dimensions`` merge per dimension, so a caller's ``z`` keeps the page's
+    ``y`` and ``x``.
     """
     page = level.keyframe
     samples = page.samplesperpixel
@@ -140,7 +146,8 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     offsets = offsets.reshape(*leading, *grid)
     lengths = lengths.reshape(*leading, *grid)
 
-    dims = [_AXIS_NAMES.get(a) for a in leading_axes]
+    dims = [_AXES[a][0] if a in _AXES else None for a in leading_axes]
+    types = {_AXES[a][0]: _AXES[a][1] for a in leading_axes if a in _AXES}
     if samples > 1:
         offsets, lengths = offsets[..., None, :, :], lengths[..., None, :, :]
         shape = (*leading, samples, height, width)
@@ -150,16 +157,19 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
         shape = (*leading, height, width)
         chunks = (*(1,) * len(leading), rows, cols)
     dims += ["y", "x"]
+    types |= {"c": "channel"} if samples > 1 else {}
+    types |= {"y": "space", "x": "space"}
+    stated = _stated(page) | {"dimensions": {d: {"type": types[d]} for d in dims if d in types}}
     return manifest_array(
         url, offsets, lengths, shape=shape, chunk_shape=chunks, dtype=page.dtype,
-        codecs=codecs, dimension_names=dims, attributes=merge_attributes(_stated(page), attributes))
+        codecs=codecs, dimension_names=dims, attributes=merge_attributes(stated, attributes))
 
 
 def merge_attributes(base: Mapping, over: Mapping | None) -> dict:
-    """``over`` merged into ``base``; ``scale`` and ``units`` merge per dimension."""
+    """``over`` merged into ``base``; ``scale``, ``units`` and ``dimensions`` merge per dimension."""
     out = dict(base)
     for key, value in (over or {}).items():
-        out[key] = {**out.get(key, {}), **value} if key in ("scale", "units") else value
+        out[key] = {**out.get(key, {}), **value} if key in ("scale", "units", "dimensions") else value
     return out
 
 

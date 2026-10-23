@@ -14,6 +14,7 @@ from minus80.core.registry import (
     bucket_region,
     file_path,
     registry_for,
+    resolve,
     s3_region,
     store_and_key,
 )
@@ -85,6 +86,25 @@ def test_registry_reads_a_file_in_an_encoded_directory(tmp_path):
     url = as_url(path)
     store, key = registry_for(url).resolve(url)
     obstore.get_range(store, key, start=0, end=8)
+
+
+@pytest.mark.parametrize("directory", ["plain", "sp ace", "pl+us", "pct%41"])
+def test_resolve_reads_through_a_registry_in_an_encoded_directory(tmp_path, directory):
+    path = tmp_path / directory / "a b+c.bin"
+    path.parent.mkdir()
+    path.write_bytes(DATA)
+    url = as_url(path)
+    store, key = resolve(registry_for(url), url)
+    assert key == "a b+c.bin"
+    assert bytes(obstore.get_range(store, key, start=0, end=8)) == DATA[:8]
+
+
+def test_resolve_decodes_a_remote_key(range_server):
+    range_server.files["/d/a%20b.bin"] = DATA
+    url = f"{range_server.url}/d/a%20b.bin"
+    store, key = resolve(registry_for(url), url)
+    assert key == "a b.bin"
+    assert bytes(obstore.get_range(store, key, start=0, end=4)) == DATA[:4]
 
 
 @pytest.fixture
