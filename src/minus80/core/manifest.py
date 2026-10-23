@@ -23,7 +23,7 @@ from .jsonable import jsonable
 MISSING = MISSING_CHUNK_PATH
 
 #: Attribute keys whose value is a mapping keyed by dimension name.
-_PER_DIMENSION = ("scale", "units", "translation")
+_PER_DIMENSION = ("scale", "units", "translation", "dimensions")
 
 
 def manifest_array(
@@ -54,9 +54,12 @@ def manifest_array(
     ``attributes`` pass through :func:`minus80.core.jsonable.jsonable`.
     Physical metadata uses these keys, each mapping keyed by dimension name:
     ``scale`` (size of one element), ``units`` (OME-Zarr unit names such as
-    ``"micrometer"``), ``translation``; and ``channel_names``, a list in
-    channel-axis order. A key of ``scale``, ``units`` or ``translation`` that
-    is not a dimension name raises ``ValueError``.
+    ``"micrometer"``), ``translation``, and ``dimensions``, whose value for
+    each axis is a mapping with a ``type`` string: ``"space"``, ``"time"``,
+    ``"channel"`` or another name, such as ``"fov"``, for what the axis
+    measures. ``channel_names`` is a list in channel-axis order. A key of any
+    of the four mappings that is not a dimension name raises ``ValueError``,
+    and a ``dimensions`` entry without a ``type`` string raises ``TypeError``.
 
     ``source_url`` is set to the distinct non-missing URLs the manifest
     references (a string for one, a sorted list for several), so the array
@@ -92,6 +95,9 @@ def manifest_array(
         if stray := set(attrs.get(key) or {}) - dims:
             raise ValueError(f"{key} names {sorted(stray)}, which are not dimensions of "
                              f"{tuple(dimension_names or ())}")
+    for name, axis in (attrs.get("dimensions") or {}).items():
+        if not isinstance(axis, dict) or not isinstance(axis.get("type"), str):
+            raise TypeError(f"dimensions[{name!r}] is {axis!r}; each axis needs a 'type' string")
     attrs.pop("source_url", None)
     if sources := source_urls(manifest):
         attrs["source_url"] = sources

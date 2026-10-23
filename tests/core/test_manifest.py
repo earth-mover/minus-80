@@ -65,6 +65,28 @@ def test_scale_for_an_unknown_dimension_raises():
                        attributes={"scale": {"z": 1.0}})
 
 
+def _typed(dimensions):
+    return manifest_array("file:///a.bin", [[0]], [[4]], shape=(1, 2), chunk_shape=(1, 2),
+                          dtype="uint16", codecs=BYTES, dimension_names=("y", "x"),
+                          attributes={"dimensions": dimensions})
+
+
+def test_dimensions_keep_each_axis_type():
+    marr = _typed({"y": {"type": "space"}, "x": {"type": "space", "note": "columns"}})
+    assert marr.metadata.attributes["dimensions"]["x"] == {"type": "space", "note": "columns"}
+
+
+def test_dimensions_for_an_unknown_dimension_raise():
+    with pytest.raises(ValueError, match="not dimensions"):
+        _typed({"t": {"type": "time"}})
+
+
+@pytest.mark.parametrize("axis", [{}, {"type": None}, "space"])
+def test_dimensions_entry_without_a_type_string_raises(axis):
+    with pytest.raises(TypeError, match="'type' string"):
+        _typed({"y": axis})
+
+
 @pytest.mark.parametrize("leading", [(), (2,)])
 def test_channel_last_transpose_reads_channel_last_bytes_as_channel_first(tmp_path, leading):
     stored = np.arange(np.prod((*leading, 4, 5, 3)), dtype=np.uint16).reshape(*leading, 4, 5, 3)
