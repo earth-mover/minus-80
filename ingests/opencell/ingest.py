@@ -337,13 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"{len(fovs)} fields of view in {len(wells)} wells on {len(plates)} plates; "
           f"{len(unlisted)} fields of {len({f.cid for f in unlisted})} unlisted cell lines")
 
-    started = time.monotonic()
-    parsed = parse_all([f.url(k) for f in [*fovs, *unlisted] for k in ("stack", "proj")],
-                       args.workers)
-    print(f"parsed in {time.monotonic() - started:.1f} s")
-
-    omero = channel_omero(CHANNELS, max_value=65535)
-    rows, columns = plate_grid(96)
+    # Opened before parsing, so a repo that can't be written fails in seconds.
     repo = open_target(args.repo)
     session = repo.writable_session("main")
     store = session.store
@@ -351,6 +345,14 @@ def main(argv: list[str] | None = None) -> None:
     if list(root.keys()):
         raise SystemExit(f"{args.repo} already holds {sorted(root.keys())}; "
                          f"the ingest writes a fresh store")
+
+    started = time.monotonic()
+    parsed = parse_all([f.url(k) for f in [*fovs, *unlisted] for k in ("stack", "proj")],
+                       args.workers)
+    print(f"parsed in {time.monotonic() - started:.1f} s")
+
+    omero = channel_omero(CHANNELS, max_value=65535)
+    rows, columns = plate_grid(96)
     root.attrs.update(
         {"annotations": DATASET}
         | {"wells": annotation_table({
