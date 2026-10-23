@@ -146,7 +146,7 @@ One ingest indexed 11 files per second from a laptop and 592 from the data's
 region, and the laptop run dropped chunks. Price indexing before you start
 ([formats.md](formats.md#indexing-remote-files)). Local timings mislead,
 because local reads are bound by memory bandwidth; time the read a user sees
-against downloading the files (`minus80.core.bench.compare_remote`).
+against downloading the files.
 
 ### Decode only to build a derived layer, and only once
 

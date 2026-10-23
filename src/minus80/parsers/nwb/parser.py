@@ -232,7 +232,7 @@ def open_collection(sources, *, registry=None, names=None):
 
     Layout: one namespaced group per file (``<name>/<nwb/path>``); stack or select
     across files at read time. This is the collection-first product — single-file is
-    just a one-element collection (see :func:`open_one`).
+    just a one-element collection.
 
     ``names`` optionally gives an explicit group name per source (aligned with
     ``sources``), used instead of the file stem — pass the archive's asset path
@@ -283,11 +283,6 @@ def open_collection(sources, *, registry=None, names=None):
         "_nwb": per_file,  # native data + metadata; makes the repo self-contained
     }
     return ManifestGroup(arrays=arrays, attributes=attributes)
-
-
-def open_one(source, *, registry=None):
-    """Virtualize a single NWB file (a one-element collection)."""
-    return open_collection([source], registry=registry)
 
 
 def virtual_arrays(grp) -> dict:

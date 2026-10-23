@@ -96,23 +96,6 @@ REMOTE_IDEAL_REQUEST_SIZE = 12 * 1024 * 1024
 MANIFEST_FETCH_CONCURRENCY = 32
 
 
-def manifest_config():
-    """Icechunk's manifest settings, or None on a release without the concurrency argument.
-
-    Committing serially is slower, not wrong, so an icechunk release without
-    ``max_concurrent_manifest_fetches_during_commit`` keeps its default rather
-    than failing to build a repo.
-    """
-    import icechunk
-
-    try:
-        return icechunk.ManifestConfig(
-            max_concurrent_manifest_fetches_during_commit=MANIFEST_FETCH_CONCURRENCY
-        )
-    except TypeError:
-        return None
-
-
 #: How many times a commit may rebase onto whatever landed on the branch first.
 #: A long ingest commits once per source file and holds its session across a
 #: whole file's indexing, so another writer -- a second ingest, a metadata
@@ -130,24 +113,11 @@ def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
     resolve, such as the same array written twice differently, still raises
     ``RebaseFailedError``, because picking a winner there is the caller's call.
     """
-    import inspect
-
     import icechunk
 
-    solver = icechunk.BasicConflictSolver()
-    try:
-        takes_solver = "rebase_with" in inspect.signature(session.commit).parameters
-    except (TypeError, ValueError):
-        takes_solver = False
-    if takes_solver:
-        return session.commit(message, rebase_with=solver, rebase_tries=tries)
-    # Older icechunk commits without rebasing; drive its own rebase by hand.
-    for _ in range(tries):
-        try:
-            return session.commit(message)
-        except icechunk.ConflictError:
-            session.rebase(solver)
-    return session.commit(message)
+    return session.commit(
+        message, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
+    )
 
 
 def storage_for(location: str | Path):
@@ -207,8 +177,9 @@ def create_repo(
         urlparse(p).scheme in ("http", "https", "s3", "gs", "az") for p in prefixes
     )
     config = icechunk.RepositoryConfig.default()
-    if (manifest := manifest_config()) is not None:
-        config.manifest = manifest
+    config.manifest = icechunk.ManifestConfig(
+        max_concurrent_manifest_fetches_during_commit=MANIFEST_FETCH_CONCURRENCY
+    )
     if remote:
         size = ideal_request_size or REMOTE_IDEAL_REQUEST_SIZE
         config.storage = icechunk.StorageSettings(
@@ -231,14 +202,13 @@ def create_repo(
         if persisted.manifest is not None:
             # Field by field, not a fresh ManifestConfig: a repo's splitting and
             # preload settings are its own and outlive any one ingest.
-            try:
-                persisted.manifest.max_concurrent_manifest_fetches_during_commit = (
-                    MANIFEST_FETCH_CONCURRENCY
-                )
-            except AttributeError:
-                pass
-        elif (fresh := manifest_config()) is not None:
-            persisted.manifest = fresh
+            persisted.manifest.max_concurrent_manifest_fetches_during_commit = (
+                MANIFEST_FETCH_CONCURRENCY
+            )
+        else:
+            persisted.manifest = icechunk.ManifestConfig(
+                max_concurrent_manifest_fetches_during_commit=MANIFEST_FETCH_CONCURRENCY
+            )
         for prefix in prefixes:
             if prefix not in (persisted.virtual_chunk_containers or {}):
                 persisted.set_virtual_chunk_container(
@@ -312,9 +282,6 @@ def open_repo(
     *,
     branch: str = "main",
     source_prefixes: list[str] | None = None,
-    coalesce: bool = False,
-    max_gap: int = 262144,
-    max_coalesced_bytes: int | None = None,
 ):
     """Reopen a persisted Icechunk repo as a read-only Zarr group.
 
@@ -325,59 +292,7 @@ def open_repo(
     Unless ``source_prefixes`` is given, the prefixes to authorize are read
     from the repo's ``virtual_chunk_containers`` config, so the caller does not
     need to know where the referenced data lives (docs/ingest.md).
-
-    ``coalesce=True`` reads through ``coalescing_zarr``, which is not a
-    dependency of minus-80 and must be installed separately. Its codec pipeline
-    becomes zarr's default and merges the byte ranges of nearby chunks into one
-    ``get_many_chunks`` call on the Icechunk session store: ``max_gap`` is the
-    most unrequested bytes allowed between two chunks it merges, and
-    ``max_coalesced_bytes`` caps a merged read. A scattered multi-chunk region
-    then takes a few range GETs instead of one per chunk. The pipeline and both
-    settings are installed process-wide through ``zarr.config`` and stay
-    installed, so use it in a process that only reads.
     """
     repo = open_repository(repo_path, source_prefixes=source_prefixes)
     session = repo.readonly_session(branch)
-    if not coalesce:
-        return zarr.open_group(session.store, mode="r")
-
-    import coalescing_zarr as cz
-    from coalescing_zarr.config import MAX_COALESCED_BYTES_KEY, MAX_GAP_KEY
-
-    # An array reads these knobs when it is opened, so they are set before open_group.
-    zarr.config.set({MAX_GAP_KEY: max_gap, MAX_COALESCED_BYTES_KEY: max_coalesced_bytes})
-    cz.register_pipeline()
     return zarr.open_group(session.store, mode="r")
-
-
-def ensure_repo_access(client, repo_name: str, *, container_url: str,
-                       bucket_nickname: str, vcap_public: bool | None = None) -> None:
-    """Make reads of an Arraylake repo's virtual chunks under ``container_url`` resolve.
-
-    Adds the repo's virtual chunk container, mapping ``container_url`` (an
-    ``s3://bucket/prefix/`` URL) to the org's bucket config named
-    ``bucket_nickname``. Safe to re-run.
-
-    ``vcap_public`` also sets the org-level virtual chunk access policy for that
-    bucket config, with that visibility. It needs org-admin rights, and a failure
-    is printed and skipped since the policy may already exist. Left as ``None``,
-    the policy is not touched: set it beforehand from the Arraylake web app.
-
-    ``client`` is an ``arraylake.Client``. Uses ``update_virtual_chunk_containers``
-    where the client has it, else ``authorize_virtual_chunk_access`` (arraylake
-    1.2 and earlier).
-    """
-    if vcap_public is not None:
-        org = repo_name.split("/", 1)[0]
-        try:
-            client.set_virtual_chunk_access_policy(
-                org, bucket_nickname=bucket_nickname, subprefix="", public=vcap_public)
-        except Exception as e:
-            print(f"VCAP: {type(e).__name__}: {e} (continuing; may already exist)")
-
-    mapping = {container_url: bucket_nickname}
-    if hasattr(client, "update_virtual_chunk_containers"):
-        client.update_virtual_chunk_containers(repo_name, add=mapping)
-    else:
-        client.authorize_virtual_chunk_access(repo_name, mapping)
-    print("virtual chunk containers:", dict(client.get_virtual_chunk_containers(repo_name)))

@@ -39,10 +39,10 @@ def s3_anonymous() -> bool:
     """Whether ``s3://`` sources are read without signing the request.
 
     A public bucket (the DANDI Archive, say) must be read anonymously, but obstore
-    and icechunk sign by default. Opt in with ``VIRTUAL_CORE_S3_ANONYMOUS=1``;
+    and icechunk sign by default. Opt in with ``MINUS80_S3_ANONYMOUS=1``;
     otherwise credentials come from the environment.
     """
-    return os.environ.get("VIRTUAL_CORE_S3_ANONYMOUS", "").lower() in ("1", "true", "yes")
+    return os.environ.get("MINUS80_S3_ANONYMOUS", "").lower() in ("1", "true", "yes")
 
 
 def s3_region() -> str | None:

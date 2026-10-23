@@ -8,9 +8,8 @@ pixels are simply wrong, and every gate that compares a store against "the
 source" compares it against the wrong one.
 """
 
-from __future__ import annotations
+from pathlib import Path
 
-import numpy as np
 import pytest
 
 from minus80.core.fetch import download_then_index
@@ -19,39 +18,25 @@ from minus80.core.registry import as_url
 
 @pytest.fixture
 def two_files_one_name(tmp_path):
-    """Two files called ``1X.nd2``, in different directories, holding different bytes."""
-    made = []
+    paths = []
     for i, folder in enumerate(("Trial1", "Trial2")):
-        directory = tmp_path / "source" / folder
-        directory.mkdir(parents=True)
-        path = directory / "1X.nd2"
+        path = tmp_path / "source" / folder / "1X.nd2"
+        path.parent.mkdir(parents=True)
         path.write_bytes(bytes([i]) * 4096)
-        made.append(path)
-    return made
+        paths.append(path)
+    return paths
 
 
-def test_a_shared_basename_does_not_share_a_cache_slot(two_files_one_name, tmp_path):
-    first, second = two_files_one_name
-    cache = tmp_path / "cache"
-
-    one = download_then_index(as_url(str(first)), str(cache))
-    two = download_then_index(as_url(str(second)), str(cache))
-
-    assert one != two, "two different sources resolved to one cached path"
-    assert np.frombuffer(open(one, "rb").read(), dtype="u1")[0] == 0
-    assert np.frombuffer(open(two, "rb").read(), dtype="u1")[0] == 1
+def test_shared_basename_gets_its_own_cache_slot(two_files_one_name, tmp_path):
+    first, second = (download_then_index(as_url(str(p)), str(tmp_path / "cache"))
+                     for p in two_files_one_name)
+    assert Path(first).read_bytes()[0] == 0
+    assert Path(second).read_bytes()[0] == 1
+    # Parsers sniff the extension, so the cached file keeps its name.
+    assert first.endswith("1X.nd2") and second.endswith("1X.nd2")
 
 
-def test_the_same_source_twice_is_one_download(two_files_one_name, tmp_path):
-    """The cache still caches: asking twice returns the same path, not a copy."""
-    first, _ = two_files_one_name
-    cache = tmp_path / "cache"
-    url = as_url(str(first))
-    assert download_then_index(url, str(cache)) == download_then_index(url, str(cache))
-
-
-def test_the_cached_name_keeps_its_extension(two_files_one_name, tmp_path):
-    """Parsers sniff the extension, so the slot goes above the file, not into its name."""
-    first, _ = two_files_one_name
-    got = download_then_index(as_url(str(first)), str(tmp_path / "cache"))
-    assert got.endswith("1X.nd2")
+def test_same_source_twice_is_one_download(two_files_one_name, tmp_path):
+    url = as_url(str(two_files_one_name[0]))
+    cache = str(tmp_path / "cache")
+    assert download_then_index(url, cache) == download_then_index(url, cache)
