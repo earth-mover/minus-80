@@ -351,8 +351,10 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     beyond the name: a reader that adds containers of its own is refused.
     Each of ``source_prefixes`` must fall under one of the repo's containers,
     or the references written would not be readable; that raises
-    ``ValueError`` naming the setup the repo lacks. Needs the ``arraylake``
-    package and a login (``al auth login``) or ``ARRAYLAKE_TOKEN``.
+    ``ValueError`` naming the setup the repo lacks. The session commits with
+    :data:`MANIFEST_FETCH_CONCURRENCY` and reads with at least
+    :data:`REMOTE_READ_TRIES`, as a repo from :func:`create_repo` does. Needs the
+    ``arraylake`` package and a login (``al auth login``) or ``ARRAYLAKE_TOKEN``.
     """
     from arraylake import Client
 
@@ -367,4 +369,15 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
             f"{sorted(containers)}). An org admin registers the source bucket as a bucket "
             f"config and gives it a virtual chunk access policy; a repo writer then adds the "
             f"container with Client.update_virtual_chunk_containers.")
-    return client.get_repo(name)
+    repo = client.get_repo(name)
+    # The repo's stored config is Arraylake's, which leaves the commit's
+    # manifest concurrency at icechunk's default of 1: a commit of thousands
+    # of arrays then writes them one round trip at a time. The override lasts
+    # for this session; the containers come back unchanged.
+    import icechunk
+
+    config = _with_remote_retries(repo.config)
+    if config.manifest is None:
+        config.manifest = icechunk.ManifestConfig()
+    config.manifest.max_concurrent_manifest_fetches_during_commit = MANIFEST_FETCH_CONCURRENCY
+    return repo.reopen(config=config)

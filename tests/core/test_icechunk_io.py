@@ -51,15 +51,24 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
 
     import pytest
 
+    class Repo:
+        def __init__(self, config):
+            self.config = config
+
+        def reopen(self, config):
+            return Repo(config)
+
     class Client:
         def get_virtual_chunk_containers(self, name):
             return {"s3://czb-opencell/": "czb-opencell"}
 
         def get_repo(self, name):
-            return f"repo {name}"
+            return Repo(icechunk.RepositoryConfig.default())
 
     monkeypatch.setitem(sys.modules, "arraylake", types.SimpleNamespace(Client=Client))
     location = "arraylake://org/opencell"
-    assert icechunk_io.arraylake_repository(location, source_prefixes=[REMOTE]) == "repo org/opencell"
+    config = icechunk_io.arraylake_repository(location, source_prefixes=[REMOTE]).config
+    assert config.manifest.max_concurrent_manifest_fetches_during_commit == icechunk_io.MANIFEST_FETCH_CONCURRENCY
+    assert config.storage.retries.max_tries == REMOTE_READ_TRIES
     with pytest.raises(ValueError, match="no virtual chunk container covering"):
         icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
