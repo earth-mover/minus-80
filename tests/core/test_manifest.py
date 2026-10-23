@@ -47,6 +47,18 @@ def test_offsets_not_shaped_like_the_grid_raise():
                        dtype="uint16", codecs=BYTES)
 
 
+def test_chunk_past_the_end_of_the_object_raises_naming_it():
+    with pytest.raises(ValueError, match=r"chunk at \(0, 1\) ends at byte 9, past the end of the 8-byte"):
+        manifest_array("file:///a.bin", [[0, 4]], [[4, 5]], shape=(1, 4), chunk_shape=(1, 2),
+                       dtype="uint16", codecs=BYTES, size=8)
+
+
+def test_chunks_within_the_object_and_missing_chunks_pass_the_size_check():
+    marr = manifest_array("file:///a.bin", [[0, 400]], [[8, 0]], shape=(1, 4), chunk_shape=(1, 2),
+                          dtype="uint16", codecs=BYTES, size=8)
+    assert _entries(marr) == {"0.0": ("file:///a.bin", 0, 8)}
+
+
 def test_source_url_is_a_string_for_one_file():
     marr = manifest_array("file:///a.bin", [[0, 4]], [[4, 4]], shape=(1, 4), chunk_shape=(1, 2),
                           dtype="uint16", codecs=BYTES, attributes={"source_url": "stale"})

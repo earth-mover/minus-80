@@ -90,10 +90,12 @@ def _chunk_shape(page: tifffile.TiffPage, height: int) -> tuple[int, int]:
 
 
 def level_array(level: tifffile.TiffPageSeries, url: str, *,
-                attributes: Mapping | None = None) -> ManifestArray:
+                attributes: Mapping | None = None, size: int | None = None) -> ManifestArray:
     """One resolution level of a tifffile series as a virtual array of its own tiles or strips.
 
     ``url`` is where the file's bytes live, as the manifest should record it.
+    ``size`` is the file's length, when known; a tile or strip that ends past
+    it raises ``ValueError``, as a truncated file's last pages do.
 
     Each page is one (y, x) grid of chunks. The series' other axes index pages,
     one chunk per page along each. Interleaved samples become a ``c`` axis
@@ -162,7 +164,8 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     stated = _stated(page) | {"dimensions": {d: {"type": types[d]} for d in dims if d in types}}
     return manifest_array(
         url, offsets, lengths, shape=shape, chunk_shape=chunks, dtype=page.dtype,
-        codecs=codecs, dimension_names=dims, attributes=merge_attributes(stated, attributes))
+        codecs=codecs, dimension_names=dims, attributes=merge_attributes(stated, attributes),
+        size=size)
 
 
 def merge_attributes(base: Mapping, over: Mapping | None) -> dict:

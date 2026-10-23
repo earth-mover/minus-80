@@ -72,7 +72,8 @@ class TiffParser:
         ``spacing`` do, and OME-XML wins over both. That metadata describes
         only the full-resolution image, so reduced levels keep what their own
         tags state. A file the parser cannot reference faithfully raises,
-        naming the reason.
+        naming the reason, and so does a truncated file whose tiles end past
+        the end of the object.
         """
         url = as_url(url)
         with _opened(url, registry, self.prefetch) as (tif, fetched):
@@ -81,7 +82,9 @@ class TiffParser:
                 _check_fetched(tif, chosen, fetched)
             stated = merge_attributes(_imagej_physical(tif, chosen), _ome_physical(tif, chosen))
             full = merge_attributes(stated, self.attributes)
-            levels = {str(i): level_array(level, url, attributes=full if i == 0 else self.attributes)
+            size = tif.filehandle.size
+            levels = {str(i): level_array(level, url, size=size,
+                                          attributes=full if i == 0 else self.attributes)
                       for i, level in enumerate(chosen.levels)}
             group = ManifestGroup(arrays=levels, attributes=_group_attributes(tif, chosen))
         return ManifestStore(group, registry=registry)

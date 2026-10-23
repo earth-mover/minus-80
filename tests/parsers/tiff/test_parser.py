@@ -110,6 +110,25 @@ def test_manifest_records_the_url_given(stack):
     assert arr.metadata.attributes["source_url"] == url
 
 
+def test_a_truncated_tiff_is_refused(tmp_path, range_server):
+    path = tmp_path / "cut.tif"
+    with tifffile.TiffWriter(path) as tif:
+        for _ in range(3):
+            tif.write(np.zeros((16, 16), np.uint8), contiguous=False, metadata=None)
+    with tifffile.TiffFile(path) as tif:
+        last = tif.pages[-1]
+        end = last.dataoffsets[0] + last.databytecounts[0]
+        assert end == path.stat().st_size
+    # Cutting into the last strip leaves every directory readable.
+    data = path.read_bytes()[:end - 10]
+    path.write_bytes(data)
+    with pytest.raises(ValueError, match=rf"ends at byte {end}, past the end of the {len(data)}-byte"):
+        _parse(path)
+    range_server.files["/cut.tif"] = data
+    with pytest.raises(ValueError, match=rf"past the end of the {len(data)}-byte object"):
+        _parse(f"{range_server.url}/cut.tif")
+
+
 def test_an_unknown_prefetch_is_refused():
     with pytest.raises(ValueError, match="prefetch"):
         TiffParser(prefetch="all")

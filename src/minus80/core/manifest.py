@@ -43,6 +43,7 @@ def manifest_array(
     dimension_names: Sequence[str | None] | None = None,
     fill_value=0,
     attributes: Mapping | None = None,
+    size: int | None = None,
 ) -> ManifestArray:
     """A virtual array whose chunk at each grid position is one stored unit of a source.
 
@@ -65,6 +66,11 @@ def manifest_array(
     measures. ``channel_names`` is a list in channel-axis order. A key of any
     of the four mappings that is not a dimension name raises ``ValueError``,
     and a ``dimensions`` entry without a ``type`` string raises ``TypeError``.
+
+    ``size`` is the length of the object every chunk references, when the
+    caller knows it. A stored chunk that ends past it raises ``ValueError``
+    naming the first such grid position: a truncated file otherwise yields
+    references that fail only when a reader decodes them.
 
     ``source_url`` is set to the distinct non-missing URLs the manifest
     references (a string for one, a sorted list for several), so the array
@@ -91,6 +97,10 @@ def manifest_array(
     urls[missing] = MISSING
     offsets = np.where(missing, np.uint64(0), offsets)
     lengths = np.where(missing, np.uint64(0), lengths)
+    if size is not None and (past := np.argwhere(offsets + lengths > np.uint64(size))).size:
+        at = tuple(int(i) for i in past[0])
+        raise ValueError(f"the chunk at {at} ends at byte {int(offsets[at] + lengths[at])}, "
+                         f"past the end of the {size}-byte object")
     manifest = ChunkManifest.from_arrays(
         paths=urls.astype(np.dtypes.StringDType()), offsets=offsets, lengths=lengths)
 
