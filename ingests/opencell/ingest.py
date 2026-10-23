@@ -38,7 +38,7 @@ from pathlib import Path
 import obstore
 import zarr
 from minus80.core import registry_for
-from minus80.core.icechunk_io import commit, create_repo
+from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, create_repo
 from minus80.core.manifest import permute_dims
 from minus80.core.progress import Progress
 from minus80.core.registry import s3_region
@@ -196,6 +196,22 @@ def place(record: dict) -> Place:
     return Place(meta["pml_id"], m["row"], str(int(m["column"])), int(m["position"]))
 
 
+def open_target(location: str):
+    """The repo to write: an existing Arraylake repo, or a new local or S3 one."""
+    if location.startswith(ARRAYLAKE):
+        return arraylake_repository(location, source_prefixes=[PREFIX])
+    return create_repo(location, [], prefixes=[PREFIX])
+
+
+def open_readonly(location: str):
+    """A read-only session on the repo ``location`` names, its virtual chunks authorized."""
+    from minus80.core.icechunk_io import open_repository
+
+    repo = (arraylake_repository(location) if location.startswith(ARRAYLAKE)
+            else open_repository(location))
+    return repo.readonly_session("main")
+
+
 def parse_all(urls: list[str], workers: int) -> dict[str, ManifestGroup]:
     """Parse every file once, in parallel. Raises after the run if any file failed."""
     parser = TiffParser()
@@ -287,7 +303,8 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--api", type=Path, required=True,
                     help="directory holding lines.json and fovs.json from the OpenCell API")
-    ap.add_argument("--repo", required=True, help="Icechunk repo, a directory or s3:// URL")
+    ap.add_argument("--repo", required=True,
+                    help="Icechunk repo: a directory, an s3:// URL, or arraylake://<org>/<repo>")
     ap.add_argument("--genes", help="comma-separated gene symbols; default every gene")
     ap.add_argument("--workers", type=int, default=32)
     args = ap.parse_args(argv)
@@ -327,10 +344,13 @@ def main(argv: list[str] | None = None) -> None:
 
     omero = channel_omero(CHANNELS, max_value=65535)
     rows, columns = plate_grid(96)
-    repo = create_repo(args.repo, [], prefixes=[PREFIX])
+    repo = open_target(args.repo)
     session = repo.writable_session("main")
     store = session.store
     root = zarr.open_group(store, mode="a")
+    if list(root.keys()):
+        raise SystemExit(f"{args.repo} already holds {sorted(root.keys())}; "
+                         f"the ingest writes a fresh store")
     root.attrs.update(
         {"annotations": DATASET}
         | {"wells": annotation_table({

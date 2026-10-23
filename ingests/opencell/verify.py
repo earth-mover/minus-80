@@ -35,7 +35,6 @@ import numpy as np
 import tifffile
 import zarr
 from minus80.core import remote
-from minus80.core.icechunk_io import open_repository
 from minus80.core.progress import Progress
 from minus80.ome.hierarchy import images
 from minus80.ome.verify import GATES, run_gates
@@ -206,8 +205,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--no-pixels", action="store_true", help="skip the sampled pixel gate")
     args = ap.parse_args(argv)
 
-    repo = open_repository(args.repo)
-    session = repo.readonly_session("main")
+    session = ingest.open_readonly(args.repo)
     root = zarr.open_group(session.store, mode="r")
     lines, fov_records = ingest.load_api(args.api)
     bucket = ingest.list_bucket()
