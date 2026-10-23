@@ -88,6 +88,11 @@ fields of view. `minus80.ome` writes each axis's type from `dimensions`, so a
 parser that knows an axis is time says so, and nothing downstream guesses it
 from the name. Leave an axis out when the file does not say what it is.
 
+An OME-Zarr image allows one axis that is either `channel` or a custom type,
+not both, so a stack of fields of view with a channel axis, `(fov, c, z, y, x)`,
+is not an image: `minus80.ome` refuses it. Keep each field of view an image of
+its own, or give the stack no channel axis, as in `(fov, z, y, x)`.
+
 ## Composing
 
 ### Combine arrays through `minus80.core.manifest`

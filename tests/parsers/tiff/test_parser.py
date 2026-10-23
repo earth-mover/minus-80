@@ -65,7 +65,7 @@ def test_typed_axes_reach_ome_zarr(hyperstack):
     attrs = arr.metadata.attributes
     dims = arr.metadata.dimension_names
     # OME-Zarr puts channel before space, so z, c, y, x cannot be written as is.
-    with pytest.raises(ValueError, match="space axes must be at the end"):
+    with pytest.raises(ValueError, match="out of order"):
         image_attrs(name="h", dims=dims, level_shapes=[arr.shape],
                     scale={"c": 1, **attrs["scale"]}, dimensions=attrs["dimensions"])
 

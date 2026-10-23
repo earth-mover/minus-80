@@ -90,6 +90,30 @@ def axis_types(dims: Sequence[str], dimensions: Mapping[str, Mapping] | None = N
     return types
 
 
+def check_axis_types(dims: Sequence[str], types: Sequence[str]) -> None:
+    """Raise ``ValueError`` unless ``types`` follow the multiscale axis rules of OME-Zarr 0.5 and 0.6.
+
+    Both versions require 2 or 3 ``space`` axes, at most one ``time`` axis,
+    and at most one axis that is ``channel`` or of a custom type, ordered
+    time, then channel or custom, then space. The JSON schema ngff-zarr
+    validates against checks none of the counts, so ``(fov, c, z, y, x)``
+    would otherwise be written as a valid image.
+    """
+    rank = {"time": 0, "space": 2}
+    ranks = [rank.get(t, 1) for t in types]
+    described = ", ".join(f"{d}: {t}" for d, t in zip(dims, types))
+    if (spatial := ranks.count(2)) not in (2, 3):
+        raise ValueError(f"axes ({described}) have {spatial} of type space; OME-Zarr requires 2 or 3")
+    if ranks.count(0) > 1:
+        raise ValueError(f"axes ({described}) have more than one of type time; OME-Zarr allows one")
+    if ranks.count(1) > 1:
+        raise ValueError(f"axes ({described}) have more than one channel or custom-typed axis; "
+                         f"OME-Zarr allows one")
+    if ranks != sorted(ranks):
+        raise ValueError(f"axes ({described}) are out of order; OME-Zarr requires time, then "
+                         f"channel or custom, then space")
+
+
 def _channel(label: str, color: str, *, minimum: float, maximum: float,
              start: float, end: float) -> Channel:
     """One ``omero`` channel. ``label`` and ``active`` are extras the models allow."""
@@ -268,8 +292,10 @@ def _multiscale(*, name, dims, level_shapes, scale, units, downsampling,
         if missing:
             raise ValueError(f"no translation given for axes {sorted(missing)}")
         translations = list(_level_translations(dims, scales, translation))
+    types = axis_types(dims, dimensions)
+    check_axis_types(dims, types)
     return _BUILDERS[version].multiscale(
-        name=name, dims=dims, types=axis_types(dims, dimensions), paths=[str(i) for i in range(len(level_shapes))],
+        name=name, dims=dims, types=types, paths=[str(i) for i in range(len(level_shapes))],
         scales=scales, translations=translations,
         units=units or {}, downsampling=downsampling, description=description)
 
