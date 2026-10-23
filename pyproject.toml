@@ -38,6 +38,7 @@ packages = ["src/minus80"]
 members = ["ingests/*"]
 
 [tool.uv.sources]
+minus-80 = { workspace = true }
 # v2.8.0 plus zarr-developers/VirtualiZarr#1108 (ManifestStore.to_icechunk) and
 # the numpy-style stack/expand_dims and with_dimension_names commits.
 virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da047711558dfb4fc004db45641d28a6687f61" }

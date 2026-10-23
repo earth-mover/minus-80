@@ -114,6 +114,18 @@ Read the store back, compare it with the source decoded by the format's
 reference reader, and report the counts. For lossy codecs, use the same decoder
 on both sides: two conformant JPEG 2000 decoders can differ by one bit.
 
+### Never read the whole archive to verify it
+
+Check every item at the level where a mistake can happen, and decode pixels
+only for a sample that covers every distinct layout. Read each chunk's
+reference back from the store (VirtualiZarr's `IcechunkParser`) and compare
+its path, offset and length with the reference reader's index of the file.
+Where a chunk is uncompressed, a matching reference decodes to the same
+pixels, so that check covers every file by reading only its index. Decode one
+item per distinct shape, codec and source layout to check the codec chain.
+OpenCell's 912 GB of TIFFs verify this way by reading their directories,
+about 122 KB a stack, 0.8 GB in all.
+
 ### Open the store and look
 
 A store can reference every byte and still render as noise. Open it in a

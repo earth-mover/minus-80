@@ -16,6 +16,12 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "minus-80",
+    "opencell-ingest",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.8.0"
@@ -975,6 +981,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ce/dc/40862badc53b5f7188b88bbaa44f86e59b66f3d0ce42aa154990eaeaded2/ome_zarr_models-1.8.1.tar.gz", hash = "sha256:df51b4007151e46e2400460ada140bc6f793b4cfc50cdbfc932969350ec7137b", size = 60603, upload-time = "2026-09-02T10:25:43.946Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/70/9ab676f57fe2cb5457db80dd0cc4648b02cbe777d47f159e357391a1e00a/ome_zarr_models-1.8.1-py3-none-any.whl", hash = "sha256:8231b4f2ceae70992c0b3bbf0e7405016eb14998aaf1546d83c9ff87c0349638", size = 75524, upload-time = "2026-09-02T10:25:42.456Z" },
+]
+
+[[package]]
+name = "opencell-ingest"
+version = "0.0.0"
+source = { virtual = "ingests/opencell" }
+dependencies = [
+    { name = "minus-80", extra = ["tiff"] },
+    { name = "tifffile" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "minus-80", extras = ["tiff"], editable = "." },
+    { name = "tifffile", specifier = ">=2025.1.1" },
 ]
 
 [[package]]
