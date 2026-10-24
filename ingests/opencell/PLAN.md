@@ -181,6 +181,18 @@ All runs read from a laptop in California, outside AWS.
   planes from 21 stacks across every depth, and their projections, equal
   tifffile's decode. Parsing took a median of 1.08 s per stack under 32
   threads from a laptop, 1,056 s in all.
+- **Phase 1 run** into the Arraylake repo `earthmover-biology/opencell`
+  (Cloudflare R2), from a laptop in California, snapshot
+  `XADEMEKMPVBQX6V4KWC0`:
+  - 5,911 listed fields in 2,193 wells on 176 plates, and 390 fields of 86
+    unlisted lines;
+  - parsing 12,602 TIFFs took 360 s, writing 6,301 fields 67 s, and the commit
+    115 s, 9 min 7 s in all.
+
+  A first attempt stalled in the commit. An Arraylake repo's stored config
+  keeps Icechunk's commit manifest concurrency at 1, so the commit wrote about
+  18,500 arrays one round trip at a time. `minus80.core.icechunk_io.arraylake_repository`
+  now opens the repo with the concurrency minus80 uses everywhere else, 32.
 - **Commit size**: 12,602 images built from real parsed arrays wrote in 26 s
   and committed in 1.9 s to a local repo. The cost on S3 is unmeasured.
 - **timsTOF frames**: once unzipped, a run's frames read back through Zarr's
