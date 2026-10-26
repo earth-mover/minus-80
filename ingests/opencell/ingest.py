@@ -98,8 +98,10 @@ DATASET = {
         "Spinning-disk confocal z-stacks of HEK293T cell lines, each with one protein "
         "tagged at its endogenous locus with split mNeonGreen2, and nuclei stained with "
         "Hoechst 33342. One OME-Zarr HCS plate per imaging plate, one well per cell line, "
-        "one field image per field of view. z-stacks/ holds the stacks and projections/ "
-        "the maximum over z that OpenCell published for each."),
+        "one field image per field of view. plates/ holds the stacks, each with the "
+        "maximum over z that OpenCell published nested as proj; projections/ repeats "
+        "those projections as plates of their own; unlisted/ holds the cell lines the "
+        "OpenCell website does not list. trees describes each."),
     "citation": "Cho et al. 2022, OpenCell: Endogenous tagging for the cartography of "
                 "human cellular organization. Science 375, eabi6983",
     "doi": "10.1126/science.abi6983",
