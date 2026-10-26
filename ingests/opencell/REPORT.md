@@ -35,11 +35,12 @@ to the organization.
 - **Cost.** One run from a laptop in California, outside AWS, took 9 min 7 s:
   parsing the 12,602 TIFFs took 360 s, writing the 6,301 fields 67 s and the
   commit 115 s.
-- **Opening it.** `opencell.ipynb` opens the store with only `arraylake`,
-  `zarr` and `matplotlib`. It finds a protein's wells from the root's table,
-  reads a field's metadata and projection, draws an x–z section at true scale,
+- **Opening it.** `opencell.ipynb` opens the store with `arraylake`, `zarr`,
+  `numpy`, `pandas` and `matplotlib`, and nothing from the ingest. It finds a
+  protein's wells from the root's table, reads a field's metadata and
+  projection, draws an x–z section at true scale,
   and checks that the projection is its stack's maximum over z. Run it with
-  `uv run --package opencell-ingest --group notebook jupyter lab`.
+  `uv run --package opencell-ingest --group notebook --with jupyterlab jupyter lab`.
 
 ## Verification
 
@@ -54,7 +55,7 @@ every metadata gate:
   `projections/`, and each unlisted field in `unlisted/`;
 - each stack's z scale equals the z step the OpenCell API states for it;
 - every image's y and x scale is 13 / 63 µm;
-- each well's Ensembl ID is the API's.
+- each well's Ensembl ID was written as the API states it.
 
 A sample of 12 fields, one for each z depth on the plates (7) and in
 `unlisted/` (5), covers every layout in the store. On those 31 images (the 12

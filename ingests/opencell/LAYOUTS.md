@@ -1,7 +1,7 @@
 # OpenCell: how the bucket maps onto the store
 
 OpenCell ([Cho et al. 2022](https://doi.org/10.1126/science.abi6983)) imaged
-1,311 human proteins, each tagged with split mNeonGreen2 at its own gene in a
+1,310 human proteins, each tagged with split mNeonGreen2 at its own gene in a
 HEK293T cell line. The raw images are in `s3://czb-opencell` (us-west-2,
 anonymous, CC BY-SA 4.0 per the
 [AWS Open Data registry](https://registry.opendata.aws/czb-opencell/)).
@@ -81,8 +81,8 @@ state.
   channel is the signal from the Hoechst staining … and the second channel is
   the signal from the tagged protein itself."
 - `_proj.tif` is the maximum over z of each channel of its stack. Checked with
-  `np.array_equal` on FID 13888, and by `verify.py` on every ingested field of
-  view.
+  `np.array_equal` on FID 13888; `opencell.ipynb` repeats the check on one
+  field.
 
 ## Hierarchy
 
@@ -145,9 +145,8 @@ unlisted/.../FID<fid>/proj              each with its projection nested the same
 
 - **Gene symbols** in the paths match the API's `target_name` for every
   published line.
-- **Ensembl IDs.** For 37 cell lines the path's Ensembl ID is an
-  alternate-locus ID for the same gene, and the API and the site's tables use
-  the primary-assembly ID. Each well's `ensg_id` is the API's, and it
+- **Ensembl IDs.** For 37 cell lines the path's Ensembl ID differs from the
+  primary-assembly ID that the API and the site's tables use. Each well's `ensg_id` is the API's, and it
   keeps the path's as `ensg_id_in_path`.
 
   | gene | cell line | Ensembl ID in the path | Ensembl ID in the API |

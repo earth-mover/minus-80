@@ -11,8 +11,8 @@ Runs the shared gates from ``minus80.ome.verify`` and these OpenCell gates:
 - each well's Ensembl ID is the one its cell line's API record states;
 - for one field per tree and z depth, with its projections: every chunk
   reference, read back from the store, has the path, offset and length of its
-  plane's strip in tifffile's index of the file, and the file's dtype, byte
-  order, compression and shape match the array's;
+  plane's strip in tifffile's index of the file, every strip is
+  uncompressed, and the file's dtype, byte order and shape match the array's;
 - for the same fields, the middle z plane of each channel and the whole
   projection equal tifffile's decode.
 
@@ -50,12 +50,11 @@ def _stacks(root) -> dict[str, dict]:
             and not name.endswith(f"/{ingest.PROJ}")}
 
 
-def complete(root, bucket, lines, fov_records) -> list[str]:
-    """Every field of the ingested genes is in the store, with its projection in both places."""
-    genes = {a["gene"] for a in _stacks(root).values()}
+def complete(root, bucket, lines, fov_records, genes: set[str] | None) -> list[str]:
+    """Every field of ``genes`` (default every gene in the bucket) is in the store, with its projection in both places."""
     problems = []
     for fov in bucket:
-        if fov.gene not in genes:
+        if genes is not None and fov.gene not in genes:
             continue
         name = ingest.field_name(fov)
         if fov.cid in lines:
@@ -209,6 +208,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--api", type=Path, required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--genes", help="comma-separated gene symbols the store was built from; default every gene")
     ap.add_argument("--no-pixels", action="store_true", help="skip the sampled pixel gate")
     args = ap.parse_args(argv)
 
@@ -222,7 +222,8 @@ def main(argv: list[str] | None = None) -> None:
     # listing every virtual chunk in the store.
     shared = {k: v for k, v in GATES.items() if k not in ("levels aligned", "provenance")}
     gates = shared | {
-        "complete": lambda s, n: complete(s, bucket, lines, fov_records),
+        "complete": lambda s, n: complete(s, bucket, lines, fov_records,
+                                          set(args.genes.split(",")) if args.genes else None),
         "z step": lambda s, n: z_step(s),
         "pixel size": lambda s, n: pixel_size(s),
         "ensembl id": lambda s, n: ensembl(s, lines),

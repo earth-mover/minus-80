@@ -114,17 +114,18 @@ Read the store back, compare it with the source decoded by the format's
 reference reader, and report the counts. For lossy codecs, use the same decoder
 on both sides: two conformant JPEG 2000 decoders can differ by one bit.
 
-### Never read the whole archive to verify it
+### Keep verification to a minute
 
-Check every item at the level where a mistake can happen, and decode pixels
-only for a sample that covers every distinct layout. Read each chunk's
-reference back from the store (VirtualiZarr's `IcechunkParser`) and compare
-its path, offset and length with the reference reader's index of the file.
-Where a chunk is uncompressed, a matching reference decodes to the same
-pixels, so that check covers every file by reading only its index. Decode one
-item per distinct shape, codec and source layout to check the codec chain.
-OpenCell's 912 GB of TIFFs verify this way by reading their directories,
-about 122 KB a stack, 0.8 GB in all.
+Never read the whole archive to verify it. Run the gates that read only
+metadata (schema, axes, pixel size, completeness against the source listing)
+on every image. Check chunk references and pixels on a sample that covers
+every distinct shape, codec and source layout: read each sampled chunk's
+reference back from the store (VirtualiZarr's `IcechunkParser`), compare its
+path, offset and length with the reference reader's index of the file, and
+decode a plane against the reference reader. Every item went through the same
+parse, so the sample stands for the rest. Checking every reference means
+reading every file's index, which for OpenCell's 12,602 TIFFs took hours from
+a laptop against the published repo.
 
 ### Open the store and look
 

@@ -173,7 +173,7 @@ All runs read from a laptop in California, outside AWS.
 
   Two earlier pixel passes failed when an Icechunk virtual-chunk read dropped
   its connection ("connection closed before message completed"), once with a
-  single reader. The cause is under investigation.
+  single reader. REPORT.md gives the cause and the fix.
 - **The whole bucket**: all 12,602 files parse with `TiffParser` through the
   ingest's own code, with no refusals. Every file matches a header survey made
   with tifffile on shape, dtype, axes, z spacing and units. Every chunk
@@ -240,7 +240,7 @@ All runs read from a laptop in California, outside AWS.
 6. **Pixel size.**
    - *Evidence:* the TIFFs state 0.2 µm. The Methods give 13 µm ÷ 63 = 0.2063
      µm, and CZI's SubCell uses 0.206349.
-   - *Recommended:* write 0.206349 µm, keep 5/1 under `tiff`, record it in
+   - *Recommended:* write 13 / 63 µm, keep 5/1 under `tiff`, record it in
      LAYOUTS.md, and ask the team to confirm that no relay lens sits between
      objective and camera.
 7. **Thermo raw files.**
