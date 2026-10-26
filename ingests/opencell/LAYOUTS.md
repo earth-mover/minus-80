@@ -134,8 +134,8 @@ unlisted/.../FID<fid>/proj              each with its projection nested the same
   bucket but that the OpenCell website and its API do not list. The API answers
   404 for them, so there is no plate, well or acquisition record, and the
   fields are grouped by gene and cell line, with only what the path states
-  (`listed_by_opencell: false`). The spec forbids one group from being both a
-  plate and a collection, so `unlisted/` is a sibling of the plate trees.
+  (`listed_by_opencell: false`). The spec does not let a collection list
+  plates among its images, so `unlisted/` is a sibling of the plate trees.
 - **The root.** It holds plates and a collection side by side. OME-Zarr has no
   structure for that, so the root carries no `ome` metadata: a viewer opens a
   plate (`plates/PML0116`) or the collection (`unlisted/`), not the root. The

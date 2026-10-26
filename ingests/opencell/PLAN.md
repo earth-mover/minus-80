@@ -213,8 +213,8 @@ All runs read from a laptop in California, outside AWS.
      view, so they have no plate or well. 85 are second lines of a published
      gene, and one is HSP90B1.
    - *Recommended:* a separate `bioformats2raw.layout` collection beside the
-     plates. The spec forbids one group from being both, but sibling groups
-     can be one each. Ask the team why the lines weren't published.
+     plates. The spec does not let a collection list plates among its
+     images, but sibling groups can be one each. Ask the team why the lines weren't published.
 3. **Hierarchy and keys.**
    - *Evidence:* every published field has an imaging plate and a well, and
      every well holds one cell line.
