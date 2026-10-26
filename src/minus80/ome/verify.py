@@ -22,7 +22,7 @@ import zarr
 from minus80.core.aio import run_sync
 
 from .annotations import KEY as ANNOTATIONS
-from .hierarchy import images, multiscale_groups, series
+from .hierarchy import OME, declared, images, multiscale_groups
 from .image import validate
 
 #: The least a coarse level may correlate with the next finer level averaged
@@ -67,11 +67,26 @@ def schema(root, version: str) -> list[str]:
             validate(dict(image.attrs)["ome"], version, model="image", strict=True)
         except Exception as exc:
             problems.append(f"{name}: {type(exc).__name__}: {exc}"[:120])
-    for node, model in ((root, "bf2raw"), (root["OME"], "ome")):
+    documents = []
+    for path, node in [("", root), *root.members(max_depth=None)]:
+        ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
+        if not isinstance(ome, dict):
+            continue
+        # A plate written by bioformats2raw keeps its layout key, and the spec
+        # says the plate takes precedence, so it is checked as a plate only.
+        if "plate" in ome:
+            documents.append((path, node, "plate"))
+        elif "bioformats2raw.layout" in ome:
+            documents.append((path, node, "bf2raw"))
+            if OME in node:
+                documents.append(("/".join(p for p in (path, OME) if p), node[OME], "ome"))
+        if "well" in ome:
+            documents.append((path, node, "well"))
+    for path, node, model in documents:
         try:
             validate(dict(node.attrs)["ome"], version, model=model)
         except Exception as exc:
-            problems.append(f"{model}: {type(exc).__name__}: {exc}"[:120])
+            problems.append(f"{path or model}: {type(exc).__name__}: {exc}"[:120])
     return problems
 
 
@@ -123,15 +138,15 @@ def physical_size(root) -> list[str]:
 
 
 def series_matches(root) -> list[str]:
-    """The collection lists exactly the images it holds."""
-    listed = set(series(root))
+    """The collection's series and plates declare exactly the images it holds."""
+    listed = set(declared(root))
     present = set(multiscale_groups(root))
     problems = []
     if listed - present:
-        problems.append(f"series names {len(listed - present)} absent groups: "
+        problems.append(f"series or plates name {len(listed - present)} absent groups: "
                         f"{sorted(listed - present)[:3]}")
     if present - listed:
-        problems.append(f"{len(present - listed)} groups missing from series: "
+        problems.append(f"{len(present - listed)} groups missing from series and plates: "
                         f"{sorted(present - listed)[:3]}")
     return problems
 

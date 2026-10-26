@@ -17,6 +17,7 @@ from .image import (
     rgb_omero,
     validate,
 )
+from .plate import plate_attrs, plate_grid, well_attrs
 
 __all__ = [
     "DEFAULT_VERSION",
@@ -28,8 +29,11 @@ __all__ = [
     "image_attrs",
     "label_attrs",
     "labels_attrs",
+    "plate_attrs",
+    "plate_grid",
     "rgb_omero",
     "root_attrs",
     "series_attrs",
     "validate",
+    "well_attrs",
 ]
