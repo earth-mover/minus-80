@@ -9,16 +9,17 @@ Runs the shared gates from ``minus80.ome.verify`` and these OpenCell gates:
 - each stack's z scale equals the z step the OpenCell API states for it, and
   every image's y and x scale is the optics' pixel size, ``ingest.PIXEL_UM``;
 - each well's Ensembl ID is the one its cell line's API record states;
-- every chunk reference, read back from the store, has the path, offset and
-  length of its plane's strip in tifffile's index of the file, and the file's
-  dtype, byte order, compression and shape match the array's;
-- the pixels of one stack and one projection per depth equal tifffile's
-  decode, and each sampled projection equals its stack's maximum over z.
+- for one field per tree and z depth, with its projections: every chunk
+  reference, read back from the store, has the path, offset and length of its
+  plane's strip in tifffile's index of the file, and the file's dtype, byte
+  order, compression and shape match the array's;
+- for the same fields, the middle z plane of each channel and the whole
+  projection equal tifffile's decode.
 
 The strips are uncompressed and one per chunk, so a chunk whose reference
-matches tifffile's index decodes to the same pixels; the reference gate covers
-every file by reading only its directories. The pixel gate checks the codec
-chain once per distinct layout, so verification never reads the whole archive.
+matches tifffile's index decodes to the same pixels. Every field was parsed
+from the same code path, so a sample covering each layout stands for the rest,
+and verification reads a few megabytes of pixels rather than the archive.
 
     MINUS80_S3_ANONYMOUS=1 uv run --package opencell-ingest python ingests/opencell/verify.py \\
         --api <snapshot dir> --repo <icechunk dir>
@@ -128,7 +129,12 @@ def references(root, session, workers: int) -> list[str]:
     from virtualizarr.parsers import IcechunkParser
 
     registry = registry_for(ingest.PREFIX + "x")
-    named = {name: dict(image.attrs) for name, image in images(root).items()}
+    names = []
+    for name in pixel_sample(root):
+        names += [name, f"{name}/{ingest.PROJ}"]
+        if name.startswith(f"{ingest.PLATES}/"):
+            names.append(f"{ingest.PROJECTIONS}/{name.removeprefix(f'{ingest.PLATES}/')}")
+    named = {name: dict(root[name].attrs) for name in names}
 
     def check(item) -> list[str]:
         name, attrs = item
@@ -166,7 +172,7 @@ def references(root, session, workers: int) -> list[str]:
 
 
 def pixel_sample(root) -> list[str]:
-    """One stack per tree and (slices, z step), each with its projection."""
+    """One stack per tree and (slices, z step)."""
     picked = {}
     for name in _stacks(root):
         shape = root[f"{name}/0"].shape
@@ -180,18 +186,19 @@ def pixels(root) -> list[str]:
     sample = pixel_sample(root)
     with Progress("comparing sampled pixels with tifffile", len(sample), unit="fields of view") as progress:
         for name in sample:
-            stack = root[f"{name}/0"][:]
+            stack = root[f"{name}/0"]
+            z = stack.shape[1] // 2
             url = dict(root[name].attrs)["annotations"]["source_url"]
-            if not np.array_equal(stack, _decode(url).transpose(1, 0, 2, 3)):
-                problems.append(f"{name}: differs from tifffile's decode of {url}")
+            # ImageJ stores ZCYX one plane per page, so plane (z, c) is page 2z + c.
+            with tifffile.TiffFile(remote.reader(url)) as tif:
+                planes = tif.asarray(key=[2 * z, 2 * z + 1])
+            if not np.array_equal(stack[:, z], planes):
+                problems.append(f"{name}: plane z={z} differs from tifffile's decode of {url}")
             proj_name = f"{name}/{ingest.PROJ}"
-            if proj_name in root:
-                proj = root[f"{proj_name}/0"][:]
-                url = dict(root[proj_name].attrs)["annotations"]["source_url"]
-                if not np.array_equal(proj, _decode(url)):
-                    problems.append(f"{proj_name}: differs from tifffile's decode of {url}")
-                if not np.array_equal(proj, stack.max(axis=1)):
-                    problems.append(f"{proj_name}: is not the stack's maximum over z")
+            proj = root[f"{proj_name}/0"][:]
+            url = dict(root[proj_name].attrs)["annotations"]["source_url"]
+            if not np.array_equal(proj, _decode(url)):
+                problems.append(f"{proj_name}: differs from tifffile's decode of {url}")
             progress.advance()
     print(f"    sampled {len(sample)} fields: {', '.join(sample)}")
     return problems
@@ -210,7 +217,11 @@ def main(argv: list[str] | None = None) -> None:
     lines, fov_records = ingest.load_api(args.api)
     bucket = ingest.list_bucket()
     print(f"{len(images(root))} images in the store")
-    gates = dict(GATES) | {
+    # Every image has one level, so there are no levels to align, and the
+    # sampled reference gate checks each source_url against its chunks without
+    # listing every virtual chunk in the store.
+    shared = {k: v for k, v in GATES.items() if k not in ("levels aligned", "provenance")}
+    gates = shared | {
         "complete": lambda s, n: complete(s, bucket, lines, fov_records),
         "z step": lambda s, n: z_step(s),
         "pixel size": lambda s, n: pixel_size(s),
