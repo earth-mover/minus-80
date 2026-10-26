@@ -361,23 +361,25 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     name = location.removeprefix(ARRAYLAKE)
     client = Client()
     containers = dict(client.get_virtual_chunk_containers(name))
+    def under(prefix: str, container: str) -> bool:
+        return f"{prefix.rstrip('/')}/".startswith(f"{container.rstrip('/')}/")
+
     uncovered = [p for p in source_prefixes or []
-                 if not any(p.startswith(c) for c in containers)]
+                 if not any(under(p, c) for c in containers)]
     if uncovered:
         raise ValueError(
             f"{name} has no virtual chunk container covering {uncovered} (it has "
             f"{sorted(containers)}). An org admin registers the source bucket as a bucket "
             f"config and gives it a virtual chunk access policy; a repo writer then adds the "
             f"container with Client.update_virtual_chunk_containers.")
-    repo = client.get_repo(name)
     # The repo's stored config is Arraylake's, which leaves the commit's
     # manifest concurrency at icechunk's default of 1: a commit of thousands
-    # of arrays then writes them one round trip at a time. The override lasts
-    # for this session; the containers come back unchanged.
+    # of arrays then writes them one round trip at a time. get_repo merges
+    # this override over the stored config for the session. Reopening the
+    # repo instead would drop the commit author get_repo sets.
     import icechunk
 
-    config = _with_remote_retries(repo.config)
-    if config.manifest is None:
-        config.manifest = icechunk.ManifestConfig()
+    config = _with_remote_retries(icechunk.RepositoryConfig())
+    config.manifest = icechunk.ManifestConfig()
     config.manifest.max_concurrent_manifest_fetches_during_commit = MANIFEST_FETCH_CONCURRENCY
-    return repo.reopen(config=config)
+    return client.get_repo(name, config=config)

@@ -55,15 +55,12 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
         def __init__(self, config):
             self.config = config
 
-        def reopen(self, config):
-            return Repo(config)
-
     class Client:
         def get_virtual_chunk_containers(self, name):
-            return {"s3://czb-opencell/": "czb-opencell"}
+            return {"s3://czb-opencell": "czb-opencell"}
 
-        def get_repo(self, name):
-            return Repo(icechunk.RepositoryConfig.default())
+        def get_repo(self, name, config=None):
+            return Repo(config)
 
     monkeypatch.setitem(sys.modules, "arraylake", types.SimpleNamespace(Client=Client))
     location = "arraylake://org/opencell"
