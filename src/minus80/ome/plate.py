@@ -4,7 +4,8 @@ OME-Zarr's HCS layout is plate / row / column / field: the plate group lists
 its rows, columns and the wells that hold images, each well group lists its
 fields, and each field is an ordinary multiscale image. Images taken in a
 multi-well plate go in this layout rather than in a ``bioformats2raw.layout``
-collection, and the spec does not let one group be both.
+collection, since the spec does not let a collection list plates among its
+images.
 
 Every row and column of the physical plate is declared, wells or not, so a
 viewer can draw the plate's real grid around a sparse set of wells.

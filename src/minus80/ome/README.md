@@ -20,7 +20,7 @@ validated against the JSON schemas vendored in
 | `collection` | `root_attrs` and `series_attrs` build the `bioformats2raw.layout` container: the root group's attributes and the `OME` subgroup listing the member images by path. |
 | `plate` | `plate_attrs` and `well_attrs` build the HCS layout for images taken in a multi-well plate: the plate group declares every row and column of the physical plate and lists the wells that hold images, and each well lists its fields, each an image. `plate_grid` gives the row and column names of a standard plate format. |
 | `annotations` | `image_annotation` puts per-image fields under a top-level `annotations` key, outside `ome`. `annotation_table` builds a column-oriented table of every image's fields for the collection root. |
-| `hierarchy` | `series`, `images` and `multiscale_groups` find the images in a collection, following nested `series` paths and skipping `labels` subgroups. |
+| `hierarchy` | `images`, `declared` and `multiscale_groups` find the images in a store: every collection's `series`, nested paths included, every plate's fields through its wells, and the images each image lists in `derived_images`, skipping `labels` subgroups. `derived_images` is minus-80's own attribute, not part of the spec, which names no subgroup for a derived image such as a projection. |
 | `verify` | `GATES` holds checks every store of images should pass: schema validity, dimension names, plausible pixel sizes, `series` matching the groups present, level order and alignment, and a `source_url` on every virtual array. `run_gates` runs a table of them and returns the number that failed. |
 
 ## Usage

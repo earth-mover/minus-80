@@ -68,13 +68,20 @@ def schema(root, version: str) -> list[str]:
         except Exception as exc:
             problems.append(f"{name}: {type(exc).__name__}: {exc}"[:120])
     documents = []
-    if "bioformats2raw.layout" in (dict(root.attrs).get("ome") or {}):
-        documents += [("", root, "bf2raw"), (OME, root[OME], "ome")]
-    for path, node in root.members(max_depth=None):
+    for path, node in [("", root), *root.members(max_depth=None)]:
         ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
-        for model in ("plate", "well"):
-            if isinstance(ome, dict) and model in ome:
-                documents.append((path, node, model))
+        if not isinstance(ome, dict):
+            continue
+        # A plate written by bioformats2raw keeps its layout key, and the spec
+        # says the plate takes precedence, so it is checked as a plate only.
+        if "plate" in ome:
+            documents.append((path, node, "plate"))
+        elif "bioformats2raw.layout" in ome:
+            documents.append((path, node, "bf2raw"))
+            if OME in node:
+                documents.append(("/".join(p for p in (path, OME) if p), node[OME], "ome"))
+        if "well" in ome:
+            documents.append((path, node, "well"))
     for path, node, model in documents:
         try:
             validate(dict(node.attrs)["ome"], version, model=model)

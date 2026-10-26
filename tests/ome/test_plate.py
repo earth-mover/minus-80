@@ -106,3 +106,26 @@ def test_verify_finds_derived_images_and_nested_collections():
     field.attrs.update({DERIVED: {"proj": "maximum over z"}})
     assert series_matches(root) == []
     assert sorted(images(root)) == ["others/G/F2", "plates/P1/A/1/F1", "plates/P1/A/1/F1/proj"]
+
+
+def test_plate_at_the_root_is_found_and_validated():
+    import zarr
+
+    from minus80.ome import image_attrs
+    from minus80.ome.hierarchy import images
+    from minus80.ome.verify import schema, series_matches
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    rows, columns = plate_grid(96)
+    attrs = plate_attrs(name="P", rows=rows, columns=columns, wells=[("A", "1")])
+    # bioformats2raw writes its layout key on a plate root too; the plate takes precedence.
+    attrs["ome"]["bioformats2raw.layout"] = 3
+    root.attrs.update(attrs)
+    root.create_group("A/1").attrs.update(well_attrs(["0"]))
+    root.create_group("A/1/0").attrs.update({"ome": image_attrs(
+        name="f", dims=("y", "x"), level_shapes=[(4, 4)], scale={"y": 1, "x": 1})})
+    assert list(images(root)) == ["A/1/0"]
+    assert series_matches(root) == []
+    assert schema(root, "0.5") == []
+    root.attrs.update({"ome": {"version": "0.5", "plate": {"rows": []}}})
+    assert [p.split(":")[0] for p in schema(root, "0.5")] == ["plate"]

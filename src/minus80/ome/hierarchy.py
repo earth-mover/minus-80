@@ -8,7 +8,10 @@ walks the store has to follow the same rule the spec gives a reader.
 
 An HCS plate declares its images differently: the plate lists its wells and
 each well its fields. A study may hold several plates and collections, at any
-depth, since the spec forbids one group from being both.
+depth, the study group itself included. A plate converted by bioformats2raw
+carries both ``bioformats2raw.layout`` and ``plate``, and the spec says the
+plate takes precedence, so such a group is read as a plate. The spec does not
+let a collection list plates among its images.
 
 An image may also hold images derived from it, such as a projection, as
 subgroups. The spec names no such subgroup, so the image lists them in its
@@ -30,6 +33,21 @@ LABELS = "labels"
 DERIVED = "derived_images"
 
 
+def _groups(study) -> list[tuple[str, zarr.Group]]:
+    """The study group and every group under it, with their paths."""
+    return [("", study)] + [(p, n) for p, n in study.members(max_depth=None)
+                            if isinstance(n, zarr.Group)]
+
+
+def _ome(node) -> dict:
+    ome = dict(node.attrs).get("ome")
+    return ome if isinstance(ome, dict) else {}
+
+
+def _join(*parts: str) -> str:
+    return "/".join(p for p in parts if p)
+
+
 def series(study) -> list[str]:
     """The image paths the collection declares, in its order."""
     try:
@@ -41,29 +59,27 @@ def series(study) -> list[str]:
 def plate_fields(study) -> list[str]:
     """The field images every plate under the study declares, through its wells."""
     found = []
-    for path, node in study.members(max_depth=None):
-        if not isinstance(node, zarr.Group):
-            continue
-        plate = (dict(node.attrs).get("ome") or {}).get("plate")
+    for path, node in _groups(study):
+        plate = _ome(node).get("plate")
         if not isinstance(plate, dict):
             continue
         for well in plate.get("wells", []):
             try:
-                ome = dict(node[well["path"]].attrs).get("ome") or {}
+                ome = _ome(node[well["path"]])
             except KeyError:
                 continue
             for image in (ome.get("well") or {}).get("images", []):
-                found.append(f"{path}/{well['path']}/{image['path']}")
+                found.append(_join(path, well["path"], image["path"]))
     return found
 
 
 def collection_series(study) -> list[str]:
     """The images every ``bioformats2raw.layout`` collection in the study lists, the root's included."""
-    found = series(study)
-    for path, node in study.members(max_depth=None):
-        ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
-        if isinstance(ome, dict) and "bioformats2raw.layout" in ome:
-            found += [f"{path}/{p}" for p in series(node)]
+    found = []
+    for path, node in _groups(study):
+        ome = _ome(node)
+        if "bioformats2raw.layout" in ome and "plate" not in ome:
+            found += [_join(path, p) for p in series(node)]
     return found
 
 
