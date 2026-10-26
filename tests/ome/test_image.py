@@ -63,11 +63,71 @@ def test_label_without_colors_has_none():
     assert "properties" not in attrs["image-label"]
 
 
-@pytest.mark.parametrize("version", ["0.5", "0.6"])
-def test_image_axis_is_typed_custom(version):
-    attrs = vo.image_attrs(name="stack", dims=("image", "c", "y", "x"),
-                           level_shapes=[(10, 2, 64, 64)],
-                           scale={"image": 1, "c": 1, "y": 1, "x": 1}, version=version)
+def _axes(attrs, version):
     multiscale = attrs["multiscales"][0]
     axes = multiscale["axes"] if version == "0.5" else multiscale["coordinateSystems"][0]["axes"]
-    assert [a["type"] for a in axes] == ["custom", "channel", "space", "space"]
+    return [(a["name"], a["type"]) for a in axes]
+
+
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+def test_axis_types_come_from_dimensions(version):
+    attrs = vo.image_attrs(name="fovs", dims=("fov", "z", "y", "x"),
+                           level_shapes=[(2, 51, 600, 600)],
+                           scale={"fov": 1, "z": 0.5, "y": 0.2, "x": 0.2},
+                           dimensions={"fov": {"type": "fov"}, "z": {"type": "space"}},
+                           version=version)
+    assert _axes(attrs, version) == [("fov", "fov"), ("z", "space"), ("y", "space"),
+                                     ("x", "space")]
+
+
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+def test_a_custom_axis_beside_channel_raises(version):
+    with pytest.raises(ValueError, match="more than one channel or custom-typed axis"):
+        vo.image_attrs(name="fovs", dims=("fov", "c", "z", "y", "x"),
+                       level_shapes=[(2, 2, 51, 600, 600)],
+                       scale={"fov": 1, "c": 1, "z": 0.5, "y": 0.2, "x": 0.2},
+                       dimensions={"fov": {"type": "fov"}}, version=version)
+
+
+@pytest.mark.parametrize(("dims", "rule"), [
+    (("t", "time", "y", "x"), "more than one of type time"),
+    (("x",), "1 of type space"),
+    (("t", "z", "w", "y", "x"), "4 of type space"),
+    (("c", "t", "y", "x"), "out of order"),
+    (("y", "c", "x"), "out of order"),
+])
+def test_axis_rules_raise(dims, rule):
+    with pytest.raises(ValueError, match=rule):
+        vo.image_attrs(name="bad", dims=dims, level_shapes=[(2,) * len(dims)],
+                       scale=dict.fromkeys(dims, 1), dimensions={"w": {"type": "space"}})
+
+
+def test_label_axis_rules_raise():
+    with pytest.raises(ValueError, match="out of order"):
+        vo.label_attrs(name="l", dims=("y", "x", "c"), level_shapes=[(8, 8, 2)],
+                       scale={"y": 1, "x": 1, "c": 1})
+
+
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+def test_time_named_in_full_is_time(version):
+    attrs = vo.image_attrs(name="movie", dims=("time", "y", "x"), level_shapes=[(10, 8, 8)],
+                           scale={"time": 1, "y": 1, "x": 1}, version=version)
+    assert _axes(attrs, version)[0] == ("time", "time")
+
+
+def test_dimensions_override_the_name():
+    assert vo.axis_types(("z", "y", "x"), {"z": {"type": "time"}}) == ["time", "space", "space"]
+
+
+def test_an_untyped_unknown_axis_raises():
+    with pytest.raises(ValueError, match="'image'"):
+        vo.image_attrs(name="stack", dims=("image", "c", "y", "x"),
+                       level_shapes=[(10, 2, 64, 64)],
+                       scale={"image": 1, "c": 1, "y": 1, "x": 1})
+
+
+def test_label_axis_types_come_from_dimensions():
+    attrs = vo.label_attrs(name="l", dims=("fov", "y", "x"), level_shapes=[(2, 8, 8)],
+                           scale={"fov": 1, "y": 1, "x": 1},
+                           dimensions={"fov": {"type": "fov"}})
+    assert _axes(attrs, "0.5")[0] == ("fov", "fov")

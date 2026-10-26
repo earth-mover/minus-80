@@ -61,7 +61,8 @@ ingest, the work is not done. That rules out:
 
 - `src/minus80/` is one package. `minus80.core` and `minus80.ome` are the
   shared layers; `minus80.parsers.<format>` holds one parser per format. None
-  of it knows about any one archive.
+  of it knows about any one archive. `docs/parsers.md` says what a parser
+  takes and returns.
 - Tests mirror the package under `tests/`.
 - Each parser's third-party reader is an optional extra named after the
   parser. `minus80/__init__.py` and `minus80/parsers/__init__.py` import

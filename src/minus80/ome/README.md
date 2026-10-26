@@ -16,7 +16,7 @@ validated against the JSON schemas vendored in
 
 | Module | What it does |
 | --- | --- |
-| `image` | `image_attrs` builds the `ome` attributes for one multiscale image: axes, units, per-level scale and optional translation, and an optional `omero` display block from `rgb_omero` or `channel_omero`. `label_attrs` and `labels_attrs` do the same for label images. Every document is validated before it is returned. |
+| `image` | `image_attrs` builds the value of the `ome` key for one multiscale image: axes, units, per-level scale and optional translation, and an optional `omero` display block from `rgb_omero` or `channel_omero`. Each axis's type comes from the array's `dimensions` attribute, passed as `dimensions=`; without it only `t`, `time`, `c`, `channel`, `z`, `y` and `x` are typed, and any other axis name raises. `label_attrs` and `labels_attrs` do the same for label images. Every document is validated before it is returned, including the axis rules the JSON schema leaves out: 2 or 3 space axes, at most one time axis and at most one channel or custom-typed axis, in that order. |
 | `collection` | `root_attrs` and `series_attrs` build the `bioformats2raw.layout` container: the root group's attributes and the `OME` subgroup listing the member images by path. |
 | `annotations` | `image_annotation` puts per-image fields under a top-level `annotations` key, outside `ome`. `annotation_table` builds a column-oriented table of every image's fields for the collection root. |
 | `hierarchy` | `series`, `images` and `multiscale_groups` find the images in a collection, following nested `series` paths and skipping `labels` subgroups. |
@@ -30,11 +30,11 @@ from minus80.ome import image_annotation, image_attrs, rgb_omero, root_attrs, se
 root.attrs.update(root_attrs())
 root["OME"].attrs.update(series_attrs(["slide-01"]))
 root["slide-01"].attrs.update(
-    image_attrs(name="slide-01", dims=("c", "y", "x"),
-                level_shapes=[(3, 26681, 40000), (3, 13340, 20000)],
-                scale={"c": 1.0, "y": 0.25, "x": 0.25},
-                units={"y": "micrometer", "x": "micrometer"},
-                omero=rgb_omero())
+    {"ome": image_attrs(name="slide-01", dims=("c", "y", "x"),
+                        level_shapes=[(3, 26681, 40000), (3, 13340, 20000)],
+                        scale={"c": 1.0, "y": 0.25, "x": 0.25},
+                        units={"y": "micrometer", "x": "micrometer"},
+                        omero=rgb_omero())}
     | image_annotation({"stain": "H&E"}, source_url=url))
 ```
 

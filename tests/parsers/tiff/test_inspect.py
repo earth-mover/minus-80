@@ -1,7 +1,7 @@
 import numpy as np
 import tifffile
 
-from minus80.parsers.tiff.inspect import directory_layout, survey
+from minus80.parsers.tiff.inspect import codec_chain, directory_layout, survey
 
 
 def _write(directory):
@@ -30,3 +30,13 @@ def test_survey_of_a_local_directory(tmp_path):
     assert rows["big.tif"]["format"] == "BigTIFF"
     assert rows["classic.tif"]["format"] == "TIFF"
     assert rows["classic.tif"]["bytes"] == (tmp_path / "classic.tif").stat().st_size
+
+
+def test_codec_chain_reports_the_parser_chain_and_its_refusals(tmp_path):
+    lzw, deflate = tmp_path / "lzw.tif", tmp_path / "deflate.tif"
+    tifffile.imwrite(lzw, np.zeros((16, 16), np.uint8), compression="lzw")
+    tifffile.imwrite(deflate, np.zeros((16, 16), np.uint8), compression="zlib")
+    chain = codec_chain(lzw)
+    assert chain["codecs"] == ["bytes", "imagecodecs_lzw"] and not chain["portable"]
+    refused = codec_chain(deflate)
+    assert not refused["supported"] and "compression" in refused["reason"]
