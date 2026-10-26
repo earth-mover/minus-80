@@ -195,7 +195,8 @@ def _imagej_physical(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries) ->
     out: dict = {}
     unit = str(meta.get("unit", ""))
     if "\\u" in unit:
-        # ImageJ escapes non-ASCII characters in its description, so "µm" arrives as "µm".
+        # ImageJ escapes non-ASCII characters in its description, so "µm" arrives as the
+        # six characters \u00B5m.
         unit = unit.encode("ascii", "backslashreplace").decode("unicode_escape")
     factor = SU2UM.get(unit.lower())
     if factor is not None:
@@ -241,6 +242,6 @@ def _check_fetched(tif: tifffile.TiffFile, series: tifffile.TiffPageSeries,
                                  f"directories; use prefetch='ranges' or 'whole'")
     for level in series.levels:
         for page in level.pages:
-            if page is not None and not any(page.dataoffsets):
-                raise ValueError(f"page {page.index}: every tile offset is 0, so its offsets lie "
-                                 f"outside the fetched directories; use prefetch='ranges' or 'whole'")
+            if page is not None and not (any(page.dataoffsets) and any(page.databytecounts)):
+                raise ValueError(f"page {page.index}: every tile offset or byte count is 0, so they "
+                                 f"lie outside the fetched directories; use prefetch='ranges' or 'whole'")
