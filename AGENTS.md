@@ -74,8 +74,8 @@ ingest, the work is not done. That rules out:
 - An ingest imports from `minus80`, never from another ingest. Code only one
   archive needs stays in that ingest. Anything a second archive could use moves
   into `minus80`.
-- OME-Zarr output is version 0.5 metadata; ingest an older source by upgrading
-  it.
+- OME-Zarr output is version 0.6 metadata; ingest an older source by upgrading
+  it. A store already published in 0.5 stays 0.5 until it is re-ingested.
 - Tabular data without a Zarr convention (per-target annotations, edge lists,
   proteome-wide tables) goes to an Iceberg table beside the store, not into
   Zarr arrays.
