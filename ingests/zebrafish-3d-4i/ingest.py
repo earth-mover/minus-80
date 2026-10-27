@@ -30,6 +30,8 @@ other's.
 from __future__ import annotations
 
 import argparse
+import resource
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -395,6 +397,13 @@ def plate_document(source: Source, wells: Sequence[str], field_counts: Sequence[
     }}
 
 
+def peak_memory_gb() -> float:
+    """The most memory this process has held so far, in GB."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # macOS reports bytes, Linux kilobytes.
+    return peak / 1e9 if sys.platform == "darwin" else peak / 1e6
+
+
 def done_wells(repo, branch: str, wells: Sequence[str]) -> set[str]:
     """Wells already committed on ``branch``: those whose group carries its well metadata."""
     try:
@@ -454,6 +463,7 @@ def convert(source_url: str, repo, *, branch: str = "main", wells: Sequence[str]
         dest[well].attrs.update(well_document(source, src, well, fields))
         commit(session, f"Add well {well}: {len(fields)} fields x {len(source.rounds)} rounds")
         written.append(well)
+        print(f"  committed {well}; peak memory so far {peak_memory_gb():.1f} GB", flush=True)
     complete = done | set(written)
     if complete >= set(chosen):
         plate_wells = [w for w in source.wells if w in complete]
