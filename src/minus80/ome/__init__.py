@@ -18,6 +18,7 @@ from .image import (
     validate,
 )
 from .plate import plate_attrs, plate_grid, well_attrs
+from .scene import scene_attrs
 
 __all__ = [
     "DEFAULT_VERSION",
@@ -33,6 +34,7 @@ __all__ = [
     "plate_grid",
     "rgb_omero",
     "root_attrs",
+    "scene_attrs",
     "series_attrs",
     "validate",
     "well_attrs",
