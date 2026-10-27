@@ -1,0 +1,76 @@
+"""A Zarr v2 store zipped with Deflate, opened in place and read through zarr."""
+
+import zipfile
+
+import numpy as np
+import pytest
+import zarr
+from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteRequest
+from zarr.core.buffer import default_buffer_prototype
+
+from minus80.core.aio import run_sync
+from minus80.parsers.zip.members import zip_index
+from minus80.parsers.zip.store import MemberStore
+
+
+@pytest.fixture
+def zipped(tmp_path):
+    """A Zarr v2 group with one array whose last chunk is missing, zipped with Deflate."""
+    root = tmp_path / "store.zarr"
+    data = np.arange(6 * 7, dtype="<u2").reshape(6, 7)
+    data[4:, 4:] = 0
+    arr = zarr.create_array(str(root), name="a", shape=data.shape, chunks=(4, 4), dtype=data.dtype,
+                            zarr_format=2, fill_value=0, config={"write_empty_chunks": False},
+                            chunk_key_encoding={"name": "v2", "separator": "/"})
+    arr[:] = data
+    arr.attrs["note"] = "kept"
+    path = tmp_path / "store.zarr.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(root.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(root).as_posix())
+    return path, data
+
+
+def test_reads_values_through_zarr(zipped):
+    path, data = zipped
+    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+    arr = zarr.open_array(store, path="a", zarr_format=2, mode="r")
+    assert "a/1/1" not in zip_index(path.as_uri())
+    np.testing.assert_array_equal(arr[:], data)
+    np.testing.assert_array_equal(arr[1:5, 2:6], data[1:5, 2:6])
+    assert arr.attrs["note"] == "kept"
+
+
+def test_lists_like_a_directory(zipped):
+    path, _ = zipped
+    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+
+    async def listed(prefix):
+        return sorted([k async for k in store.list_dir(prefix)])
+
+    assert "a" in run_sync(listed(""))
+    assert run_sync(listed("a")) == [".zarray", ".zattrs", "0", "1"]
+
+
+def test_byte_ranges_apply_to_the_inflated_member(zipped):
+    path, _ = zipped
+    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+    whole = zipfile.ZipFile(path).read("a/.zarray")
+    proto = default_buffer_prototype()
+    for request, expected in [(RangeByteRequest(2, 9), whole[2:9]),
+                              (OffsetByteRequest(5), whole[5:]),
+                              (SuffixByteRequest(4), whole[-4:])]:
+        assert run_sync(store.get("a/.zarray", proto, request)).to_bytes() == expected
+    assert run_sync(store.get("missing", proto)) is None
+
+
+def test_a_short_member_raises(zipped):
+    path, _ = zipped
+    index = zip_index(path.as_uri())
+    entry = index["a/0/0"]
+    index["a/0/0"] = type(entry)(entry.data_offset, entry.compressed_length, entry.uncompressed_length + 1,
+                                 entry.method)
+    arr = zarr.open_array(MemberStore(path.as_uri(), index), path="a", zarr_format=2, mode="r")
+    with pytest.raises(OSError, match="inflated to"):
+        arr[0, 0]
