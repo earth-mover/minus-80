@@ -28,15 +28,26 @@ from .members import member_bytes
 
 
 class MemberStore(Store):
-    """The archive at ``url`` as a read-only zarr store, decoding each member as it is read.
+    """A ``.zarr.zip`` at ``url``, read by zarr without unzipping it.
 
-    ``index`` maps member names to their entries, from
-    :func:`~minus80.parsers.zip.members.zip_index` or a subset of it: a store
-    built over one image's members can open that image and nothing else, which
-    keeps what a worker is sent small. Each member is fetched by one GET
-    through the patient store :func:`~minus80.core.registry.store_and_key`
-    builds, inflated on a worker thread, and must inflate to the length its
-    entry states, or ``OSError`` is raised.
+    Why it is needed: zarr reads a chunk by asking its store for a key, such
+    as ``C/02/1/0/0/13/0/7``. In a zipped store that key is not an object in
+    the bucket; it is a member packed inside the one zip file, and usually
+    compressed a second time by the zip. An ordinary store has nothing to
+    return for it, and zarr's own ``ZipStore`` opens only local files.
+
+    What a ``get`` does, for each key zarr asks for:
+
+    - looks the key up in ``index``, the zip's table of contents (from
+      :func:`~minus80.parsers.zip.members.zip_index`), for the member's byte
+      offset and length;
+    - fetches those bytes from ``url`` with one range request;
+    - inflates them, on a worker thread so many members inflate at once;
+    - raises ``OSError`` if they inflate to a different length from the one
+      the zip records, so a short read never passes for data.
+
+    zarr then decodes the chunk with the array's own codecs, as it would from
+    any other store.
     """
 
     def __init__(self, url: str, index: Mapping[str, ZipEntry]) -> None:
