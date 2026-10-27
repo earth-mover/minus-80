@@ -20,6 +20,7 @@ resolution-markers = [
 members = [
     "minus-80",
     "opencell-ingest",
+    "zebrafish-3d-4i-ingest",
 ]
 
 [[package]]
@@ -2848,4 +2849,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/47/3f/4202f4b11d2629c100ca5801dcf806826779db4eb925ff9e4d05658529a2/zarrista-0.1.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:96706a3acb1c1e623c85f08cc325ab74ade02a9bf6397a644040d50e1033d414", size = 23388185, upload-time = "2026-08-13T14:44:36.867Z" },
     { url = "https://files.pythonhosted.org/packages/e8/96/f2eb1d63d32efa2d11237e9ba3ca7b1b93f87c987bc6dce90d75657a7d55/zarrista-0.1.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:5c2c29591f49ace61e54721a921ee957ba463a6d22848df32c901cd45df1bc70", size = 24315851, upload-time = "2026-08-13T14:44:40.01Z" },
     { url = "https://files.pythonhosted.org/packages/a2/b2/f8029969d8db3ffc886cc4fbda5eca01dec7b78a6cc8e44af3103c3c30c1/zarrista-0.1.0-cp314-cp314t-win_amd64.whl", hash = "sha256:58b15682404c61bb53e10c8a17202762b43702c3fe99c9b6ea05be256113bfdd", size = 17122744, upload-time = "2026-08-13T14:44:43.036Z" },
+]
+
+[[package]]
+name = "zebrafish-3d-4i-ingest"
+version = "0.0.0"
+source = { virtual = "ingests/zebrafish-3d-4i" }
+dependencies = [
+    { name = "arraylake" },
+    { name = "minus-80" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
+    { name = "minus-80", editable = "." },
 ]
