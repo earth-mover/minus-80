@@ -108,6 +108,17 @@ def dimension_names(root) -> list[str]:
     return problems
 
 
+def _level_scale(dataset: Mapping) -> list[float]:
+    """A level's scale, from 0.5's list of transforms or 0.6's single transform or sequence."""
+    transforms = dataset["coordinateTransformations"]
+    for t in transforms:
+        steps = t["transformations"] if t["type"] == "sequence" else [t]
+        for step in steps:
+            if step["type"] == "scale":
+                return list(step["scale"])
+    raise ValueError(f"level {dataset.get('path')} has no scale")
+
+
 def physical_size(root) -> list[str]:
     """Level 0 states a pixel size that is real, and could be a microscope's.
 
@@ -122,7 +133,7 @@ def physical_size(root) -> list[str]:
         axes = ms.get("axes") or ms["coordinateSystems"][0]["axes"]
         if not ms.get("datasets"):
             continue
-        scale = ms["datasets"][0]["coordinateTransformations"][0]["scale"]
+        scale = _level_scale(ms["datasets"][0])
         spatial = [(a, s) for a, s in zip(axes, scale) if a["type"] == "space"]
         if all(s == 1.0 for _, s in spatial):
             if any(a.get("unit") for a, _ in spatial):
@@ -206,8 +217,10 @@ def levels_aligned(root, sample: int) -> list[str]:
     """Coarse levels describe the same object in the same place as finer ones.
 
     Two checks. The declared scale of every level must match its shape: a
-    level half the size of level 0 has pixels twice as large, to within a
-    pixel of rounding. That is exact, cheap, and catches a mis-stated scale.
+    level half the size of level 0 has pixels twice as large, to within one of
+    its own pixels. That allows a scanner rounding a level's size, and a level
+    cut from a coarser pyramid that covers one more coarse pixel than its
+    base divides into; a mis-stated scale is off by a factor, not a pixel.
     And each level small enough to read whole must be what the next finer one
     averages down to. That catches a level whose *pixels* are not what its
     metadata says, such as the wrong page or directory, which no arithmetic on
@@ -217,8 +230,7 @@ def levels_aligned(root, sample: int) -> list[str]:
     problems = []
     for name, image in list(images(root).items())[:sample]:
         ms = dict(image.attrs)["ome"]["multiscales"][0]
-        by_path = {d["path"]: d["coordinateTransformations"][0]["scale"]
-                   for d in ms.get("datasets", [])}
+        by_path = {d["path"]: _level_scale(d) for d in ms.get("datasets", [])}
         paths = levels(image)
         if len(paths) < 2:
             continue
@@ -226,8 +238,8 @@ def levels_aligned(root, sample: int) -> list[str]:
         for p in paths[1:]:
             for axis in (-2, -1):
                 expected = base_scale[axis] * base_shape[axis] / image[p].shape[axis]
-                # One pixel of rounding at this level, in physical units.
-                if abs(by_path[p][axis] - expected) > expected / image[p].shape[axis]:
+                # One of this level's pixels, in physical units, as declared.
+                if abs(by_path[p][axis] - expected) > by_path[p][axis] / image[p].shape[axis] * (1 + 1e-9):
                     problems.append(f"{name}/{p}: scale {by_path[p][axis]:.4g} on axis "
                                     f"{axis} but shape implies {expected:.4g}")
         small = [p for p in paths if max(image[p].shape) <= 2048]
