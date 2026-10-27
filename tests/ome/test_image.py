@@ -19,7 +19,7 @@ def test_no_translation_by_default():
 
 
 def test_translation_keeps_level_corners_together():
-    attrs = vo.image_attrs(**PYRAMID, translation={"c": 0, "y": 0, "x": 0})
+    attrs = vo.image_attrs(**PYRAMID, translation={"c": 0, "y": 0, "x": 0}, version="0.5")
     assert _transforms(attrs, 0)[1] == {"type": "translation", "translation": [0, 0, 0]}
     # Level 1 pixels are 1.0 um against 0.25 um, so their centres sit 0.375 um in.
     assert _transforms(attrs, 1)[1]["translation"] == [0, 0.375, 0.375]
@@ -130,4 +130,4 @@ def test_label_axis_types_come_from_dimensions():
     attrs = vo.label_attrs(name="l", dims=("fov", "y", "x"), level_shapes=[(2, 8, 8)],
                            scale={"fov": 1, "y": 1, "x": 1},
                            dimensions={"fov": {"type": "fov"}})
-    assert _axes(attrs, "0.5")[0] == ("fov", "fov")
+    assert _axes(attrs, vo.DEFAULT_VERSION)[0] == ("fov", "fov")

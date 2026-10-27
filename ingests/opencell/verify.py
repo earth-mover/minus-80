@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> None:
     }
     if not args.no_pixels:
         gates["pixels"] = lambda s, n: pixels(s)
-    failed = run_gates(root, gates, {"version": "0.5", "sample": 3})
+    failed = run_gates(root, gates, {"version": ingest.OME_VERSION, "sample": 3})
     sys.exit(1 if failed else 0)
 
 
