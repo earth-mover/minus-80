@@ -35,7 +35,7 @@ copy.
 | 1 | Stage the zip in R2 before converting | Any rerun of the conversion reads R2, where egress is free, instead of pulling 591 GB from EBI again | Decided |
 | 2 | Transfer over parallel HTTPS from AWS London | 8 connections into a resumable multipart upload, with backoff and an MD5 check on every part; EBI's Aspera and Globus routes need credentials or an endpoint we do not have | Decided; the transfer itself awaits approval |
 | 3 | One image per embryo, with every round's channels on its channel axis | The source pastes a well's 5 to 9 embryo photos onto one well-sized image per round, 96% zeros, with a chunk grid that cuts across the embryos. The HCS spec says a well's images are its fields of view. Rounds cannot be an axis of their own, because an image allows only one axis that is neither space nor time; the published rounds are already registered, so they share one image as 16 channels. Field `FOV_n` is image `n - 1` | Decided 2026-10-27; the trial also builds one image per field and round, on a branch, for comparison |
-| 4 | Include round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3 (DAPI_3, Nanog, YAP, XRN2). Every image holds all four rounds' channels, and the plate's attributes record each round's channels | Decided; telling the authors is optional |
+| 4 | Include round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3. Round 3's markers differ between wells (Nanog, YAP, XRN2 in 21; three earlier markers restained in 9), so every image takes its channel names from its own well's metadata, and the plate's attributes record each well's round-3 markers | Decided; channel names per well added 2026-10-28; telling the authors is optional |
 | 5 | Chunks are whole xy planes, shards run along z | Images: `1 × 1 × 1000 × 1000` chunks in 32-plane shards. Labels: `1 × 1000 × 1000` chunks in full-depth shards | Decided; step 3 times 32- against 10-plane shards |
 | 6 | blosc zstd level 5 with bitshuffle | Decodes at about 5.8 GB/s; pcodec compresses field pixels 11 to 21% smaller but decodes at 1.4 GB/s, and on fast connections decode speed counts for more. blosc is a codec the Zarr v3 core spec defines; pcodec is not | Decided |
 | 7 | Fold the ROI tables into the layout | Each `FOV_ROI_table` row becomes an image placed by a 0.6 translation; the other two tables are kept as well attributes; no Iceberg tables | Decided |
@@ -45,7 +45,7 @@ copy.
 | 11 | OME-Zarr 0.6 | 0.6 scenes place each field image in its well | Decided 2026-10-27 |
 | 12 | Copy pyramid levels 1 to 3 from the source, rebuild later | Most field origins fall between coarse pixels, so each field's copied level is a pixel larger than half, a quarter or an eighth of 1000, with a per-level offset; a later commit rebuilds the levels from level 0 | Decided |
 | 13 | Read damaged source chunks as missing, and record them | 1,244 chunk members are empty files and some are cut short; no reader can decode them. Each reads as the fill value, 0, and each image lists the damaged chunks inside its field | Decided 2026-10-28 |
-| 14 | Convert by streaming the staged zip in file order | The zip is laid out array by array; reading each member as its own request through zarr took about 1.5 hours a well from EBI, with the network idle most of the time. Read large pieces in file order, and write each shard as soon as its source chunks have arrived | Decided 2026-10-28; to build and measure |
+| 14 | Convert by streaming each well's bytes once, in file order | Reading each member as its own request through zarr took about 1.5 hours a well from EBI, with the network idle most of the time. Each well is one contiguous region of the zip that holds its own metadata, so the converter reads it as 64 MiB ranges, metadata first, and processes one channel of one array at a time. Reading (I/O) and parsing are separate layers; the zip's central directory is the only index, and no VirtualiZarr code is involved | Sequence proposed 2026-10-28, for approval; then build and measure |
 
 **Settled by the step 3 trial, by measurement:**
 
@@ -75,10 +75,23 @@ eluted four times. Every round images DAPI plus three markers:
 | 0 | DAPI_0, Pol-II-S2P, FLAG, PCNA |
 | 1 | DAPI_1, H3K27Ac, bCatenin, pH3 |
 | 2 | DAPI_2, H2B, ALYREF, Pol-II-S5P |
-| 3 | DAPI_3, Nanog, YAP, XRN2 |
+| 3 | DAPI_3, Nanog, YAP, XRN2 in 21 wells; in 9 wells, three earlier markers restained (below) |
 
 FLAG reports Pou5f3 in a `pou5f3-3xflag` line. YAP and XRN2 are not in the
 preprint's ten-plex panel.
+
+Round 3 differs between wells. In 9 of the 30 wells its markers are three
+earlier markers stained again, named with a `_restained` suffix in each
+image's `omero` channels:
+
+| Round 3 markers | Wells |
+|---|---|
+| Nanog, YAP, XRN2 | the other 21 |
+| H3K27Ac, bCatenin, pH3, restained (round 1's) | C/06, F/06, G/06 |
+| Pol-II-S2P, FLAG, PCNA, restained (round 0's) | B/06, E/06, G/05 |
+| H2B, ALYREF, Pol-II-S5P, restained (round 2's) | D/06, F/07, G/07 |
+
+Rounds 0 to 2 have the same channels in every well.
 
 **What is in the zip.** Surveyed 2026-10-27 by reading the zip's whole
 central directory (2,036,714 members) and all 8,648 metadata documents.
@@ -207,7 +220,7 @@ Each field image keeps, as attributes, the field's source name (`FOV_1` to
   chunk sizes and request times. Small single-plane chunks without shards
   make volumes and slices 11 to 22 times slower and write 18.8 million
   objects. Shards of `20 × 2000 × 2000` on the well image fetch parts of
-  neighbouring fields: 448 MB for one embryo volume instead of 244 MB. 10-plane
+  neighboring fields: 448 MB for one embryo volume instead of 244 MB. 10-plane
   shards need three times the requests of 32-plane shards for a volume;
   full-depth shards turn a volume into one 128 MB request on one connection.
   Blocks of `8 × 250 × 250` match 32-plane shards for volumes and fetch seven
@@ -316,7 +329,7 @@ default; from London, 64 in flight doubled throughput.
      unfinished upload, lists the parts already stored and sends the rest.
    - **Be kind to EBI.** 8 connections, about a third of the point where EBI
      starts refusing requests and enough for about 170 MB/s. Failures back off
-     exponentially with random jitter up to 5 minutes and honour
+     exponentially with random jitter up to 5 minutes and honor
      `Retry-After`; five consecutive failures pause every request for 5
      minutes. Requests carry a User-Agent naming the copy and Earthmover.
    - **Check every byte.** R2 rejects a part whose `Content-MD5` does not
@@ -348,10 +361,13 @@ default; from London, 64 in flight doubled throughput.
 
 4. **Round 3.** Every well holds four images, but the plate lists
    acquisitions 0 to 2 and each well lists images 0 to 2. A reader that
-   follows the HCS metadata never finds round 3 (Nanog, YAP, XRN2).
-   *Decided: every image holds all four rounds' channels, and the plate's
-   attributes record each round's channels; record the omission in
-   `LAYOUTS.md` for the authors.*
+   follows the HCS metadata never finds round 3. Round 3 is also not the
+   same experiment in every well: in 21 wells it stains Nanog, YAP and XRN2,
+   and in 9 it restains three markers from an earlier round (the table under
+   "The archive"). *Decided: every image holds all four rounds' channels,
+   named from its own well's `omero` metadata, never from a plate-wide list;
+   the plate's attributes record each well's round-3 markers; record the
+   omission and the per-well round 3 in `LAYOUTS.md` for the authors.*
 
 5. **Chunks and shards.** Object stores bill per object written: R2 charges
    $4.50 per million writes, so one-plane chunks without sharding would write
@@ -451,16 +467,120 @@ default; from London, 64 in flight doubled throughput.
     (`annotations.empty_source_chunks`, `annotations.unreadable_source_chunks`).*
     Report both to the authors and the BioImage Archive, with round 3.
 
-14. **How the converter reads the source.** The first one-well runs read
-    each zip member with its own request, through zarr, one field, level and
-    channel at a time: 30,184 requests for well C/02, at 10 to 30 s per
-    level-0 channel, about 1.5 hours a well, with the network idle between
-    bursts. The zip is laid out array by array (2,048 contiguous runs; within
-    a run, by channel and then by z block), so one well's 20.3 GB can be read
-    as about 300 pieces of 64 MiB. *Decided: stage the zip in R2 (decision 1),
-    keep its index and metadata (about 1 MB) in a cache file, then read the
-    zip once in file order in large pieces, writing each output shard as soon
-    as the source chunks it needs have arrived.*
+14. **How the converter reads the source.** *Proposed for approval: read each
+    well's region of the zip once, in file order, as 64 MiB range requests;
+    parse each member from the bytes as they arrive; and process one channel
+    of one array at a time while the next ones download.*
+
+    **Why.** The first one-well runs read each zip member with its own
+    request, through zarr, one field, level and channel at a time: 30,184
+    requests for well C/02, 10 to 30 s per level-0 channel, about 1.5 hours a
+    well, with the network idle between bursts. Before that, a metadata walk
+    read 9,458 documents one at a time (160 to 246 s), 6,720 of them the
+    empty skeletons of AnnData tables.
+
+    **What the zip's layout allows.** Each well is one contiguous region of
+    the zip (C/02 is bytes 0 to 20.3 GB), and every metadata document a well
+    needs lies inside that region. Within a well the members come one array
+    at a time (a *run*), in the order rounds 2, 3, 0, 1; within a run, one
+    channel at a time, in the order 2, 3, 0, 1; within a channel, z indices
+    in a fixed order that is neither numeric nor alphabetical (19, 17, 25, 6,
+    …). The same order holds in all 120 level-0 image runs.
+
+    **The index.** The zip's central directory (the last 178.7 MB of the file)
+    is the only index: one row per member with its name, the offset of its
+    local header, its compressed and uncompressed sizes, its method and its
+    CRC. It is read once and kept as a Parquet file. The converter does not
+    need each member's exact data offset in advance, because it reads every
+    member's local header from bytes it has already fetched. The VirtualiZarr
+    zip parser and `index_with_data_descriptors` (which computed exact data
+    offsets from the gaps between members, a need only virtual references
+    have) are removed from this path.
+
+    **Two layers.** Code that fetches bytes never looks inside them, and code
+    that parses bytes never fetches:
+
+    - *I/O*, `minus80.core.fetch`: `object_size`, `read_range` and
+      `iter_ranges`, each taking the URL and an `ObjectStoreRegistry`, the
+      same objects VirtualiZarr parsers receive. The R2 copy, EBI and a local
+      fixture differ only in the registry.
+    - *Parsing*, `minus80.parsers.zip`, on bytes only: the end records, the
+      central directory, the members in a fetched range (read from their
+      local headers, including one cut by the range's end), and decoding a
+      member (inflate, check the CRC, check the Blosc frame's size).
+    - *Composition*: `read_central_directory(url, registry)` and
+      `stream_members(url, rows, registry, …)`, which call one layer and then
+      the other. The ingest consumes the stream and never sees a request.
+
+    **One well, in order.** Numbers are for C/02 (7 fields, 20.3 GB) from R2
+    in-region, measured where marked and modeled otherwise.
+
+    1. *Plan from the index.* Cut the well's region into 303 ranges of 64 MiB.
+       The ranges holding the well's `.zattrs`, each round's `.zattrs`
+       (channel names, colors, scales) and each round's `FOV_ROI_table` (field
+       positions) go first: 9 ranges in C/02, E/04 and D/07 alike. The rest
+       follow in file order.
+    2. *Fetch.* 64 range requests in flight from R2 (16 from EBI, its limit).
+       The priority ranges are among the first 64 requests, so channels and
+       field positions are known when the first wave lands: about 7 s into
+       the well, since 64 requests share 584 MB/s. The fetcher stays at
+       most two channel runs ahead of processing. All 303 requests: about
+       35 s at the measured 584 MB/s.
+    3. *Parse as ranges arrive.* Read members from their local headers.
+       Metadata is decoded at once. Each array's `.zarray` (shape and codec)
+       is checked against the expected values when it arrives; a mismatch
+       stops the well before its commit.
+    4. *Process each channel run* (one channel of one array; a label array is
+       one unit) once its last member has arrived. Waiting for the whole run
+       costs nothing: because of the z order, no destination shard is
+       complete before 69% of its run has arrived (median 88%, measured on
+       `C/02/2/0`, channel 2). On a thread pool, for each chunk in a grid cell
+       a field touches: inflate, check, Blosc-decode, and copy each field's
+       window into that field's buffer. Empty members read as 0 and are
+       recorded (decision 13). Per well: 26,675 chunks decoded, 658 GB of
+       source pixels to keep 141 GB, about 300 CPU-seconds on one M5 core.
+    5. *Write.* One zarr assignment per field and channel, which zarr encodes
+       as 9 shards of 32 planes (labels: one full-depth shard) and uploads:
+       4,200 shards, about 18.5 GB, about 345 CPU-seconds on one M5 core.
+       The pool processes channel run *n* while run *n − 1* uploads and runs
+       *n + 1* and *n + 2* download.
+    6. *Commit.* One Icechunk commit per well, with the well's metadata, as
+       now. The plate's metadata comes last, with the plate's `.zattrs` read
+       in one request (it sits between wells, at 95.3 GB).
+
+    **Peak memory** about 17 GB for C/02 and about 22 GB for a 9-field well:
+    two compressed channel runs (up to 1.3 GB each) plus two channel runs'
+    field buffers, largest for a level-0 label array (9.8 GB for 9 fields).
+    A 16-vCPU m6i has 64 GB.
+
+    **Time.** About 650 M5-core-seconds of CPU per well, so the conversion
+    is limited by CPU, not the network: roughly 2 minutes a well on 16
+    vCPUs, under a minute on 64, if a cloud vCPU does about 0.6 of an M5
+    core's work. Unmeasured: cloud core speed, upload rate to R2, and commit
+    cost; the first one-well VM run measures all three. From EBI the fetch
+    takes about as long as the CPU work (55 to 120 s a well at the measured
+    170 to 383 MB/s).
+
+    **Failure.** A well is one commit, so a failure costs at most one well
+    (about 2 minutes); its uploaded shards are left for garbage collection,
+    and a rerun starts at the first uncommitted well.
+
+    **Rejected:**
+
+    - *One request per member, through zarr*: measured at 1.5 hours a well.
+    - *A separate metadata cache or walk*: every document a well needs is
+      inside its own region, so the stream carries it at no extra request.
+    - *Writing each shard as soon as its chunks arrive*: the z order makes
+      every shard complete late, so tracking readiness per shard buys
+      nothing.
+    - *Exact data offsets from the gaps between members*: only a virtual
+      reference needs them; a copy reads the local headers it has fetched.
+    - *Building shard bytes directly instead of writing through zarr*: kept
+      in reserve if measurement shows zarr's encode and upload cannot keep
+      the pool busy.
+
+    **Later, if CPU dominates:** Blosc can decode only the blocks that cover
+    a field's rows, which could roughly halve the decoding.
 
 ## Steps, scope and risk
 
