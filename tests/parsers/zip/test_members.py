@@ -118,3 +118,21 @@ def test_zero_length_member_reads_as_fill(tmp_path):
     got = _roundtrip(tmp_path, path, {"frames": arr})["frames"][:]
     np.testing.assert_array_equal(got[0], frame)
     assert not got[1].any()
+
+
+def test_cached_index_is_read_once_and_kept(tmp_path):
+    from minus80.parsers.zip.members import cached_zip_index
+
+    path = tmp_path / "data.zip"
+    _write_zip(path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 50}, compression=zipfile.ZIP_DEFLATED)
+    cache = tmp_path / "cache" / "index.npz"
+    first = cached_zip_index(path.as_uri(), cache)
+    assert cache.exists()
+    assert cached_zip_index(path.as_uri(), cache) == first
+    other = tmp_path / "other.zip"
+    _write_zip(other, {"seq/c.tif": b"c"})
+    with pytest.raises(ValueError, match="indexes"):
+        cached_zip_index(other.as_uri(), cache)
+    _write_zip(path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 500}, compression=zipfile.ZIP_STORED)
+    with pytest.raises(ValueError, match="it is now"):
+        cached_zip_index(path.as_uri(), cache)

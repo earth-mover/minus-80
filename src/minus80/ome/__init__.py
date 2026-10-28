@@ -6,6 +6,7 @@ them into something a viewer can open, and nothing here reads or writes pixels.
 
 from .annotations import annotation_table, image_annotation
 from .collection import root_attrs, series_attrs
+from .crop import CroppedLevel, crop_levels
 from .image import (
     DEFAULT_VERSION,
     VERSIONS,
@@ -21,11 +22,13 @@ from .plate import plate_attrs, plate_grid, well_attrs
 from .scene import scene_attrs
 
 __all__ = [
+    "CroppedLevel",
     "DEFAULT_VERSION",
     "VERSIONS",
     "annotation_table",
     "axis_types",
     "channel_omero",
+    "crop_levels",
     "image_annotation",
     "image_attrs",
     "label_attrs",

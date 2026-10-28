@@ -1260,6 +1260,9 @@ flac = [
     { name = "flac-numcodecs" },
     { name = "soundfile" },
 ]
+fractal = [
+    { name = "anndata" },
+]
 nd2 = [
     { name = "nd2" },
 ]
@@ -1285,6 +1288,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anndata", marker = "extra == 'fractal'", specifier = ">=0.11" },
     { name = "av", marker = "extra == 'flac'" },
     { name = "flac-numcodecs", marker = "extra == 'flac'", git = "https://github.com/ianhi/flac-numcodecs?tag=zarr3-flac-codec-2026-10-19" },
     { name = "h5py", marker = "extra == 'nwb'", specifier = ">=3.16" },
@@ -1308,7 +1312,7 @@ requires-dist = [
     { name = "virtualizarr", extras = ["hdf"], marker = "extra == 'nwb'", git = "https://github.com/ianhi/VirtualiZarr?rev=83da047711558dfb4fc004db45641d28a6687f61" },
     { name = "zarr", specifier = ">=3.1.0" },
 ]
-provides-extras = ["dicom", "flac", "nd2", "nwb", "tiff", "zip"]
+provides-extras = ["dicom", "flac", "fractal", "nd2", "nwb", "tiff", "zip"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3109,14 +3113,12 @@ name = "zebrafish-3d-4i-ingest"
 version = "0.0.0"
 source = { virtual = "ingests/zebrafish-3d-4i" }
 dependencies = [
-    { name = "anndata" },
     { name = "arraylake" },
-    { name = "minus-80" },
+    { name = "minus-80", extra = ["fractal"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "anndata", specifier = ">=0.11" },
     { name = "arraylake", specifier = ">=1.7.0" },
-    { name = "minus-80", extras = ["zip"], editable = "." },
+    { name = "minus-80", extras = ["fractal", "zip"], editable = "." },
 ]

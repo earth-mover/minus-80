@@ -37,7 +37,7 @@ copy.
 | 4 | List round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3 (DAPI_3, Nanog, YAP, XRN2). The store lists all four | Decided; telling the authors is optional |
 | 5 | Chunks are whole xy planes, shards run along z | Images: `1 × 1 × 1000 × 1000` chunks in 32-plane shards. Labels: `1 × 1000 × 1000` chunks in full-depth shards | Decided; step 3 times 32- against 10-plane shards |
 | 6 | blosc zstd level 5 with bitshuffle | Decodes at about 5.8 GB/s; pcodec compresses field pixels 11 to 21% smaller but decodes at 1.4 GB/s, and on fast connections decode speed counts for more. blosc is a codec the Zarr v3 core spec defines; pcodec is not | Decided |
-| 7 | Fold the ROI tables into the layout | Each `FOV_ROI_table` row becomes an image placed by a 0.6 translation; the other two tables become attributes or are dropped; no Iceberg tables | Decided |
+| 7 | Fold the ROI tables into the layout | Each `FOV_ROI_table` row becomes an image placed by a 0.6 translation; the other two tables are kept as well attributes; no Iceberg tables | Decided |
 | 8 | No virtual store over the staged zip | It would need a custom codec and be replaced by the native store | Decided |
 | 9 | Delete the staged zip once the store is verified | EBI remains the archive of record | Decided |
 | 10 | Destination | Repo `earthmover-biology/zebrafish-3d-4i` on Arraylake managed storage; the zip at `files/ingest-staging/` in the same bucket | Decided 2026-10-27 |
@@ -170,7 +170,7 @@ AnnData tables become structure and attributes rather than tables:
 |---|---|---|
 | `FOV_ROI_table` | each field's rectangle on the well image, 5 to 9 rows per well | one image per row; its position becomes the image's translation in the well's scene |
 | `well_ROI_table` | one row: the well image's extent | a provenance attribute on the well group |
-| `embryoRaw_ROI_table` | one row per well: the bounding box of label 1 in `embryoRaw`, which marks every embryo in the well with the same value, so the box spans the well | dropped; per field, the cut `embryoRaw` label holds the same information |
+| `embryoRaw_ROI_table` | one row per well: the bounding box of label 1 in `embryoRaw`, which marks every embryo in the well with the same value, so the box spans the well | kept as a well attribute, so nothing the source said is lost; per field, the cut `embryoRaw` label shows where the embryo is |
 
 Each field image keeps, as attributes, the field's source name (`FOV_1` to
 `FOV_9`) and both source positions, `x/y_micrometer` and

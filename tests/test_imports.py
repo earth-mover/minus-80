@@ -7,7 +7,7 @@ or the ``parsers`` namespace must not pull any of them in.
 import subprocess
 import sys
 
-PARSER_DEPENDENCIES = ["av", "czifile", "flac_numcodecs", "h5py", "imagecodecs", "mrcfile", "nd2", "pydicom", "pynwb", "soundfile", "tifffile"]
+PARSER_DEPENDENCIES = ["anndata", "av", "czifile", "flac_numcodecs", "h5py", "imagecodecs", "mrcfile", "nd2", "pydicom", "pynwb", "soundfile", "tifffile"]
 
 
 def test_package_imports_no_parser_dependency():
