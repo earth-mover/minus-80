@@ -187,29 +187,59 @@ def member_spans(directory: pa.Table, names: Iterable[str] | None = None) -> pa.
     })
 
 
-def parse_member(member: bytes, start: int, entry: Mapping) -> bytes:
-    """A member's uncompressed bytes, from bytes that start at its local header.
+#: How much of a span to read a local header from: its fixed 30 bytes plus a
+#: name and extra field. A header that needs more is read from the whole span.
+_HEADER_WINDOW = 4096
 
-    Parsing, bytes only. ``member`` starts at byte ``start`` of the archive, which
-    must be the member's local header, and must hold the whole member, such as
-    its span from :func:`member_spans`. ``entry`` is the member's row of
-    :func:`parse_central_directory` (``name``, ``compressed``, ``crc32``); its
-    compressed size is used because a member with a data descriptor has zeros
-    in its local header.
 
-    Raises ``ValueError`` if ``member`` does not start with this member's
-    local header, if fewer bytes than the directory states were passed, or if
-    the uncompressed bytes fail the directory's CRC.
+def member_stored_bytes(span: bytes | memoryview, start: int, entry: Mapping) -> bytes:
+    """A member's bytes as the zip stores them, cut from bytes that start at its local header.
+
+    Parsing, bytes only. ``span`` starts at byte ``start`` of the archive,
+    which must be the member's local header, and must hold the whole member,
+    such as its span from :func:`member_spans`. ``entry`` is the member's row
+    of :func:`parse_central_directory` (``name`` and ``compressed``); the
+    compressed size comes from it because a member with a data descriptor has
+    zeros in its local header.
+
+    Only the local header is read to find where the data starts, so the data
+    is copied once, whatever ``span`` is.
+
+    Raises ``ValueError`` if ``span`` does not start with this member's local
+    header, or holds fewer bytes than the directory states.
     """
-    local = parse_local_header(member, 0, start)
+    local = parse_local_header(bytes(span[:_HEADER_WINDOW]), 0, start) or parse_local_header(bytes(span), 0, start)
     if local is None or local.name != entry["name"]:
         raise ValueError(f"no local header for {entry['name']} at byte {start}")
     compressed = int(entry["compressed"])
     first = local.data_offset - start
-    stored_bytes = member[first:first + compressed]
-    if len(stored_bytes) != compressed:
-        raise ValueError(f"{entry['name']}: {len(stored_bytes)} of {compressed} stored bytes passed")
-    uncompressed = inflate(stored_bytes, local.method)
-    if zlib.crc32(uncompressed) != int(entry["crc32"]):
+    stored = bytes(span[first:first + compressed])
+    if len(stored) != compressed:
+        raise ValueError(f"{entry['name']}: {len(stored)} of {compressed} stored bytes passed")
+    return stored
+
+
+def inflate_member(stored: bytes, entry: Mapping) -> bytes:
+    """A member's contents from its stored bytes, checked against the directory's CRC.
+
+    Parsing, bytes only. ``entry`` is the member's row of
+    :func:`parse_central_directory` (``name``, ``method`` and ``crc32``).
+    zlib releases the GIL while it inflates, so callers can inflate many
+    members at once on a thread pool.
+
+    Raises ``ValueError`` if the inflated bytes fail the CRC.
+    """
+    contents = inflate(stored, int(entry["method"]))
+    if zlib.crc32(contents) != int(entry["crc32"]):
         raise ValueError(f"{entry['name']}: the CRC does not match the directory's")
-    return uncompressed
+    return contents
+
+
+def parse_member(member: bytes, start: int, entry: Mapping) -> bytes:
+    """A member's contents, from bytes that start at its local header.
+
+    Parsing, bytes only: :func:`member_stored_bytes`, then
+    :func:`inflate_member`. ``entry`` is the member's row of
+    :func:`parse_central_directory`.
+    """
+    return inflate_member(member_stored_bytes(member, start, entry), entry)

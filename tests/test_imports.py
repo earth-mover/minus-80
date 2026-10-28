@@ -24,7 +24,7 @@ def test_package_imports_no_parser_dependency():
 def test_zip_parsing_loads_no_io_and_no_virtualizarr():
     """The parsing modules work on bytes alone, so they must not pull in a store or VirtualiZarr."""
     code = (
-        "import sys, minus80.parsers.zip.structures, minus80.parsers.zip.directory; "
+        "import sys, minus80.parsers.zip.structures, minus80.parsers.zip.directory, minus80.parsers.zip.streaming; "
         "print(sorted(m for m in ('obstore', 'virtualizarr', 'minus80.core.fetch') if m in sys.modules))"
     )
     loaded = subprocess.run(
