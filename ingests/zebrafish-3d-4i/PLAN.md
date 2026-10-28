@@ -513,23 +513,34 @@ default; from London, 64 in flight doubled throughput.
     **One well, in order.** Numbers are for C/02 (7 fields, 20.3 GB) from R2
     in-region, measured where marked and modeled otherwise.
 
-    1. *Plan from the index.* Cut the well's region into 303 ranges of 64 MiB,
-       in file order.
+    1. *Plan from the index.* Before the first well, read the plate's own
+       documents (a few small requests), because the list of wells comes
+       from them. Then cut the well's region into 303 ranges of 64 MiB, in
+       file order.
     2. *Fetch.* 64 range requests in flight from R2 (16 from EBI, its limit),
-       in file order. The fetcher stays at most two channel runs ahead of
-       processing. All 303 requests: about 35 s at the measured 584 MB/s.
+       in file order. The fetcher queues at most two finished channel runs
+       that processing has not taken. All 303 requests: about 35 s at the
+       measured 584 MB/s.
     3. *Parse as ranges arrive.* Read members from their local headers.
        Metadata is decoded at once: each round's `.zattrs` (channel names,
        colors, scales) arrives just before that round's chunks. Field
        positions come from the first round's `FOV_ROI_table`, 0.23 to 0.41 GB
-       into the well, inside the first wave of requests; until it arrives,
-       the chunks before it (the first round's levels 2 and 3) wait in memory
-       compressed. All four rounds use those positions, because the rounds'
-       tables agree field by field. Each later round's table is checked
-       against the first, matching rows by field name since their order
-       differs; a mismatch stops the well before its commit. Each array's
-       `.zarray` (shape and codec) is checked against the expected values in
-       the same way.
+       into the well, inside the first wave of requests. Placing fields also
+       needs each level's real shape, because a field's window is clipped at
+       the level's edge, and each array's `.zarray` arrives halfway through
+       its chunks. So the first round's runs wait in memory, compressed,
+       until level 0's first `.zarray` arrives partway through the first
+       level-0 run: about 2 GB. Runs that wait are capped at 4 GB
+       compressed (configurable); past the cap the well fails with an error
+       naming the metadata still missing. All four rounds use the first
+       table's positions, because the rounds' tables agree field by field.
+       Before the commit, every round's table is compared with the first,
+       matching rows by field name since their order differs, and the fields
+       each run was cut into are compared with them; a mismatch stops the
+       well. An array's chunks may be decoded with the encoding of another
+       array of the same level and kind before its own `.zarray` arrives;
+       each array's own `.zarray` is checked against the encoding used, and
+       an image chunk must hold exactly one channel.
     4. *Process each channel run* (one channel of one array; a label array is
        one unit) once its last member has arrived. Waiting for the whole run
        costs nothing: because of the z order, no destination shard is
@@ -542,16 +553,26 @@ default; from London, 64 in flight doubled throughput.
     5. *Write.* One zarr assignment per field and channel, which zarr encodes
        as 9 shards of 32 planes (labels: one full-depth shard) and uploads:
        4,200 shards, about 18.5 GB, about 345 CPU-seconds on one M5 core.
+       Four fields are assigned at once and zarr's `async.concurrency` is
+       32 (zarr's default is 10); both are options, to be tuned on the
+       first one-well VM run.
        The pool processes channel run *n* while run *n − 1* uploads and runs
        *n + 1* and *n + 2* download.
     6. *Commit.* One Icechunk commit per well, with the well's metadata, as
-       now. The plate's metadata comes last, with the plate's `.zattrs` read
-       in one request (it sits between wells, at 95.3 GB).
+       now. The plate's metadata comes last, built from the plate documents
+       read in step 1. A heartbeat line every 30 s names the stage (streaming,
+       checking, writing metadata, committing) with bytes fetched and the
+       rate, chunks decoded, fields uploaded and memory.
 
-    **Peak memory** about 17 GB for C/02 and about 22 GB for a 9-field well:
-    two compressed channel runs (up to 1.3 GB each) plus two channel runs'
-    field buffers, largest for a level-0 label array (9.8 GB for 9 fields).
-    A 16-vCPU m6i has 64 GB.
+    **Peak memory** (modeled) about 24 GB for C/02 and about 29 GB for a
+    9-field well. At the peak the copy holds four compressed channel runs
+    (up to 1.3 GB each): one decoding, up to two queued and one being
+    assembled. It also holds two channel runs' field buffers, one decoding
+    and one uploading, largest for a level-0 label array (9.8 GB for 9
+    fields); the 64 range requests in flight (64 MiB each, 4.3 GB); and the
+    cutter's buffer, under one range. The runs waiting for metadata add up
+    to 2 GB at the start of a well, when the field buffers are small, and
+    never more than the 4 GB cap. A 16-vCPU m6i has 64 GB.
 
     **Time.** About 650 M5-core-seconds of CPU per well, so the conversion
     is limited by CPU, not the network: roughly 2 minutes a well on 16
@@ -562,8 +583,11 @@ default; from London, 64 in flight doubled throughput.
     170 to 383 MB/s).
 
     **Failure.** A well is one commit, so a failure costs at most one well
-    (about 2 minutes); its uploaded shards are left for garbage collection,
-    and a rerun starts at the first uncommitted well.
+    (about 2 minutes). The run reports the failed well with its error and
+    time, goes on to the next, writes the plate's metadata listing only the
+    committed wells, and exits nonzero listing the failed ones. A failed
+    well's uploaded shards stay in storage, uncommitted, until garbage
+    collection, and a rerun starts at the first uncommitted well.
 
     **Rejected:**
 
