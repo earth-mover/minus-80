@@ -45,7 +45,7 @@ copy.
 | 11 | OME-Zarr 0.6 | 0.6 scenes place each field image in its well | Decided 2026-10-27 |
 | 12 | Copy pyramid levels 1 to 3 from the source, rebuild later | Most field origins fall between coarse pixels, so each field's copied level is a pixel larger than half, a quarter or an eighth of 1000, with a per-level offset; a later commit rebuilds the levels from level 0 | Decided |
 | 13 | Read damaged source chunks as missing, and record them | 1,244 chunk members are empty files and some are cut short; no reader can decode them. Each reads as the fill value, 0, and each image lists the damaged chunks inside its field | Decided 2026-10-28 |
-| 14 | Convert by streaming each well's bytes once, in file order | Reading each member as its own request through zarr took about 1.5 hours a well from EBI, with the network idle most of the time. Each well is one contiguous region of the zip that holds its own metadata, so the converter reads it as 64 MiB ranges, metadata first, and processes one channel of one array at a time. Reading (I/O) and parsing are separate layers; the zip's central directory is the only index, and no VirtualiZarr code is involved | Sequence proposed 2026-10-28, for approval; then build and measure |
+| 14 | Convert by streaming each well's bytes once, in file order | Reading each member as its own request through zarr took about 1.5 hours a well from EBI, with the network idle most of the time. Each well is one contiguous region of the zip that holds its own metadata, so the converter reads it as 64 MiB ranges, metadata first, and processes one channel of one array at a time. Reading (I/O) and parsing are separate layers; the zip's central directory is the only index, and no VirtualiZarr code is involved | Sequence approved 2026-10-28; to build and measure |
 
 **Settled by the step 3 trial, by measurement:**
 
@@ -467,7 +467,7 @@ default; from London, 64 in flight doubled throughput.
     (`annotations.empty_source_chunks`, `annotations.unreadable_source_chunks`).*
     Report both to the authors and the BioImage Archive, with round 3.
 
-14. **How the converter reads the source.** *Proposed for approval: read each
+14. **How the converter reads the source.** *Decided 2026-10-28: read each
     well's region of the zip once, in file order, as 64 MiB range requests;
     parse each member from the bytes as they arrive; and process one channel
     of one array at a time while the next ones download.*
@@ -497,39 +497,39 @@ default; from London, 64 in flight doubled throughput.
     offsets from the gaps between members, a need only virtual references
     have) are removed from this path.
 
-    **Two layers.** Code that fetches bytes never looks inside them, and code
-    that parses bytes never fetches:
+    **Fetching and parsing stay apart.** Fetching is obstore's job, through
+    `minus80.core.fetch` (`object_size`, `read_range`, `iter_ranges`), with
+    the URL and an `ObjectStoreRegistry`, the same pair VirtualiZarr parsers
+    receive; the R2 copy, EBI and a local fixture differ only in the registry.
+    Code that fetches never looks inside the bytes, and code that parses never
+    fetches. On top of that, three layers, each knowing only its own format:
 
-    - *I/O*, `minus80.core.fetch`: `object_size`, `read_range` and
-      `iter_ranges`, each taking the URL and an `ObjectStoreRegistry`, the
-      same objects VirtualiZarr parsers receive. The R2 copy, EBI and a local
-      fixture differ only in the registry.
-    - *Parsing*, `minus80.parsers.zip`, on bytes only: the end records, the
-      central directory, the members in a fetched range (read from their
-      local headers, including one cut by the range's end), and decoding a
-      member (inflate, check the CRC, check the Blosc frame's size).
-    - *Composition*: `read_central_directory(url, registry)` and
-      `stream_members(url, rows, registry, …)`, which call one layer and then
-      the other. The ingest consumes the stream and never sees a request.
+    | Layer | Where | Does |
+    |---|---|---|
+    | Zip streaming | `minus80.parsers.zip` | Turns fetched ranges into (member name, bytes) as they arrive, including a member cut by a range's end, reading each member's local header from the bytes. Generic for any zip. |
+    | Zipped-Zarr chunks | `minus80` | Turns a member's name into an array path and chunk index, and decodes its bytes with that array's `.zarray` settings; checks each `.zarray` against what the caller expects. Generic for any zipped Zarr v2 store. |
+    | This dataset | the ingest | Knows the plate: which grid cells the fields need, the rounds' shared field positions, cropping into per-field buffers, mapping each round's channels, writing through zarr and committing per well. The pipeline that overlaps fetching, decoding and uploading also lives here until a second archive needs it. |
 
     **One well, in order.** Numbers are for C/02 (7 fields, 20.3 GB) from R2
     in-region, measured where marked and modeled otherwise.
 
-    1. *Plan from the index.* Cut the well's region into 303 ranges of 64 MiB.
-       The ranges holding the well's `.zattrs`, each round's `.zattrs`
-       (channel names, colors, scales) and each round's `FOV_ROI_table` (field
-       positions) go first: 9 ranges in C/02, E/04 and D/07 alike. The rest
-       follow in file order.
-    2. *Fetch.* 64 range requests in flight from R2 (16 from EBI, its limit).
-       The priority ranges are among the first 64 requests, so channels and
-       field positions are known when the first wave lands: about 7 s into
-       the well, since 64 requests share 584 MB/s. The fetcher stays at
-       most two channel runs ahead of processing. All 303 requests: about
-       35 s at the measured 584 MB/s.
+    1. *Plan from the index.* Cut the well's region into 303 ranges of 64 MiB,
+       in file order.
+    2. *Fetch.* 64 range requests in flight from R2 (16 from EBI, its limit),
+       in file order. The fetcher stays at most two channel runs ahead of
+       processing. All 303 requests: about 35 s at the measured 584 MB/s.
     3. *Parse as ranges arrive.* Read members from their local headers.
-       Metadata is decoded at once. Each array's `.zarray` (shape and codec)
-       is checked against the expected values when it arrives; a mismatch
-       stops the well before its commit.
+       Metadata is decoded at once: each round's `.zattrs` (channel names,
+       colors, scales) arrives just before that round's chunks. Field
+       positions come from the first round's `FOV_ROI_table`, 0.23 to 0.41 GB
+       into the well, inside the first wave of requests; until it arrives,
+       the chunks before it (the first round's levels 2 and 3) wait in memory
+       compressed. All four rounds use those positions, because the rounds'
+       tables agree field by field. Each later round's table is checked
+       against the first, matching rows by field name since their order
+       differs; a mismatch stops the well before its commit. Each array's
+       `.zarray` (shape and codec) is checked against the expected values in
+       the same way.
     4. *Process each channel run* (one channel of one array; a label array is
        one unit) once its last member has arrived. Waiting for the whole run
        costs nothing: because of the z order, no destination shard is
@@ -567,7 +567,11 @@ default; from London, 64 in flight doubled throughput.
 
     **Rejected:**
 
-    - *One request per member, through zarr*: measured at 1.5 hours a well.
+    - *One request per member, through zarr*: estimated at 1.5 hours a well
+      from a run that copied one embryo in 13 minutes before its VM stopped.
+    - *Fetching the ranges that hold metadata first*: file order already puts
+      the first round's field table in the first wave of requests, and one
+      table serves all four rounds.
     - *A separate metadata cache or walk*: every document a well needs is
       inside its own region, so the stream carries it at no extra request.
     - *Writing each shard as soon as its chunks arrive*: the z order makes
