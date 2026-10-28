@@ -283,9 +283,9 @@ def build(root: Path) -> dict:
                 lg.attrs["labels"] = LABELS
                 per_field = {i: field_labels(i) for i in range(len(origins))}
                 for name in LABELS:
-                    canvas = np.zeros((Z, h, w), np.uint32)
+                    well_image = np.zeros((Z, h, w), np.uint32)
                     for i, (y, x) in enumerate(origins):
-                        canvas[:, y : y + F, x : x + F] = per_field[i][name]
+                        well_image[:, y : y + F, x : x + F] = per_field[i][name]
                         truth[(well, i, name)] = per_field[i][name]
                     g = lg.require_group(name)
                     g.attrs.update(
@@ -294,7 +294,7 @@ def build(root: Path) -> dict:
                             "multiscales": _multiscales(name, ["z", "y", "x"]),
                         }
                     )
-                    _write_levels(g, _levels(canvas, label=True), (Z_CHUNK, F, F))
+                    _write_levels(g, _levels(well_image, label=True), (Z_CHUNK, F, F))
                 box = pd.DataFrame(
                     [
                         {

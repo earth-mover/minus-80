@@ -4,7 +4,7 @@ What Fractal writes
 -------------------
 `Fractal <https://fractal-analytics-platform.github.io/>`_ stores each well and
 acquisition as one well-sized image: the microscope's fields of view are
-pasted onto a blank canvas at their stage positions, with zeros between them.
+pasted onto one blank, well-sized image at their stage positions, with zeros between them.
 Where each field sits is not in the image metadata but in an AnnData table
 beside it, ``tables/FOV_ROI_table``, one row per field, in micrometers.
 
@@ -15,7 +15,7 @@ a reader has to:
   it agrees: the copies list the same fields in different orders, so rows are
   matched by name;
 - turn each row into a window on level 0, checking that it lands on whole
-  pixels, inside the canvas, and spans every plane;
+  pixels, inside the well image, and spans every plane;
 - carry that window down the pyramid (:func:`minus80.ome.crop.crop_levels`),
   after checking that each level is the one above halved in y and x.
 
@@ -78,10 +78,10 @@ class Field:
     name: str
     #: The ``n`` of its name, ``FOV_<n>``.
     number: int
-    #: ``(y, x)`` of its first pixel on the canvas's level 0.
+    #: ``(y, x)`` of its first pixel on the well image's level 0.
     origin: tuple[int, int]
     roi: dict[str, float]
-    #: Each level's window into the canvas level, and where it sits.
+    #: Each level's window into the well image's level, and where it sits.
     levels: tuple[CroppedLevel, ...]
 
 
@@ -201,7 +201,7 @@ def read_fields(plate: Plate, root: zarr.Group, well: str) -> list[Field]:
     S-BIAD3228's well C/02, acquisitions 0 to 2 list FOV_1, FOV_7, FOV_4, ...
     and acquisition 3 lists FOV_3, FOV_2, ... So rows are matched by name.
 
-    Each field must start on a whole level-0 pixel, lie inside the canvas, and
+    Each field must start on a whole level-0 pixel, lie inside the well image, and
     span every plane.
     """
     tables = []
@@ -214,9 +214,9 @@ def read_fields(plate: Plate, root: zarr.Group, well: str) -> list[Field]:
                 f"{well}: acquisition {a}'s {FIELDS_TABLE} differs from "
                 f"acquisition {plate.acquisitions[0]}'s"
             )
-    canvas = root[f"{well}/{plate.acquisitions[0]}"]
-    shapes = [canvas[str(k)].shape for k in range(plate.levels)]
-    scales = level_scales(canvas, IMAGE_DIMS)
+    well_image = root[f"{well}/{plate.acquisitions[0]}"]
+    shapes = [well_image[str(k)].shape for k in range(plate.levels)]
+    scales = level_scales(well_image, IMAGE_DIMS)
     fields = []
     for name, row in tables[0].iterrows():
         where = f"{well} {name}"
@@ -226,11 +226,11 @@ def read_fields(plate: Plate, root: zarr.Group, well: str) -> list[Field]:
         nz = whole_pixels(where, roi["len_z_micrometer"], plate.scale["z"])
         if roi["z_micrometer"] != 0 or nz != plate.depth:
             raise ValueError(
-                f"{where}: planes {roi['z_micrometer']} + {nz}, the canvas has {plate.depth}"
+                f"{where}: planes {roi['z_micrometer']} + {nz}, the well image has {plate.depth}"
             )
         if oy < 0 or ox < 0 or oy + ny > shapes[0][2] or ox + nx > shapes[0][3]:
             raise ValueError(
-                f"{where}: field at ({oy}, {ox}) size ({ny}, {nx}) is not inside the canvas "
+                f"{where}: field at ({oy}, {ox}) size ({ny}, {nx}) is not inside the well image "
                 f"{shapes[0][2:]}"
             )
         levels = crop_levels(

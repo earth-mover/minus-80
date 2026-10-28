@@ -2,7 +2,7 @@
 
 Reads an OME-Zarr HCS plate written by
 [Fractal](https://fractal-analytics-platform.github.io/), where each well and
-acquisition is one well-sized canvas with its fields of view pasted in, and
+acquisition is one well image: a well-sized image with its fields of view pasted in, and
 the fields are listed in an AnnData table, `FOV_ROI_table`.
 
 | Module | What it does |
