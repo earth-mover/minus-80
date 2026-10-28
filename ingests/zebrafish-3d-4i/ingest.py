@@ -213,6 +213,44 @@ def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
     return labels
 
 
+def empty_source_chunks(
+    empty: set[str], src: zarr.Group, well: str, field: Field, labels: dict[str, int], rounds
+) -> list[str]:
+    """The empty source chunks that fall inside this field, at any level.
+
+    The source zip holds some chunks as empty files: 1,244 of them, in every
+    well, including chunks inside embryos. zarr reads them as the fill value,
+    0, so the store has zeros where the source has no data. Listing them on
+    the image means nobody mistakes those zeros for a measurement.
+    """
+    found = []
+    arrays = [(f"{well}/{rnd}/{k}", True) for rnd in rounds for k in range(len(field.levels))]
+    arrays += [
+        (f"{well}/{rnd}/labels/{name}/{k}", False)
+        for name, rnd in labels.items()
+        for k in range(len(field.levels))
+    ]
+    for path, is_image in arrays:
+        prefix = f"{path}/"
+        candidates = [name for name in empty if name.startswith(prefix)]
+        if not candidates:
+            continue
+        level = field.levels[int(path.rsplit("/", 1)[1])]
+        chunks = src[path].chunks
+        _, chunk_y, chunk_x = chunks[-3:]
+        (y0, y1), (x0, x1) = level.window["y"], level.window["x"]
+        for name in candidates:
+            *_, yi, xi = (int(i) for i in name[len(prefix) :].split("/"))
+            if (
+                yi * chunk_y < y1
+                and y0 < (yi + 1) * chunk_y
+                and xi * chunk_x < x1
+                and x0 < (xi + 1) * chunk_x
+            ):
+                found.append(name)
+    return sorted(found)
+
+
 def define_image(
     dest: zarr.Group,
     plate: Plate,
@@ -223,6 +261,7 @@ def define_image(
     channels: Sequence[dict],
     labels: dict[str, int],
     shard_depth: int,
+    missing: Sequence[str] = (),
 ) -> None:
     """Create the image group for one embryo, with its labels, metadata and empty arrays.
 
@@ -269,6 +308,7 @@ def define_image(
                         for c in channels
                     ],
                     "FOV_ROI_table": field.roi,
+                    "empty_source_chunks": list(missing),
                 },
                 source_url=url,
             ),
@@ -532,6 +572,8 @@ def convert(
     src = zarr.open_group(members_in_memory(url, plan, concurrency=read_concurrency), mode="r")
     say(f"  fetched, in {time.monotonic() - step:.0f} s")
     pixels = MemberStore(url, index)
+    empty = {name for name, entry in index.items() if entry.uncompressed_length == 0}
+    say(f"  {len(empty):,} members are empty files; they read as the fill value, 0")
     step = time.monotonic()
     plate = read_plate(src)
     say(
@@ -556,7 +598,8 @@ def convert(
         session = repo.writable_session(branch)
         dest = zarr.open_group(session.store, mode="a", zarr_format=3)
         for field in fields:
-            define_image(dest, plate, src, url, well, field, channels, labels, shard_depth)
+            missing = empty_source_chunks(empty, src, well, field, labels, plate.acquisitions)
+            define_image(dest, plate, src, url, well, field, channels, labels, shard_depth, missing)
         say(f"  {len(fields)} images defined, in {time.monotonic() - step:.0f} s")
         description = f"{len(fields)} embryos x {len(channels)} channels"
         arrays = len(fields) * plate.levels * (len(channels) + len(labels))

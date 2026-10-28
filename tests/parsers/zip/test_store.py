@@ -103,3 +103,29 @@ def test_members_in_memory_read_like_the_zip(zipped):
     path, data = zipped
     store = members_in_memory(path.as_uri(), zip_index(path.as_uri()), concurrency=2)
     np.testing.assert_array_equal(zarr.open_array(store, path="a", mode="r")[:], data)
+
+
+def test_an_empty_member_reads_as_a_missing_chunk(tmp_path):
+    """A zero-length chunk file reads as the fill value, as a missing chunk does."""
+    root = tmp_path / "store.zarr"
+    arr = zarr.create_array(
+        str(root),
+        name="a",
+        shape=(4, 4),
+        chunks=(2, 2),
+        dtype="<u2",
+        zarr_format=2,
+        fill_value=7,
+        chunk_key_encoding={"name": "v2", "separator": "/"},
+    )
+    arr[:] = 1
+    (root / "a" / "1" / "1").write_bytes(b"")
+    path = tmp_path / "store.zarr.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(root.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(root).as_posix())
+    got = zarr.open_array(MemberStore(path.as_uri(), zip_index(path.as_uri())), path="a", mode="r")[
+        :
+    ]
+    assert (got[2:, 2:] == 7).all() and (got[:2, :2] == 1).all()
