@@ -72,7 +72,10 @@ class Reference:
 
     @cached_property
     def pixels(self) -> zarr.Group:
-        return zarr.open_group(MemberStore(self.url, self.index), mode="r")
+        # The same check as the converter, so a chunk the source cannot
+        # decode reads as the fill value on both sides.
+        store = MemberStore(self.url, self.index, check=ingest.complete_blosc_frame)
+        return zarr.open_group(store, mode="r")
 
     @cached_property
     def wells(self) -> list[str]:

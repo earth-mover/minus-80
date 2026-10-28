@@ -58,6 +58,13 @@ says where it sits.
   Worth reporting to the authors and the BioImage Archive, with the round-3
   omission: only they can say whether the data were lost in processing or in
   packing the zip.
+- **Some chunks are cut short.** `C/02/1/labels/Pol-II-S2P_foci/1/6/0/3`
+  holds 16,384 bytes of a Blosc frame whose header records 162,569, so no
+  reader can decode it. A cut-short frame shows from its header without
+  decoding, but finding them all means reading every member, so the ingest
+  finds them as it copies: it reads each as the fill value, 0, and lists it
+  with the reason in its image's `annotations.unreadable_source_chunks`. The
+  REPORT gives the count.
 - **Every member of the zip is followed by a data descriptor,** a 16-byte
   record of its sizes, and past 4 GB each directory entry's extra field is
   21 bytes while its local header's is 9. VirtualiZarr's zip parser then reads

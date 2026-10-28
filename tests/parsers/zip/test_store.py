@@ -129,3 +129,16 @@ def test_an_empty_member_reads_as_a_missing_chunk(tmp_path):
         :
     ]
     assert (got[2:, 2:] == 7).all() and (got[:2, :2] == 1).all()
+
+
+def test_a_member_that_fails_the_check_reads_as_missing_and_is_recorded(zipped):
+    path, data = zipped
+
+    def check(name, raw):
+        return "rejected for the test" if name == "a/0/0" else None
+
+    store = MemberStore(path.as_uri(), zip_index(path.as_uri()), check=check)
+    got = zarr.open_array(store, path="a", mode="r")[:]
+    assert (got[:4, :4] == 0).all()
+    np.testing.assert_array_equal(got[4:], data[4:])
+    assert store.rejected == {"a/0/0": "rejected for the test"}
