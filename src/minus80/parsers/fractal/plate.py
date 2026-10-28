@@ -41,6 +41,7 @@ import anndata
 import numpy as np
 import zarr
 
+from minus80.core.progress import Progress
 from minus80.ome.crop import CroppedLevel, crop_levels
 
 IMAGE_DIMS = ("c", "z", "y", "x")
@@ -144,20 +145,24 @@ def read_plate(root: zarr.Group) -> Plate:
     if unlisted := found - set(wells):
         raise ValueError(f"well groups the plate does not list: {sorted(unlisted)}")
     acquisitions, geometry = None, None
-    for well in wells:
-        present = tuple(sorted(int(a) for a in root[well].group_keys() if a.isdigit()))
-        if acquisitions is None:
-            acquisitions = present
-        elif present != acquisitions:
-            raise ValueError(
-                f"{well} holds acquisitions {present}, {wells[0]} holds {acquisitions}"
-            )
-        for a in present:
-            here = pyramid_geometry(root[f"{well}/{a}"])
-            if geometry is None:
-                geometry = here
-            elif here != geometry:
-                raise ValueError(f"{well}/{a}: {here} differs from {geometry}")
+    # Each well's images are checked one after another, and over a slow
+    # network each check is several round trips, so this reports progress.
+    with Progress(f"checking the pyramids of {len(wells)} wells", len(wells), unit="wells") as note:
+        for well in wells:
+            present = tuple(sorted(int(a) for a in root[well].group_keys() if a.isdigit()))
+            if acquisitions is None:
+                acquisitions = present
+            elif present != acquisitions:
+                raise ValueError(
+                    f"{well} holds acquisitions {present}, {wells[0]} holds {acquisitions}"
+                )
+            for a in present:
+                here = pyramid_geometry(root[f"{well}/{a}"])
+                if geometry is None:
+                    geometry = here
+                elif here != geometry:
+                    raise ValueError(f"{well}/{a}: {here} differs from {geometry}")
+            note.advance()
     depth, scale, levels, units = geometry
     return Plate(
         attrs=attrs,

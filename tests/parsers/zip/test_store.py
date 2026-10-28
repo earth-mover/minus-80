@@ -95,3 +95,11 @@ def test_metadata_members_keep_metadata_and_named_paths():
     )
     assert set(metadata_members(index)) == {"a/.zarray", "b/zarr.json", ".zgroup"}
     assert "t/tables/x/0" in metadata_members(index, also=["tables"])
+
+
+def test_members_in_memory_read_like_the_zip(zipped):
+    from minus80.parsers.zip.store import members_in_memory
+
+    path, data = zipped
+    store = members_in_memory(path.as_uri(), zip_index(path.as_uri()), concurrency=2)
+    np.testing.assert_array_equal(zarr.open_array(store, path="a", mode="r")[:], data)
