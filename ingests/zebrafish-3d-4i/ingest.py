@@ -10,7 +10,9 @@ What the source is
 The source is one zip file of 591 GB. It holds an OME-Zarr 0.4 plate written
 by Fractal, the software the authors used. Inside the zip:
 
-- There are 30 wells. Each well was imaged in 4 staining rounds, numbered 0 to 3.
+- There are 30 wells. Each well was imaged in 4 staining rounds, numbered 0 to
+  3. In each round the embryos were stained for DNA (DAPI) and three proteins,
+  imaged, and washed, so every round has 4 channels.
 - For each well and round there is one large image the size of the well. We
   call it the canvas. It has axes (c, z, y, x) and holds uint16 pixels.
 - The microscope took 5 to 9 fields of view in each well, one per embryo.
@@ -34,19 +36,29 @@ writes them again.
 
 What the store is
 -----------------
-The store is an OME-Zarr 0.6 plate. Each field in each round becomes an image
-of its own. This is the layout that the OME-Zarr plate specification defines
-for fields of view.
+The store is an OME-Zarr 0.6 plate with one image per embryo. Each image
+holds every channel of every round, so opening an embryo gives all of its
+stains at once.
 
-- ``<row>/<column>`` is a well. Its ``well`` metadata lists the well's images
-  and the round of each one. The same group also has a ``scene``. The scene
-  places every image of the well in one shared coordinate system, called
-  ``well``, so a viewer can still show the whole well as one picture.
-- ``<row>/<column>/<image>`` is one field in one round. Field ``FOV_n`` in
-  round ``r`` is image number ``rounds * (n - 1) + r``. Its axes are
-  (c, z, y, x) and its pixels are uint16.
-- ``<row>/<column>/<image>/labels/<name>`` holds that round's labels, cut to
-  the same field.
+- ``<row>/<column>`` is a well. Its ``well`` metadata lists the well's images.
+  The same group also has a ``scene``. The scene places every image of the
+  well in one shared coordinate system, called ``well``, so a viewer can still
+  show the whole well as one picture.
+- ``<row>/<column>/<n - 1>`` is one embryo, the source's field ``FOV_n``, so
+  ``FOV_1`` is image ``0``. Its axes are (c, z, y, x) and its pixels are uint16. Its channel axis
+  holds round 0's four channels, then round 1's, and so on: 16 channels for 4
+  rounds. Each channel keeps its source name, such as ``DAPI_1`` or
+  ``H3K27Ac``, and the image's annotations record each channel's round.
+- ``<row>/<column>/<n - 1>/labels/<name>`` holds the labels, cut to the field.
+
+Why the rounds are channels
+---------------------------
+An OME-Zarr image allows only one axis that is neither space nor time, so
+rounds cannot be an axis of their own next to the channels. The rounds of the
+published data are already registered to each other, so they can share one
+image and one coordinate system. If a later use needs each round as a separate
+image, the chunks can serve both layouts: every chunk is one plane of one
+channel with the same codec.
 
 Cutting out the fields leaves the empty space of the canvas behind. A few
 chunks are still all zero, mostly label planes above and below each embryo.
@@ -145,27 +157,60 @@ SCENE = "well"
 
 #: How many planes one image shard holds. See decision 5 in PLAN.md. Because
 #: a chunk is one plane of one channel, showing one plane needs only one small
-#: read. With 32 planes per shard, a whole embryo volume takes 9 requests of
-#: about 15 MB each.
+#: read. With 32 planes per shard, one channel of a whole embryo takes 9
+#: requests of about 15 MB each.
 SHARD_DEPTH = 32
 
 #: See decision 6 in PLAN.md. Blosc with zstd decodes fast, and the Zarr v3
 #: specification defines it, so every Zarr reader can open the store.
 CODEC = BloscCodec(cname="zstd", clevel=5, shuffle="bitshuffle")
 
-#: How many reads from the source zarr keeps in flight at once. Each read is a
-#: network round trip of 100 to 400 ms. zarr's default of 10 would leave the
-#: network idle most of the time.
+#: How many reads from the source zarr keeps in flight at once, when reading
+#: the staged copy in R2. Each read is a network round trip of 100 to 400 ms,
+#: and zarr's default of 10 would leave the network idle most of the time.
 READ_CONCURRENCY = 64
+
+#: The same, when reading straight from EBI. EBI starts refusing requests at
+#: about 25 connections from one address (PLAN.md), so stay well below that.
+EBI_READ_CONCURRENCY = 16
 
 #: Tables that describe the whole well rather than one field. Their rows are
 #: kept in the well's attributes, so nothing the source recorded is lost.
 WELL_TABLES = ("well_ROI_table", "embryoRaw_ROI_table")
 
 
-def image_path(plate: Plate, field: Field, rnd: int) -> str:
-    """The path of field ``FOV_n`` in round ``r``: image number ``rounds * (n - 1) + r``."""
-    return str(len(plate.acquisitions) * (field.number - 1) + plate.acquisitions.index(rnd))
+def image_path(field: Field) -> str:
+    """The image of field ``FOV_n`` is ``n - 1``, so the first field is image ``0``."""
+    return str(field.number - 1)
+
+
+def round_channels(plate: Plate, src: zarr.Group, well: str) -> list[dict]:
+    """Every channel of every round, in the order the image's channel axis holds them.
+
+    Each entry is the source's own ``omero`` channel (its name, display color,
+    display window and the microscope's ``wavelength_id``), plus the round it
+    came from and its position in that round's image.
+    """
+    channels = []
+    for rnd in plate.acquisitions:
+        for index, channel in enumerate(src[f"{well}/{rnd}"].attrs["omero"]["channels"]):
+            channels.append({**channel, "round": rnd, "source_channel": index})
+    names = [c["label"] for c in channels]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{well}: channel names repeat across rounds: {names}")
+    return channels
+
+
+def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
+    """Each label's name, with the round whose image it belongs to in the source."""
+    labels = {}
+    for rnd in plate.acquisitions:
+        canvas = src[f"{well}/{rnd}"]
+        for name in canvas["labels"].attrs["labels"] if "labels" in canvas else []:
+            if name in labels:
+                raise ValueError(f"{well}: label {name} appears in rounds {labels[name]} and {rnd}")
+            labels[name] = rnd
+    return labels
 
 
 def define_image(
@@ -175,27 +220,34 @@ def define_image(
     url: str,
     well: str,
     field: Field,
-    rnd: int,
+    channels: Sequence[dict],
+    labels: dict[str, int],
     shard_depth: int,
-) -> tuple[str, ...]:
-    """Create the image group for one field in one round, with its labels.
+) -> None:
+    """Create the image group for one embryo, with its labels, metadata and empty arrays.
 
-    This writes the metadata and creates empty arrays. The pixels are copied
-    later by :func:`copy_image`. Returns the names of the round's labels,
-    because the copy needs them.
+    The pixels are copied later by :func:`copy_image`. The image's channel
+    axis holds ``channels`` in order, every channel of every round.
     """
-    canvas = src[f"{well}/{rnd}"]
-    image = dest.require_group(f"{well}/{image_path(plate, field, rnd)}")
+    first = src[f"{well}/{plate.acquisitions[0]}"]
+    dtypes = {str(src[f"{well}/{rnd}/0"].dtype) for rnd in plate.acquisitions}
+    if len(dtypes) != 1:
+        raise ValueError(f"{well}: rounds hold different pixel types {sorted(dtypes)}")
+    shapes = [(len(channels), *level.shape[1:]) for level in field.levels]
+    omero_channels = [
+        {k: v for k, v in c.items() if k not in ("round", "source_channel")} for c in channels
+    ]
+    image = dest.require_group(f"{well}/{image_path(field)}")
     image.attrs.update(
         {
             "ome": image_attrs(
-                name=f"{well} {field.name} round {rnd}",
+                name=f"{well} {field.name}",
                 dims=IMAGE_DIMS,
-                level_shapes=[level.shape for level in field.levels],
+                level_shapes=shapes,
                 scale=field.levels[0].scale,
                 units=plate.units,
                 version=VERSION,
-                omero=dict(canvas.attrs["omero"]),
+                omero={"channels": omero_channels},
                 level_scales=[level.scale for level in field.levels],
                 level_translations=[level.translation for level in field.levels],
                 description=(
@@ -207,38 +259,45 @@ def define_image(
                 {
                     "well": well,
                     "field": field.name,
-                    "round": rnd,
-                    "source_image": f"{well}/{rnd}",
+                    "channels": [
+                        {
+                            "label": c["label"],
+                            "round": c["round"],
+                            "source_image": f"{well}/{c['round']}",
+                            "source_channel": c["source_channel"],
+                        }
+                        for c in channels
+                    ],
                     "FOV_ROI_table": field.roi,
                 },
                 source_url=url,
             ),
         }
     )
-    for k, level in enumerate(field.levels):
-        _, _, height, width = level.shape
+    for k, shape in enumerate(shapes):
+        _, _, height, width = shape
         image.create_array(
             str(k),
-            shape=level.shape,
+            shape=shape,
             chunks=(1, 1, height, width),
             shards=(1, shard_depth, height, width),
-            dtype=canvas[str(k)].dtype,
+            dtype=first[str(k)].dtype,
             compressors=CODEC,
             fill_value=0,
             dimension_names=IMAGE_DIMS,
         )
 
-    if "labels" not in canvas:
-        return ()
-    names = tuple(canvas["labels"].attrs["labels"])
+    if not labels:
+        return
     group = image.require_group("labels")
-    group.attrs["ome"] = labels_attrs(names, version=VERSION)
-    image_scales = [{d: s[d] for d in LABEL_DIMS} for s in level_scales(canvas, IMAGE_DIMS)]
-    for name in names:
+    group.attrs["ome"] = labels_attrs(list(labels), version=VERSION)
+    for name, rnd in labels.items():
+        canvas = src[f"{well}/{rnd}"]
         source = canvas[f"labels/{name}"]
         # The labels are cut with the image's windows and placed with the
         # image's translations. That is only correct if each label level has
         # the same shape and the same pixel size as the image level.
+        image_scales = [{d: s[d] for d in LABEL_DIMS} for s in level_scales(canvas, IMAGE_DIMS)]
         if level_scales(source, LABEL_DIMS) != image_scales:
             raise ValueError(f"{well}/{rnd}/labels/{name}: pixel sizes differ from the image's")
         for k in range(plate.levels):
@@ -261,7 +320,9 @@ def define_image(
                         {d: lvl.translation[d] for d in LABEL_DIMS} for lvl in field.levels
                     ],
                 ),
-                **image_annotation({"source_label": f"{well}/{rnd}/labels/{name}"}, source_url=url),
+                **image_annotation(
+                    {"round": rnd, "source_label": f"{well}/{rnd}/labels/{name}"}, source_url=url
+                ),
             }
         )
         for k, level in enumerate(field.levels):
@@ -276,29 +337,35 @@ def define_image(
                 fill_value=0,
                 dimension_names=LABEL_DIMS,
             )
-    return names
 
 
 def copy_image(
-    pixels: MemberStore, dst, well: str, rnd: int, image: str, field: Field, labels: Sequence[str]
+    pixels: MemberStore,
+    dst,
+    well: str,
+    field: Field,
+    channels: Sequence[dict],
+    labels: dict[str, int],
 ) -> None:
-    """Copy the pixels of one field in one round, at every level, with its labels.
+    """Copy the pixels of one embryo, every channel of every round, at every level, with its labels.
 
-    Each assignment below copies a whole channel of one level, or a whole
-    level of one label. zarr then fetches every source chunk that the
-    assignment needs at the same time. It also writes each shard exactly once.
-    The largest single assignment is one label at level 0: 271 x 1000 x 1000
-    uint32 values, about 1.1 GB.
+    Each assignment below copies one channel of one level, or one level of
+    one label. zarr then fetches every source chunk that the assignment needs
+    at the same time. It also writes each shard exactly once. The largest
+    single assignment is one label at level 0: 271 x 1000 x 1000 uint32
+    values, about 1.1 GB.
     """
     for k, level in enumerate(field.levels):
-        source = zarr.open_array(pixels, path=f"{well}/{rnd}/{k}", mode="r")
-        target = zarr.open_array(dst, path=f"{well}/{image}/{k}", mode="r+")
+        target = zarr.open_array(dst, path=f"{well}/{image_path(field)}/{k}", mode="r+")
         _, z, y, x = level.slices(IMAGE_DIMS)
-        for c in range(target.shape[0]):
-            target[c] = source[c, z, y, x]
-        for name in labels:
+        for position, channel in enumerate(channels):
+            source = zarr.open_array(pixels, path=f"{well}/{channel['round']}/{k}", mode="r")
+            target[position] = source[channel["source_channel"], z, y, x]
+        for name, rnd in labels.items():
             source = zarr.open_array(pixels, path=f"{well}/{rnd}/labels/{name}/{k}", mode="r")
-            target = zarr.open_array(dst, path=f"{well}/{image}/labels/{name}/{k}", mode="r+")
+            target = zarr.open_array(
+                dst, path=f"{well}/{image_path(field)}/labels/{name}/{k}", mode="r+"
+            )
             target[:] = source[level.slices(LABEL_DIMS)]
 
 
@@ -309,32 +376,28 @@ def well_document(
 
     They hold three things:
 
-    - the ``well`` metadata, which lists the well's images and the round of each;
+    - the ``well`` metadata, which lists the well's images, one per embryo;
     - the ``scene``, which places each image in the well's coordinate system;
     - the rows of the tables that describe the whole well.
 
     An image's place in the scene is its field's position on the source's
-    canvas. Every round of a field gets the same position, because the
-    published rounds are already aligned to each other.
+    canvas.
     """
-    paths, rounds, translations = [], [], {}
-    for field in fields:
-        for rnd in plate.acquisitions:
-            path = image_path(plate, field, rnd)
-            paths.append(path)
-            rounds.append(rnd)
-            translations[path] = {
-                "c": 0.0,
-                "z": field.roi["z_micrometer"],
-                "y": field.roi["y_micrometer"],
-                "x": field.roi["x_micrometer"],
-            }
+    translations = {
+        image_path(field): {
+            "c": 0.0,
+            "z": field.roi["z_micrometer"],
+            "y": field.roi["y_micrometer"],
+            "x": field.roi["x_micrometer"],
+        }
+        for field in fields
+    }
 
     # The OME-Zarr 0.6 schemas allow one group to be both a well and a scene.
     # The well schema does not forbid a "scene" key, and the scene schema does
     # not forbid a "well" key. So the well group carries both, and the
     # document is checked against both schemas.
-    well_metadata = well_attrs(paths, acquisitions=rounds, version=VERSION)["ome"]
+    well_metadata = well_attrs([image_path(field) for field in fields], version=VERSION)["ome"]
     scene = scene_attrs(translations, name=SCENE, dims=IMAGE_DIMS, units=plate.units)
     ome = well_metadata | {"scene": scene["ome"]["scene"]}
     validate(ome, VERSION, model="well")
@@ -343,9 +406,9 @@ def well_document(
     tables = {}
     for name in WELL_TABLES:
         copies = {
-            rnd: read_table(src[f"{well}/{rnd}/tables/{name}"])
+            rnd: read_table(src[f"{well}/{rnd}/{TABLES}/{name}"])
             for rnd in plate.acquisitions
-            if f"{well}/{rnd}/tables/{name}" in src
+            if f"{well}/{rnd}/{TABLES}/{name}" in src
         }
         if not copies:
             continue
@@ -354,7 +417,7 @@ def well_document(
             if not other.sort_index().equals(table.sort_index()):
                 raise ValueError(f"{well}: round {rnd}'s {name} differs from round {first}'s")
         tables[name] = {
-            "source": f"{well}/{first}/tables/{name}",
+            "source": f"{well}/{first}/{TABLES}/{name}",
             "rows": {str(i): {k: float(v) for k, v in row.items()} for i, row in table.iterrows()},
         }
     return {"ome": ome, **image_annotation({"source_well": well, **tables}, source_url=url)}
@@ -378,41 +441,39 @@ def write_plate(repo, branch: str, plate: Plate, src: zarr.Group, url: str) -> N
     Two runs might write the plate at the same moment. In that case the
     second commit conflicts with the first one on the plate's attributes, and
     Icechunk raises an error. Running either one again writes the plate.
+
+    The plate declares no acquisitions. In OME-Zarr an image belongs to one
+    acquisition, and each image here holds all four rounds. The rounds and
+    their channels are recorded in the plate's ``source`` attributes instead,
+    together with the acquisitions the source's own plate listed.
     """
     session = repo.writable_session(branch)
     root = zarr.open_group(session.store, mode="a", zarr_format=3)
     wells = committed_wells(root, plate.wells)
     if not wells:
         return
-    channels = {
-        rnd: [c["label"] for c in src[f"{plate.wells[0]}/{rnd}"].attrs["omero"]["channels"]]
+    rounds = {
+        str(rnd): [c["label"] for c in src[f"{plate.wells[0]}/{rnd}"].attrs["omero"]["channels"]]
         for rnd in plate.acquisitions
     }
-    rounds = len(plate.acquisitions)
-    most_fields = max(len(dict(root[w].attrs)["ome"]["well"]["images"]) // rounds for w in wells)
+    most_fields = max(len(dict(root[w].attrs)["ome"]["well"]["images"]) for w in wells)
     document = plate_attrs(
         name=plate.attrs["name"],
         rows=[row["name"] for row in plate.attrs["rows"]],
         columns=[column["name"] for column in plate.attrs["columns"]],
         wells=[tuple(w.split("/")) for w in wells],
         field_count=most_fields,
-        acquisitions=[
-            {
-                "id": rnd,
-                "name": f"acquisition_{rnd}",
-                "description": f"staining round {rnd}: {', '.join(channels[rnd])}",
-            }
-            for rnd in plate.acquisitions
-        ],
         version=VERSION,
     )
     document["source"] = {
         **STUDY,
         "url": url,
         "layout": (
-            "One image per field of view and round, cut from the source's well-sized images "
-            "and placed in each well by its scene."
+            "One image per field of view (one embryo), cut from the source's well-sized "
+            "images and placed in each well by its scene. Each image's channels are every "
+            "channel of every staining round, in round order."
         ),
+        "rounds": rounds,
         "source_acquisitions": [a["id"] for a in plate.attrs.get("acquisitions", [])],
     }
     if dict(root.attrs) != document:
@@ -437,6 +498,7 @@ def convert(
     branch: str = "main",
     wells: Sequence[str] | None = None,
     shard_depth: int = SHARD_DEPTH,
+    read_concurrency: int = READ_CONCURRENCY,
 ) -> list[str]:
     """Convert some or all wells of the zip at ``url`` into ``repo``.
 
@@ -447,8 +509,11 @@ def convert(
 
     ``index_cache`` is the file that keeps the zip's table of contents. Keep a
     copy of it: it records exactly what the zip held.
+
+    ``read_concurrency`` is how many source reads zarr keeps in flight. Use
+    ``EBI_READ_CONCURRENCY`` when ``url`` is EBI's own copy of the zip.
     """
-    zarr.config.set({"async.concurrency": READ_CONCURRENCY})
+    zarr.config.set({"async.concurrency": read_concurrency})
     index = cached_zip_index(url, index_cache)
     src = zarr.open_group(MemberStore(url, metadata_members(index, also=[TABLES])), mode="r")
     pixels = MemberStore(url, index)
@@ -465,22 +530,18 @@ def convert(
 
     for n, well in enumerate(todo, 1):
         fields = read_fields(plate, src, well)
+        channels = round_channels(plate, src, well)
+        labels = label_names(plate, src, well)
         session = repo.writable_session(branch)
         dest = zarr.open_group(session.store, mode="a", zarr_format=3)
-        images = [(field, rnd) for field in fields for rnd in plate.acquisitions]
-        labels = {
-            (field.number, rnd): define_image(dest, plate, src, url, well, field, rnd, shard_depth)
-            for field, rnd in images
-        }
-        description = f"{len(fields)} fields x {len(plate.acquisitions)} rounds"
+        for field in fields:
+            define_image(dest, plate, src, url, well, field, channels, labels, shard_depth)
+        description = f"{len(fields)} embryos x {len(channels)} channels"
         with Progress(
-            f"well {well} ({n} of {len(todo)}): {description}", len(images), unit="images"
+            f"well {well} ({n} of {len(todo)}): {description}", len(fields), unit="embryos"
         ) as note:
-            for field, rnd in images:
-                path = image_path(plate, field, rnd)
-                copy_image(
-                    pixels, session.store, well, rnd, path, field, labels[(field.number, rnd)]
-                )
+            for field in fields:
+                copy_image(pixels, session.store, well, field, channels, labels)
                 note.advance()
         dest[well].attrs.update(well_document(plate, src, url, well, fields))
         commit(session, f"Add well {well}: {description}")
@@ -499,6 +560,12 @@ def main() -> None:
     parser.add_argument("--wells", help="comma-separated wells, such as C/02,E/05; default all")
     parser.add_argument("--shard-depth", type=int, default=SHARD_DEPTH)
     parser.add_argument(
+        "--read-concurrency",
+        type=int,
+        help=f"source reads in flight (default {READ_CONCURRENCY}, or {EBI_READ_CONCURRENCY} "
+        "when the source is EBI)",
+    )
+    parser.add_argument(
         "--index-cache",
         type=Path,
         default=Path(cache_dir()) / "zebrafish-3d-4i" / "zip-index.npz",
@@ -512,6 +579,8 @@ def main() -> None:
         branch=args.branch,
         wells=args.wells.split(",") if args.wells else None,
         shard_depth=args.shard_depth,
+        read_concurrency=args.read_concurrency
+        or (EBI_READ_CONCURRENCY if "ebi.ac.uk" in args.source else READ_CONCURRENCY),
     )
 
 

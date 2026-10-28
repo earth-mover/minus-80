@@ -55,17 +55,28 @@ def test_every_gate_passes_on_every_plane(plate, store):
 
 
 def test_level_0_is_what_the_microscope_took(plate, store):
+    """Channel ``4 * r + c`` of each embryo is channel ``c`` of round ``r``, as the fixture generated it."""
     _, truth = plate
     for well, (_, origins) in fixture.WELLS.items():
         for i in range(len(origins)):
+            image = store[f"{well}/{i}"]
+            assert image["0"].shape[0] == 4 * fixture.ROUNDS
             for rnd in range(fixture.ROUNDS):
-                image = store[f"{well}/{i * fixture.ROUNDS + rnd}"]
-                np.testing.assert_array_equal(image["0"][:], truth[(well, i, rnd)])
-                notes = dict(image.attrs)["annotations"]
-                assert (notes["field"], notes["round"]) == (f"FOV_{i + 1}", rnd)
-            labels = store[f"{well}/{i * fixture.ROUNDS + fixture.LABEL_ROUND}/labels"]
+                stored = image["0"][4 * rnd : 4 * rnd + 4]
+                np.testing.assert_array_equal(stored, truth[(well, i, rnd)])
             for name in fixture.LABELS:
-                np.testing.assert_array_equal(labels[f"{name}/0"][:], truth[(well, i, name)])
+                stored = image[f"labels/{name}/0"][:]
+                np.testing.assert_array_equal(stored, truth[(well, i, name)])
+
+
+def test_channels_keep_their_source_names_and_rounds(store):
+    channels = dict(store["B/02/0"].attrs)["ome"]["omero"]["channels"]
+    expected = [name for names in fixture.CHANNELS for name in names]
+    assert [c["label"] for c in channels] == expected
+    notes = dict(store["B/02/0"].attrs)["annotations"]["channels"]
+    assert [(c["round"], c["source_channel"]) for c in notes] == [
+        (r, c) for r in range(fixture.ROUNDS) for c in range(4)
+    ]
 
 
 def test_the_scene_lays_the_well_out_as_the_source_did(store):
@@ -77,46 +88,37 @@ def test_the_scene_lays_the_well_out_as_the_source_did(store):
         canvas = np.zeros((h, w), np.uint16)
         for path, (_, _, ty, tx) in moves.items():
             y, x = round(ty / fixture.PIXEL), round(tx / fixture.PIXEL)
-            if int(path) % fixture.ROUNDS == 1:
-                canvas[y : y + fixture.F, x : x + fixture.F] = store[f"{well}/{path}/0"][0, 5]
+            # Channel 4 is round 1's DAPI.
+            canvas[y : y + fixture.F, x : x + fixture.F] = store[f"{well}/{path}/0"][4, 5]
         expected = np.zeros((h, w), np.uint16)
         for i, (y, x) in enumerate(origins):
             expected[y : y + fixture.F, x : x + fixture.F] = fixture.field_pixels(well, i, 1)[0, 5]
         np.testing.assert_array_equal(canvas, expected)
 
 
-def test_round_3_is_listed_and_every_image_has_its_round(store):
-    plate = dict(store.attrs)["ome"]["plate"]
-    assert [a["id"] for a in plate["acquisitions"]] == list(range(fixture.ROUNDS))
-    assert "Nanog" in plate["acquisitions"][3]["description"]
+def test_every_round_is_recorded_including_round_3(store):
+    rounds = dict(store.attrs)["source"]["rounds"]
+    assert list(rounds) == [str(r) for r in range(fixture.ROUNDS)]
+    assert rounds["3"][1] == "Nanog"
     assert dict(store.attrs)["source"]["source_acquisitions"] == list(range(fixture.LISTED_ROUNDS))
     images = dict(store["B/02"].attrs)["ome"]["well"]["images"]
-    assert [i["acquisition"] for i in images] == [
-        r for _ in range(3) for r in range(fixture.ROUNDS)
-    ]
+    assert [i["path"] for i in images] == ["0", "1", "2"]
 
 
 def test_a_field_on_the_far_edge_stops_where_the_source_level_does(store):
-    # C/03 FOV_2 ends on the well image's last row, 90; level 2 of a 90-row
+    # C/03 FOV_2 ends on the well image's last row, 90. Level 2 of a 90-row
     # image holds 22 rows, so the field's last coarse row was never stored.
-    level = store[f"C/03/{1 * fixture.ROUNDS}/2"]
+    level = store["C/03/1/2"]
     assert level.shape[-2] == 22 - 50 // 4
 
 
 def test_chunks_and_shards(store):
-    arr = store["B/02/0/0"]
-    assert arr.chunks == (1, 1, fixture.F, fixture.F) and arr.shards == (
-        1,
-        SHARD_DEPTH,
-        fixture.F,
-        fixture.F,
-    )
-    label = store[f"B/02/{fixture.LABEL_ROUND}/labels/nucleiRaw/0"]
-    assert label.chunks == (1, fixture.F, fixture.F) and label.shards == (
-        fixture.Z,
-        fixture.F,
-        fixture.F,
-    )
+    image = store["B/02/0/0"]
+    assert image.chunks == (1, 1, fixture.F, fixture.F)
+    assert image.shards == (1, SHARD_DEPTH, fixture.F, fixture.F)
+    label = store["B/02/0/labels/nucleiRaw/0"]
+    assert label.chunks == (1, fixture.F, fixture.F)
+    assert label.shards == (fixture.Z, fixture.F, fixture.F)
 
 
 def test_a_stopped_run_resumes_and_the_plate_comes_last(plate, tmp_path):
