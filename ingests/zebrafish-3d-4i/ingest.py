@@ -213,6 +213,47 @@ def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
     return labels
 
 
+def complete_blosc_frame(name: str, data: bytes) -> str | None:
+    """None if a source chunk is a whole Blosc frame, else why it is not.
+
+    Some chunks in the source zip are cut short: C/02/1/labels/Pol-II-S2P_foci/1/6/0/3
+    holds 16,384 bytes of a frame whose header says 162,569. No reader can
+    decode such a chunk. A Blosc frame records its own size in bytes 12 to 16
+    of its header, so a cut-short frame shows without decoding it. Metadata
+    documents, whose names start with a dot, are not frames and pass.
+    """
+    if name.rsplit("/", 1)[-1].startswith("."):
+        return None
+    if len(data) < 16:
+        return f"{len(data)} bytes, shorter than a Blosc header"
+    stated = int.from_bytes(data[12:16], "little")
+    if stated != len(data):
+        return f"truncated Blosc frame: {len(data):,} of {stated:,} bytes"
+    return None
+
+
+def check_codecs(src: zarr.Group, wells: Sequence[str], plate: Plate) -> None:
+    """Raise unless every source array the run reads is compressed with Blosc.
+
+    :func:`complete_blosc_frame` reads a chunk's size from its Blosc header,
+    which is only meaningful if every chunk is a Blosc frame.
+    """
+    for well in wells:
+        for rnd in plate.acquisitions:
+            canvas = src[f"{well}/{rnd}"]
+            arrays = [canvas[str(k)] for k in range(plate.levels)]
+            if "labels" in canvas:
+                arrays += [
+                    canvas[f"labels/{name}/{k}"]
+                    for name in canvas["labels"].attrs["labels"]
+                    for k in range(plate.levels)
+                ]
+            for array in arrays:
+                compressor = array.metadata.compressor
+                if compressor is None or compressor.codec_id != "blosc":
+                    raise ValueError(f"{array.path}: compressor {compressor}, expected Blosc")
+
+
 def empty_source_chunks(
     empty: set[str], src: zarr.Group, well: str, field: Field, labels: dict[str, int], rounds
 ) -> list[str]:
@@ -309,6 +350,7 @@ def define_image(
                     ],
                     "FOV_ROI_table": field.roi,
                     "empty_source_chunks": list(missing),
+                    "unreadable_source_chunks": {},
                 },
                 source_url=url,
             ),
@@ -571,7 +613,7 @@ def convert(
     say(f"fetching the plate's {len(plan):,} metadata documents and tables")
     src = zarr.open_group(members_in_memory(url, plan, concurrency=read_concurrency), mode="r")
     say(f"  fetched, in {time.monotonic() - step:.0f} s")
-    pixels = MemberStore(url, index)
+    pixels = MemberStore(url, index, check=complete_blosc_frame)
     empty = {name for name, entry in index.items() if entry.uncompressed_length == 0}
     say(f"  {len(empty):,} members are empty files; they read as the fill value, 0")
     step = time.monotonic()
@@ -584,6 +626,7 @@ def convert(
     chosen = tuple(wells) if wells else plate.wells
     if unknown := set(chosen) - set(plate.wells):
         raise ValueError(f"not wells of the plate: {sorted(unknown)}")
+    check_codecs(src, chosen, plate)
     branch_root = zarr.open_group(repo.writable_session(branch).store, mode="a", zarr_format=3)
     done = committed_wells(branch_root, chosen)
     todo = [w for w in chosen if w not in done]
@@ -605,7 +648,21 @@ def convert(
         arrays = len(fields) * plate.levels * (len(channels) + len(labels))
         with Progress(f"copying well {well}: {description}", arrays, unit="arrays") as note:
             for field in fields:
+                pixels.rejected.clear()
                 copy_image(pixels, session.store, well, field, channels, labels, note)
+                if pixels.rejected:
+                    # Unreadable chunks only show while copying, so the image's
+                    # annotations, written before the copy, gain them now.
+                    image = dest[f"{well}/{image_path(field)}"]
+                    attrs = dict(image.attrs)
+                    attrs["annotations"]["unreadable_source_chunks"] = dict(
+                        sorted(pixels.rejected.items())
+                    )
+                    image.attrs.update(attrs)
+                    say(
+                        f"  {field.name}: {len(pixels.rejected)} unreadable source chunks, "
+                        f"read as 0"
+                    )
         say(f"  writing {well}'s well metadata")
         dest[well].attrs.update(well_document(plate, src, url, well, fields))
         # A commit writes one manifest per array, so its cost grows with the
