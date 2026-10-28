@@ -3,6 +3,7 @@
 uv run --package zebrafish-3d-4i-ingest pytest --import-mode=prepend ingests/zebrafish-3d-4i
 """
 
+import json
 from pathlib import Path
 
 import fixture
@@ -200,3 +201,44 @@ def test_each_well_is_read_once_in_file_order(plate, tmp_path, monkeypatch):
     # The rest are the plate's own documents, one small request each.
     plate_documents = [n for n in names if n.count("/") <= 1]
     assert len(members) - wells == len(plate_documents)
+
+
+def test_a_failed_well_is_reported_and_the_others_committed(plate, tmp_path, monkeypatch):
+    url, _ = plate
+    repo = _repo(tmp_path / "repo")
+    check_well = ingest.check_well
+
+    def fail_b02(plan, *args):
+        if plan.well == "B/02":
+            raise ValueError("a check failed")
+        return check_well(plan, *args)
+
+    monkeypatch.setattr(ingest, "check_well", fail_b02)
+    with pytest.raises(ingest.WellsFailed) as failed:
+        _convert(url, repo)
+    assert list(failed.value.failed) == ["B/02"]
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    assert [w["path"] for w in dict(root.attrs)["ome"]["plate"]["wells"]] == ["C/03"]
+
+
+def test_runs_waiting_past_the_limit_stop_the_well_naming_what_is_missing(plate, tmp_path):
+    """The first runs wait for the field table; a limit below them stops each well."""
+    url, _ = plate
+    with pytest.raises(ingest.WellsFailed) as failed:
+        _convert(url, _repo(tmp_path / "repo"), waiting_limit=1)
+    assert list(failed.value.failed) == list(fixture.WELLS)
+    assert all("still needs" in reason for reason in failed.value.failed.values())
+
+
+def test_an_image_chunk_holding_several_channels_is_refused(plate):
+    url, _ = plate
+    from minus80.parsers.zip.reading import read_central_directory
+
+    plan = ingest.WellPlan.from_directory(read_central_directory(url), "B/02")
+    state = ingest.WellState(plan, {})
+    document = json.dumps(
+        {"zarr_format": 2, "shape": [4, 27, 90, 90], "chunks": [2, 10, 30, 30], "dtype": "<u2",
+         "compressor": None, "filters": None, "fill_value": 0, "order": "C"}
+    ).encode()
+    with pytest.raises(ValueError, match="2 channels"):
+        state.add_document("B/02/0/0/.zarray", document)
