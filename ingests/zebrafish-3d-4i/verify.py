@@ -46,9 +46,9 @@ import zarr
 from minus80.ome.hierarchy import images
 from minus80.ome.image import validate
 from minus80.ome.verify import GATES, run_gates
-from minus80.parsers.fractal.plate import FIELDS_TABLE, read_table
+from minus80.parsers.fractal.plate import FIELDS_TABLE, TABLES, read_table
 from minus80.parsers.zip.members import zip_index
-from minus80.parsers.zip.store import MemberStore
+from minus80.parsers.zip.store import MemberStore, metadata_members
 
 
 @dataclass
@@ -66,12 +66,12 @@ class Reference:
     def plan(self) -> zarr.Group:
         """The plate's metadata and tables, cheap to list."""
         return zarr.open_group(
-            MemberStore(self.url, ingest.metadata_members(self.index)), mode="r", zarr_format=2
+            MemberStore(self.url, metadata_members(self.index, also=[TABLES])), mode="r"
         )
 
     @cached_property
     def pixels(self) -> zarr.Group:
-        return zarr.open_group(MemberStore(self.url, self.index), mode="r", zarr_format=2)
+        return zarr.open_group(MemberStore(self.url, self.index), mode="r")
 
     @cached_property
     def wells(self) -> list[str]:
