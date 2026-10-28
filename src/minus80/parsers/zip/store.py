@@ -25,9 +25,13 @@ this job in two ways:
 
 :class:`MemberStore` fetches each member with its own range request, so
 zarr's concurrent reads really are concurrent, and it takes the table of
-contents as a compact mapping (from
-:func:`~minus80.parsers.zip.members.zip_index`) that a caller can read once
-and cache.
+contents as the central directory's table (from
+:func:`~minus80.parsers.zip.reading.read_central_directory`), which a caller
+reads once and can keep.
+
+It suits reading part of a store, such as a sample of chunks to check. To
+copy a whole store, :func:`~minus80.parsers.zip.reading.stream_members` reads
+each byte once in large ranges instead of one request per member.
 
 VirtualiZarr has the same idea as a private class, ``_ZipMetadataStore``, but
 it returns members as stored, so it cannot read Deflate members.
@@ -37,10 +41,9 @@ docs/upstream.md tracks an inflating store upstream.
 from __future__ import annotations
 
 import asyncio
-import zlib
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable
 
-from virtualizarr.parsers.zarr.zip import ZipEntry
+import pyarrow as pa
 from zarr.abc.store import (
     ByteRequest,
     OffsetByteRequest,
@@ -52,35 +55,33 @@ from zarr.core.buffer import Buffer, BufferPrototype
 
 from minus80.core.registry import store_and_key
 
-from .structures import inflate
-
+from .directory import member_spans, parse_member
 
 #: The file names Zarr uses for metadata: ``.zarray``, ``.zattrs`` and
 #: ``.zgroup`` in Zarr v2, and ``zarr.json`` in Zarr v3.
 ZARR_METADATA = (".zarray", ".zattrs", ".zgroup", "zarr.json")
 
 
-def metadata_members(
-    index: Mapping[str, ZipEntry], *, also: Iterable[str] = ()
-) -> dict[str, ZipEntry]:
-    """The members of a zipped Zarr store that are metadata documents, without the chunks.
+def metadata_names(names: Iterable[str], *, also: Iterable[str] = ()) -> list[str]:
+    """The names of a zipped Zarr store's metadata documents, without its chunks.
 
     zarr finds a group's children by scanning every key in its store. In a
     large zipped store almost every member is a chunk: S-BIAD3228 has two
-    million members and only a few thousand metadata documents. A
-    :class:`MemberStore` over just the metadata lets a reader walk the
-    hierarchy and read attributes quickly.
+    million members and only a few thousand metadata documents. Reading just
+    these, with :func:`~minus80.parsers.zip.reading.read_members`, into an
+    in-memory store lets a reader walk the hierarchy and read attributes
+    quickly.
 
     ``also`` names path segments whose members are kept too, chunks included.
     Use it for small arrays the reader needs in full, such as the AnnData
     tables a Fractal plate keeps under ``tables``.
     """
-    keep = {f"/{segment}/" for segment in also}
-    return {
-        name: entry
-        for name, entry in index.items()
+    keep = [f"/{segment}/" for segment in also]
+    return [
+        name
+        for name in names
         if name.rsplit("/", 1)[-1] in ZARR_METADATA or any(k in f"/{name}" for k in keep)
-    }
+    ]
 
 
 class MemberStore(Store):
@@ -94,13 +95,12 @@ class MemberStore(Store):
 
     What a ``get`` does, for each key zarr asks for:
 
-    - looks the key up in ``index``, the zip's table of contents (from
-      :func:`~minus80.parsers.zip.members.zip_index`), for the member's byte
-      offset and length;
-    - fetches those bytes from ``url`` with one range request;
-    - inflates them, on a worker thread so many members inflate at once;
-    - raises ``OSError`` if they inflate to a different length from the one
-      the zip records, so a short read never passes for data;
+    - looks the key up in ``directory``, the zip's central directory, for the
+      member's span: from its local header to the next member's;
+    - fetches the span with one range request;
+    - reads the local header from those bytes, inflates the member on a
+      worker thread, so many members inflate at once, and checks it against
+      the directory's CRC (:func:`~minus80.parsers.zip.directory.parse_member`);
     - treats an empty member as absent, so zarr reads the fill value there.
       Every Zarr codec writes at least a header, so an empty member cannot
       be a chunk;
@@ -117,50 +117,46 @@ class MemberStore(Store):
     def __init__(
         self,
         url: str,
-        index: Mapping[str, ZipEntry],
+        directory: pa.Table,
         *,
         check: Callable[[str, bytes], str | None] | None = None,
     ) -> None:
         super().__init__(read_only=True)
         self.url = url
-        self._index = index
+        spans = member_spans(directory)
+        rows = directory.take(spans["entry"]).select(["name", "compressed", "uncompressed", "method", "crc32"])
+        #: Each member's directory row, with its span as ``start`` and ``end``, by name.
+        self._members = {
+            row["name"]: {**row, "start": start, "end": end}
+            for row, start, end in zip(rows.to_pylist(), spans["start"].to_pylist(), spans["end"].to_pylist())
+        }
         self._check = check
         #: Members ``check`` rejected, by name, with the reason.
         self.rejected: dict[str, str] = {}
         self._store, self._key = store_and_key(url, patient=True)
 
     def __eq__(self, other: object) -> bool:
-        return (
-            isinstance(other, MemberStore) and other.url == self.url and other._index == self._index
-        )
+        return isinstance(other, MemberStore) and other.url == self.url and other._members == self._members
 
     async def get(
         self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
     ) -> Buffer | None:
-        entry = self._index.get(key)
+        member = self._members.get(key)
         # An empty member holds no chunk: every Zarr codec writes at least a
         # header. Treating it as absent makes zarr read the fill value, as for
         # any missing chunk, instead of failing to decode zero bytes.
         # S-BIAD3228 has 1,244 such members. The caller records which.
-        if entry is None or entry.uncompressed_length == 0:
+        if member is None or member["uncompressed"] == 0:
             return None
-        stored = await self._store.get_range_async(
-            self._key, start=entry.data_offset, end=entry.data_offset + entry.compressed_length
-        )
-        stored = bytes(stored)
-        if len(stored) != entry.compressed_length:
-            raise OSError(f"{self.url} {key}: got {len(stored)} of {entry.compressed_length} bytes")
+        span = bytes(await self._store.get_range_async(self._key, start=member["start"], end=member["end"]))
+        if len(span) != member["end"] - member["start"]:
+            raise OSError(f"{self.url} {key}: got {len(span)} of {member['end'] - member['start']} bytes")
         try:
             # zlib releases the GIL, so inflating on a thread lets the many
             # members zarr fetches at once inflate on as many cores.
-            data = await asyncio.to_thread(inflate, stored, entry.method)
-        except zlib.error as e:
+            data = await asyncio.to_thread(parse_member, span, member["start"], member)
+        except ValueError as e:
             raise OSError(f"{self.url} {key}: {e}") from e
-        if len(data) != entry.uncompressed_length:
-            raise OSError(
-                f"{self.url} {key}: inflated to {len(data)} bytes, "
-                f"the archive says {entry.uncompressed_length}"
-            )
         if self._check is not None and (reason := self._check(key, data)) is not None:
             self.rejected[key] = reason
             return None
@@ -172,8 +168,8 @@ class MemberStore(Store):
         return await asyncio.gather(*(self.get(k, prototype, r) for k, r in key_ranges))
 
     async def exists(self, key: str) -> bool:
-        entry = self._index.get(key)
-        return entry is not None and entry.uncompressed_length > 0
+        member = self._members.get(key)
+        return member is not None and member["uncompressed"] > 0
 
     @property
     def supports_writes(self) -> bool:
@@ -194,18 +190,18 @@ class MemberStore(Store):
         return True
 
     async def list(self) -> AsyncIterator[str]:
-        for key in self._index:
+        for key in self._members:
             yield key
 
     async def list_prefix(self, prefix: str) -> AsyncIterator[str]:
-        for key in self._index:
+        for key in self._members:
             if key.startswith(prefix):
                 yield key
 
     async def list_dir(self, prefix: str) -> AsyncIterator[str]:
         prefix = prefix.rstrip("/")
         seen: set[str] = set()
-        for key in self._index:
+        for key in self._members:
             if prefix and not key.startswith(prefix + "/"):
                 continue
             child = (key[len(prefix) + 1 :] if prefix else key).split("/")[0]
@@ -229,36 +225,3 @@ def _slice(data: bytes, byte_range: ByteRequest | None) -> bytes:
     if isinstance(byte_range, SuffixByteRequest):
         return data[len(data) - byte_range.suffix :]
     raise TypeError(f"unknown byte range {byte_range!r}")
-
-
-def members_in_memory(url: str, index: Mapping[str, ZipEntry], *, concurrency: int = 64):
-    """Fetch every member in ``index`` at once and hold them in a zarr in-memory store.
-
-    Why it is needed: zarr fetches a metadata document only when it is asked
-    for it, and code that walks a hierarchy asks one document at a time. Over
-    a network with a few hundred milliseconds per request, reading the
-    thousands of small documents that describe a large plate that way takes
-    many minutes with the machine idle. Fetching them all up front,
-    ``concurrency`` at a time, takes about a minute, and every later read is
-    from memory.
-
-    Use it for a small set of members, such as the one
-    :func:`metadata_members` selects. The whole set is held in memory.
-    """
-    from zarr.core.buffer import default_buffer_prototype
-    from zarr.storage import MemoryStore
-
-    from minus80.core.aio import run_sync
-
-    store = MemberStore(url, index)
-    prototype = default_buffer_prototype()
-    limit = asyncio.Semaphore(concurrency)
-
-    async def fetch(name: str):
-        async with limit:
-            return name, await store.get(name, prototype)
-
-    async def fetch_all():
-        return await asyncio.gather(*(fetch(name) for name in index))
-
-    return MemoryStore(store_dict=dict(run_sync(fetch_all())))

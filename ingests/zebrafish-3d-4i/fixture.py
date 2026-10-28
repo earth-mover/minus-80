@@ -360,21 +360,77 @@ class _Unseekable(io.RawIOBase):
         return self._f.write(b)
 
 
+#: The order the real zip stores rounds in, and channels within an array. It is
+#: neither numeric nor alphabetical, and the converter must not assume one.
+ARCHIVE_ROUNDS = [2, 3, 0, 1]
+ARCHIVE_CHANNELS = [2, 3, 0, 1]
+#: Within a channel, the real zip's z indices come in a fixed scrambled order.
+ARCHIVE_Z = [2, 0, 1]
+#: Within a round: its attributes, levels 2 and 3, its tables, its labels,
+#: its group marker, then levels 0 and 1. The tables come after the coarse
+#: levels, so field positions arrive after the first chunks.
+ARCHIVE_SECTIONS = {".zattrs": 0, "2": 1, "3": 2, "tables": 3, "labels": 4, ".zgroup": 5, "0": 6, "1": 7}
+
+
+def archive_order(name: str) -> tuple:
+    """A sort key that puts the plate's members in the order S-BIAD3228's zip stores them.
+
+    Measured on the real zip (well C/02): wells one after another; within a
+    well, rounds 2, 3, 0, 1; within a round, the sections in
+    :data:`ARCHIVE_SECTIONS`; within an array, channels 2 and 3, then the
+    array's ``.zarray``, then channels 0 and 1, each channel's z indices in a
+    scrambled order. Plate-level documents come first here; in the real zip
+    they sit between wells, which the converter reads separately.
+    """
+    # Every key is (well, round, section, label, level, position in array, name),
+    # with -1 or "" where a part does not apply, so any two keys compare.
+    parts = name.split("/")
+    if len(parts) < 3:
+        return ("", -1, -1, "", -1, (), name)
+    well, rest = "/".join(parts[:2]), parts[2:]
+    if rest[0].startswith("."):
+        return (well, -1, -1, "", -1, (), name)
+    round_rank = ARCHIVE_ROUNDS.index(int(rest[0]))
+    section = rest[1]
+    if section == "tables" or section.startswith("."):
+        return (well, round_rank, ARCHIVE_SECTIONS[section], "", -1, (), name)
+    if section == "labels":
+        if len(rest) < 4 or rest[3].startswith("."):
+            return (well, round_rank, ARCHIVE_SECTIONS["labels"], "/".join(rest[2:3]), -1, (), name)
+        label, level, inner = rest[2], rest[3], rest[4:]
+        return (well, round_rank, ARCHIVE_SECTIONS["labels"], label, ARCHIVE_SECTIONS[level],
+                _within_array(inner, channels=False), name)
+    return (well, round_rank, ARCHIVE_SECTIONS[section], "", -1, _within_array(rest[2:], channels=True), name)
+
+
+def _within_array(inner: list[str], *, channels: bool) -> tuple:
+    """The order of an array's members: its ``.zarray`` after the first half of its chunks."""
+    if inner[0].startswith("."):
+        return (1.5 if channels else 0.5,)
+    if channels:
+        c, z, *cell = (int(i) for i in inner)
+        return (ARCHIVE_CHANNELS.index(c), ARCHIVE_Z.index(z), *cell)
+    z, *cell = (int(i) for i in inner)
+    return (ARCHIVE_Z.index(z), *cell)
+
+
 def zip_plate(root: Path) -> Path:
     """Zip ``root/plate.zarr`` as the deposit is zipped.
 
     Every member is Deflate-compressed, ZIP64, and followed by a data
-    descriptor, like every member of the real zip. The descriptors leave a gap
-    between members, which is what makes indexing the real zip need care.
+    descriptor, like every member of the real zip, and the members come in
+    the real zip's order (:func:`archive_order`).
     """
     source = root / "plate.zarr"
     path = root / "plate.zarr.zip"
+    names = sorted(
+        (member.relative_to(source).as_posix() for member in source.rglob("*") if member.is_file()),
+        key=archive_order,
+    )
     with open(path, "wb") as f, zipfile.ZipFile(_Unseekable(f), "w", zipfile.ZIP_DEFLATED) as zf:
-        for member in sorted(source.rglob("*")):
-            if member.is_file():
-                name = member.relative_to(source).as_posix()
-                with zf.open(name, "w", force_zip64=True) as out:
-                    out.write(member.read_bytes())
+        for name in names:
+            with zf.open(name, "w", force_zip64=True) as out:
+                out.write((source / name).read_bytes())
     return path
 
 

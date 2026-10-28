@@ -34,7 +34,7 @@ def _convert(url, repo, **kw):
     return ingest.convert(
         url,
         repo,
-        Path(url.removeprefix("file://")).with_suffix(".index.npz"),
+        Path(url.removeprefix("file://")).with_suffix(".directory.parquet"),
         shard_depth=SHARD_DEPTH,
         **kw,
     )
@@ -156,3 +156,47 @@ def test_a_truncated_source_chunk_reads_as_0_and_is_listed(store):
     assert list(notes["unreadable_source_chunks"]) == [fixture.TRUNCATED_CHUNK]
     assert "truncated" in notes["unreadable_source_chunks"][fixture.TRUNCATED_CHUNK]
     assert dict(store["B/02/0"].attrs)["annotations"]["unreadable_source_chunks"] == {}
+
+
+def test_each_well_is_read_once_in_file_order(plate, tmp_path, monkeypatch):
+    """Every byte of a well's region is fetched exactly once, in order, in ranges of at most ``range_bytes``.
+
+    Requests are counted where every range request in minus80 is made,
+    ``minus80.core.fetch``; the central directory's own requests come from
+    the end of the file and are left out.
+    """
+    import minus80.core.fetch as fetch
+    from minus80.parsers.zip.reading import read_central_directory
+    from minus80.parsers.zip.streaming import member_regions, spans_in_file_order
+
+    url, _ = plate
+    directory = read_central_directory(url)
+    directory_offset = int(directory.schema.metadata[b"directory_offset"])
+    requests = []
+    fetched = fetch._get_async
+
+    async def counted(store, key, where, start, end):
+        requests.append((start, end))
+        return await fetched(store, key, where, start, end)
+
+    monkeypatch.setattr(fetch, "_get_async", counted)
+    range_bytes = 64 << 10
+    ingest.convert(
+        url, _repo(tmp_path / "repo"), tmp_path / "directory.parquet",
+        shard_depth=SHARD_DEPTH, range_bytes=range_bytes,
+    )
+    members = [r for r in requests if r[0] < directory_offset]
+    names = directory["name"].to_pylist()
+    wells = 0
+    for well in fixture.WELLS:
+        (region,) = member_regions(spans_in_file_order(directory, [n for n in names if n.startswith(f"{well}/")]))
+        inside = [r for r in members if region[0] <= r[0] < region[1]]
+        assert inside == sorted(inside), "requests leave in file order"
+        assert inside[0][0] == region[0] and inside[-1][1] == region[1]
+        assert all(a[1] == b[0] for a, b in zip(inside, inside[1:])), "each byte once, no gaps"
+        assert all(end - start <= range_bytes for start, end in inside)
+        assert len(inside) == -(-(region[1] - region[0]) // range_bytes)
+        wells += len(inside)
+    # The rest are the plate's own documents, one small request each.
+    plate_documents = [n for n in names if n.count("/") <= 1]
+    assert len(members) - wells == len(plate_documents)

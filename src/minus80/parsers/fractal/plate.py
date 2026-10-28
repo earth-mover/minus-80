@@ -34,7 +34,7 @@ BioImage Archive S-BIAD3228 (ingests/zebrafish-3d-4i).
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import anndata
@@ -92,13 +92,18 @@ def read_table(group: zarr.Group):
 
 def level_scales(group: zarr.Group, axes: Sequence[str]) -> list[dict[str, float]]:
     """Each level's pixel size per axis, from an OME-Zarr 0.4 ``multiscales`` block."""
-    (ms,) = group.attrs["multiscales"]
+    return multiscale_scales(group.attrs, axes, group.path)
+
+
+def multiscale_scales(attrs: Mapping, axes: Sequence[str], where: str = "") -> list[dict[str, float]]:
+    """:func:`level_scales` from an image's attributes alone, for a reader that has its ``.zattrs`` but not its group."""
+    (ms,) = attrs["multiscales"]
     if [a["name"] for a in ms["axes"]] != list(axes):
         raise ValueError(
-            f"{group.path}: axes {[a['name'] for a in ms['axes']]}, expected {list(axes)}"
+            f"{where}: axes {[a['name'] for a in ms['axes']]}, expected {list(axes)}"
         )
     if any(len(d["coordinateTransformations"]) != 1 for d in ms["datasets"]):
-        raise ValueError(f"{group.path}: a level carries more than a scale")
+        raise ValueError(f"{where}: a level carries more than a scale")
     return [dict(zip(axes, d["coordinateTransformations"][0]["scale"])) for d in ms["datasets"]]
 
 
@@ -132,29 +137,37 @@ def pyramid_geometry(image: zarr.Group) -> tuple:
     return shapes[0][1], scales[0], len(scales), units
 
 
-def read_plate(root: zarr.Group) -> Plate:
-    """The plate's wells, acquisitions and shared geometry, checked against every image.
+def read_plate(root: zarr.Group, wells: Sequence[str] | None = None) -> Plate:
+    """The plate's wells, acquisitions and shared geometry, checked against every image of ``wells``.
+
+    ``wells`` defaults to every well the plate lists. A reader that holds
+    only some wells' metadata, such as a converter reading a zipped plate one
+    well at a time, passes those wells; the returned plate still lists every
+    well.
 
     Acquisitions are found from each well's image groups rather than the
     plate's ``acquisitions`` list, which Fractal can leave short: S-BIAD3228
     lists 0 to 2 while every well holds 0 to 3.
     """
     attrs = dict(root.attrs)["plate"]
-    wells = tuple(w["path"] for w in attrs["wells"])
+    listed = tuple(w["path"] for w in attrs["wells"])
     found = {f"{row}/{col}" for row in root.group_keys() for col in root[row].group_keys()}
-    if unlisted := found - set(wells):
+    if unlisted := found - set(listed):
         raise ValueError(f"well groups the plate does not list: {sorted(unlisted)}")
+    checked = tuple(listed if wells is None else wells)
+    if unknown := set(checked) - set(listed):
+        raise ValueError(f"not wells of the plate: {sorted(unknown)}")
     acquisitions, geometry = None, None
     # Each well's images are checked one after another, and over a slow
     # network each check is several round trips, so this reports progress.
-    with Progress(f"checking the pyramids of {len(wells)} wells", len(wells), unit="wells") as note:
-        for well in wells:
+    with Progress(f"checking the pyramids of {len(checked)} wells", len(checked), unit="wells") as note:
+        for well in checked:
             present = tuple(sorted(int(a) for a in root[well].group_keys() if a.isdigit()))
             if acquisitions is None:
                 acquisitions = present
             elif present != acquisitions:
                 raise ValueError(
-                    f"{well} holds acquisitions {present}, {wells[0]} holds {acquisitions}"
+                    f"{well} holds acquisitions {present}, {checked[0]} holds {acquisitions}"
                 )
             for a in present:
                 here = pyramid_geometry(root[f"{well}/{a}"])
@@ -166,7 +179,7 @@ def read_plate(root: zarr.Group) -> Plate:
     depth, scale, levels, units = geometry
     return Plate(
         attrs=attrs,
-        wells=wells,
+        wells=listed,
         acquisitions=acquisitions,
         depth=depth,
         scale=scale,
@@ -216,17 +229,40 @@ def read_fields(plate: Plate, root: zarr.Group, well: str) -> list[Field]:
             )
     well_image = root[f"{well}/{plate.acquisitions[0]}"]
     shapes = [well_image[str(k)].shape for k in range(plate.levels)]
-    scales = level_scales(well_image, IMAGE_DIMS)
+    return fields_from_table(well, tables[0], plate.depth, plate.scale, shapes, level_scales(well_image, IMAGE_DIMS))
+
+
+def fields_from_table(
+    well: str,
+    table,
+    depth: int,
+    scale: dict[str, float],
+    shapes: Sequence[Sequence[int]],
+    scales: Sequence[dict[str, float]],
+) -> list[Field]:
+    """The fields of one ``FOV_ROI_table``, ordered by field number, placed on every level.
+
+    ``depth`` and ``scale`` are the level-0 planes and pixel size; ``shapes``
+    and ``scales`` describe every level of the well image. :func:`read_fields`
+    calls this after checking every acquisition's table. A reader that has
+    one table before the levels' shapes, such as a converter streaming a
+    zipped plate, can pass shapes it knows to be large enough, and compare
+    the result with :func:`read_fields` once the real shapes are known.
+
+    Each field must start on a whole level-0 pixel, lie inside the well image,
+    and span every plane.
+    """
+    table = table.loc[sorted(table.index, key=field_number)]
     fields = []
-    for name, row in tables[0].iterrows():
+    for name, row in table.iterrows():
         where = f"{well} {name}"
         roi = {k: float(v) for k, v in row.items()}
-        oy, ox = (whole_pixels(where, roi[f"{a}_micrometer"], plate.scale[a]) for a in "yx")
-        ny, nx = (whole_pixels(where, roi[f"len_{a}_micrometer"], plate.scale[a]) for a in "yx")
-        nz = whole_pixels(where, roi["len_z_micrometer"], plate.scale["z"])
-        if roi["z_micrometer"] != 0 or nz != plate.depth:
+        oy, ox = (whole_pixels(where, roi[f"{a}_micrometer"], scale[a]) for a in "yx")
+        ny, nx = (whole_pixels(where, roi[f"len_{a}_micrometer"], scale[a]) for a in "yx")
+        nz = whole_pixels(where, roi["len_z_micrometer"], scale["z"])
+        if roi["z_micrometer"] != 0 or nz != depth:
             raise ValueError(
-                f"{where}: planes {roi['z_micrometer']} + {nz}, the well image has {plate.depth}"
+                f"{where}: planes {roi['z_micrometer']} + {nz}, the well image has {depth}"
             )
         if oy < 0 or ox < 0 or oy + ny > shapes[0][2] or ox + nx > shapes[0][3]:
             raise ValueError(
@@ -235,7 +271,7 @@ def read_fields(plate: Plate, root: zarr.Group, well: str) -> list[Field]:
             )
         levels = crop_levels(
             {"c": 0, "z": 0, "y": oy, "x": ox},
-            {"c": shapes[0][0], "z": plate.depth, "y": ny, "x": nx},
+            {"c": shapes[0][0], "z": depth, "y": ny, "x": nx},
             shapes,
             scales,
         )
