@@ -25,7 +25,7 @@ def test_a_window_on_the_coarse_grid_halves_exactly():
         (1000, 1125),
     ]
     assert levels[0].translation == {"z": 0.0, "y": 0.0, "x": 0.0}
-    # A level-3 pixel spans 8 level-0 pixels, so its centre is 3.5 of them in.
+    # A level-3 pixel spans 8 level-0 pixels, so its center is 3.5 of them in.
     assert levels[3].translation["x"] == pytest.approx(3.5 * 0.65)
 
 
@@ -36,7 +36,7 @@ def test_a_window_off_the_coarse_grid_covers_every_pixel_it_touches():
     )
     assert levels[1].window["x"] == (3327, 3828)
     assert levels[1].shape == (7, 500, 501)
-    # Level-1 pixel 3327 is level-0 pixels 6654 and 6655, centred at 6654.5:
+    # Level-1 pixel 3327 is level-0 pixels 6654 and 6655, centered at 6654.5:
     # one half pixel before the window's origin.
     assert levels[1].translation["x"] == pytest.approx(-0.5 * 0.65)
 

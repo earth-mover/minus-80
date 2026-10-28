@@ -10,7 +10,7 @@ Everything the converter relies on is reproduced at a smaller size:
   (:data:`Z`) that is a multiple of neither the chunk nor the store's shards;
 - level 0 storing only chunks that hold field pixels, levels 1 to 3 storing
   every chunk, zeros included;
-- six labels on round 1, ``(z, y, x)`` uint32, with every embryo labelled 1 in
+- six labels on round 1, ``(z, y, x)`` uint32, with every embryo labeled 1 in
   ``embryoRaw``;
 - the three AnnData ROI tables, with string indexes stored as Fractal's
   anndata stored them (newer anndata adds an empty ``raw`` array the source
