@@ -89,11 +89,11 @@ const LABELS_SLOT = 4;
 // Canvas sizing
 // ---------------------------------------------------------------------------
 
-// A canvas is drawn at devicePixelRatio times its CSS size so it stays sharp
-// on high-density screens. Setting canvas.height to the device-pixel height
-// also changes the height attribute, which is where the CSS height was first
-// read from; without keeping the original in data-css-height, every redraw at
-// a ratio of 2 doubled the canvas again.
+// Each canvas keeps two sizes: its CSS height, fixed in the template and kept
+// in data-css-height, and its backing store, devicePixelRatio times larger so
+// it stays sharp on high-density screens. Setting canvas.height also rewrites
+// the height attribute, so the CSS height is read from data-css-height and
+// never from the attribute.
 function prepareCanvas(canvas) {
   if (!canvas.dataset.cssHeight) canvas.dataset.cssHeight = canvas.getAttribute("height");
   const ratio = window.devicePixelRatio || 1;
@@ -240,7 +240,7 @@ function loadWell(name) {
     start: data.start, size: data.size,
     arrays: data.arrays, arrayKinds: data.array_kinds,
     runs: data.runs, metadataMembers: data.metadata_members,
-    fields: data.fields, grid: data.grid, channels: data.channels,
+    fields: data.fields, grid: data.grid, channels: data.channels, maxZ: data.max_z,
     chunkStart: decodeColumn(columns.start, Float64Array),
     chunkBytes: decodeColumn(columns.bytes, Uint32Array),
     chunkCompressed: decodeColumn(columns.compressed, Uint32Array),
@@ -261,6 +261,7 @@ function loadWell(name) {
   selectedRun = -1;
   document.getElementById("well-title").textContent =
     `Well ${name}: ${formatBytes(well.size)}, ${well.chunkCount.toLocaleString()} chunks, ${well.fields.length} fields`;
+  buildLegend();
   buildRunTable();
   redraw();
 }
@@ -317,7 +318,7 @@ function chunkColor(index, mode) {
   if (mode === "contents") return colors.contents[well.arrayKinds[arrayIndex] === "label" ? LABELS_SLOT : well.arrayRound[arrayIndex]];
   if (mode === "level") return levelColor(well.arrayLevel[arrayIndex]);
   if (mode === "channel") return well.chunkChannel[index] < 0 ? colors.muted : colors.contents[well.chunkChannel[index]];
-  if (mode === "z") return rampColor(well.chunkZ[index] / 27);
+  if (mode === "z") return rampColor(well.chunkZ[index] / Math.max(well.maxZ, 1));
   return colors.muted;
 }
 
@@ -339,7 +340,7 @@ function buildLegend() {
     [0, 1, 2, 3].forEach(channel => addItem(colors.contents[channel], "channel " + channel));
     addItem(colors.muted, "labels (no channel)");
   }
-  if (mode === "z") addItem(`linear-gradient(90deg, ${colors.rampLow}, ${colors.rampHigh})`, "z index 0 → 27", "ramp");
+  if (mode === "z") addItem(`linear-gradient(90deg, ${colors.rampLow}, ${colors.rampHigh})`, `z index 0 → ${well ? well.maxZ : ""}`, "ramp");
   if (mode === "status") {
     addItem(colors.contents[0], "to decode: a field overlaps its cell");
     addItem(colors.untouched, "stored, no field overlaps it");
@@ -506,14 +507,16 @@ function offsetAtPointer(event) {
   return view[0] + (event.clientX - box.left) / box.width * (view[1] - view[0]);
 }
 
-// Chunks are sorted by start and tile the well's bytes, so a binary search
-// finds the chunk that contains a byte exactly. Hit testing by byte rather
-// than by drawn pixel is what makes a chunk narrower than a pixel hoverable.
+// Chunks are sorted by start and never overlap; metadata members sit in the
+// gaps between arrays. So a binary search finds the chunk whose span holds a
+// byte, or none when the byte falls in a gap. Hit testing by byte rather than
+// by drawn pixel is what makes a chunk narrower than a pixel hoverable.
+// A span's end is exclusive, so a chunk that ends at the offset comes before it.
 function firstChunkEndingAfter(offset) {
   let low = 0, high = well.chunkCount;
   while (low < high) {
     const middle = (low + high) >> 1;
-    if (well.chunkStart[middle] + well.chunkBytes[middle] < offset) low = middle + 1;
+    if (well.chunkStart[middle] + well.chunkBytes[middle] <= offset) low = middle + 1;
     else high = middle;
   }
   return low;
@@ -792,13 +795,13 @@ function drawGrid() {
   const stored = new Set(), toDecode = new Set();
   for (let index = 0; index < well.chunkCount; index++) {
     if (chunkLevel(index) !== level) continue;
-    const cell = well.chunkRow[index] * CHUNK_PIXELS + well.chunkColumn[index];
+    const cell = `${well.chunkRow[index]},${well.chunkColumn[index]}`;
     stored.add(cell);
     if (well.chunkFlags[index] & FLAG_TO_DECODE) toDecode.add(cell);
   }
   for (let row = 0; row < rows; row++) {
     for (let column = 0; column < columns; column++) {
-      const cell = row * CHUNK_PIXELS + column;
+      const cell = `${row},${column}`;
       const left = column * cellSize, top = row * cellSize;
       if (toDecode.has(cell)) {
         context.fillStyle = colors.contents[0];
@@ -971,5 +974,4 @@ addEventListener("resize", redraw);
 renderEndOfFile();
 renderName(document.getElementById("image-key"), "C/02/2/0/1/13/0/7");
 renderName(document.getElementById("label-key"), "C/02/1/labels/cells/0/26/0/7");
-buildLegend();
 loadWell(PAGE.first_well);

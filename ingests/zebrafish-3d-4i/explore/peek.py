@@ -25,13 +25,15 @@ import json
 import struct
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.compute as pc
 from numcodecs import Blosc
 
 from minus80.core.fetch import read_range
 from minus80.parsers.zip.reading import read_members
+from minus80.parsers.zip.structures import DATA_DESCRIPTOR_FLAG, ZIP64_BLOCK, name_encoding
 
-from inputs import SOURCE, directory_table, load_directory_facts
+from inputs import SOURCE, directory_table
 
 #: Bytes to fetch from the end of the file: enough for all three end records.
 END_BYTES = 120
@@ -41,12 +43,13 @@ ZIP64_END_RECORD = struct.Struct("<4sQHHIIQQQQ")        # PK\x06\x06, 56 bytes
 DIRECTORY_ENTRY = struct.Struct("<4sHHHHHHIIIHHHHHII")  # PK\x01\x02, 46 bytes
 LOCAL_HEADER = struct.Struct("<4sHHHHHIIIHH")           # PK\x03\x04, 30 bytes
 DATA_DESCRIPTOR = struct.Struct("<4sIII")               # PK\x07\x08, 16 bytes
+ZIP64_DATA_DESCRIPTOR = struct.Struct("<4sIQQ")         # PK\x07\x08 with 8-byte sizes, 24 bytes
 BLOSC_HEADER = struct.Struct("<BBBBIII")                # 16 bytes at the start of a frame
 
 
-def fetch_end(source: str) -> tuple[int, bytes]:
+def fetch_end(source: str, directory: pa.Table) -> tuple[int, bytes]:
     """The archive's last :data:`END_BYTES` bytes, and where they start."""
-    size = load_directory_facts(source)["archive_size"]
+    size = int(directory.schema.metadata[b"archive_size"])
     return size - END_BYTES, read_range(source, size - END_BYTES, size, patient=True)
 
 
@@ -69,10 +72,9 @@ def describe_end(start: int, data: bytes) -> list[str]:
     ]
 
 
-def fetch_entry(source: str, name: str) -> tuple[dict, bytes]:
-    """The member's row of the cached central directory, and the raw bytes of its directory entry."""
-    table = directory_table(source)
-    row = table.filter(pc.equal(table["name"], name)).to_pylist()
+def fetch_entry(source: str, directory: pa.Table, name: str) -> tuple[dict, bytes]:
+    """The member's row of the kept central directory, and the raw bytes of its directory entry."""
+    row = directory.filter(pc.equal(directory["name"], name)).to_pylist()
     if not row:
         raise SystemExit(f"no member {name}")
     row = row[0]
@@ -83,7 +85,7 @@ def describe_entry(row: dict, data: bytes) -> list[str]:
     """One central-directory entry, field by field."""
     (signature, made_by, needed, flags, method, _, date, crc, compressed, uncompressed,
      name_length, extra_length, _, _, _, _, header_offset) = DIRECTORY_ENTRY.unpack_from(data)
-    name = data[46:46 + name_length].decode()
+    name = data[46:46 + name_length].decode(name_encoding(flags))
     extra = data[46 + name_length:46 + name_length + extra_length]
     blocks, position = [], 0
     while position + 4 <= len(extra):
@@ -104,29 +106,57 @@ def describe_entry(row: dict, data: bytes) -> list[str]:
 
 
 def fetch_local(source: str, row: dict) -> tuple[bytes, bytes]:
-    """The member's local header with its name and extra field, and the 20 bytes after its data."""
+    """The member's local header with its name and extra field, and the bytes just after its data.
+
+    The bytes after the data are enough for the longest data descriptor and
+    the next member's signature.
+    """
     start = row["local_header_offset"]
     header = read_range(source, start, start + LOCAL_HEADER.size + 512, patient=True)
     (_, _, _, _, _, _, _, _, _, name_length, extra_length) = LOCAL_HEADER.unpack_from(header)
     data_end = start + LOCAL_HEADER.size + name_length + extra_length + row["compressed"]
-    return header, read_range(source, data_end, data_end + DATA_DESCRIPTOR.size + 4, patient=True)
+    return header, read_range(source, data_end, data_end + ZIP64_DATA_DESCRIPTOR.size + 4, patient=True)
+
+
+def has_zip64_block(extra: bytes) -> bool:
+    """Whether an extra field holds a ZIP64 block, which makes a data descriptor's sizes 8 bytes each."""
+    position = 0
+    while position + 4 <= len(extra):
+        block_id, length = struct.unpack_from("<HH", extra, position)
+        if block_id == ZIP64_BLOCK:
+            return True
+        position += 4 + length
+    return False
 
 
 def describe_local(row: dict, header: bytes, after: bytes) -> list[str]:
-    """The local header, the data descriptor after the data, and the next member's signature."""
+    """The local header, the data descriptor after the data if flag bit 3 says there is one, and the next member's signature."""
     start = row["local_header_offset"]
-    (signature, _, flags, method, _, _, crc, compressed, uncompressed, name_length, extra_length) = LOCAL_HEADER.unpack_from(header)
+    (signature, _, flags, method, _, _, crc, compressed, uncompressed,
+     name_length, extra_length) = LOCAL_HEADER.unpack_from(header)
+    name = header[30:30 + name_length].decode(name_encoding(flags))
+    extra = header[30 + name_length:30 + name_length + extra_length]
     data_start = start + LOCAL_HEADER.size + name_length + extra_length
     data_end = data_start + row["compressed"]
-    (descriptor_signature, descriptor_crc, descriptor_compressed, descriptor_uncompressed) = DATA_DESCRIPTOR.unpack_from(after)
-    return [
-        f"local header at byte {start:,}: signature {signature!r}, flags {flags:#06x}, method {method}",
-        f"  CRC {crc:#x}, compressed {compressed}, uncompressed {uncompressed}: zeros, the sizes follow the data",
-        f"  name {header[30:30 + name_length].decode()!r}, extra field {extra_length} bytes",
+    lines = [f"local header at byte {start:,}: signature {signature!r}, flags {flags:#06x}, method {method}"]
+    if flags & DATA_DESCRIPTOR_FLAG:
+        lines.append(f"  CRC {crc:#x}, compressed {compressed}, uncompressed {uncompressed}: zeros, the sizes follow the data")
+    else:
+        lines.append(f"  CRC {crc:08x}, compressed {compressed:,}, uncompressed {uncompressed:,}")
+    lines += [
+        f"  name {name!r}, extra field {extra_length} bytes",
         f"  data: bytes {data_start:,} to {data_end:,} ({row['compressed']:,} bytes, from the directory)",
-        f"data descriptor at byte {data_end:,}: signature {descriptor_signature!r}, CRC {descriptor_crc:08x}, "
-        f"compressed {descriptor_compressed:,}, uncompressed {descriptor_uncompressed:,}",
-        f"next local header at byte {data_end + DATA_DESCRIPTOR.size:,}: starts with {after[16:20]!r}",
+    ]
+    if not flags & DATA_DESCRIPTOR_FLAG:
+        return lines + [f"no data descriptor (flag bit 3 unset); next local header at byte {data_end:,}: "
+                        f"starts with {after[:4]!r}"]
+    descriptor = ZIP64_DATA_DESCRIPTOR if has_zip64_block(extra) else DATA_DESCRIPTOR
+    (descriptor_signature, descriptor_crc, descriptor_compressed, descriptor_uncompressed) = descriptor.unpack_from(after)
+    after_descriptor = after[descriptor.size:descriptor.size + 4]
+    return lines + [
+        f"data descriptor at byte {data_end:,}, {descriptor.size} bytes: signature {descriptor_signature!r}, "
+        f"CRC {descriptor_crc:08x}, compressed {descriptor_compressed:,}, uncompressed {descriptor_uncompressed:,}",
+        f"next local header at byte {data_end + descriptor.size:,}: starts with {after_descriptor!r}",
     ]
 
 
@@ -166,16 +196,19 @@ def main() -> None:
         commands.add_parser(command, help=text).add_argument("name")
     args = parser.parse_args()
 
+    # Every command reads bytes at offsets the kept directory gives, so the
+    # directory is checked against the archive first.
+    directory = directory_table(args.source, check_version=True)
     if args.command == "end":
-        lines = describe_end(*fetch_end(args.source))
+        lines = describe_end(*fetch_end(args.source, directory))
     elif args.command == "entry":
-        lines = describe_entry(*fetch_entry(args.source, args.name))
+        lines = describe_entry(*fetch_entry(args.source, directory, args.name))
     elif args.command == "local":
-        row, _ = fetch_entry(args.source, args.name)
+        row, _ = fetch_entry(args.source, directory, args.name)
         lines = describe_local(row, *fetch_local(args.source, row))
     else:
         array = array_of(args.name)
-        fetched = read_members(args.source, [args.name, array + "/.zarray"], directory_table(args.source))
+        fetched = read_members(args.source, [args.name, array + "/.zarray"], directory)
         lines = describe_chunk(args.name, fetched[args.name], json.loads(fetched[array + "/.zarray"]))
     print("\n".join(lines))
 
