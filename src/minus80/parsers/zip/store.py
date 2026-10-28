@@ -52,7 +52,7 @@ from zarr.core.buffer import Buffer, BufferPrototype
 
 from minus80.core.registry import store_and_key
 
-from .members import member_bytes
+from .structures import inflate
 
 
 #: The file names Zarr uses for metadata: ``.zarray``, ``.zattrs`` and
@@ -153,7 +153,7 @@ class MemberStore(Store):
         try:
             # zlib releases the GIL, so inflating on a thread lets the many
             # members zarr fetches at once inflate on as many cores.
-            data = await asyncio.to_thread(member_bytes, stored, entry)
+            data = await asyncio.to_thread(inflate, stored, entry.method)
         except zlib.error as e:
             raise OSError(f"{self.url} {key}: {e}") from e
         if len(data) != entry.uncompressed_length:
