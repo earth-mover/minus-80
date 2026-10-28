@@ -23,10 +23,10 @@ fractal = ["anndata>=0.11"]
 nd2 = ["nd2>=0.10"]
 nwb = ["h5py>=3.16", "pynwb>=2.8", "virtualizarr[hdf]"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
-zip = []
+zip = ["pyarrow>=17"]
 
 [dependency-groups]
-dev = ["imagecodecs", "imagecodecs-zarr", "pytest>=8", "safetensors", "tifffile>=2025.1.1"]
+dev = ["imagecodecs", "imagecodecs-zarr", "pyarrow>=17", "pytest>=8", "safetensors", "tifffile>=2025.1.1"]
 
 [build-system]
 requires = ["hatchling"]
