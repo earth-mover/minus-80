@@ -183,14 +183,14 @@ local header at byte 3,982,552,964: signature b'PK\x03\x04', flags 0x0808, metho
   CRC 0x0, compressed 0, uncompressed 0: zeros, the sizes follow the data
   name 'C/02/2/0/1/13/0/7', extra field 9 bytes
   data: bytes 3,982,553,020 to 3,986,784,307 (4,231,287 bytes, from the directory)
-data descriptor at byte 3,986,784,307: signature b'PK\x07\x08', CRC 9b0584fc, compressed 4,231,287, uncompressed 6,189,086
+data descriptor at byte 3,986,784,307, 16 bytes: signature b'PK\x07\x08', CRC 9b0584fc, compressed 4,231,287, uncompressed 6,189,086
 next local header at byte 3,986,784,323: starts with b'PK\x03\x04'
 
 local header at byte 95,277,963,128: signature b'PK\x03\x04', flags 0x0808, method 8
   CRC 0x0, compressed 0, uncompressed 0: zeros, the sizes follow the data
   name 'E/02/.zattrs', extra field 9 bytes
   data: bytes 95,277,963,179 to 95,277,963,282 (103 bytes, from the directory)
-data descriptor at byte 95,277,963,282: signature b'PK\x07\x08', CRC 079f65cd, compressed 103, uncompressed 351
+data descriptor at byte 95,277,963,282, 16 bytes: signature b'PK\x07\x08', CRC 079f65cd, compressed 103, uncompressed 351
 next local header at byte 95,277,963,298: starts with b'PK\x03\x04'
 ```
 
@@ -457,7 +457,7 @@ Z member C/02/2/0/1/13/0/7
         crc32: 9b0584fc
         flags: 0x0808
          ...
-  within the well: 3.983 GB in, in 64 MiB range #59
+  within the well's region: 3.983 GB in, in 64 MiB range #59
   planes 130–139; fields overlapping this grid cell: FOV_1
 ```
 
@@ -468,11 +468,11 @@ Z field C/02 FOV_1
 ```
 
 ```
-C/02 FOV_1: x 4326.400000000001 µm, y 0.0 µm
+C/02 FOV_1: x 4326.400000000001 µm, y 0.0 µm, 650.0 × 650.0 µm
 level 0: rows (0, 1000), columns (6656, 7656) → grid cells [(0, 6), (0, 7)]
-  C/02/2/0                           224 chunks   0.58 GB   112 separate byte spans: one request each if read alone
+  C/02/2/0                           224 chunks  584.3 MB   112 separate spans: one request each if read alone
   ...
-  C/02/1/labels/nucleiRaw/0           56 chunks    2.8 MB    28 separate byte spans: one request each if read alone
+  C/02/1/labels/nucleiRaw/0           56 chunks    2.8 MB    28 separate spans: one request each if read alone
 ```
 
 The field overlaps two grid cells. In each round's level 0 it needs those two
@@ -522,8 +522,8 @@ Each of these comes from `PLAN.md` or `LAYOUTS.md`.
    `explore` folder:
    ```python
    import polars as pl, layout
-   from inputs import load_central_directory, load_directory_facts
-   members = layout.describe_members(load_central_directory(), load_directory_facts()["directory_offset"])
+   from inputs import directory_table
+   members = layout.describe_members(directory_table())
    chunks = layout.chunks_only(members)
    chunks.filter(pl.col("uncompressed").is_in([80_897, 161_455])).group_by("kind", "uncompressed").len()
    ```
