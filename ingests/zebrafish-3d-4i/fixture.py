@@ -2,7 +2,8 @@
 
 Everything the converter relies on is reproduced at a smaller size:
 
-- an OME-Zarr 0.4 HCS plate in Zarr v2, zipped with Deflate into ZIP64 members;
+- an OME-Zarr 0.4 HCS plate in Zarr v2, zipped with Deflate into ZIP64
+  members, each followed by a data descriptor;
 - per well, one well image per round, ``(c, z, y, x)`` uint16, holding its
   fields pasted at their positions with zeros between them, in four pyramid
   levels that halve y and x;
@@ -28,6 +29,7 @@ image's top edge, as in the real plate.
 
 from __future__ import annotations
 
+import io
 import sys
 import zipfile
 from pathlib import Path
@@ -326,15 +328,34 @@ def build(root: Path) -> dict:
     return truth
 
 
+class _Unseekable(io.RawIOBase):
+    """A write-only stream: zipfile then writes each member with a data descriptor."""
+
+    def __init__(self, f):
+        self._f = f
+
+    def writable(self):
+        return True
+
+    def write(self, b):
+        return self._f.write(b)
+
+
 def zip_plate(root: Path) -> Path:
-    """Zip ``root/plate.zarr`` with Deflate into ZIP64 members, as the deposit is."""
+    """Zip ``root/plate.zarr`` as the deposit is zipped.
+
+    Every member is Deflate-compressed, ZIP64, and followed by a data
+    descriptor, like every member of the real zip. The descriptors leave a gap
+    between members, which is what makes indexing the real zip need care.
+    """
     source = root / "plate.zarr"
     path = root / "plate.zarr.zip"
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(source.rglob("*")):
-            if f.is_file():
-                with zf.open(f.relative_to(source).as_posix(), "w", force_zip64=True) as out:
-                    out.write(f.read_bytes())
+    with open(path, "wb") as f, zipfile.ZipFile(_Unseekable(f), "w", zipfile.ZIP_DEFLATED) as zf:
+        for member in sorted(source.rglob("*")):
+            if member.is_file():
+                name = member.relative_to(source).as_posix()
+                with zf.open(name, "w", force_zip64=True) as out:
+                    out.write(member.read_bytes())
     return path
 
 
