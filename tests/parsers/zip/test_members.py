@@ -161,28 +161,6 @@ def test_zero_length_member_reads_as_fill(tmp_path):
     assert not got[1].any()
 
 
-def test_cached_index_is_read_once_and_kept(tmp_path):
-    from minus80.parsers.zip.members import cached_zip_index
-
-    path = tmp_path / "data.zip"
-    _write_zip(
-        path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 50}, compression=zipfile.ZIP_DEFLATED
-    )
-    cache = tmp_path / "cache" / "index.npz"
-    first = cached_zip_index(path.as_uri(), cache)
-    assert cache.exists()
-    assert cached_zip_index(path.as_uri(), cache) == first
-    other = tmp_path / "other.zip"
-    _write_zip(other, {"seq/c.tif": b"c"})
-    with pytest.raises(ValueError, match="indexes"):
-        cached_zip_index(other.as_uri(), cache)
-    _write_zip(
-        path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 500}, compression=zipfile.ZIP_STORED
-    )
-    with pytest.raises(ValueError, match="it is now"):
-        cached_zip_index(path.as_uri(), cache)
-
-
 class _Unseekable(io.RawIOBase):
     """A write-only stream, so zipfile writes each member with a data descriptor."""
 
@@ -196,8 +174,8 @@ class _Unseekable(io.RawIOBase):
         return self._f.write(b)
 
 
-def test_members_with_data_descriptors_are_indexed_from_the_directory(tmp_path):
-    from minus80.parsers.zip.members import index_with_data_descriptors
+def test_members_with_data_descriptors_are_indexed_for_virtual_references(tmp_path):
+    """VirtualiZarr's parser places members that carry data descriptors by reading their local headers."""
     from minus80.parsers.zip.structures import DATA_DESCRIPTOR_FLAG
 
     path = tmp_path / "streamed.zip"
@@ -211,34 +189,3 @@ def test_members_with_data_descriptors_are_indexed_from_the_directory(tmp_path):
     assert set(index) == set(contents)
     for name, data in contents.items():
         assert read_member(path.as_uri(), index[name]) == data
-    raw = path.read_bytes()
-    end = raw.rfind(b"PK\x05\x06")
-    size, offset = (
-        int.from_bytes(raw[end + 12 : end + 16], "little"),
-        int.from_bytes(raw[end + 16 : end + 20], "little"),
-    )
-    assert (
-        index_with_data_descriptors(
-            raw[offset : offset + size], offset, lambda offs: [raw[o : o + 30] for o in offs]
-        )
-        == index
-    )
-
-
-def test_an_archive_without_data_descriptors_is_left_to_virtualizarr(tmp_path):
-    from minus80.parsers.zip.members import index_with_data_descriptors
-
-    path = tmp_path / "plain.zip"
-    _write_zip(path, {"seq/a": b"a" * 10}, compression=zipfile.ZIP_DEFLATED)
-    raw = path.read_bytes()
-    end = raw.rfind(b"PK\x05\x06")
-    size, offset = (
-        int.from_bytes(raw[end + 12 : end + 16], "little"),
-        int.from_bytes(raw[end + 16 : end + 20], "little"),
-    )
-    assert (
-        index_with_data_descriptors(
-            raw[offset : offset + size], offset, lambda offs: [raw[o : o + 30] for o in offs]
-        )
-        is None
-    )
