@@ -14,14 +14,15 @@ The checks, in the order they run:
 
 - the archive-independent gates from ``minus80.ome.verify``, on every image;
 - ``wells``: the plate lists every well of the source, in the source's order;
-- ``images``: each well holds one image per field and round, at the path the
-  layout gives it, tagged with the right round and the source's ROI row;
+- ``images``: each well holds one image per field, ``FOV_n`` at path ``n - 1``, whose
+  channels are every channel of every round in round order, with the source's
+  ROI row and every label of the field;
 - ``scene``: each well's scene is valid 0.6 and places each image at its
   field's position in the source table;
 - ``coverage``: each level covers exactly the coarse pixels its field touches;
 - ``layout``: chunks, shards and codec are as PLAN.md decides;
-- ``rounds listed``: the plate lists every round, including round 3, which
-  the source's plate leaves out;
+- ``rounds listed``: the plate records every round and its channels, including
+  round 3, which the source's plate leaves out;
 - ``pixels``: pixels and labels equal the source's at every level, on a sample
   of images and the planes either side of each shard boundary, or on every
   plane of every image with ``--all``.
@@ -80,6 +81,25 @@ class Reference:
     def rounds(self, well: str) -> list[int]:
         return sorted(int(r) for r in self.plan[well].group_keys() if r.isdigit())
 
+    def channels(self, well: str) -> list[tuple[str, int, int]]:
+        """Every channel of every round as ``(name, round, position in that round)``, in round order."""
+        return [
+            (channel["label"], rnd, position)
+            for rnd in self.rounds(well)
+            for position, channel in enumerate(
+                self.plan[f"{well}/{rnd}"].attrs["omero"]["channels"]
+            )
+        ]
+
+    def labels(self, well: str) -> dict[str, int]:
+        """Each label's name, with the round that holds it."""
+        return {
+            name: rnd
+            for rnd in self.rounds(well)
+            if "labels" in self.plan[f"{well}/{rnd}"]
+            for name in self.plan[f"{well}/{rnd}/labels"].attrs["labels"]
+        }
+
     def fields(self, well: str, rnd: int) -> dict[str, dict]:
         """The round's ``FOV_ROI_table``, as each field's row by field name."""
         if (well, rnd) not in self.tables:
@@ -112,51 +132,59 @@ def wells(root, ref: Reference) -> list[str]:
 
 
 def images_match(root, ref: Reference) -> list[str]:
-    """Each well holds image ``rounds * (n - 1) + r`` for field ``FOV_n`` in round ``r``, and nothing else."""
+    """Each well holds one image per source field, with every round's channels in order, and nothing else."""
     problems = []
     for well in store_wells(root):
         rounds = ref.rounds(well)
-        expected = {}
-        for rnd in rounds:
-            for name in ref.fields(well, rnd):
-                n = int(name.removeprefix("FOV_"))
-                expected[str(len(rounds) * (n - 1) + rounds.index(rnd))] = (name, rnd)
-        listed = {i["path"]: i.get("acquisition") for i in well_images(root, well)}
-        if set(listed) != set(expected):
-            problems.append(f"{well}: images {sorted(listed)}, expected {sorted(expected)}")
+        expected = {image_of(name): name for name in ref.fields(well, rounds[0])}
+        listed = {i["path"] for i in well_images(root, well)}
+        if listed != set(expected):
+            problems.append(
+                f"{well}: images {sorted(listed)}, expected {sorted(expected)} "
+                f"for fields {sorted(expected.values())}"
+            )
             continue
-        for path, (name, rnd) in expected.items():
-            notes = dict(root[f"{well}/{path}"].attrs)["annotations"]
-            if listed[path] != rnd:
-                problems.append(f"{well}/{path}: acquisition {listed[path]}, expected round {rnd}")
-            if (notes["field"], notes["round"], notes["source_image"]) != (
-                name,
-                rnd,
-                f"{well}/{rnd}",
-            ):
+        channels = ref.channels(well)
+        names = [label for label, _, _ in channels]
+        labels = ref.labels(well)
+        for path, name in sorted(expected.items()):
+            image = root[f"{well}/{path}"]
+            attrs = dict(image.attrs)
+            notes = attrs["annotations"]
+            stored = [c["label"] for c in attrs["ome"]["omero"]["channels"]]
+            if stored != names:
                 problems.append(
-                    f"{well}/{path}: annotated as {notes['field']} round {notes['round']}, "
-                    f"expected {name} round {rnd}"
+                    f"{well}/{path}: channels {stored}, the source's rounds give {names}"
                 )
-            if notes[FIELDS_TABLE] != ref.fields(well, rnd)[name]:
+            recorded = [(c["label"], c["round"], c["source_channel"]) for c in notes["channels"]]
+            if recorded != channels:
                 problems.append(
-                    f"{well}/{path}: ROI annotation differs from the source table's {name} row"
+                    f"{well}/{path}: channel annotations differ from the source's rounds"
                 )
-            source = ref.plan[f"{well}/{rnd}"]
-            if "labels" in source:
-                want = list(source["labels"].attrs["labels"])
-                got = list(dict(root[f"{well}/{path}/labels"].attrs)["ome"]["labels"])
-                if got != want:
-                    problems.append(f"{well}/{path}: labels {got}, the source has {want}")
+            if image["0"].shape[0] != len(channels):
+                problems.append(
+                    f"{well}/{path}: {image['0'].shape[0]} channels, expected {len(channels)}"
+                )
+            if notes["field"] != name:
+                problems.append(f"{well}/{path}: annotated as field {notes['field']}")
+            if notes[FIELDS_TABLE] != ref.fields(well, rounds[0])[name]:
+                problems.append(
+                    f"{well}/{path}: ROI annotation differs from the source table's row"
+                )
+            got = list(dict(image["labels"].attrs)["ome"]["labels"]) if "labels" in image else []
+            if got != list(labels):
+                problems.append(f"{well}/{path}: labels {got}, the source has {list(labels)}")
     return problems
 
 
-def source_row(root, ref: Reference, well: str, path: str) -> tuple[dict, str]:
-    """The image's field row in the source table, and its source image path, from its path alone."""
-    rounds = ref.rounds(well)
-    n, r = divmod(int(path), len(rounds))
-    rnd = rounds[r]
-    return ref.fields(well, rnd)[f"FOV_{n + 1}"], f"{well}/{rnd}"
+def image_of(field_name: str) -> str:
+    """The image path the layout gives source field ``FOV_n``: ``n - 1``."""
+    return str(int(field_name.removeprefix("FOV_")) - 1)
+
+
+def source_row(ref: Reference, well: str, path: str) -> dict:
+    """The source ``FOV_ROI_table`` row of the field stored at image ``path``."""
+    return ref.fields(well, ref.rounds(well)[0])[f"FOV_{int(path) + 1}"]
 
 
 def scene(root, ref: Reference) -> list[str]:
@@ -175,7 +203,7 @@ def scene(root, ref: Reference) -> list[str]:
             problems.append(f"{well}: scene places {sorted(moves)}, the well lists {sorted(paths)}")
             continue
         for path in paths:
-            roi, _ = source_row(root, ref, well, path)
+            roi = source_row(ref, well, path)
             want = [0.0, roi["z_micrometer"], roi["y_micrometer"], roi["x_micrometer"]]
             if (
                 list(moves[path]["translation"]) != want
@@ -227,12 +255,12 @@ def levels_of(root, ref: Reference, name: str):
     """Each level of image ``name`` with its window into the source, from its metadata and the source ROI."""
     well, path = name.rsplit("/", 1)
     image = root[name]
-    roi, source_path = source_row(root, ref, well, path)
+    roi = source_row(ref, well, path)
     (ms,) = dict(image.attrs)["ome"]["multiscales"]
     fine, _ = level_transforms(ms["datasets"][0])
     for dataset in ms["datasets"]:
         array = image[dataset["path"]]
-        yield dataset, array, level_window(dataset, fine, roi, array.shape[-2:]), roi, source_path
+        yield dataset, array, level_window(dataset, fine, roi, array.shape[-2:]), roi
 
 
 def field_images(root) -> list[str]:
@@ -249,12 +277,13 @@ def coverage(root, ref: Reference) -> list[str]:
     """
     problems = []
     for name in field_images(root):
-        for dataset, _, window, roi, source_path in levels_of(root, ref, name):
+        well = name.rsplit("/", 1)[0]
+        for dataset, _, window, roi in levels_of(root, ref, name):
             scale, _ = level_transforms(dataset)
             fine, _ = level_transforms(
                 dict(root[name].attrs)["ome"]["multiscales"][0]["datasets"][0]
             )
-            extent = ref.plan[f"{source_path}/{dataset['path']}"].shape[-2:]
+            extent = ref.plan[f"{well}/{ref.rounds(well)[0]}/{dataset['path']}"].shape[-2:]
             for i, axis in enumerate("yx"):
                 start, end = window[2 * i], window[2 * i + 1]
                 f = round(scale[2 + i] / fine[2 + i])
@@ -297,14 +326,17 @@ def codec_setting(setting) -> str:
 
 
 def rounds_listed(root, ref: Reference) -> list[str]:
-    """The plate lists every round the source's wells hold, including any the source's plate leaves out."""
-    held = ref.rounds(ref.wells[0])
-    listed = sorted(a["id"] for a in dict(root.attrs)["ome"]["plate"]["acquisitions"])
-    return (
-        []
-        if listed == held
-        else [f"plate lists acquisitions {listed}, the wells hold rounds {held}"]
-    )
+    """The plate records every round the source's wells hold, with its channels.
+
+    This includes any round the source's own plate metadata leaves out.
+    """
+    well = ref.wells[0]
+    want = {
+        str(rnd): [label for label, r, _ in ref.channels(well) if r == rnd]
+        for rnd in ref.rounds(well)
+    }
+    got = dict(root.attrs)["source"]["rounds"]
+    return [] if got == want else [f"plate records rounds {got}, the source holds {want}"]
 
 
 def planes_to_compare(depth: int, shard_depth: int, every: bool) -> list[int]:
@@ -320,26 +352,34 @@ def planes_to_compare(depth: int, shard_depth: int, every: bool) -> list[int]:
 def pixels(
     root, ref: Reference, *, sample: int | None, shard_depth: int, seed: int = 0
 ) -> list[str]:
-    """Pixels and labels equal the source's at every level, on a sample of images or (``sample=None``) all."""
+    """Every channel and label equals the source at every level, on a sample of images or all of them.
+
+    With ``sample=None`` every plane of every image is compared. Otherwise
+    ``sample`` images are compared, on the planes either side of each shard
+    boundary.
+    """
     problems = []
     names = field_images(root)
     if sample is not None:
         names = random.Random(seed).sample(names, min(sample, len(names)))
     for name in names:
+        well = name.rsplit("/", 1)[0]
         image = root[name]
-        for dataset, array, (y0, y1, x0, x1), _, source_path in levels_of(root, ref, name):
+        for dataset, array, (y0, y1, x0, x1), _ in levels_of(root, ref, name):
             level = dataset["path"]
             planes = planes_to_compare(array.shape[1], shard_depth, every=sample is None)
-            want = ref.pixels[f"{source_path}/{level}"][:, planes, y0:y1, x0:x1]
-            if not np.array_equal(array[:, planes], want):
-                problems.append(
-                    f"{name}/{level}: differs from {source_path}/{level}[{y0}:{y1}, {x0}:{x1}]"
-                )
-            if "labels" in image:
-                for label in image["labels"].group_keys():
-                    want = ref.pixels[f"{source_path}/labels/{label}/{level}"][planes, y0:y1, x0:x1]
-                    if not np.array_equal(image[f"labels/{label}/{level}"][planes], want):
-                        problems.append(f"{name}/labels/{label}/{level}: differs from the source")
+            for stored, (label, rnd, position) in enumerate(ref.channels(well)):
+                source = ref.pixels[f"{well}/{rnd}/{level}"]
+                want = source[position, planes, y0:y1, x0:x1]
+                if not np.array_equal(array[stored, planes], want):
+                    problems.append(
+                        f"{name}/{level} channel {stored} ({label}): differs from "
+                        f"{well}/{rnd}/{level} channel {position}"
+                    )
+            for label, rnd in ref.labels(well).items():
+                want = ref.pixels[f"{well}/{rnd}/labels/{label}/{level}"][planes, y0:y1, x0:x1]
+                if not np.array_equal(image[f"labels/{label}/{level}"][planes], want):
+                    problems.append(f"{name}/labels/{label}/{level}: differs from the source")
     return problems
 
 
