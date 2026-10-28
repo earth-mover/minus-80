@@ -48,33 +48,49 @@ from minus80.ome.hierarchy import images
 from minus80.ome.image import validate
 from minus80.ome.verify import GATES, run_gates
 from minus80.parsers.fractal.plate import FIELDS_TABLE, TABLES, read_table
-from minus80.parsers.zip.members import zip_index
-from minus80.parsers.zip.store import MemberStore, members_in_memory, metadata_members
+from minus80.parsers.zip.reading import read_central_directory, read_members
+from minus80.parsers.zip.store import MemberStore, metadata_names
+from minus80.parsers.zip.zarr_v2 import frame_problem, is_metadata
+
+
+def unreadable_chunk(name: str, data: bytes) -> str | None:
+    """Why a source chunk cannot be decoded, by the converter's own test, or None.
+
+    The source's arrays are all Blosc-compressed (the converter checks), so a
+    chunk is checked as a Blosc frame. Metadata documents pass.
+    """
+    if is_metadata(name) or f"/{TABLES}/" in name:
+        return None
+    return frame_problem(data, {"id": "blosc"})
 
 
 @dataclass
 class Reference:
-    """The source plate, read through an index taken fresh from the zip, not the converter's cache."""
+    """The source plate, read through the zip's central directory taken fresh, not the converter's cache.
+
+    The source is read the way a random-access reader would, one member per
+    request through zarr, rather than through the converter's stream, so a
+    fault in the stream does not hide in both sides of a comparison.
+    """
 
     url: str
     tables: dict = field(default_factory=dict)
 
     @cached_property
-    def index(self):
-        return zip_index(self.url)
+    def directory(self):
+        return read_central_directory(self.url)
 
     @cached_property
     def plan(self) -> zarr.Group:
         """The plate's metadata and tables, cheap to list."""
-        return zarr.open_group(
-            members_in_memory(self.url, metadata_members(self.index, also=[TABLES])), mode="r"
-        )
+        names = metadata_names(self.directory["name"].to_pylist(), also=[TABLES])
+        return ingest.documents_store(read_members(self.url, names, self.directory))
 
     @cached_property
     def pixels(self) -> zarr.Group:
         # The same check as the converter, so a chunk the source cannot
         # decode reads as the fill value on both sides.
-        store = MemberStore(self.url, self.index, check=ingest.complete_blosc_frame)
+        store = MemberStore(self.url, self.directory, check=unreadable_chunk)
         return zarr.open_group(store, mode="r")
 
     @cached_property
@@ -329,15 +345,20 @@ def codec_setting(setting) -> str:
 
 
 def rounds_listed(root, ref: Reference) -> list[str]:
-    """The plate records every round the source's wells hold, with its channels.
+    """The plate records every round the source's wells hold, with its channels, per well where wells differ.
 
-    This includes any round the source's own plate metadata leaves out.
+    This includes any round the source's own plate metadata leaves out, and
+    round 3, whose markers differ between wells.
     """
-    well = ref.wells[0]
-    want = {
-        str(rnd): [label for label, r, _ in ref.channels(well) if r == rnd]
-        for rnd in ref.rounds(well)
+    wells = store_wells(root)
+    by_well = {
+        well: {
+            str(rnd): [label for label, r, _ in ref.channels(well) if r == rnd]
+            for rnd in ref.rounds(well)
+        }
+        for well in wells
     }
+    want = ingest.recorded_rounds(by_well)
     got = dict(root.attrs)["source"]["rounds"]
     return [] if got == want else [f"plate records rounds {got}, the source holds {want}"]
 

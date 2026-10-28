@@ -9,7 +9,7 @@ from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteReques
 from zarr.core.buffer import default_buffer_prototype
 
 from minus80.core.aio import run_sync
-from minus80.parsers.zip.members import zip_index
+from minus80.parsers.zip.reading import read_central_directory
 from minus80.parsers.zip.store import MemberStore
 
 
@@ -42,9 +42,10 @@ def zipped(tmp_path):
 
 def test_reads_values_through_zarr(zipped):
     path, data = zipped
-    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+    directory = read_central_directory(path.as_uri())
+    store = MemberStore(path.as_uri(), directory)
     arr = zarr.open_array(store, path="a", zarr_format=2, mode="r")
-    assert "a/1/1" not in zip_index(path.as_uri())
+    assert "a/1/1" not in directory["name"].to_pylist()
     np.testing.assert_array_equal(arr[:], data)
     np.testing.assert_array_equal(arr[1:5, 2:6], data[1:5, 2:6])
     assert arr.attrs["note"] == "kept"
@@ -52,7 +53,7 @@ def test_reads_values_through_zarr(zipped):
 
 def test_lists_like_a_directory(zipped):
     path, _ = zipped
-    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+    store = MemberStore(path.as_uri(), read_central_directory(path.as_uri()))
 
     async def listed(prefix):
         return sorted([k async for k in store.list_dir(prefix)])
@@ -63,7 +64,7 @@ def test_lists_like_a_directory(zipped):
 
 def test_byte_ranges_apply_to_the_inflated_member(zipped):
     path, _ = zipped
-    store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
+    store = MemberStore(path.as_uri(), read_central_directory(path.as_uri()))
     whole = zipfile.ZipFile(path).read("a/.zarray")
     proto = default_buffer_prototype()
     for request, expected in [
@@ -75,34 +76,25 @@ def test_byte_ranges_apply_to_the_inflated_member(zipped):
     assert run_sync(store.get("missing", proto)) is None
 
 
-def test_a_short_member_raises(zipped):
+def test_a_member_that_fails_its_crc_raises(zipped):
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
     path, _ = zipped
-    index = zip_index(path.as_uri())
-    entry = index["a/0/0"]
-    index["a/0/0"] = type(entry)(
-        entry.data_offset, entry.compressed_length, entry.uncompressed_length + 1, entry.method
-    )
-    arr = zarr.open_array(MemberStore(path.as_uri(), index), path="a", zarr_format=2, mode="r")
-    with pytest.raises(OSError, match="inflated to"):
+    directory = read_central_directory(path.as_uri())
+    wrong = pc.if_else(pc.equal(directory["name"], "a/0/0"), pa.scalar(0, pa.uint32()), directory["crc32"])
+    directory = directory.set_column(directory.schema.get_field_index("crc32"), "crc32", wrong)
+    arr = zarr.open_array(MemberStore(path.as_uri(), directory), path="a", zarr_format=2, mode="r")
+    with pytest.raises(OSError, match="CRC"):
         arr[0, 0]
 
 
-def test_metadata_members_keep_metadata_and_named_paths():
-    from minus80.parsers.zip.store import metadata_members
+def test_metadata_names_keep_metadata_and_named_paths():
+    from minus80.parsers.zip.store import metadata_names
 
-    index = dict.fromkeys(
-        ["a/.zarray", "a/0/0", "b/zarr.json", "b/c/0/0", "t/tables/x/0", ".zgroup"]
-    )
-    assert set(metadata_members(index)) == {"a/.zarray", "b/zarr.json", ".zgroup"}
-    assert "t/tables/x/0" in metadata_members(index, also=["tables"])
-
-
-def test_members_in_memory_read_like_the_zip(zipped):
-    from minus80.parsers.zip.store import members_in_memory
-
-    path, data = zipped
-    store = members_in_memory(path.as_uri(), zip_index(path.as_uri()), concurrency=2)
-    np.testing.assert_array_equal(zarr.open_array(store, path="a", mode="r")[:], data)
+    names = ["a/.zarray", "a/0/0", "b/zarr.json", "b/c/0/0", "t/tables/x/0", ".zgroup"]
+    assert set(metadata_names(names)) == {"a/.zarray", "b/zarr.json", ".zgroup"}
+    assert "t/tables/x/0" in metadata_names(names, also=["tables"])
 
 
 def test_an_empty_member_reads_as_a_missing_chunk(tmp_path):
@@ -125,7 +117,7 @@ def test_an_empty_member_reads_as_a_missing_chunk(tmp_path):
         for f in sorted(root.rglob("*")):
             if f.is_file():
                 zf.write(f, f.relative_to(root).as_posix())
-    got = zarr.open_array(MemberStore(path.as_uri(), zip_index(path.as_uri())), path="a", mode="r")[
+    got = zarr.open_array(MemberStore(path.as_uri(), read_central_directory(path.as_uri())), path="a", mode="r")[
         :
     ]
     assert (got[2:, 2:] == 7).all() and (got[:2, :2] == 1).all()
@@ -137,7 +129,7 @@ def test_a_member_that_fails_the_check_reads_as_missing_and_is_recorded(zipped):
     def check(name, raw):
         return "rejected for the test" if name == "a/0/0" else None
 
-    store = MemberStore(path.as_uri(), zip_index(path.as_uri()), check=check)
+    store = MemberStore(path.as_uri(), read_central_directory(path.as_uri()), check=check)
     got = zarr.open_array(store, path="a", mode="r")[:]
     assert (got[:4, :4] == 0).all()
     np.testing.assert_array_equal(got[4:], data[4:])
