@@ -46,6 +46,8 @@ from minus80.ome.crop import CroppedLevel, crop_levels
 IMAGE_DIMS = ("c", "z", "y", "x")
 LABEL_DIMS = ("z", "y", "x")
 FIELDS_TABLE = "FOV_ROI_table"
+#: The group under each image where Fractal keeps its AnnData tables.
+TABLES = "tables"
 #: How far a position may sit from a whole pixel and still count as one. The
 #: tables store micrometres as float64, so 0.65 * 1945 comes back as
 #: 1264.2500000000002, not 1264.25.

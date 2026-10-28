@@ -55,6 +55,34 @@ from minus80.core.registry import store_and_key
 from .members import member_bytes
 
 
+#: The file names Zarr uses for metadata: ``.zarray``, ``.zattrs`` and
+#: ``.zgroup`` in Zarr v2, and ``zarr.json`` in Zarr v3.
+ZARR_METADATA = (".zarray", ".zattrs", ".zgroup", "zarr.json")
+
+
+def metadata_members(
+    index: Mapping[str, ZipEntry], *, also: Iterable[str] = ()
+) -> dict[str, ZipEntry]:
+    """The members of a zipped Zarr store that are metadata documents, without the chunks.
+
+    zarr finds a group's children by scanning every key in its store. In a
+    large zipped store almost every member is a chunk: S-BIAD3228 has two
+    million members and only a few thousand metadata documents. A
+    :class:`MemberStore` over just the metadata lets a reader walk the
+    hierarchy and read attributes quickly.
+
+    ``also`` names path segments whose members are kept too, chunks included.
+    Use it for small arrays the reader needs in full, such as the AnnData
+    tables a Fractal plate keeps under ``tables``.
+    """
+    keep = {f"/{segment}/" for segment in also}
+    return {
+        name: entry
+        for name, entry in index.items()
+        if name.rsplit("/", 1)[-1] in ZARR_METADATA or any(k in f"/{name}" for k in keep)
+    }
+
+
 class MemberStore(Store):
     """A ``.zarr.zip`` at ``url``, read by zarr without unzipping it.
 
