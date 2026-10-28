@@ -84,8 +84,8 @@ central directory (2,036,714 members) and all 8,648 metadata documents.
 - **One plate**, `AssayPlate_Greiner_#655090`, OME-Zarr 0.4 HCS in Zarr v2,
   written by Fractal. 30 wells in rows B to G, columns 02 to 07.
 - **Four images per well**, one per round, each `(c, z, y, x)` = `(4, 271, y,
-  x)` uint16, with y and x between about 12,400 and 15,700 pixels depending on
-  the well. Pixels are 0.65 µm in y and x, 1 µm in z. Four pyramid levels,
+  x)` uint16, with a well extent that differs in every well: y from 11,282 to 16,816
+  pixels and x from 13,026 to 18,039, the same in all four rounds of a well. Pixels are 0.65 µm in y and x, 1 µm in z. Four pyramid levels,
   downsampled 2× in y and x each time.
 - **Each image is a well-sized image holding 5 to 9 fields of view (211 in all).** The
   `FOV_ROI_table` places each 650 × 650 µm field (1000 × 1000 pixels) at

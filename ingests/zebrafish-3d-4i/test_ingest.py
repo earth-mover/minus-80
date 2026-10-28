@@ -85,15 +85,15 @@ def test_the_scene_lays_the_well_out_as_the_source_did(store):
         moves = {
             t["input"]["path"]: t["translation"] for t in ome["scene"]["coordinateTransformations"]
         }
-        canvas = np.zeros((h, w), np.uint16)
+        well_image = np.zeros((h, w), np.uint16)
         for path, (_, _, ty, tx) in moves.items():
             y, x = round(ty / fixture.PIXEL), round(tx / fixture.PIXEL)
             # Channel 4 is round 1's DAPI.
-            canvas[y : y + fixture.F, x : x + fixture.F] = store[f"{well}/{path}/0"][4, 5]
+            well_image[y : y + fixture.F, x : x + fixture.F] = store[f"{well}/{path}/0"][4, 5]
         expected = np.zeros((h, w), np.uint16)
         for i, (y, x) in enumerate(origins):
             expected[y : y + fixture.F, x : x + fixture.F] = fixture.field_pixels(well, i, 1)[0, 5]
-        np.testing.assert_array_equal(canvas, expected)
+        np.testing.assert_array_equal(well_image, expected)
 
 
 def test_every_round_is_recorded_including_round_3(store):

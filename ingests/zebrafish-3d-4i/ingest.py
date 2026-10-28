@@ -14,17 +14,17 @@ by Fractal, the software the authors used. Inside the zip:
   3. In each round the embryos were stained for DNA (DAPI) and three proteins,
   imaged, and washed, so every round has 4 channels.
 - For each well and round there is one large image the size of the well. We
-  call it the canvas. It has axes (c, z, y, x) and holds uint16 pixels.
+  call it the well image. It has axes (c, z, y, x) and holds uint16 pixels.
 - The microscope took 5 to 9 fields of view in each well, one per embryo.
   Each field is 1000 x 1000 pixels and 271 planes deep. Fractal pasted each
-  field onto the canvas at the position where it was taken.
-- Each canvas has 4 pyramid levels. Each level halves the size in y and x,
+  field onto the well image at the position where it was taken.
+- Each well image has 4 pyramid levels. Each level halves the size in y and x,
   rounding down.
 - Round 1 also has six segmentations, called labels, on the same pixel grid.
-- Each canvas has tables in AnnData format. The table ``FOV_ROI_table`` says
-  where each field sits on the canvas.
+- Each well image has tables in AnnData format. The table ``FOV_ROI_table`` says
+  where each field sits on the well image.
 
-Most of each canvas is empty. The microscope never imaged the space between
+Most of each well image is empty. The microscope never imaged the space between
 the fields, so those pixels are exactly 0. At level 0 the source does not
 store chunks that miss every field. At levels 1 to 3 it does store them,
 full of zeros. Inside a field, even the background outside the embryo has
@@ -60,7 +60,7 @@ image and one coordinate system. If a later use needs each round as a separate
 image, the chunks can serve both layouts: every chunk is one plane of one
 channel with the same codec.
 
-Cutting out the fields leaves the empty space of the canvas behind. A few
+Cutting out the fields leaves the empty space of the well image behind. A few
 chunks are still all zero, mostly label planes above and below each embryo.
 zarr does not write those chunks. When read, they come back as the fill
 value, 0.
@@ -205,8 +205,8 @@ def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
     """Each label's name, with the round whose image it belongs to in the source."""
     labels = {}
     for rnd in plate.acquisitions:
-        canvas = src[f"{well}/{rnd}"]
-        for name in canvas["labels"].attrs["labels"] if "labels" in canvas else []:
+        well_image = src[f"{well}/{rnd}"]
+        for name in well_image["labels"].attrs["labels"] if "labels" in well_image else []:
             if name in labels:
                 raise ValueError(f"{well}: label {name} appears in rounds {labels[name]} and {rnd}")
             labels[name] = rnd
@@ -240,12 +240,12 @@ def check_codecs(src: zarr.Group, wells: Sequence[str], plate: Plate) -> None:
     """
     for well in wells:
         for rnd in plate.acquisitions:
-            canvas = src[f"{well}/{rnd}"]
-            arrays = [canvas[str(k)] for k in range(plate.levels)]
-            if "labels" in canvas:
+            well_image = src[f"{well}/{rnd}"]
+            arrays = [well_image[str(k)] for k in range(plate.levels)]
+            if "labels" in well_image:
                 arrays += [
-                    canvas[f"labels/{name}/{k}"]
-                    for name in canvas["labels"].attrs["labels"]
+                    well_image[f"labels/{name}/{k}"]
+                    for name in well_image["labels"].attrs["labels"]
                     for k in range(plate.levels)
                 ]
             for array in arrays:
@@ -374,16 +374,16 @@ def define_image(
     group = image.require_group("labels")
     group.attrs["ome"] = labels_attrs(list(labels), version=VERSION)
     for name, rnd in labels.items():
-        canvas = src[f"{well}/{rnd}"]
-        source = canvas[f"labels/{name}"]
+        well_image = src[f"{well}/{rnd}"]
+        source = well_image[f"labels/{name}"]
         # The labels are cut with the image's windows and placed with the
         # image's translations. That is only correct if each label level has
         # the same shape and the same pixel size as the image level.
-        image_scales = [{d: s[d] for d in LABEL_DIMS} for s in level_scales(canvas, IMAGE_DIMS)]
+        image_scales = [{d: s[d] for d in LABEL_DIMS} for s in level_scales(well_image, IMAGE_DIMS)]
         if level_scales(source, LABEL_DIMS) != image_scales:
             raise ValueError(f"{well}/{rnd}/labels/{name}: pixel sizes differ from the image's")
         for k in range(plate.levels):
-            if source[str(k)].shape != canvas[str(k)].shape[1:]:
+            if source[str(k)].shape != well_image[str(k)].shape[1:]:
                 raise ValueError(
                     f"{well}/{rnd}/labels/{name}: level {k} is not on the image's grid"
                 )
@@ -466,7 +466,7 @@ def well_document(
     - the rows of the tables that describe the whole well.
 
     An image's place in the scene is its field's position on the source's
-    canvas.
+    well_image.
     """
     translations = {
         image_path(field): {
