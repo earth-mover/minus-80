@@ -53,3 +53,26 @@ def test_scaled_unit_shows_readably():
     with Progress("fetching", 4 << 20, unit="MiB", scale=1 << 20, stream=out):
         pass
     assert out.getvalue().strip() == "fetching (4.0 MiB)"
+
+
+def test_heartbeat_prints_while_the_job_counts_nothing():
+    """A stage that counts nothing, such as a commit, still prints on the interval."""
+    from minus80.core.progress import Heartbeat
+
+    out = io.StringIO()
+    stage = ["committing"]
+    with Heartbeat(lambda: f"stage: {stage[0]}", every=0.05, stream=out):
+        time.sleep(0.3)
+    lines = out.getvalue().splitlines()
+    assert len(lines) >= 2
+    assert all(line.endswith("stage: committing") for line in lines)
+
+
+def test_heartbeat_stops_when_the_block_ends():
+    from minus80.core.progress import Heartbeat
+
+    out = io.StringIO()
+    with Heartbeat(lambda: "beat", every=0.05, stream=out):
+        pass
+    time.sleep(0.15)
+    assert out.getvalue() == ""

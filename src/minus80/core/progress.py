@@ -9,6 +9,12 @@ threshold cannot know how long its work takes: 100,000 pages is thirty seconds
 of silence for one file and forty minutes for another. An interval reports on
 the slow job and stays quiet about the fast one.
 
+:class:`Heartbeat` covers what :class:`Progress` cannot: a job whose work
+happens between counts, or inside one long call such as a commit. Progress
+prints only when the job counts something, so a stage that counts nothing is
+silent; a heartbeat prints from its own thread on a fixed interval, whatever
+the job is doing.
+
 Callers follow two rules:
 
 - **Say what it is before saying how far.** "walking 829,080 directories" first,
@@ -21,7 +27,9 @@ from __future__ import annotations
 
 import resource
 import sys
+import threading
 import time
+from collections.abc import Callable
 from typing import Self
 
 
@@ -84,6 +92,38 @@ class Progress:
 
     def _amount(self, n: int) -> str:
         return f"{self._figure(n)} {self.unit}".strip()
+
+
+class Heartbeat:
+    """Print ``describe()`` every ``every`` seconds from a background thread, until the block ends.
+
+    ``describe`` runs on the heartbeat's thread, so it should only read
+    counters the job updates, never wait on the job. It names the stage the
+    job is in and its counters, so that a line read alone says where the job
+    is.
+    """
+
+    def __init__(self, describe: Callable[[], str], *, every: float = 30.0, stream=None):
+        self.describe, self.every = describe, every
+        self.stream = stream if stream is not None else sys.stdout
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._beat, name="heartbeat", daemon=True)
+
+    def __enter__(self) -> Self:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        self._thread.join()
+
+    def _beat(self) -> None:
+        while not self._stop.wait(self.every):
+            try:
+                line = self.describe()
+            except Exception as error:  # noqa: BLE001 - a broken line must not stop the beat
+                line = f"(heartbeat could not describe the job: {error!r})"
+            print(f"{time.strftime('%H:%M:%S')} {line}", file=self.stream, flush=True)
 
 
 def _clock(seconds: float) -> str:
