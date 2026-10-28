@@ -33,14 +33,70 @@ DEFLATE = 8
 RAW_WBITS = -15
 
 
+#: How much of the archive's end to read for its end-of-central-directory
+#: records: enough for the end record, a maximal comment and the ZIP64 records.
+TAIL = 128 << 10
+
+#: Pieces the central directory is fetched in, and how many at once.
+DIRECTORY_PIECE = 8 << 20
+DIRECTORY_CONCURRENCY = 8
+
+
 def zip_index(url: str) -> dict[str, ZipEntry]:
     """Every file member of the archive at ``url``, by name, in central directory order.
 
     Reads only the archive's tail, its central directory, and at worst each
-    member's 30-byte local header; no member data.
+    member's 30-byte local header; no member data. The parsing is
+    VirtualiZarr's ``parse_zip_index``.
+
+    Why the central directory is fetched first
+    -------------------------------------------
+    ``parse_zip_index`` reads the whole central directory in one request.
+    For a large archive that request is slow and fragile: S-BIAD3228's
+    directory is 178 MB, and one request for it from EBI timed out from a
+    laptop and ran for minutes from AWS London with nothing to show. Here the
+    directory is fetched first in pieces, several at once, with progress
+    lines, and the parser reads it from memory. Any other request the parser
+    makes, such as the members' local headers, goes to the archive as usual.
     """
-    store, name = store_and_key(url)
-    return run_sync(parse_zip_index(store, name))
+    from .buffers import end_of_central_directory
+
+    store, key = store_and_key(url, patient=True)
+    size = object_size(url, patient=True)
+    tail_start = max(0, size - TAIL)
+    tail = read_range(url, tail_start, size, patient=True)
+    record = end_of_central_directory(tail, size)
+    start, end = record.offset, record.offset + record.size
+    directory = bytearray()
+    for _, data in iter_ranges(
+        url, [(start, end)], block=DIRECTORY_PIECE, concurrency=DIRECTORY_CONCURRENCY, patient=True
+    ):
+        directory += data
+    spans = [(tail_start, tail), (start, bytes(directory))]
+    return run_sync(parse_zip_index(_Prefetched(store, size, spans), key))
+
+
+class _Prefetched:
+    """A store that answers from bytes already fetched, and passes other requests on.
+
+    ``spans`` are ``(start, bytes)`` pairs. A range wholly inside one is served
+    from memory; anything else goes to ``store``.
+    """
+
+    def __init__(self, store, size: int, spans) -> None:
+        self._store, self._size, self._spans = store, size, spans
+
+    async def head_async(self, path):
+        return {"size": self._size}
+
+    async def get_range_async(self, path, *, start: int, end: int):
+        for first, data in self._spans:
+            if first <= start and end <= first + len(data):
+                return data[start - first : end - first]
+        return await self._store.get_range_async(path, start=start, end=end)
+
+    async def get_ranges_async(self, path, *, starts, ends):
+        return await self._store.get_ranges_async(path, starts=starts, ends=ends)
 
 
 def cached_zip_index(url: str, path: Path) -> dict[str, ZipEntry]:
@@ -75,18 +131,32 @@ def cached_zip_index(url: str, path: Path) -> dict[str, ZipEntry]:
             if str(saved["url"]) != url:
                 raise ValueError(f"{path} indexes {saved['url']}, not {url}")
             if int(saved["size"]) != size:
-                raise ValueError(f"{path} indexes {url} at {int(saved['size'])} bytes; it is now {size}")
-            return {str(n): ZipEntry(int(o), int(c), int(u), int(m)) for n, o, c, u, m in
-                    zip(saved["names"], saved["offsets"], saved["compressed"],
-                        saved["uncompressed"], saved["methods"])}
+                raise ValueError(
+                    f"{path} indexes {url} at {int(saved['size'])} bytes; it is now {size}"
+                )
+            return {
+                str(n): ZipEntry(int(o), int(c), int(u), int(m))
+                for n, o, c, u, m in zip(
+                    saved["names"],
+                    saved["offsets"],
+                    saved["compressed"],
+                    saved["uncompressed"],
+                    saved["methods"],
+                )
+            }
     index = zip_index(url)
     path.parent.mkdir(parents=True, exist_ok=True)
     entries = list(index.values())
-    np.savez_compressed(path, url=url, size=size, names=np.array(list(index)),
-                        offsets=np.array([e.data_offset for e in entries], np.uint64),
-                        compressed=np.array([e.compressed_length for e in entries], np.uint64),
-                        uncompressed=np.array([e.uncompressed_length for e in entries], np.uint64),
-                        methods=np.array([e.method for e in entries], np.uint16))
+    np.savez_compressed(
+        path,
+        url=url,
+        size=size,
+        names=np.array(list(index)),
+        offsets=np.array([e.data_offset for e in entries], np.uint64),
+        compressed=np.array([e.compressed_length for e in entries], np.uint64),
+        uncompressed=np.array([e.uncompressed_length for e in entries], np.uint64),
+        methods=np.array([e.method for e in entries], np.uint16),
+    )
     return index
 
 
@@ -105,7 +175,9 @@ def member_bytes(data: bytes, entry: ZipEntry) -> bytes:
     raise NotImplementedError(f"zip method {entry.method_name}")
 
 
-def inflate_prefix(url: str, entry: ZipEntry, size: int, *, block: int = 1 << 20) -> tuple[bytes, int]:
+def inflate_prefix(
+    url: str, entry: ZipEntry, size: int, *, block: int = 1 << 20
+) -> tuple[bytes, int]:
     """At least the first ``size`` uncompressed bytes of a Deflate member, and the compressed bytes it took.
 
     Range-reads the member ``block`` bytes at a time and inflates as it goes,
@@ -136,7 +208,9 @@ def member_codecs(entries: Sequence[ZipEntry], serializer: Mapping) -> list[dict
     """
     methods = {e.method_name for e in entries if e.method != STORED}
     if methods:
-        raise NotImplementedError(f"members use {sorted(methods)}; only STORED members can be chunks")
+        raise NotImplementedError(
+            f"members use {sorted(methods)}; only STORED members can be chunks"
+        )
     return [dict(serializer)]
 
 
@@ -179,6 +253,14 @@ def member_array(
             offsets[position] = index[name].data_offset
             lengths[position] = index[name].compressed_length
     return manifest_array(
-        paths, offsets, lengths, shape=shape, chunk_shape=chunk_shape, dtype=dtype,
-        codecs=member_codecs(entries, serializer), dimension_names=dimension_names,
-        fill_value=fill_value, attributes=attributes)
+        paths,
+        offsets,
+        lengths,
+        shape=shape,
+        chunk_shape=chunk_shape,
+        dtype=dtype,
+        codecs=member_codecs(entries, serializer),
+        dimension_names=dimension_names,
+        fill_value=fill_value,
+        attributes=attributes,
+    )
