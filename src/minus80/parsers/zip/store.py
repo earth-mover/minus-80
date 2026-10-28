@@ -204,3 +204,36 @@ def _slice(data: bytes, byte_range: ByteRequest | None) -> bytes:
     if isinstance(byte_range, SuffixByteRequest):
         return data[len(data) - byte_range.suffix :]
     raise TypeError(f"unknown byte range {byte_range!r}")
+
+
+def members_in_memory(url: str, index: Mapping[str, ZipEntry], *, concurrency: int = 64):
+    """Fetch every member in ``index`` at once and hold them in a zarr in-memory store.
+
+    Why it is needed: zarr fetches a metadata document only when it is asked
+    for it, and code that walks a hierarchy asks one document at a time. Over
+    a network with a few hundred milliseconds per request, reading the
+    thousands of small documents that describe a large plate that way takes
+    many minutes with the machine idle. Fetching them all up front,
+    ``concurrency`` at a time, takes about a minute, and every later read is
+    from memory.
+
+    Use it for a small set of members, such as the one
+    :func:`metadata_members` selects. The whole set is held in memory.
+    """
+    from zarr.core.buffer import default_buffer_prototype
+    from zarr.storage import MemoryStore
+
+    from minus80.core.aio import run_sync
+
+    store = MemberStore(url, index)
+    prototype = default_buffer_prototype()
+    limit = asyncio.Semaphore(concurrency)
+
+    async def fetch(name: str):
+        async with limit:
+            return name, await store.get(name, prototype)
+
+    async def fetch_all():
+        return await asyncio.gather(*(fetch(name) for name in index))
+
+    return MemoryStore(store_dict=dict(run_sync(fetch_all())))

@@ -49,7 +49,7 @@ from minus80.ome.image import validate
 from minus80.ome.verify import GATES, run_gates
 from minus80.parsers.fractal.plate import FIELDS_TABLE, TABLES, read_table
 from minus80.parsers.zip.members import zip_index
-from minus80.parsers.zip.store import MemberStore, metadata_members
+from minus80.parsers.zip.store import MemberStore, members_in_memory, metadata_members
 
 
 @dataclass
@@ -67,7 +67,7 @@ class Reference:
     def plan(self) -> zarr.Group:
         """The plate's metadata and tables, cheap to list."""
         return zarr.open_group(
-            MemberStore(self.url, metadata_members(self.index, also=[TABLES])), mode="r"
+            members_in_memory(self.url, metadata_members(self.index, also=[TABLES])), mode="r"
         )
 
     @cached_property

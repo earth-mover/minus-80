@@ -139,7 +139,7 @@ from minus80.parsers.fractal.plate import (
     read_table,
 )
 from minus80.parsers.zip.members import cached_zip_index
-from minus80.parsers.zip.store import MemberStore, metadata_members
+from minus80.parsers.zip.store import MemberStore, members_in_memory, metadata_members
 
 SOURCE = (
     "https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/228/S-BIAD3228/Files/"
@@ -346,6 +346,7 @@ def copy_image(
     field: Field,
     channels: Sequence[dict],
     labels: dict[str, int],
+    note: Progress,
 ) -> None:
     """Copy the pixels of one embryo, every channel of every round, at every level, with its labels.
 
@@ -361,12 +362,14 @@ def copy_image(
         for position, channel in enumerate(channels):
             source = zarr.open_array(pixels, path=f"{well}/{channel['round']}/{k}", mode="r")
             target[position] = source[channel["source_channel"], z, y, x]
+            note.advance()
         for name, rnd in labels.items():
             source = zarr.open_array(pixels, path=f"{well}/{rnd}/labels/{name}/{k}", mode="r")
             target = zarr.open_array(
                 dst, path=f"{well}/{image_path(field)}/labels/{name}/{k}", mode="r+"
             )
             target[:] = source[level.slices(LABEL_DIMS)]
+            note.advance()
 
 
 def well_document(
@@ -481,6 +484,11 @@ def write_plate(repo, branch: str, plate: Plate, src: zarr.Group, url: str) -> N
         commit(session, f"Plate metadata for {len(wells)} wells")
 
 
+def say(line: str) -> None:
+    """Print one progress line at once, with the time, so a remote run's log shows where it is."""
+    print(f"{time.strftime('%H:%M:%S')} {line}", flush=True)
+
+
 def open_repository(location: str):
     """Open an Icechunk repo at a local path, creating it if needed, or open an Arraylake repo."""
     import icechunk
@@ -514,10 +522,22 @@ def convert(
     ``EBI_READ_CONCURRENCY`` when ``url`` is EBI's own copy of the zip.
     """
     zarr.config.set({"async.concurrency": read_concurrency})
+    started = time.monotonic()
+    say(f"reading the zip's table of contents (cached at {index_cache})")
     index = cached_zip_index(url, index_cache)
-    src = zarr.open_group(MemberStore(url, metadata_members(index, also=[TABLES])), mode="r")
+    say(f"  {len(index):,} members, in {time.monotonic() - started:.0f} s")
+    step = time.monotonic()
+    plan = metadata_members(index, also=[TABLES])
+    say(f"fetching the plate's {len(plan):,} metadata documents and tables")
+    src = zarr.open_group(members_in_memory(url, plan, concurrency=read_concurrency), mode="r")
+    say(f"  fetched, in {time.monotonic() - step:.0f} s")
     pixels = MemberStore(url, index)
+    step = time.monotonic()
     plate = read_plate(src)
+    say(
+        f"  plate: {len(plate.wells)} wells, rounds {list(plate.acquisitions)}, "
+        f"{plate.levels} levels, in {time.monotonic() - step:.0f} s"
+    )
 
     chosen = tuple(wells) if wells else plate.wells
     if unknown := set(chosen) - set(plate.wells):
@@ -525,10 +545,11 @@ def convert(
     branch_root = zarr.open_group(repo.writable_session(branch).store, mode="a", zarr_format=3)
     done = committed_wells(branch_root, chosen)
     todo = [w for w in chosen if w not in done]
-    started = time.monotonic()
-    print(f"converting {len(todo)} wells ({len(done)} already committed)", flush=True)
+    say(f"converting {len(todo)} wells ({len(done)} already committed)")
 
     for n, well in enumerate(todo, 1):
+        step = time.monotonic()
+        say(f"well {well} ({n} of {len(todo)}): reading its fields, channels and labels")
         fields = read_fields(plate, src, well)
         channels = round_channels(plate, src, well)
         labels = label_names(plate, src, well)
@@ -536,26 +557,26 @@ def convert(
         dest = zarr.open_group(session.store, mode="a", zarr_format=3)
         for field in fields:
             define_image(dest, plate, src, url, well, field, channels, labels, shard_depth)
+        say(f"  {len(fields)} images defined, in {time.monotonic() - step:.0f} s")
         description = f"{len(fields)} embryos x {len(channels)} channels"
-        with Progress(
-            f"well {well} ({n} of {len(todo)}): {description}", len(fields), unit="embryos"
-        ) as note:
+        arrays = len(fields) * plate.levels * (len(channels) + len(labels))
+        with Progress(f"copying well {well}: {description}", arrays, unit="arrays") as note:
             for field in fields:
-                copy_image(pixels, session.store, well, field, channels, labels)
-                note.advance()
+                copy_image(pixels, session.store, well, field, channels, labels, note)
+        say(f"  writing {well}'s well metadata")
         dest[well].attrs.update(well_document(plate, src, url, well, fields))
         # A commit writes one manifest per array, so its cost grows with the
         # number of arrays (docs/ingest.md). Timing it shows that cost early.
         committing = time.monotonic()
         commit(session, f"Add well {well}: {description}")
-        print(
+        say(
             f"  committed {well} in {time.monotonic() - committing:.0f} s; "
-            f"peak memory so far {peak_memory_gb():.1f} GB",
-            flush=True,
+            f"peak memory so far {peak_memory_gb():.1f} GB"
         )
 
+    say("writing the plate metadata")
     write_plate(repo, branch, plate, src, url)
-    print(f"wrote {len(todo)} wells in {time.monotonic() - started:.0f} s", flush=True)
+    say(f"wrote {len(todo)} wells in {time.monotonic() - started:.0f} s")
     return todo
 
 
