@@ -21,7 +21,7 @@ each member's local header from bytes they have fetched (see
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 
 import obstore
@@ -33,6 +33,7 @@ from minus80.core.fetch import iter_ranges, read_range
 from minus80.core.registry import resolve, store_and_key
 
 from .directory import member_spans, parse_central_directory, parse_member
+from .streaming import MemberCutter, StoredMember, member_regions
 from .structures import END_RECORDS, end_of_central_directory
 
 #: The central directory is fetched in pieces of this size, this many at once.
@@ -40,6 +41,12 @@ from .structures import END_RECORDS, end_of_central_directory
 #: London with nothing to show; 8 MiB pieces, 8 at once, took about 10 s.
 DIRECTORY_PIECE = 8 << 20
 DIRECTORY_CONCURRENCY = 8
+#: The size of each range request when streaming members. Large enough that
+#: request latency is a small share of each request's time; small enough that
+#: many fit in memory at once: 64 requests of 64 MiB in flight hold 4 GiB.
+RANGE_BYTES = 64 << 20
+#: How many range requests are in flight at once when streaming members.
+STREAM_CONCURRENCY = 64
 #: The fields of a ``HEAD`` that identify one version of the archive, most
 #: specific first. Servers send some or all of them.
 VERSION_FIELDS = ("e_tag", "last_modified", "size")
@@ -153,7 +160,7 @@ def read_members(
     Raises ``KeyError`` for a name the directory does not hold.
     """
     spans = member_spans(directory, names)
-    entries = directory.take(spans["entry"]).select(["name", "compressed", "crc32"]).to_pylist()
+    entries = directory.take(spans["entry"]).select(["name", "compressed", "method", "crc32"]).to_pylist()
     starts, ends = spans["start"].to_pylist(), spans["end"].to_pylist()
     # A block larger than any member keeps each span to one request.
     fetched = iter_ranges(
@@ -164,3 +171,35 @@ def read_members(
         entry["name"]: parse_member(member, start, entry)
         for (start, member), entry in zip(fetched, entries, strict=True)
     }
+
+
+def stream_members(
+    url: str,
+    members: Sequence[Mapping],
+    *,
+    range_bytes: int = RANGE_BYTES,
+    concurrency: int = STREAM_CONCURRENCY,
+    progress: bool = True,
+    registry: ObjectStoreRegistry | None = None,
+) -> Iterator[StoredMember]:
+    """Each member, as stored, in file order, read once from a few large range requests.
+
+    For copying many members, such as a whole well of a zipped plate:
+    :func:`read_members` would make one request per member. ``members``
+    comes from :func:`~minus80.parsers.zip.streaming.spans_in_file_order`.
+    Spans that touch are fetched as one region, cut into requests of at most
+    ``range_bytes``, ``concurrency`` at a time, and
+    :class:`~minus80.parsers.zip.streaming.MemberCutter` cuts the members out.
+    ``iter_ranges`` issues requests only as the caller takes members, so a
+    slow consumer holds the fetching back rather than filling memory.
+
+    Raises ``ValueError`` if a member's bytes do not start with its local
+    header, and ``OSError`` if a request returns fewer bytes than asked for.
+    """
+    cutter = MemberCutter(members)
+    for offset, data in iter_ranges(
+        url, member_regions(members), block=range_bytes, concurrency=concurrency,
+        progress=progress, patient=True, registry=registry,
+    ):
+        yield from cutter.feed(offset, data)
+    cutter.finish()
