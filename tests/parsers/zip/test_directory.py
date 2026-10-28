@@ -4,6 +4,7 @@ Parsing is tested on bytes read from the file; reading, through a ``file://`` UR
 """
 
 import io
+import os
 import zipfile
 
 import numpy as np
@@ -69,16 +70,33 @@ def test_parse_needs_only_the_archive_end(tmp_path):
     assert parse_central_directory(data[start:], len(data)).equals(whole)
 
 
+def _spans_by_name(spans):
+    return {name: (start, end) for name, start, end in zip(
+        spans["name"].to_pylist(), spans["start"].to_pylist(), spans["end"].to_pylist())}
+
+
 def test_each_member_from_its_span(tmp_path):
     members = _members()
     path = _write(tmp_path / "a.zip", members)
     data = path.read_bytes()
     table = parse_central_directory(data, len(data))
-    spans = member_spans(table)
+    spans = _spans_by_name(member_spans(table))
     rows = {r["name"]: r for r in table.to_pylist()}
     for name, expected in members.items():
         start, end = spans[name]
         assert parse_member(data[start:end], start, rows[name]) == expected
+
+
+def test_spans_of_some_members_match_all(tmp_path):
+    path = _write(tmp_path / "a.zip", _members())
+    data = path.read_bytes()
+    table = parse_central_directory(data, len(data))
+    every = _spans_by_name(member_spans(table))
+    some = member_spans(table, ["a/0/7.0", "a/1/.zarray"])
+    assert _spans_by_name(some) == {name: every[name] for name in ("a/0/7.0", "a/1/.zarray")}
+    assert some["start"].to_pylist() == sorted(some["start"].to_pylist())
+    with pytest.raises(KeyError):
+        member_spans(table, ["nope"])
 
 
 def test_parse_member_checks_header_and_crc(tmp_path):
@@ -86,11 +104,34 @@ def test_parse_member_checks_header_and_crc(tmp_path):
     data = path.read_bytes()
     table = parse_central_directory(data, len(data))
     rows = {r["name"]: r for r in table.to_pylist()}
-    start, end = member_spans(table)["a/0/3.0"]
+    start, end = _spans_by_name(member_spans(table))["a/0/3.0"]
     with pytest.raises(ValueError, match="no local header"):
         parse_member(data[start:end], start, rows["a/0/4.0"])
     with pytest.raises(ValueError, match="CRC"):
         parse_member(data[start:end], start, {**rows["a/0/3.0"], "crc32": 0})
+
+
+def test_a_code_page_437_name_counts_its_stored_bytes(tmp_path):
+    # zipfile writes every non-ASCII name as UTF-8, so the code page 437 name is
+    # made by replacing one byte of an ASCII name in place, without flag bit 11.
+    path = _write(tmp_path / "a.zip", {"a/X.bin": b"pixels" * 50, "a/Y.bin": b"more" * 50})
+    data = path.read_bytes().replace(b"a/X.bin", b"a/\x82.bin")
+    table = parse_central_directory(data, len(data))
+    assert table["name"].to_pylist()[0] == "a/é.bin"
+    assert int(table.schema.metadata[b"directory_size"]) == sum(table["entry_bytes"].to_pylist())
+    row = table.to_pylist()[0]
+    start, end = _spans_by_name(member_spans(table))["a/é.bin"]
+    assert parse_member(data[start:end], start, row) == b"pixels" * 50
+
+
+def test_an_archive_with_no_members(tmp_path):
+    path = tmp_path / "empty.zip"
+    with zipfile.ZipFile(path, "w"):
+        pass
+    data = path.read_bytes()
+    table = parse_central_directory(data, len(data))
+    assert table.num_rows == 0
+    assert member_spans(table).num_rows == 0
 
 
 def test_read_members_over_a_url(tmp_path):
@@ -113,13 +154,23 @@ def test_cache_rejects_another_archive(tmp_path):
     with pytest.raises(ValueError, match="not"):
         cached_central_directory(other.as_uri(), cache)
     _write(path, _members(n=13))
-    with pytest.raises(ValueError, match="now"):
+    with pytest.raises(ValueError, match="earlier version"):
         cached_central_directory(path.as_uri(), cache)
 
 
-def test_cache_without_size_check_reads_the_file_alone(tmp_path):
+def test_cache_rejects_the_same_size_rewritten(tmp_path):
+    path = _write(tmp_path / "a.zip", _members())
+    cache = tmp_path / "cache" / "dir.parquet"
+    cached_central_directory(path.as_uri(), cache)
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+    with pytest.raises(ValueError, match="earlier version"):
+        cached_central_directory(path.as_uri(), cache)
+
+
+def test_cache_without_version_check_reads_the_file_alone(tmp_path):
     path = _write(tmp_path / "a.zip", _members())
     cache = tmp_path / "cache" / "dir.parquet"
     first = cached_central_directory(path.as_uri(), cache)
     path.unlink()
-    assert cached_central_directory(path.as_uri(), cache, check_size=False).equals(first)
+    assert cached_central_directory(path.as_uri(), cache, check_version=False).equals(first)

@@ -24,48 +24,80 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-import numpy as np
+import obstore
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from obspec_utils.registry import ObjectStoreRegistry
 
-from minus80.core.fetch import iter_ranges, object_size, read_range
+from minus80.core.fetch import iter_ranges, read_range
+from minus80.core.registry import resolve, store_and_key
 
-from .buffers import end_of_central_directory
-from .directory import END_RECORDS, parse_central_directory, parse_member
+from .directory import member_spans, parse_central_directory, parse_member
+from .structures import END_RECORDS, end_of_central_directory
 
 #: The central directory is fetched in pieces of this size, this many at once.
 #: One request for S-BIAD3228's 178.7 MB directory ran for minutes from AWS
 #: London with nothing to show; 8 MiB pieces, 8 at once, took about 10 s.
 DIRECTORY_PIECE = 8 << 20
 DIRECTORY_CONCURRENCY = 8
+#: The fields of a ``HEAD`` that identify one version of the archive, most
+#: specific first. Servers send some or all of them.
+VERSION_FIELDS = ("e_tag", "last_modified", "size")
+
+
+def archive_version(url: str, *, registry: ObjectStoreRegistry | None = None) -> dict[str, str]:
+    """The archive's size and, where the server sends them, its ETag and last-modified time, from one ``HEAD``.
+
+    ``minus80.core.fetch.object_size`` returns only the size, so this calls
+    obstore's ``head`` directly, through the same store lookup.
+    """
+    store, key = resolve(registry, url) if registry is not None else store_and_key(url, patient=True)
+    head = obstore.head(store, key)
+    return {field: str(head[field]) for field in VERSION_FIELDS if head.get(field) is not None}
 
 
 def read_central_directory(url: str, *, registry: ObjectStoreRegistry | None = None) -> pa.Table:
     """The central directory of the archive at ``url``, one row per member.
 
-    Fetches the archive's last :data:`END_RECORDS` bytes
-    to find where the directory starts, then everything from there to the
-    end in :data:`DIRECTORY_PIECE` pieces, :data:`DIRECTORY_CONCURRENCY` at a
-    time, and parses it with
-    :func:`~minus80.parsers.zip.directory.parse_central_directory`. No member
-    is read.
+    Fetches the archive's last :data:`END_RECORDS` bytes to find the
+    directory. If the directory starts before them, fetches the rest from
+    the directory's start, in :data:`DIRECTORY_PIECE` pieces,
+    :data:`DIRECTORY_CONCURRENCY` at a time. Parses it with
+    :func:`~minus80.parsers.zip.directory.parse_central_directory`, and
+    records the archive's version (:func:`archive_version`) in the table's
+    metadata. No member is read.
     """
-    archive_size = object_size(url, patient=True, registry=registry)
-    end = read_range(url, max(0, archive_size - END_RECORDS), archive_size, patient=True, registry=registry)
-    end_record = end_of_central_directory(end, archive_size)
-    archive_end = bytearray()
-    for _, piece in iter_ranges(
-        url, [(end_record.offset, archive_size)], block=DIRECTORY_PIECE,
-        concurrency=DIRECTORY_CONCURRENCY, patient=True, registry=registry,
-    ):
-        archive_end += piece
-    return parse_central_directory(bytes(archive_end), archive_size)
+    version = archive_version(url, registry=registry)
+    archive_size = int(version["size"])
+    tail_start = max(0, archive_size - END_RECORDS)
+    tail = read_range(url, tail_start, archive_size, patient=True, registry=registry)
+    end_record = end_of_central_directory(tail, archive_size)
+    if end_record.offset >= tail_start:
+        archive_end = tail[end_record.offset - tail_start:]
+    else:
+        before_tail = bytearray()
+        for _, piece in iter_ranges(
+            url, [(end_record.offset, tail_start)], block=DIRECTORY_PIECE,
+            concurrency=DIRECTORY_CONCURRENCY, patient=True, registry=registry,
+        ):
+            before_tail += piece
+        archive_end = bytes(before_tail) + tail
+    directory = parse_central_directory(archive_end, archive_size)
+    recorded = {f"archive_{field}": value for field, value in version.items() if field != "size"}
+    return directory.replace_schema_metadata({**directory.schema.metadata, **recorded})
+
+
+def _same_version(recorded: dict[str, str], current: dict[str, str]) -> bool:
+    """Whether a kept directory still describes the archive, by the most specific field both sides have."""
+    for field in VERSION_FIELDS:
+        key = "archive_size" if field == "size" else f"archive_{field}"
+        if key in recorded and field in current:
+            return recorded[key] == current[field]
+    return False
 
 
 def cached_central_directory(
-    url: str, path: Path, *, check_size: bool = True, registry: ObjectStoreRegistry | None = None
+    url: str, path: Path, *, check_version: bool = True, registry: ObjectStoreRegistry | None = None
 ) -> pa.Table:
     """:func:`read_central_directory`, read from the archive once and kept as Parquet at ``path``.
 
@@ -75,27 +107,25 @@ def cached_central_directory(
     opens in polars, pandas or DuckDB for a person exploring the archive.
 
     - No file at ``path``: the directory is read and written there, with the
-      URL in the file's metadata.
-    - A file for this ``url`` whose archive size matches a ``HEAD`` of the
-      archive: the file is used.
-    - A file for another URL, or an archive whose size has changed: raises
+      URL and the archive's version (ETag, last-modified time, size) in the
+      file's metadata.
+    - A file for this ``url`` that matches a ``HEAD`` of the archive, by the
+      most specific of those fields both have: the file is used.
+    - A file for another URL, or one that no longer matches: raises
       ``ValueError`` rather than read members at offsets that may be stale.
       Delete the file to read the archive again.
 
-    ``check_size=False`` skips the ``HEAD``, so a kept file can be read with
-    no network at all, as when exploring an archive offline. Anything that
+    ``check_version=False`` skips the ``HEAD``, so a kept file can be read
+    with no network, for views that use only the directory. Anything that
     reads members at the kept offsets should leave it on.
     """
     if path.exists():
         directory = pq.read_table(path)
-        metadata = {key.decode(): value.decode() for key, value in (directory.schema.metadata or {}).items()}
-        if metadata.get("url") != url:
-            raise ValueError(f"{path} holds the directory of {metadata.get('url')}, not {url}")
-        if not check_size:
-            return directory
-        archive_size = object_size(url, registry=registry)
-        if int(metadata["archive_size"]) != archive_size:
-            raise ValueError(f"{path} holds {url} at {metadata['archive_size']} bytes; it is now {archive_size}")
+        recorded = {key.decode(): value.decode() for key, value in (directory.schema.metadata or {}).items()}
+        if recorded.get("url") != url:
+            raise ValueError(f"{path} holds the directory of {recorded.get('url')}, not {url}")
+        if check_version and not _same_version(recorded, archive_version(url, registry=registry)):
+            raise ValueError(f"{path} was read from an earlier version of {url}; delete it to read the archive again")
         return directory
     directory = read_central_directory(url, registry=registry)
     directory = directory.replace_schema_metadata({**directory.schema.metadata, b"url": url.encode()})
@@ -114,35 +144,23 @@ def read_members(
 ) -> dict[str, bytes]:
     """The uncompressed bytes of each named member, by one range request each.
 
-    For a small set of members, such as the metadata
-    documents of part of a zipped Zarr store; requests run ``concurrency``
-    at a time. Each request covers the member from its local header to the
-    next member's local header, and
+    For a small set of members, such as the metadata documents of part of a
+    zipped Zarr store; requests run ``concurrency`` at a time. Each request
+    covers the member's span from
+    :func:`~minus80.parsers.zip.directory.member_spans`, and
     :func:`~minus80.parsers.zip.directory.parse_member` reads it.
 
     Raises ``KeyError`` for a name the directory does not hold.
     """
-    names = list(names)
-    wanted = directory.filter(pc.is_in(directory["name"], pa.array(names, pa.string())))
-    entries = {entry["name"]: entry for entry in wanted.to_pylist()}
-    missing = [name for name in names if name not in entries]
-    if missing:
-        raise KeyError(f"not in the archive: {missing[:5]}")
-    header_offsets = np.sort(directory["local_header_offset"].to_numpy())
-    directory_offset = int(directory.schema.metadata[b"directory_offset"])
-    spans = []
-    for name in names:
-        start = entries[name]["local_header_offset"]
-        following = int(np.searchsorted(header_offsets, start, side="right"))
-        end = int(header_offsets[following]) if following < len(header_offsets) else directory_offset
-        spans.append(((start, end), name))
-    spans.sort()
+    spans = member_spans(directory, names)
+    entries = directory.take(spans["entry"]).select(["name", "compressed", "crc32"]).to_pylist()
+    starts, ends = spans["start"].to_pylist(), spans["end"].to_pylist()
     # A block larger than any member keeps each span to one request.
     fetched = iter_ranges(
-        url, [span for span, _ in spans], block=1 << 40, concurrency=concurrency,
+        url, list(zip(starts, ends)), block=1 << 40, concurrency=concurrency,
         progress=False, patient=True, registry=registry,
     )
     return {
-        name: parse_member(member, start, entries[name])
-        for (start, member), (_, name) in zip(fetched, spans, strict=True)
+        entry["name"]: parse_member(member, start, entry)
+        for (start, member), entry in zip(fetched, entries, strict=True)
     }
