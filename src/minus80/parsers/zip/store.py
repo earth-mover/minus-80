@@ -56,10 +56,10 @@ from zarr.core.buffer import Buffer, BufferPrototype
 from minus80.core.registry import store_and_key
 
 from .directory import member_spans, parse_member
+from .zarr_v2 import METADATA_NAMES
 
-#: The file names Zarr uses for metadata: ``.zarray``, ``.zattrs`` and
-#: ``.zgroup`` in Zarr v2, and ``zarr.json`` in Zarr v3.
-ZARR_METADATA = (".zarray", ".zattrs", ".zgroup", "zarr.json")
+#: The file names Zarr uses for metadata: Zarr v2's, and ``zarr.json`` in Zarr v3.
+ZARR_METADATA = (*METADATA_NAMES, "zarr.json")
 
 
 def metadata_names(names: Iterable[str], *, also: Iterable[str] = ()) -> list[str]:
