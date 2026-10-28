@@ -143,3 +143,9 @@ def test_verify_fails_a_store_missing_a_well(plate, tmp_path):
     root = zarr.open_group(repo.readonly_session("main").store, mode="r")
     problems = verify.wells(root, verify.Reference(url))
     assert problems and "C/03" in problems[0]
+
+
+def test_an_empty_source_chunk_is_listed_on_its_image(store):
+    notes = dict(store["B/02/0"].attrs)["annotations"]
+    assert fixture.EMPTY_CHUNK in notes["empty_source_chunks"]
+    assert dict(store["B/02/1"].attrs)["annotations"]["empty_source_chunks"] == []
