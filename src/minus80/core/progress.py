@@ -19,6 +19,7 @@ Callers follow two rules:
 
 from __future__ import annotations
 
+import resource
 import sys
 import time
 from typing import Self
@@ -92,3 +93,14 @@ def _clock(seconds: float) -> str:
     if seconds < 5400:
         return f"{seconds / 60:.0f}m"
     return f"{seconds / 3600:.1f}h"
+
+
+def peak_memory_gb() -> float:
+    """The most memory this process has held so far, in GB.
+
+    For a job's progress lines: memory a run needs is easier to plan for when
+    each stage reports the high-water mark it reached.
+    """
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # macOS reports bytes, Linux kilobytes.
+    return peak / 1e9 if sys.platform == "darwin" else peak / 1e6

@@ -1,14 +1,36 @@
-"""A zipped Zarr store opened in place, member by member, for reading its decoded values.
+"""Read a zipped Zarr store (``.zarr.zip``) in place, through zarr, without unzipping it.
 
-A ``.zarr.zip`` whose members are Deflate-compressed cannot be referenced
-virtually (see this package's README), so an ingest that wants its pixels has
-to read them. :class:`MemberStore` lets zarr do that reading: it is a read-only
-zarr store whose keys are the archive's member names, and each ``get`` fetches
-one member by a range request and inflates it. zarr then does everything else,
-opening the store's own metadata, working out which chunks a selection needs,
-and decoding them with the store's own codecs.
+Why this exists
+---------------
+Some archives publish a Zarr store as one zip file. The BioImage Archive's
+S-BIAD3228 is a 591 GB ``.zarr.zip`` with two million members, each chunk
+compressed once by the Zarr codec (blosc) and again by the zip (Deflate).
+Such a zip cannot be referenced virtually (see this package's README), so an
+ingest has to read its pixels. :class:`MemberStore` lets zarr do that reading,
+so zarr still works out which chunks a selection needs and decodes them.
 
-VirtualiZarr's ``_ZipMetadataStore`` is the same idea for STORED members only;
+Why not zarr's ``ZipStore`` or fsspec's zip filesystem
+-------------------------------------------------------
+Both work, and both are built on Python's ``zipfile``, which is slow for
+this job in two ways:
+
+- **One read at a time.** ``zipfile.ZipFile`` takes one lock around every
+  read of its file (``zipfile.py``, ``_SharedFile.read``), and zarr's
+  ``ZipStore`` adds its own lock around every ``get`` (``zarr/storage/_zip.py``,
+  zarr 3.4). zarr asks for dozens of chunks at once; through either store they
+  are fetched in sequence, one network round trip each.
+- **A Python object per member, before the first read.** Opening the zip
+  parses its whole table of contents into ``ZipInfo`` objects: two million of
+  them for S-BIAD3228, about 1 GB and tens of seconds, in every process.
+
+:class:`MemberStore` fetches each member with its own range request, so
+zarr's concurrent reads really are concurrent, and it takes the table of
+contents as a compact mapping (from
+:func:`~minus80.parsers.zip.members.zip_index`) that a caller can read once
+and cache.
+
+VirtualiZarr has the same idea as a private class, ``_ZipMetadataStore``, but
+it returns members as stored, so it cannot read Deflate members.
 docs/upstream.md tracks an inflating store upstream.
 """
 
@@ -19,7 +41,13 @@ import zlib
 from collections.abc import AsyncIterator, Iterable, Mapping
 
 from virtualizarr.parsers.zarr.zip import ZipEntry
-from zarr.abc.store import ByteRequest, OffsetByteRequest, RangeByteRequest, Store, SuffixByteRequest
+from zarr.abc.store import (
+    ByteRequest,
+    OffsetByteRequest,
+    RangeByteRequest,
+    Store,
+    SuffixByteRequest,
+)
 from zarr.core.buffer import Buffer, BufferPrototype
 
 from minus80.core.registry import store_and_key
@@ -53,20 +81,23 @@ class MemberStore(Store):
     def __init__(self, url: str, index: Mapping[str, ZipEntry]) -> None:
         super().__init__(read_only=True)
         self.url = url
-        self._index = dict(index)
+        self._index = index
         self._store, self._key = store_and_key(url, patient=True)
 
     def __eq__(self, other: object) -> bool:
-        return (isinstance(other, MemberStore) and other.url == self.url
-                and other._index == self._index)
+        return (
+            isinstance(other, MemberStore) and other.url == self.url and other._index == self._index
+        )
 
-    async def get(self, key: str, prototype: BufferPrototype,
-                  byte_range: ByteRequest | None = None) -> Buffer | None:
+    async def get(
+        self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
+    ) -> Buffer | None:
         entry = self._index.get(key)
         if entry is None:
             return None
         stored = await self._store.get_range_async(
-            self._key, start=entry.data_offset, end=entry.data_offset + entry.compressed_length)
+            self._key, start=entry.data_offset, end=entry.data_offset + entry.compressed_length
+        )
         stored = bytes(stored)
         if len(stored) != entry.compressed_length:
             raise OSError(f"{self.url} {key}: got {len(stored)} of {entry.compressed_length} bytes")
@@ -77,13 +108,15 @@ class MemberStore(Store):
         except zlib.error as e:
             raise OSError(f"{self.url} {key}: {e}") from e
         if len(data) != entry.uncompressed_length:
-            raise OSError(f"{self.url} {key}: inflated to {len(data)} bytes, "
-                          f"the archive says {entry.uncompressed_length}")
+            raise OSError(
+                f"{self.url} {key}: inflated to {len(data)} bytes, "
+                f"the archive says {entry.uncompressed_length}"
+            )
         return prototype.buffer.from_bytes(_slice(data, byte_range))
 
-    async def get_partial_values(self, prototype: BufferPrototype,
-                                 key_ranges: Iterable[tuple[str, ByteRequest | None]]
-                                 ) -> list[Buffer | None]:
+    async def get_partial_values(
+        self, prototype: BufferPrototype, key_ranges: Iterable[tuple[str, ByteRequest | None]]
+    ) -> list[Buffer | None]:
         return await asyncio.gather(*(self.get(k, prototype, r) for k, r in key_ranges))
 
     async def exists(self, key: str) -> bool:
@@ -122,7 +155,7 @@ class MemberStore(Store):
         for key in self._index:
             if prefix and not key.startswith(prefix + "/"):
                 continue
-            child = (key[len(prefix) + 1:] if prefix else key).split("/")[0]
+            child = (key[len(prefix) + 1 :] if prefix else key).split("/")[0]
             if child and child not in seen:
                 seen.add(child)
                 yield child
@@ -137,9 +170,9 @@ def _slice(data: bytes, byte_range: ByteRequest | None) -> bytes:
     if byte_range is None:
         return data
     if isinstance(byte_range, RangeByteRequest):
-        return data[byte_range.start:byte_range.end]
+        return data[byte_range.start : byte_range.end]
     if isinstance(byte_range, OffsetByteRequest):
-        return data[byte_range.offset:]
+        return data[byte_range.offset :]
     if isinstance(byte_range, SuffixByteRequest):
-        return data[len(data) - byte_range.suffix:]
+        return data[len(data) - byte_range.suffix :]
     raise TypeError(f"unknown byte range {byte_range!r}")

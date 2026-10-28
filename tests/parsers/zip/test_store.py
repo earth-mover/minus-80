@@ -19,9 +19,17 @@ def zipped(tmp_path):
     root = tmp_path / "store.zarr"
     data = np.arange(6 * 7, dtype="<u2").reshape(6, 7)
     data[4:, 4:] = 0
-    arr = zarr.create_array(str(root), name="a", shape=data.shape, chunks=(4, 4), dtype=data.dtype,
-                            zarr_format=2, fill_value=0, config={"write_empty_chunks": False},
-                            chunk_key_encoding={"name": "v2", "separator": "/"})
+    arr = zarr.create_array(
+        str(root),
+        name="a",
+        shape=data.shape,
+        chunks=(4, 4),
+        dtype=data.dtype,
+        zarr_format=2,
+        fill_value=0,
+        config={"write_empty_chunks": False},
+        chunk_key_encoding={"name": "v2", "separator": "/"},
+    )
     arr[:] = data
     arr.attrs["note"] = "kept"
     path = tmp_path / "store.zarr.zip"
@@ -58,9 +66,11 @@ def test_byte_ranges_apply_to_the_inflated_member(zipped):
     store = MemberStore(path.as_uri(), zip_index(path.as_uri()))
     whole = zipfile.ZipFile(path).read("a/.zarray")
     proto = default_buffer_prototype()
-    for request, expected in [(RangeByteRequest(2, 9), whole[2:9]),
-                              (OffsetByteRequest(5), whole[5:]),
-                              (SuffixByteRequest(4), whole[-4:])]:
+    for request, expected in [
+        (RangeByteRequest(2, 9), whole[2:9]),
+        (OffsetByteRequest(5), whole[5:]),
+        (SuffixByteRequest(4), whole[-4:]),
+    ]:
         assert run_sync(store.get("a/.zarray", proto, request)).to_bytes() == expected
     assert run_sync(store.get("missing", proto)) is None
 
@@ -69,8 +79,9 @@ def test_a_short_member_raises(zipped):
     path, _ = zipped
     index = zip_index(path.as_uri())
     entry = index["a/0/0"]
-    index["a/0/0"] = type(entry)(entry.data_offset, entry.compressed_length, entry.uncompressed_length + 1,
-                                 entry.method)
+    index["a/0/0"] = type(entry)(
+        entry.data_offset, entry.compressed_length, entry.uncompressed_length + 1, entry.method
+    )
     arr = zarr.open_array(MemberStore(path.as_uri(), index), path="a", zarr_format=2, mode="r")
     with pytest.raises(OSError, match="inflated to"):
         arr[0, 0]
