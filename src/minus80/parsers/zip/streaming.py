@@ -39,7 +39,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import NamedTuple
 
 import pyarrow as pa
+
 from .directory import member_spans, member_stored_bytes
+
 
 class StoredMember(NamedTuple):
     """One member, as the zip stores it."""
