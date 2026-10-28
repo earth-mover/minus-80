@@ -21,7 +21,8 @@ copy.
   copy takes about an hour; from a laptop in the United States it managed
   1.5 MB/s. Every later step reads from R2.
 - **Convert.** Read the staged zip on Coiled and write a native Icechunk store:
-  an OME-Zarr 0.6 plate with one image per field of view and round, blosc zstd
+  an OME-Zarr 0.6 plate with one image per embryo (field of view) holding all
+  16 channels of its four rounds, blosc zstd
   with bitshuffle, sharded so that a single z-plane is one small read. Cutting
   each field out of its well image leaves the filler behind: the all-zero
   padding chunks, 57% of the zip's members, are never read.
@@ -33,8 +34,8 @@ copy.
 |---|---|---|---|
 | 1 | Stage the zip in R2 before converting | Any rerun of the conversion reads R2, where egress is free, instead of pulling 591 GB from EBI again | Decided |
 | 2 | Transfer over parallel HTTPS from AWS London | 8 connections into a resumable multipart upload, with backoff and an MD5 check on every part; EBI's Aspera and Globus routes need credentials or an endpoint we do not have | Decided; the transfer itself awaits approval |
-| 3 | One image per field of view and round | The source pastes a well's 5 to 9 embryo photos onto one well-sized image per round, 96% zeros, with a chunk grid that cuts across the embryos. The HCS spec says a well's images are its fields of view | Decided |
-| 4 | List round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3 (DAPI_3, Nanog, YAP, XRN2). The store lists all four | Decided; telling the authors is optional |
+| 3 | One image per embryo, with every round's channels on its channel axis | The source pastes a well's 5 to 9 embryo photos onto one well-sized image per round, 96% zeros, with a chunk grid that cuts across the embryos. The HCS spec says a well's images are its fields of view. Rounds cannot be an axis of their own, because an image allows only one axis that is neither space nor time; the published rounds are already registered, so they share one image as 16 channels. Field `FOV_n` is image `n - 1` | Decided 2026-10-27; the trial also builds one image per field and round, on a branch, for comparison |
+| 4 | Include round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3 (DAPI_3, Nanog, YAP, XRN2). Every image holds all four rounds' channels, and the plate's attributes record each round's channels | Decided; telling the authors is optional |
 | 5 | Chunks are whole xy planes, shards run along z | Images: `1 × 1 × 1000 × 1000` chunks in 32-plane shards. Labels: `1 × 1000 × 1000` chunks in full-depth shards | Decided; step 3 times 32- against 10-plane shards |
 | 6 | blosc zstd level 5 with bitshuffle | Decodes at about 5.8 GB/s; pcodec compresses field pixels 11 to 21% smaller but decodes at 1.4 GB/s, and on fast connections decode speed counts for more. blosc is a codec the Zarr v3 core spec defines; pcodec is not | Decided |
 | 7 | Fold the ROI tables into the layout | Each `FOV_ROI_table` row becomes an image placed by a 0.6 translation; the other two tables are kept as well attributes; no Iceberg tables | Decided |
@@ -48,6 +49,9 @@ copy.
 
 - whether 32-plane shards beat 10-plane shards on real reads, in-region and
   from London;
+- whether one 16-channel image per embryo, or one image per embryo and round,
+  suits the people who use these data; the trial builds both on separate
+  Icechunk branches, for a domain expert to open side by side;
 - whether one group can carry both the HCS `well` metadata and a 0.6 `scene`;
 - whether viewers apply the scene's translations and the per-level offsets;
 - what each field's `x_micrometer_original` means; it is about half its
@@ -117,17 +121,18 @@ reference. That alignment is already applied to the published images (see
 
 ```
 zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_#655090
-  B/02/                              well: one image per field of view and round
-    0/                               field FOV_1, round 0: c = DAPI_0, Pol-II-S2P, FLAG, PCNA
-      0/ 1/ 2/ 3/                    pyramid levels, (c, z, y, x) uint16, 1000 × 1000 at level 0;
-                                     levels 1 to 3 copied from the source (judgment call 12)
-    1/                               field FOV_1, round 1: c = DAPI_1, H3K27Ac, bCatenin, pH3
-      0/ 1/ 2/ 3/
+  B/02/                              well: one image per embryo, and a scene placing them
+    0/                               field FOV_1, all four rounds
+      0/ 1/ 2/ 3/                    pyramid levels, (c, z, y, x) uint16, (16, 271, 1000, 1000) at
+                                     level 0; levels 1 to 3 copied from the source (judgment call 12)
+                                     c = DAPI_0, Pol-II-S2P, FLAG, PCNA,      round 0
+                                         DAPI_1, H3K27Ac, bCatenin, pH3,      round 1
+                                         DAPI_2, H2B, ALYREF, Pol-II-S5P,     round 2
+                                         DAPI_3, Nanog, YAP, XRN2             round 3
       labels/                        nucleiRaw, cells, cyto, membrane, embryoRaw, Pol-II-S2P_foci,
-                                     cut to this field
-    2/  3/                           field FOV_1, rounds 2 and 3
-    4/ ... 7/                        field FOV_2, rounds 0 to 3
-    ...                              5 to 9 fields × 4 rounds per well, 844 images in all
+                                     from round 1, cut to this field
+    1/                               field FOV_2
+    ...                              5 to 9 embryos per well, 211 images in all
   B/05/ ...                          30 wells
 ```
 
@@ -135,14 +140,16 @@ zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_
   micrometers; scale `[1, 1, 0.65, 0.65]` at level 0, doubling in y and x per
   level, plus a translation at levels 1 to 3 (judgment call 12). Channel names, colors and display windows come from the source's
   `omero` block, in the source's order.
-- **One image per field of view and round** (judgment call 3). Each image is
-  the field's 1000 × 1000 pixels cut from the source well image, named for the
-  field and round, and tagged in the well metadata with its acquisition, the
-  round. Its multiscales metadata adds a translation to its scale: the field's
-  position on the stage, in micrometers, from the `FOV_ROI_table`, so a viewer
-  can lay a well out as the source did.
-- **The plate and well metadata** list all four rounds, each tagged with its
-  acquisition (judgment call 4).
+- **One image per embryo** (judgment call 3). Each image is the field's
+  1000 × 1000 pixels cut from the source well image, every channel of every
+  round in round order. Field `FOV_n` is image `n - 1`. Each channel keeps its
+  source name, display color, window and `wavelength_id`, and the image's
+  annotations record each channel's round. The well's scene translates each
+  image to its field's position on the stage, in micrometers, from the
+  `FOV_ROI_table`, so a viewer can lay a well out as the source did.
+- **The plate** declares no acquisitions, because each image holds all four
+  rounds. Its attributes record each round's channels, round 3 included, and
+  the acquisitions the source's own plate listed (judgment call 4).
 - **Chunks and shards** (judgment call 5), as (c, z, y, x):
   - **Images:** chunks of `1 × 1 × 1000 × 1000`, one whole plane of one
     channel of one field, in shards of `1 × 32 × 1000 × 1000`, about 15 MB.
@@ -282,7 +289,7 @@ default; from London, 64 in flight doubled throughput.
   whether EBI holds 170 MB/s or more for an hour is unmeasured.
 - Read times on the real store. The layout comparison is a simulation of
   zarr-python's requests on measured chunk sizes and latencies.
-- Conversion throughput on Coiled, and the cost of committing about 8,440
+- Conversion throughput on Coiled, and the cost of committing about 5,908
   arrays to Arraylake.
 - That every field's level-0 chunks are present. Only one image's chunk
   pattern has been compared against its `FOV_ROI_table`.
@@ -319,8 +326,14 @@ default; from London, 64 in flight doubled throughput.
    well-sized image holding the well's 5 to 9 fields of view at their stage
    positions; everything between them was never imaged and is exactly 0. The
    chunk grid starts at the well image's corner, so each field straddles two to four
-   grid cells. *Decided: one image per field of view and round*, the structure
-   OME-Zarr's HCS layout provides for fields. Each embryo becomes exactly one
+   grid cells. *Decided: one image per embryo, the structure OME-Zarr's HCS
+   layout provides for fields, holding every round's channels.* An image allows
+   only one axis that is neither space nor time, so rounds cannot be an axis
+   of their own; the published rounds are already registered to each other, so
+   they share one image as 16 channels, in round order. Every chunk is one plane
+   of one channel, so the same chunks could also serve one image per round, if
+   Icechunk gains a way to share chunk references between arrays
+   (icechunk#2507). Each embryo becomes exactly one
    grid cell, so every embryo read needs a third of the requests: an embryo
    volume from London drops from about 2.0 s to 1.3 s (in 32-plane shards),
    all 16 channels from 29 s to 20 s; the bytes fetched are the same. The cost: Fractal's tools expect one well image per
@@ -334,8 +347,8 @@ default; from London, 64 in flight doubled throughput.
 4. **Round 3.** Every well holds four images, but the plate lists
    acquisitions 0 to 2 and each well lists images 0 to 2. A reader that
    follows the HCS metadata never finds round 3 (Nanog, YAP, XRN2).
-   *Decided: list all four rounds in the store's plate and well metadata,
-   which the ingest writes afresh for OME-Zarr 0.6, and record the omission in
+   *Decided: every image holds all four rounds' channels, and the plate's
+   attributes record each round's channels; record the omission in
    `LAYOUTS.md` for the authors.*
 
 5. **Chunks and shards.** Object stores bill per object written: R2 charges
@@ -432,7 +445,7 @@ default; from London, 64 in flight doubled throughput.
 |---|---|---|---|
 | 1 | Speed test from AWS London: parallel HTTPS and Aspera | Nothing kept | **Done** 2026-10-27 |
 | 2 | Write and delete a one-byte test object to confirm the token can write outside a repo; then transfer the zip, checking each part's MD5, and the final size against EBI's | Managed bucket: one 591 GB object | Yes |
-| 3 | Convert one well to a branch twice, in 32-plane and in 10-plane shards; time the six reads from in-region and from London; open both cold in napari | Arraylake branches | Yes (repo creation) |
+| 3 | Convert one well three times, reading straight from EBI: `main` (16 channels per embryo, 32-plane shards), `per-round` (one image per embryo and round), `shards-10` (10-plane shards); time the six reads from in-region and from London; open all three in napari, with a domain expert | Arraylake branches | Yes (repo creation) |
 | 4 | Full conversion on Coiled, reading R2 | Arraylake `main` | Yes |
 | 5 | Verify: metadata gates on every array; pixels against the zip on a sample of chunks from every well, round and level, levels 1 to 3 compared exactly | Nothing | |
 | 6 | Write `REPORT.md` and `LAYOUTS.md`; delete the staged zip | R2 delete | Yes |
@@ -465,7 +478,7 @@ rounds.
   given up, abort the upload.
 - **The 520 GB estimate** comes from one field of view's compression applied
   to the zip's lz4 frames. Step 3 measures a whole well.
-- **Commit cost.** One image per field means about 8,440 arrays, each with
-  its own manifest: 3,376 image arrays (844 images × 4 levels) and 5,064 label
+- **Commit cost.** One image per embryo means about 5,908 arrays, each with
+  its own manifest: 844 image arrays (211 images × 4 levels) and 5,064 label
   arrays (211 fields × 6 labels × 4 levels). The well-image layout would have
   1,200. Time a commit against Arraylake in step 3.
