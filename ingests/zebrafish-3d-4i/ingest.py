@@ -1251,17 +1251,26 @@ def convert(
         f"{decode_threads or 'default'} decode threads, {upload_workers} upload workers, "
         f"zarr async concurrency {zarr_concurrency}, waiting limit {waiting_limit / 1e9:.1f} GB"
     )
-    say(f"reading the zip's central directory (kept at {directory_cache})")
-    directory = cached_central_directory(url, directory_cache, registry=registry)
-    say(f"  {directory.num_rows:,} members, in {time.monotonic() - started:.0f} s")
-    documents = plate_documents(url, directory, registry=registry)
-    plate_metadata = dict(documents_store(documents).attrs)["plate"]
-    listed = [w["path"] for w in plate_metadata["wells"]]
-    chosen = list(wells) if wells else listed
-    if unknown := set(chosen) - set(listed):
-        raise ValueError(f"not wells of the plate: {sorted(unknown)}")
-    branch_root = zarr.open_group(repo.writable_session(branch).store, mode="a", zarr_format=3)
-    done = committed_wells(branch_root, chosen)
+    setup = {"step": "reading the zip's central directory"}
+    with Heartbeat(lambda: f"setup: {setup['step']}, {time.monotonic() - started:.0f} s so far"):
+        say(f"reading the zip's central directory (kept at {directory_cache})")
+        # No request asks the server whether the zip changed since the directory
+        # was kept: every member read already checks that its local header names
+        # that member and that its bytes match the directory's CRC, so stale
+        # offsets fail on the first chunk, and EBI can leave a HEAD hanging for
+        # minutes.
+        directory = cached_central_directory(url, directory_cache, check_version=False, registry=registry)
+        say(f"  {directory.num_rows:,} members, in {time.monotonic() - started:.0f} s")
+        setup["step"] = "reading the plate's metadata"
+        documents = plate_documents(url, directory, registry=registry)
+        plate_metadata = dict(documents_store(documents).attrs)["plate"]
+        listed = [w["path"] for w in plate_metadata["wells"]]
+        chosen = list(wells) if wells else listed
+        if unknown := set(chosen) - set(listed):
+            raise ValueError(f"not wells of the plate: {sorted(unknown)}")
+        setup["step"] = "opening the branch"
+        branch_root = zarr.open_group(repo.writable_session(branch).store, mode="a", zarr_format=3)
+        done = committed_wells(branch_root, chosen)
     todo = [w for w in chosen if w not in done]
     say(f"converting {len(todo)} wells ({len(done)} already committed)")
     copy = {
