@@ -544,8 +544,15 @@ def convert(
                 copy_image(pixels, session.store, well, field, channels, labels)
                 note.advance()
         dest[well].attrs.update(well_document(plate, src, url, well, fields))
+        # A commit writes one manifest per array, so its cost grows with the
+        # number of arrays (docs/ingest.md). Timing it shows that cost early.
+        committing = time.monotonic()
         commit(session, f"Add well {well}: {description}")
-        print(f"  committed {well}; peak memory so far {peak_memory_gb():.1f} GB", flush=True)
+        print(
+            f"  committed {well} in {time.monotonic() - committing:.0f} s; "
+            f"peak memory so far {peak_memory_gb():.1f} GB",
+            flush=True,
+        )
 
     write_plate(repo, branch, plate, src, url)
     print(f"wrote {len(todo)} wells in {time.monotonic() - started:.0f} s", flush=True)
