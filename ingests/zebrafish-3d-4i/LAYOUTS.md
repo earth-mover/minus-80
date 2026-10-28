@@ -46,6 +46,23 @@ says where it sits.
   level; inside a field, background is camera noise of 0 to 8. Level 0 stores
   no chunk that misses every field; levels 1 to 3 store all-zero chunks
   across the whole well image.
+- **1,244 chunks are empty files.** Every well has some, from 10 in the
+  fewest to 94 in F/04: 139 image chunks at level 0, 479 at levels 1 to 3,
+  and 626 label chunks. Level 0 stores only chunks that touch a field, so the
+  empty level-0 chunks are pixels missing inside embryos: each is 10 planes of
+  one channel over one 1000 x 1000 grid cell. `C/02/1/labels/cells/0/26/0/7`
+  is one. No reader can decode an empty chunk, so the source fails there for
+  any tool. The store reads each as the fill value, 0, as the repository's
+  rule for a unit with no stored bytes requires, and each image's
+  `annotations.empty_source_chunks` lists the empty chunks inside its field.
+  Worth reporting to the authors and the BioImage Archive, with the round-3
+  omission: only they can say whether the data were lost in processing or in
+  packing the zip.
+- **Every member of the zip is followed by a data descriptor,** a 16-byte
+  record of its sizes, and past 4 GB each directory entry's extra field is
+  21 bytes while its local header's is 9. VirtualiZarr's zip parser then reads
+  all 2 million local headers; `minus80.parsers.zip.members` places the
+  members from the gaps instead (docs/upstream.md).
 - **Every embryo carries label 1 in `embryoRaw`,** so `embryoRaw_ROI_table`
   has one row per well whose box spans the well, not one per embryo.
 - **`x_micrometer_original` is about half of `x_micrometer`** in every row,

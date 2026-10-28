@@ -100,7 +100,10 @@ class MemberStore(Store):
     - fetches those bytes from ``url`` with one range request;
     - inflates them, on a worker thread so many members inflate at once;
     - raises ``OSError`` if they inflate to a different length from the one
-      the zip records, so a short read never passes for data.
+      the zip records, so a short read never passes for data;
+    - treats an empty member as absent, so zarr reads the fill value there.
+      Every Zarr codec writes at least a header, so an empty member cannot
+      be a chunk.
 
     zarr then decodes the chunk with the array's own codecs, as it would from
     any other store.
@@ -121,7 +124,11 @@ class MemberStore(Store):
         self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
     ) -> Buffer | None:
         entry = self._index.get(key)
-        if entry is None:
+        # An empty member holds no chunk: every Zarr codec writes at least a
+        # header. Treating it as absent makes zarr read the fill value, as for
+        # any missing chunk, instead of failing to decode zero bytes.
+        # S-BIAD3228 has 1,244 such members. The caller records which.
+        if entry is None or entry.uncompressed_length == 0:
             return None
         stored = await self._store.get_range_async(
             self._key, start=entry.data_offset, end=entry.data_offset + entry.compressed_length
@@ -148,7 +155,8 @@ class MemberStore(Store):
         return await asyncio.gather(*(self.get(k, prototype, r) for k, r in key_ranges))
 
     async def exists(self, key: str) -> bool:
-        return key in self._index
+        entry = self._index.get(key)
+        return entry is not None and entry.uncompressed_length > 0
 
     @property
     def supports_writes(self) -> bool:

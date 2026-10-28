@@ -58,6 +58,8 @@ CHANNELS = [
 COLORS = ["0000FF", "FFFF00", "FF00FF", "00FF00"]
 LABELS = ["cells", "cyto", "embryoRaw", "Pol-II-S2P_foci", "membrane", "nucleiRaw"]
 LABEL_ROUND = 1
+#: A label chunk the fixture stores as an empty file, as the real zip does.
+EMPTY_CHUNK = "B/02/1/labels/cells/0/1/0/5"
 PLATE = "AssayPlate_Greiner_#655090"
 ROWS = ["B", "C"]
 COLUMNS = ["02", "03"]
@@ -325,6 +327,14 @@ def build(root: Path) -> dict:
                 )
                 names.append("embryoRaw_ROI_table")
             tables.attrs["tables"] = names
+    # The real zip holds some chunks inside embryos as empty files. One here:
+    # planes 10 to 19 of label "cells" at level 0, in the grid cell that holds
+    # most of B/02 FOV_1 (x 205 to 245, grid columns 5 and 6). An empty chunk
+    # reads as the fill value, so the ground truth is 0 there too.
+    empty = root / "plate.zarr" / EMPTY_CHUNK
+    empty.write_bytes(b"")
+    y, x = WELLS["B/02"][1][0]
+    truth[("B/02", 0, "cells")][10:20, :, : 6 * F - x] = 0
     return truth
 
 
