@@ -85,3 +85,13 @@ def test_a_short_member_raises(zipped):
     arr = zarr.open_array(MemberStore(path.as_uri(), index), path="a", zarr_format=2, mode="r")
     with pytest.raises(OSError, match="inflated to"):
         arr[0, 0]
+
+
+def test_metadata_members_keep_metadata_and_named_paths():
+    from minus80.parsers.zip.store import metadata_members
+
+    index = dict.fromkeys(
+        ["a/.zarray", "a/0/0", "b/zarr.json", "b/c/0/0", "t/tables/x/0", ".zgroup"]
+    )
+    assert set(metadata_members(index)) == {"a/.zarray", "b/zarr.json", ".zgroup"}
+    assert "t/tables/x/0" in metadata_members(index, also=["tables"])

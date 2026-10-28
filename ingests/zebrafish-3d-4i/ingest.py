@@ -118,6 +118,7 @@ from minus80.ome.image import validate
 from minus80.parsers.fractal.plate import (
     IMAGE_DIMS,
     LABEL_DIMS,
+    TABLES,
     Field,
     Plate,
     level_scales,
@@ -126,7 +127,7 @@ from minus80.parsers.fractal.plate import (
     read_table,
 )
 from minus80.parsers.zip.members import cached_zip_index
-from minus80.parsers.zip.store import MemberStore
+from minus80.parsers.zip.store import MemberStore, metadata_members
 
 SOURCE = (
     "https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/228/S-BIAD3228/Files/"
@@ -162,37 +163,9 @@ READ_CONCURRENCY = 64
 WELL_TABLES = ("well_ROI_table", "embryoRaw_ROI_table")
 
 
-def metadata_members(index):
-    """The zip members that describe the plate: metadata documents and ROI tables.
-
-    zarr finds a group's children by scanning every key in its store. The zip
-    has two million members, almost all of them pixel chunks. A store over
-    only these few thousand members makes reading the plate's structure fast.
-    """
-    return {
-        name: entry
-        for name, entry in index.items()
-        if name.rsplit("/", 1)[-1] in (".zattrs", ".zgroup", ".zarray") or "/tables/" in name
-    }
-
-
 def image_path(plate: Plate, field: Field, rnd: int) -> str:
     """The path of field ``FOV_n`` in round ``r``: image number ``rounds * (n - 1) + r``."""
     return str(len(plate.acquisitions) * (field.number - 1) + plate.acquisitions.index(rnd))
-
-
-def create_level(group: zarr.Group, name: str, shape, chunks, shards, dtype, dims) -> None:
-    """Create one empty pyramid level with this store's codec and fill value."""
-    group.create_array(
-        name,
-        shape=shape,
-        chunks=chunks,
-        shards=shards,
-        dtype=dtype,
-        compressors=CODEC,
-        fill_value=0,
-        dimension_names=dims,
-    )
 
 
 def define_image(
@@ -244,14 +217,15 @@ def define_image(
     )
     for k, level in enumerate(field.levels):
         _, _, height, width = level.shape
-        create_level(
-            image,
+        image.create_array(
             str(k),
             shape=level.shape,
             chunks=(1, 1, height, width),
             shards=(1, shard_depth, height, width),
             dtype=canvas[str(k)].dtype,
-            dims=IMAGE_DIMS,
+            compressors=CODEC,
+            fill_value=0,
+            dimension_names=IMAGE_DIMS,
         )
 
     if "labels" not in canvas:
@@ -269,7 +243,9 @@ def define_image(
             raise ValueError(f"{well}/{rnd}/labels/{name}: pixel sizes differ from the image's")
         for k in range(plate.levels):
             if source[str(k)].shape != canvas[str(k)].shape[1:]:
-                raise ValueError(f"{well}/{rnd}/labels/{name}: level {k} is not on the image's grid")
+                raise ValueError(
+                    f"{well}/{rnd}/labels/{name}: level {k} is not on the image's grid"
+                )
         label = group.require_group(name)
         label.attrs.update(
             {
@@ -290,14 +266,15 @@ def define_image(
         )
         for k, level in enumerate(field.levels):
             depth, height, width = level.shape[1:]
-            create_level(
-                label,
+            label.create_array(
                 str(k),
                 shape=(depth, height, width),
                 chunks=(1, height, width),
                 shards=(depth, height, width),
                 dtype=source[str(k)].dtype,
-                dims=LABEL_DIMS,
+                compressors=CODEC,
+                fill_value=0,
+                dimension_names=LABEL_DIMS,
             )
     return names
 
@@ -314,15 +291,13 @@ def copy_image(
     uint32 values, about 1.1 GB.
     """
     for k, level in enumerate(field.levels):
-        source = zarr.open_array(pixels, path=f"{well}/{rnd}/{k}", mode="r", zarr_format=2)
+        source = zarr.open_array(pixels, path=f"{well}/{rnd}/{k}", mode="r")
         target = zarr.open_array(dst, path=f"{well}/{image}/{k}", mode="r+")
         _, z, y, x = level.slices(IMAGE_DIMS)
         for c in range(target.shape[0]):
             target[c] = source[c, z, y, x]
         for name in labels:
-            source = zarr.open_array(
-                pixels, path=f"{well}/{rnd}/labels/{name}/{k}", mode="r", zarr_format=2
-            )
+            source = zarr.open_array(pixels, path=f"{well}/{rnd}/labels/{name}/{k}", mode="r")
             target = zarr.open_array(dst, path=f"{well}/{image}/labels/{name}/{k}", mode="r+")
             target[:] = source[level.slices(LABEL_DIMS)]
 
@@ -475,7 +450,7 @@ def convert(
     """
     zarr.config.set({"async.concurrency": READ_CONCURRENCY})
     index = cached_zip_index(url, index_cache)
-    src = zarr.open_group(MemberStore(url, metadata_members(index)), mode="r", zarr_format=2)
+    src = zarr.open_group(MemberStore(url, metadata_members(index, also=[TABLES])), mode="r")
     pixels = MemberStore(url, index)
     plate = read_plate(src)
 
