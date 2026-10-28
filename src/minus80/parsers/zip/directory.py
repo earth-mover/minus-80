@@ -30,10 +30,11 @@ Archive study S-BIAD3228, leave zeros in the local header's size fields and
 write the sizes in a *data descriptor* after the data. :func:`parse_member`
 therefore takes the sizes from the directory.
 
-The parsing is the standard library's ``zipfile``, which reads only the
-central directory when it opens an archive and resolves ZIP64 sizes and
-offsets. It reads through :class:`~minus80.parsers.zip.buffers._TailFile`,
-which presents the fetched bytes at their positions in the archive.
+The directory is parsed by the standard library's ``zipfile``, which reads
+only the central directory when it opens an archive and resolves ZIP64 sizes
+and offsets; local headers, end records and inflating are parsed in
+:mod:`minus80.parsers.zip.structures`. Neither module imports anything that
+fetches.
 """
 
 from __future__ import annotations
@@ -41,18 +42,13 @@ from __future__ import annotations
 import struct
 import zipfile
 import zlib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 import pyarrow as pa
-from virtualizarr.parsers.zarr.zip import ZipEntry
+import pyarrow.compute as pc
 
-from .buffers import _TailFile, _local_header, end_of_central_directory
-from .members import member_bytes
-
-#: How many of the archive's last bytes always hold the end records: the end
-#: record, a comment of the largest allowed size, and the ZIP64 records.
-END_RECORDS = 128 << 10
+from .structures import END_RECORDS, ArchiveTail, end_of_central_directory, inflate, name_encoding, parse_local_header
 #: The fixed part of a central-directory entry, before its name, extra field
 #: and comment.
 _ENTRY_FIXED_BYTES = 46
@@ -104,17 +100,19 @@ def parse_central_directory(archive_end: bytes, archive_size: int) -> pa.Table:
     this parser did not read.
     """
     end_record = end_of_central_directory(archive_end[-END_RECORDS:], archive_size)
-    archive = zipfile.ZipFile(_TailFile(archive_end, archive_size - len(archive_end)))
+    archive = zipfile.ZipFile(ArchiveTail(archive_end, archive_size - len(archive_end)))
     entries = archive.infolist()
+    # Names count in the encoding they are stored in, which zipfile undid.
     entry_bytes = np.array(
-        [_ENTRY_FIXED_BYTES + len(e.orig_filename.encode()) + len(e.extra) + len(e.comment) for e in entries],
+        [_ENTRY_FIXED_BYTES + len(e.orig_filename.encode(name_encoding(e.flag_bits))) + len(e.extra) + len(e.comment)
+         for e in entries],
         dtype=np.uint64,
     )
     if int(entry_bytes.sum()) != end_record.size:
         raise ValueError(
             f"the entries add up to {int(entry_bytes.sum())} bytes; the end record says {end_record.size}"
         )
-    entry_offsets = end_record.offset + np.concatenate([[0], np.cumsum(entry_bytes)[:-1]]).astype(np.uint64)
+    entry_offsets = np.uint64(end_record.offset) + np.cumsum(entry_bytes, dtype=np.uint64) - entry_bytes
     columns = {
         "name": [e.filename for e in entries],
         "local_header_offset": [e.header_offset for e in entries],
@@ -150,20 +148,43 @@ def extra_field_ids(extra: bytes) -> str:
     return " ".join(ids)
 
 
-def member_spans(directory: pa.Table) -> dict[str, tuple[int, int]]:
-    """Each member's byte span, from its local header to the next member's local header.
+def member_spans(directory: pa.Table, names: Iterable[str] | None = None) -> pa.Table:
+    """Each member's byte span in the archive, from its local header to the next member's local header.
 
-    Parsing (of the table). The members of a zip sit back to back, so
-    this span holds the member's local header, its data and any data
-    descriptor, and fetching it needs no knowledge of how long the local
-    header is. The last member ends where the central directory starts.
+    Parsing (of the table). The members of a zip sit back to back, so this
+    span holds the member's local header, its data and any data descriptor,
+    and fetching it needs no knowledge of how long the local header is. The
+    last member ends where the central directory starts.
+
+    Returns a table with ``entry`` (the member's row in ``directory``),
+    ``name``, ``start`` and ``end``, sorted by ``start``. With ``names``, only
+    those members, each found by a binary search among the sorted offsets;
+    raises ``KeyError`` for a name the directory does not hold.
     """
     offsets = directory["local_header_offset"].to_numpy()
     order = np.argsort(offsets, kind="stable")
-    starts = offsets[order]
-    ends = np.append(starts[1:], int(directory.schema.metadata[b"directory_offset"]))
-    names = directory["name"].to_numpy(zero_copy_only=False)[order]
-    return {str(name): (int(start), int(end)) for name, start, end in zip(names, starts, ends)}
+    sorted_offsets = offsets[order]
+    directory_offset = np.uint64(int(directory.schema.metadata[b"directory_offset"]))
+    if names is None:
+        rows = order
+    else:
+        wanted = list(names)
+        mask = pc.is_in(directory["name"], value_set=pa.array(wanted, pa.string()))
+        found = np.flatnonzero(mask.to_numpy(zero_copy_only=False))
+        missing = set(wanted) - set(directory["name"].take(pa.array(found, pa.int64())).to_pylist())
+        if missing:
+            raise KeyError(f"not in the archive: {sorted(missing)[:5]}")
+        rows = found[np.argsort(offsets[found], kind="stable")]
+    starts = offsets[rows]
+    following = np.searchsorted(sorted_offsets, starts, side="right")
+    padded = np.append(sorted_offsets, directory_offset)
+    ends = padded[following]
+    return pa.table({
+        "entry": pa.array(rows, pa.int64()),
+        "name": directory["name"].take(pa.array(rows, pa.int64())),
+        "start": pa.array(starts, pa.uint64()),
+        "end": pa.array(ends, pa.uint64()),
+    })
 
 
 def parse_member(member: bytes, start: int, entry: Mapping) -> bytes:
@@ -172,23 +193,23 @@ def parse_member(member: bytes, start: int, entry: Mapping) -> bytes:
     Parsing, bytes only. ``member`` starts at byte ``start`` of the archive, which
     must be the member's local header, and must hold the whole member, such as
     its span from :func:`member_spans`. ``entry`` is the member's row of
-    :func:`parse_central_directory` (``name``, ``compressed``,
-    ``uncompressed``, ``crc32``); its sizes are used because a member with a
-    data descriptor has zeros in its local header.
+    :func:`parse_central_directory` (``name``, ``compressed``, ``crc32``); its
+    compressed size is used because a member with a data descriptor has zeros
+    in its local header.
 
     Raises ``ValueError`` if ``member`` does not start with this member's
     local header, if fewer bytes than the directory states were passed, or if
     the uncompressed bytes fail the directory's CRC.
     """
-    local = _local_header(member, 0, start)
+    local = parse_local_header(member, 0, start)
     if local is None or local.name != entry["name"]:
         raise ValueError(f"no local header for {entry['name']} at byte {start}")
-    stored = ZipEntry(local.entry.data_offset, int(entry["compressed"]), int(entry["uncompressed"]), local.entry.method)
-    first = stored.data_offset - start
-    stored_bytes = member[first:first + stored.compressed_length]
-    if len(stored_bytes) != stored.compressed_length:
-        raise ValueError(f"{entry['name']}: {len(stored_bytes)} of {stored.compressed_length} stored bytes passed")
-    uncompressed = member_bytes(stored_bytes, stored)
+    compressed = int(entry["compressed"])
+    first = local.data_offset - start
+    stored_bytes = member[first:first + compressed]
+    if len(stored_bytes) != compressed:
+        raise ValueError(f"{entry['name']}: {len(stored_bytes)} of {compressed} stored bytes passed")
+    uncompressed = inflate(stored_bytes, local.method)
     if zlib.crc32(uncompressed) != int(entry["crc32"]):
         raise ValueError(f"{entry['name']}: the CRC does not match the directory's")
     return uncompressed

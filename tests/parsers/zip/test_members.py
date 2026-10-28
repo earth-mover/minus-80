@@ -197,7 +197,8 @@ class _Unseekable(io.RawIOBase):
 
 
 def test_members_with_data_descriptors_are_indexed_from_the_directory(tmp_path):
-    from minus80.parsers.zip.members import DATA_DESCRIPTOR, index_with_data_descriptors
+    from minus80.parsers.zip.members import index_with_data_descriptors
+    from minus80.parsers.zip.structures import DATA_DESCRIPTOR_FLAG
 
     path = tmp_path / "streamed.zip"
     contents = {f"a/{i}": bytes([i]) * (100 + i) for i in range(20)}
@@ -205,7 +206,7 @@ def test_members_with_data_descriptors_are_indexed_from_the_directory(tmp_path):
         for name, data in contents.items():
             zf.writestr(name, data)
     with zipfile.ZipFile(path) as zf:
-        assert all(info.flag_bits & DATA_DESCRIPTOR for info in zf.infolist())
+        assert all(info.flag_bits & DATA_DESCRIPTOR_FLAG for info in zf.infolist())
     index = zip_index(path.as_uri())
     assert set(index) == set(contents)
     for name, data in contents.items():

@@ -20,27 +20,27 @@ from pathlib import Path
 
 import numpy as np
 from virtualizarr.manifests import ManifestArray
-from virtualizarr.parsers.zarr.zip import ZipEntry, _parse_zip64_extra, parse_zip_index
+from virtualizarr.parsers.zarr.zip import ZipEntry, parse_zip_index
 
 from minus80.core.aio import run_sync
 from minus80.core.fetch import iter_ranges, object_size, read_range
 from minus80.core.manifest import manifest_array
 from minus80.core.registry import store_and_key
 
-STORED = 0
-DEFLATE = 8
+from .reading import DIRECTORY_CONCURRENCY, DIRECTORY_PIECE
+from .structures import (
+    DATA_DESCRIPTOR_FLAG,
+    DEFLATE,
+    END_RECORDS,
+    LOCAL_HEADER,
+    LOCAL_SIGNATURE,
+    RAW_WBITS,
+    STORED,
+    end_of_central_directory,
+    inflate,
+    zip64_values,
+)
 
-#: A negative window size tells zlib the stream has no header or trailer.
-RAW_WBITS = -15
-
-
-#: How much of the archive's end to read for its end-of-central-directory
-#: records: enough for the end record, a maximal comment and the ZIP64 records.
-TAIL = 128 << 10
-
-#: Pieces the central directory is fetched in, and how many at once.
-DIRECTORY_PIECE = 8 << 20
-DIRECTORY_CONCURRENCY = 8
 
 
 def zip_index(url: str) -> dict[str, ZipEntry]:
@@ -60,11 +60,10 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
     lines, and the parser reads it from memory. Any other request the parser
     makes, such as the members' local headers, goes to the archive as usual.
     """
-    from .buffers import end_of_central_directory
 
     store, key = store_and_key(url, patient=True)
     size = object_size(url, patient=True)
-    tail_start = max(0, size - TAIL)
+    tail_start = max(0, size - END_RECORDS)
     tail = read_range(url, tail_start, size, patient=True)
     record = end_of_central_directory(tail, size)
     start, end = record.offset, record.offset + record.size
@@ -75,7 +74,7 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
         directory += data
 
     def local_headers(offsets):
-        return [read_range(url, o, o + _LOCAL_HEADER_SIZE, patient=True) for o in offsets]
+        return [read_range(url, o, o + LOCAL_HEADER.size, patient=True) for o in offsets]
 
     if (index := index_with_data_descriptors(bytes(directory), start, local_headers)) is not None:
         return index
@@ -86,11 +85,8 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
 #: The sizes a data descriptor can take: CRC-32 and two sizes of 4 or 8 bytes
 #: each, with or without the optional 4-byte signature.
 DATA_DESCRIPTOR_SIZES = (12, 16, 20, 24)
-DATA_DESCRIPTOR = 0x08
 _DIRECTORY_ENTRY = struct.Struct("<IHHHHHHIIIHHHHHII")
 _DIRECTORY_SIGNATURE = b"PK\x01\x02"
-_LOCAL_SIGNATURE = b"PK\x03\x04"
-_LOCAL_HEADER_SIZE = 30
 
 
 def index_with_data_descriptors(
@@ -144,19 +140,19 @@ def index_with_data_descriptors(
         name = directory[pos + 46 : pos + 46 + name_length].decode()
         if 0xFFFFFFFF in (compressed, uncompressed, header):
             extra = directory[pos + 46 + name_length : pos + 46 + name_length + extra_length]
-            uncompressed, compressed, header = _parse_zip64_extra(
+            uncompressed, compressed, header = zip64_values(
                 extra, uncompressed, compressed, header
             )
         pos += 46 + name_length + extra_length + comment_length
         if name.endswith("/") and uncompressed == 0:
             continue
         members.append((header, name, name_length, compressed, uncompressed, method, flags))
-    if not members or not all(m[6] & DATA_DESCRIPTOR for m in members):
+    if not members or not all(m[6] & DATA_DESCRIPTOR_FLAG for m in members):
         return None
     members.sort()
     next_headers = [m[0] for m in members[1:]] + [directory_offset]
     spaces = {
-        following - (header + _LOCAL_HEADER_SIZE + name_length + compressed)
+        following - (header + LOCAL_HEADER.size + name_length + compressed)
         for (header, _, name_length, compressed, *_), following in zip(
             members, next_headers, strict=True
         )
@@ -169,7 +165,7 @@ def index_with_data_descriptors(
     for (_, name, name_length, *_), raw in zip(
         sample, local_headers([m[0] for m in sample]), strict=True
     ):
-        if raw[:4] != _LOCAL_SIGNATURE or int.from_bytes(raw[26:28], "little") != name_length:
+        if raw[:4] != LOCAL_SIGNATURE or int.from_bytes(raw[26:28], "little") != name_length:
             return None
         extras.add(int.from_bytes(raw[28:30], "little"))
     if len(extras) != 1 or space - next(iter(extras)) not in DATA_DESCRIPTOR_SIZES:
@@ -177,7 +173,7 @@ def index_with_data_descriptors(
     (extra,) = extras
     return {
         name: ZipEntry(
-            header + _LOCAL_HEADER_SIZE + name_length + extra, compressed, uncompressed, method
+            header + LOCAL_HEADER.size + name_length + extra, compressed, uncompressed, method
         )
         for header, name, name_length, compressed, uncompressed, method, _ in members
     }
@@ -270,16 +266,7 @@ def cached_zip_index(url: str, path: Path) -> dict[str, ZipEntry]:
 def read_member(url: str, entry: ZipEntry) -> bytes:
     """One member's uncompressed bytes, fetched by a single range request."""
     data = read_range(url, entry.data_offset, entry.data_offset + entry.compressed_length)
-    return member_bytes(data, entry)
-
-
-def member_bytes(data: bytes, entry: ZipEntry) -> bytes:
-    """A member's uncompressed bytes from its stored bytes, the ``entry.compressed_length`` bytes at ``entry.data_offset``."""
-    if entry.method == STORED:
-        return data
-    if entry.method == DEFLATE:
-        return zlib.decompress(data, RAW_WBITS)
-    raise NotImplementedError(f"zip method {entry.method_name}")
+    return inflate(data, entry.method)
 
 
 def inflate_prefix(
