@@ -46,7 +46,7 @@ says where it sits.
   level; inside a field, background is camera noise of 0 to 8. Level 0 stores
   no chunk that misses every field; levels 1 to 3 store all-zero chunks
   across the whole well image.
-- **1,244 chunks are empty files.** Every well has some, from 10 in the
+- **1,244 chunks are empty files.** Every well has some, from 14 in the
   fewest to 94 in F/04: 139 image chunks at level 0, 479 at levels 1 to 3,
   and 626 label chunks. Level 0 stores only chunks that touch a field, so the
   empty level-0 chunks are pixels missing inside embryos: each is 10 planes of
