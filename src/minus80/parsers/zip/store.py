@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import zlib
-from collections.abc import AsyncIterator, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 
 from virtualizarr.parsers.zarr.zip import ZipEntry
 from zarr.abc.store import (
@@ -103,16 +103,30 @@ class MemberStore(Store):
       the zip records, so a short read never passes for data;
     - treats an empty member as absent, so zarr reads the fill value there.
       Every Zarr codec writes at least a header, so an empty member cannot
-      be a chunk.
+      be a chunk;
+    - passes the member to ``check``, when one is given. ``check`` returns
+      None for a member that can be decoded, or the reason it cannot, such
+      as a truncated frame. A member that fails is treated as absent too, and
+      its name and reason are kept in :attr:`rejected` for the caller to
+      record.
 
     zarr then decodes the chunk with the array's own codecs, as it would from
     any other store.
     """
 
-    def __init__(self, url: str, index: Mapping[str, ZipEntry]) -> None:
+    def __init__(
+        self,
+        url: str,
+        index: Mapping[str, ZipEntry],
+        *,
+        check: Callable[[str, bytes], str | None] | None = None,
+    ) -> None:
         super().__init__(read_only=True)
         self.url = url
         self._index = index
+        self._check = check
+        #: Members ``check`` rejected, by name, with the reason.
+        self.rejected: dict[str, str] = {}
         self._store, self._key = store_and_key(url, patient=True)
 
     def __eq__(self, other: object) -> bool:
@@ -147,6 +161,9 @@ class MemberStore(Store):
                 f"{self.url} {key}: inflated to {len(data)} bytes, "
                 f"the archive says {entry.uncompressed_length}"
             )
+        if self._check is not None and (reason := self._check(key, data)) is not None:
+            self.rejected[key] = reason
+            return None
         return prototype.buffer.from_bytes(_slice(data, byte_range))
 
     async def get_partial_values(

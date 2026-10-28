@@ -60,6 +60,8 @@ LABELS = ["cells", "cyto", "embryoRaw", "Pol-II-S2P_foci", "membrane", "nucleiRa
 LABEL_ROUND = 1
 #: A label chunk the fixture stores as an empty file, as the real zip does.
 EMPTY_CHUNK = "B/02/1/labels/cells/0/1/0/5"
+#: An image chunk the fixture cuts short, as some real chunks are.
+TRUNCATED_CHUNK = "C/03/2/0/1/0/0/1"
 PLATE = "AssayPlate_Greiner_#655090"
 ROWS = ["B", "C"]
 COLUMNS = ["02", "03"]
@@ -335,6 +337,13 @@ def build(root: Path) -> dict:
     empty.write_bytes(b"")
     y, x = WELLS["B/02"][1][0]
     truth[("B/02", 0, "cells")][10:20, :, : 6 * F - x] = 0
+    # Some real chunks are cut short. One here: channel 1 of round 2, planes 0
+    # to 9, the grid cell at y 0 to 39 and x 40 to 79, which holds the corner
+    # of C/03 FOV_1 (y 13, x 77).
+    cut = root / "plate.zarr" / TRUNCATED_CHUNK
+    cut.write_bytes(cut.read_bytes()[:64])
+    y, x = WELLS["C/03"][1][0]
+    truth[("C/03", 0, 2)][1, 0:10, 0 : F - y, 0 : 2 * F - x] = 0
     return truth
 
 

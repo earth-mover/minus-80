@@ -149,3 +149,10 @@ def test_an_empty_source_chunk_is_listed_on_its_image(store):
     notes = dict(store["B/02/0"].attrs)["annotations"]
     assert fixture.EMPTY_CHUNK in notes["empty_source_chunks"]
     assert dict(store["B/02/1"].attrs)["annotations"]["empty_source_chunks"] == []
+
+
+def test_a_truncated_source_chunk_reads_as_0_and_is_listed(store):
+    notes = dict(store["C/03/0"].attrs)["annotations"]
+    assert list(notes["unreadable_source_chunks"]) == [fixture.TRUNCATED_CHUNK]
+    assert "truncated" in notes["unreadable_source_chunks"][fixture.TRUNCATED_CHUNK]
+    assert dict(store["B/02/0"].attrs)["annotations"]["unreadable_source_chunks"] == {}
