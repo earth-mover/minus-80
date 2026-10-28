@@ -26,7 +26,9 @@ def _frames(n, shape, seed=0):
     return [rng.integers(0, 4000, shape, dtype=np.uint16) for _ in range(n)]
 
 
-def _write_zip(path, members: dict[str, bytes], *, compression=zipfile.ZIP_STORED, force_zip64=False):
+def _write_zip(
+    path, members: dict[str, bytes], *, compression=zipfile.ZIP_STORED, force_zip64=False
+):
     with zipfile.ZipFile(path, "w", compression=compression) as zf:
         zf.mkdir("seq")
         for name, data in members.items():
@@ -47,13 +49,24 @@ def _roundtrip(tmp_path, path, arrays):
 def test_frames_read_back(tmp_path, force_zip64):
     frames = _frames(4, (3, 37, 29))
     path = tmp_path / "data.zip"
-    _write_zip(path, {f"seq/t{t:03d}.tif": _tiff(f) for t, f in enumerate(frames)}, force_zip64=force_zip64)
+    _write_zip(
+        path, {f"seq/t{t:03d}.tif": _tiff(f) for t, f in enumerate(frames)}, force_zip64=force_zip64
+    )
     index = zip_index(path.as_uri())
     assert set(index) == {f"seq/t{t:03d}.tif" for t in range(4)}
-    assert read_member(path.as_uri(), index["seq/t002.tif"]) == zipfile.ZipFile(path).read("seq/t002.tif")
-    arr = member_array(path.as_uri(), index, np.array([f"seq/t{t:03d}.tif" for t in range(4)], dtype=object).reshape(4, 1, 1, 1),
-                       shape=(4, 3, 37, 29), chunk_shape=(1, 3, 37, 29), dtype="uint16", serializer=TIFF,
-                       dimension_names=("t", "z", "y", "x"))
+    assert read_member(path.as_uri(), index["seq/t002.tif"]) == zipfile.ZipFile(path).read(
+        "seq/t002.tif"
+    )
+    arr = member_array(
+        path.as_uri(),
+        index,
+        np.array([f"seq/t{t:03d}.tif" for t in range(4)], dtype=object).reshape(4, 1, 1, 1),
+        shape=(4, 3, 37, 29),
+        chunk_shape=(1, 3, 37, 29),
+        dtype="uint16",
+        serializer=TIFF,
+        dimension_names=("t", "z", "y", "x"),
+    )
     assert [c["name"] for c in arr.metadata.to_dict()["codecs"]] == ["imagecodecs_tiff"]
     got = _roundtrip(tmp_path, path, {"image": arr})["image"][:]
     np.testing.assert_array_equal(got, np.stack(frames))
@@ -64,8 +77,15 @@ def test_missing_members_read_as_fill(tmp_path):
     path = tmp_path / "masks.zip"
     _write_zip(path, {"seq/m000.tif": _tiff(frames[0]), "seq/m002.tif": _tiff(frames[1])})
     index = zip_index(path.as_uri())
-    arr = member_array(path.as_uri(), index, np.array(["seq/m000.tif", None, "seq/m002.tif"], dtype=object).reshape(3, 1, 1),
-                       shape=(3, 16, 16), chunk_shape=(1, 16, 16), dtype="uint16", serializer=TIFF)
+    arr = member_array(
+        path.as_uri(),
+        index,
+        np.array(["seq/m000.tif", None, "seq/m002.tif"], dtype=object).reshape(3, 1, 1),
+        shape=(3, 16, 16),
+        chunk_shape=(1, 16, 16),
+        dtype="uint16",
+        serializer=TIFF,
+    )
     got = _roundtrip(tmp_path, path, {"mask": arr})["mask"][:]
     np.testing.assert_array_equal(got[0], frames[0])
     assert not got[1].any()
@@ -76,16 +96,30 @@ def test_deflate_members_raise(tmp_path):
     path = tmp_path / "deflated.zip"
     _write_zip(path, {"seq/t0.tif": _tiff(_frames(1, (8, 8))[0])}, compression=zipfile.ZIP_DEFLATED)
     with pytest.raises(NotImplementedError, match="only STORED"):
-        member_array(path.as_uri(), zip_index(path.as_uri()), np.array(["seq/t0.tif"], dtype=object).reshape(1, 1, 1),
-                     shape=(1, 8, 8), chunk_shape=(1, 8, 8), dtype="uint16", serializer=TIFF)
+        member_array(
+            path.as_uri(),
+            zip_index(path.as_uri()),
+            np.array(["seq/t0.tif"], dtype=object).reshape(1, 1, 1),
+            shape=(1, 8, 8),
+            chunk_shape=(1, 8, 8),
+            dtype="uint16",
+            serializer=TIFF,
+        )
 
 
 def test_unknown_member_raises(tmp_path):
     path = tmp_path / "one.zip"
     _write_zip(path, {"seq/a.tif": _tiff(_frames(1, (4, 4))[0])})
     with pytest.raises(KeyError):
-        member_array(path.as_uri(), zip_index(path.as_uri()), np.array(["seq/b.tif"], dtype=object).reshape(1, 1, 1),
-                     shape=(1, 4, 4), chunk_shape=(1, 4, 4), dtype="uint16", serializer=TIFF)
+        member_array(
+            path.as_uri(),
+            zip_index(path.as_uri()),
+            np.array(["seq/b.tif"], dtype=object).reshape(1, 1, 1),
+            shape=(1, 4, 4),
+            chunk_shape=(1, 4, 4),
+            dtype="uint16",
+            serializer=TIFF,
+        )
 
 
 def test_inflate_prefix_stops_early(tmp_path):
@@ -113,8 +147,15 @@ def test_zero_length_member_reads_as_fill(tmp_path):
     path = tmp_path / "gap.zip"
     _write_zip(path, {"seq/t0.tif": _tiff(frame), "seq/t1.tif": b""})
     index = zip_index(path.as_uri())
-    arr = member_array(path.as_uri(), index, np.array(["seq/t0.tif", "seq/t1.tif"], dtype=object).reshape(2, 1, 1),
-                       shape=(2, 8, 8), chunk_shape=(1, 8, 8), dtype="uint16", serializer=TIFF)
+    arr = member_array(
+        path.as_uri(),
+        index,
+        np.array(["seq/t0.tif", "seq/t1.tif"], dtype=object).reshape(2, 1, 1),
+        shape=(2, 8, 8),
+        chunk_shape=(1, 8, 8),
+        dtype="uint16",
+        serializer=TIFF,
+    )
     got = _roundtrip(tmp_path, path, {"frames": arr})["frames"][:]
     np.testing.assert_array_equal(got[0], frame)
     assert not got[1].any()
@@ -124,7 +165,9 @@ def test_cached_index_is_read_once_and_kept(tmp_path):
     from minus80.parsers.zip.members import cached_zip_index
 
     path = tmp_path / "data.zip"
-    _write_zip(path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 50}, compression=zipfile.ZIP_DEFLATED)
+    _write_zip(
+        path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 50}, compression=zipfile.ZIP_DEFLATED
+    )
     cache = tmp_path / "cache" / "index.npz"
     first = cached_zip_index(path.as_uri(), cache)
     assert cache.exists()
@@ -133,6 +176,68 @@ def test_cached_index_is_read_once_and_kept(tmp_path):
     _write_zip(other, {"seq/c.tif": b"c"})
     with pytest.raises(ValueError, match="indexes"):
         cached_zip_index(other.as_uri(), cache)
-    _write_zip(path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 500}, compression=zipfile.ZIP_STORED)
+    _write_zip(
+        path, {"seq/a.tif": b"a" * 100, "seq/b.tif": b"b" * 500}, compression=zipfile.ZIP_STORED
+    )
     with pytest.raises(ValueError, match="it is now"):
         cached_zip_index(path.as_uri(), cache)
+
+
+class _Unseekable(io.RawIOBase):
+    """A write-only stream, so zipfile writes each member with a data descriptor."""
+
+    def __init__(self, f):
+        self._f = f
+
+    def writable(self):
+        return True
+
+    def write(self, b):
+        return self._f.write(b)
+
+
+def test_members_with_data_descriptors_are_indexed_from_the_directory(tmp_path):
+    from minus80.parsers.zip.members import DATA_DESCRIPTOR, index_with_data_descriptors
+
+    path = tmp_path / "streamed.zip"
+    contents = {f"a/{i}": bytes([i]) * (100 + i) for i in range(20)}
+    with open(path, "wb") as f, zipfile.ZipFile(_Unseekable(f), "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in contents.items():
+            zf.writestr(name, data)
+    with zipfile.ZipFile(path) as zf:
+        assert all(info.flag_bits & DATA_DESCRIPTOR for info in zf.infolist())
+    index = zip_index(path.as_uri())
+    assert set(index) == set(contents)
+    for name, data in contents.items():
+        assert read_member(path.as_uri(), index[name]) == data
+    raw = path.read_bytes()
+    end = raw.rfind(b"PK\x05\x06")
+    size, offset = (
+        int.from_bytes(raw[end + 12 : end + 16], "little"),
+        int.from_bytes(raw[end + 16 : end + 20], "little"),
+    )
+    assert (
+        index_with_data_descriptors(
+            raw[offset : offset + size], offset, lambda offs: [raw[o : o + 30] for o in offs]
+        )
+        == index
+    )
+
+
+def test_an_archive_without_data_descriptors_is_left_to_virtualizarr(tmp_path):
+    from minus80.parsers.zip.members import index_with_data_descriptors
+
+    path = tmp_path / "plain.zip"
+    _write_zip(path, {"seq/a": b"a" * 10}, compression=zipfile.ZIP_DEFLATED)
+    raw = path.read_bytes()
+    end = raw.rfind(b"PK\x05\x06")
+    size, offset = (
+        int.from_bytes(raw[end + 12 : end + 16], "little"),
+        int.from_bytes(raw[end + 16 : end + 20], "little"),
+    )
+    assert (
+        index_with_data_descriptors(
+            raw[offset : offset + size], offset, lambda offs: [raw[o : o + 30] for o in offs]
+        )
+        is None
+    )

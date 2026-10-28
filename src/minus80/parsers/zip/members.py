@@ -13,13 +13,14 @@ their own.
 
 from __future__ import annotations
 
+import struct
 import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
 from virtualizarr.manifests import ManifestArray
-from virtualizarr.parsers.zarr.zip import ZipEntry, parse_zip_index
+from virtualizarr.parsers.zarr.zip import ZipEntry, _parse_zip64_extra, parse_zip_index
 
 from minus80.core.aio import run_sync
 from minus80.core.fetch import iter_ranges, object_size, read_range
@@ -72,8 +73,114 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
         url, [(start, end)], block=DIRECTORY_PIECE, concurrency=DIRECTORY_CONCURRENCY, patient=True
     ):
         directory += data
+
+    def local_headers(offsets):
+        return [read_range(url, o, o + _LOCAL_HEADER_SIZE, patient=True) for o in offsets]
+
+    if (index := index_with_data_descriptors(bytes(directory), start, local_headers)) is not None:
+        return index
     spans = [(tail_start, tail), (start, bytes(directory))]
     return run_sync(parse_zip_index(_Prefetched(store, size, spans), key))
+
+
+#: The sizes a data descriptor can take: CRC-32 and two sizes of 4 or 8 bytes
+#: each, with or without the optional 4-byte signature.
+DATA_DESCRIPTOR_SIZES = (12, 16, 20, 24)
+DATA_DESCRIPTOR = 0x08
+_DIRECTORY_ENTRY = struct.Struct("<IHHHHHHIIIHHHHHII")
+_DIRECTORY_SIGNATURE = b"PK\x01\x02"
+_LOCAL_SIGNATURE = b"PK\x03\x04"
+_LOCAL_HEADER_SIZE = 30
+
+
+def index_with_data_descriptors(
+    directory: bytes, directory_offset: int, local_headers
+) -> dict[str, ZipEntry] | None:
+    """The members of an archive whose members carry data descriptors, or None for any other archive.
+
+    ``local_headers`` takes a list of local-header offsets and returns each
+    header's first 30 bytes; it is called once, for a small sample.
+
+    Why this exists
+    ---------------
+    VirtualiZarr's ``parse_zip_index`` trusts the offsets the central
+    directory implies only when the members sit back to back. A member written
+    with a data descriptor (flag bit 3) is followed by 12 to 24 bytes that
+    record its sizes, so the members are never back to back, and the parser
+    falls back to reading every member's local header. S-BIAD3228 has 2,036,714
+    such members: 2 million requests, hours of work.
+
+    The directory alone cannot place the data, either. Its extra field can be
+    longer than the local header's: past 4 GB, S-BIAD3228's directory entries
+    carry a 21-byte extra field (with the 8-byte header offset) while their
+    local headers carry 9 bytes.
+
+    How the members are placed instead
+    ----------------------------------
+    - Between the end of one member's compressed data and the next member's
+      local header lie that member's local extra field and its data
+      descriptor. The size of that space is computed for every member, and it
+      must be the same for all of them: 25 bytes in S-BIAD3228.
+    - A sample of local headers, spread across the archive, gives the local
+      extra field's length (9 bytes). It must be the same in every sample,
+      and the space minus it must be a data descriptor's size (16 bytes).
+    - Each member's data then starts at its header offset plus 30 bytes, its
+      name and that extra field.
+
+    Anything else returns None, and the caller uses VirtualiZarr's parser.
+    A member placed wrongly would not inflate to its recorded size, which
+    :class:`~minus80.parsers.zip.store.MemberStore` checks on every read.
+    docs/upstream.md tracks the fix in VirtualiZarr.
+    """
+    members, pos = [], 0
+    while (
+        pos + _DIRECTORY_ENTRY.size <= len(directory)
+        and directory[pos : pos + 4] == _DIRECTORY_SIGNATURE
+    ):
+        fields = _DIRECTORY_ENTRY.unpack_from(directory, pos)
+        flags, method, compressed, uncompressed = fields[3], fields[4], fields[8], fields[9]
+        name_length, extra_length, comment_length = fields[10], fields[11], fields[12]
+        header = fields[16]
+        name = directory[pos + 46 : pos + 46 + name_length].decode()
+        if 0xFFFFFFFF in (compressed, uncompressed, header):
+            extra = directory[pos + 46 + name_length : pos + 46 + name_length + extra_length]
+            uncompressed, compressed, header = _parse_zip64_extra(
+                extra, uncompressed, compressed, header
+            )
+        pos += 46 + name_length + extra_length + comment_length
+        if name.endswith("/") and uncompressed == 0:
+            continue
+        members.append((header, name, name_length, compressed, uncompressed, method, flags))
+    if not members or not all(m[6] & DATA_DESCRIPTOR for m in members):
+        return None
+    members.sort()
+    next_headers = [m[0] for m in members[1:]] + [directory_offset]
+    spaces = {
+        following - (header + _LOCAL_HEADER_SIZE + name_length + compressed)
+        for (header, _, name_length, compressed, *_), following in zip(
+            members, next_headers, strict=True
+        )
+    }
+    if len(spaces) != 1:
+        return None
+    (space,) = spaces
+    sample = members[:: max(1, len(members) // 8)] + [members[-1]]
+    extras = set()
+    for (_, name, name_length, *_), raw in zip(
+        sample, local_headers([m[0] for m in sample]), strict=True
+    ):
+        if raw[:4] != _LOCAL_SIGNATURE or int.from_bytes(raw[26:28], "little") != name_length:
+            return None
+        extras.add(int.from_bytes(raw[28:30], "little"))
+    if len(extras) != 1 or space - next(iter(extras)) not in DATA_DESCRIPTOR_SIZES:
+        return None
+    (extra,) = extras
+    return {
+        name: ZipEntry(
+            header + _LOCAL_HEADER_SIZE + name_length + extra, compressed, uncompressed, method
+        )
+        for header, name, name_length, compressed, uncompressed, method, _ in members
+    }
 
 
 class _Prefetched:
