@@ -218,6 +218,26 @@ Coiled copies your local environment, so a macOS wheel or an editable checkout
 breaks Linux workers. It also reattaches to a live cluster of the same name,
 old code included, so name each launch's cluster uniquely.
 
+For a job on one VM, `coiled run` is enough, and these rules keep it visible:
+
+- **Ship a built wheel and the scripts, in a plain container.** A pure-Python
+  package builds a wheel that installs on Linux; pin any git dependency the
+  workspace pins, since a wheel cannot carry the pin.
+- **Launch with `--detach` and read `coiled logs`.** Without `--detach`,
+  `coiled run` returns a long command's output only when it finishes, so a
+  working run and a stuck one look the same.
+- **Put the command in a script file.** Coiled can garble an inline
+  `bash -c` string with several statements.
+- **Never run a second command on a VM that is running a job.** The second
+  command disrupted the first and shut the VM down when it finished. Probe on
+  a separate VM.
+- **Pass a secret as `-e "NAME=$VALUE"` from a variable set first.** Written
+  as `NAME=$(...) coiled run ... -e NAME="$NAME"`, the variable expands
+  before the assignment and the job receives an empty value.
+- **Print a timed line before and after every step, and progress within any
+  step longer than a minute.** Set an expected time for each step before
+  launching, and stop a run that passes it without output.
+
 ## Data beyond the images
 
 ### Find out what consumers use before designing the layout
