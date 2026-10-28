@@ -75,9 +75,11 @@ says where it sits.
   REPORT gives the count.
 - **Every member of the zip is followed by a data descriptor,** a 16-byte
   record of its sizes, and past 4 GB each directory entry's extra field is
-  21 bytes while its local header's is 9. VirtualiZarr's zip parser then reads
-  all 2 million local headers; `minus80.parsers.zip.members` places the
-  members from the gaps instead (docs/upstream.md).
+  21 bytes while its local header's is 9. So the central directory alone
+  cannot say where a member's data starts, and VirtualiZarr's zip parser
+  reads all 2 million local headers to find out. The copy does not need to
+  know in advance: it fetches each well's bytes whole and reads every local
+  header from them (`minus80.parsers.zip.streaming`).
 - **Every embryo carries label 1 in `embryoRaw`,** so `embryoRaw_ROI_table`
   has one row per well whose box spans the well, not one per embryo.
 - **`x_micrometer_original` is about half of `x_micrometer`** in every row,
