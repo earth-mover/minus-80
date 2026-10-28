@@ -43,6 +43,8 @@ from functools import cached_property
 import ingest
 import numpy as np
 import zarr
+from zarr.core.buffer import default_buffer_prototype
+from zarr.storage import MemoryStore
 
 from minus80.ome.hierarchy import images
 from minus80.ome.image import validate
@@ -84,7 +86,10 @@ class Reference:
     def plan(self) -> zarr.Group:
         """The plate's metadata and tables, cheap to list."""
         names = metadata_names(self.directory["name"].to_pylist(), also=[TABLES])
-        return ingest.documents_store(read_members(self.url, names, self.directory))
+        prototype = default_buffer_prototype()
+        documents = read_members(self.url, names, self.directory)
+        store = MemoryStore({name: prototype.buffer.from_bytes(data) for name, data in documents.items()})
+        return zarr.open_group(store, mode="r", zarr_format=2)
 
     @cached_property
     def pixels(self) -> zarr.Group:
@@ -351,14 +356,15 @@ def rounds_listed(root, ref: Reference) -> list[str]:
     round 3, whose markers differ between wells.
     """
     wells = store_wells(root)
-    by_well = {
-        well: {
-            str(rnd): [label for label, r, _ in ref.channels(well) if r == rnd]
-            for rnd in ref.rounds(well)
+    want = {}
+    for rnd in sorted({rnd for well in wells for rnd in ref.rounds(well)}):
+        per_well = {
+            well: [label for label, r, _ in ref.channels(well) if r == rnd]
+            for well in wells
+            if rnd in ref.rounds(well)
         }
-        for well in wells
-    }
-    want = ingest.recorded_rounds(by_well)
+        names = list(per_well.values())
+        want[str(rnd)] = names[0] if all(n == names[0] for n in names) else per_well
     got = dict(root.attrs)["source"]["rounds"]
     return [] if got == want else [f"plate records rounds {got}, the source holds {want}"]
 
