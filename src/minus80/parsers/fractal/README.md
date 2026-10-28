@@ -7,7 +7,7 @@ the fields are listed in an AnnData table, `FOV_ROI_table`.
 
 | Module | What it does |
 | --- | --- |
-| `plate` | `read_plate` finds the wells and acquisitions and checks that every image shares one pyramid geometry; `read_fields` returns each field of a well, ordered by number, with its window and placement on every level (from `minus80.ome.crop`); `read_table` reads an AnnData ROI table |
+| `plate` | `read_plate` finds the wells and acquisitions and checks that every image of the given wells (default: all) shares one pyramid geometry; `read_fields` returns each field of a well, ordered by number, with its window and placement on every level (from `minus80.ome.crop`), after checking every acquisition's table agrees; `fields_from_table` places the fields of one table, for a reader that has one table before the levels' shapes; `read_table` reads an AnnData ROI table; `multiscale_scales` reads each level's pixel size from an image's attributes |
 
 It reads metadata and tables only; the pixels are read through zarr by the
 caller. The `fractal` extra installs `anndata`, which reads the tables.
