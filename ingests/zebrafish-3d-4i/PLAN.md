@@ -44,6 +44,8 @@ copy.
 | 10 | Destination | Repo `earthmover-biology/zebrafish-3d-4i` on Arraylake managed storage; the zip at `files/ingest-staging/` in the same bucket | Decided 2026-10-27 |
 | 11 | OME-Zarr 0.6 | 0.6 scenes place each field image in its well | Decided 2026-10-27 |
 | 12 | Copy pyramid levels 1 to 3 from the source, rebuild later | Most field origins fall between coarse pixels, so each field's copied level is a pixel larger than half, a quarter or an eighth of 1000, with a per-level offset; a later commit rebuilds the levels from level 0 | Decided |
+| 13 | Read damaged source chunks as missing, and record them | 1,244 chunk members are empty files and some are cut short; no reader can decode them. Each reads as the fill value, 0, and each image lists the damaged chunks inside its field | Decided 2026-10-28 |
+| 14 | Convert by streaming the staged zip in file order | The zip is laid out array by array; reading each member as its own request through zarr took about 1.5 hours a well from EBI, with the network idle most of the time. Read large pieces in file order, and write each shard as soon as its source chunks have arrived | Decided 2026-10-28; to build and measure |
 
 **Settled by the step 3 trial, by measurement:**
 
@@ -439,13 +441,34 @@ default; from London, 64 in flight doubled throughput.
     from each field's level 0, with exact shapes and no fringe; the first
     commit stays in the history.
 
+13. **Damaged source chunks.** The zip holds 1,244 chunk members as empty
+    files, in every well (14 to 94 per well), 139 of them level-0 image
+    chunks inside embryos; and some chunks are cut short, such as
+    `C/02/1/labels/Pol-II-S2P_foci/1/6/0/3`, which holds 16,384 bytes of a
+    162,569-byte Blosc frame. *Decided: read each as the fill value, 0, as
+    the repository's rule for a unit with no stored bytes requires, and list
+    it on the image whose field it falls in
+    (`annotations.empty_source_chunks`, `annotations.unreadable_source_chunks`).*
+    Report both to the authors and the BioImage Archive, with round 3.
+
+14. **How the converter reads the source.** The first one-well runs read
+    each zip member with its own request, through zarr, one field, level and
+    channel at a time: 30,184 requests for well C/02, at 10 to 30 s per
+    level-0 channel, about 1.5 hours a well, with the network idle between
+    bursts. The zip is laid out array by array (2,048 contiguous runs; within
+    a run, by channel and then by z block), so one well's 20.3 GB can be read
+    as about 300 pieces of 64 MiB. *Decided: stage the zip in R2 (decision 1),
+    keep its index and metadata (about 1 MB) in a cache file, then read the
+    zip once in file order in large pieces, writing each output shard as soon
+    as the source chunks it needs have arrived.*
+
 ## Steps, scope and risk
 
 | Step | What it does | Writes | Approval |
 |---|---|---|---|
 | 1 | Speed test from AWS London: parallel HTTPS and Aspera | Nothing kept | **Done** 2026-10-27 |
 | 2 | Write and delete a one-byte test object to confirm the token can write outside a repo; then transfer the zip, checking each part's MD5, and the final size against EBI's | Managed bucket: one 591 GB object | Yes |
-| 3 | Convert one well three times, reading straight from EBI: `main` (16 channels per embryo, 32-plane shards), `per-round` (one image per embryo and round), `shards-10` (10-plane shards); time the six reads from in-region and from London; open all three in napari, with a domain expert | Arraylake branches | Yes (repo creation) |
+| 3 | Convert one well three times, reading the staged zip with the streaming converter (decision 14): `main` (16 channels per embryo, 32-plane shards), `per-round` (one image per embryo and round), `shards-10` (10-plane shards); time the six reads from in-region and from London; open all three in napari, with a domain expert | Arraylake branches | Yes (repo creation) |
 | 4 | Full conversion on Coiled, reading R2 | Arraylake `main` | Yes |
 | 5 | Verify: metadata gates on every array; pixels against the zip on a sample of chunks from every well, round and level, levels 1 to 3 compared exactly | Nothing | |
 | 6 | Write `REPORT.md` and `LAYOUTS.md`; delete the staged zip | R2 delete | Yes |
