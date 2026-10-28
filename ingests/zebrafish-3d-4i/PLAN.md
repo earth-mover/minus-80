@@ -27,7 +27,7 @@ copy.
   padding chunks, 57% of the zip's members, are never read.
 - **ROI tables.** The source's three AnnData ROI tables become structure: each field becomes its own image, positioned in its well, and the tables' values are kept as attributes.
 
-**Decisions.** Each is argued in full under "Judgement calls", by number.
+**Decisions.** Each is argued in full under "Judgment calls", by number.
 
 | # | Decision | Context | Status |
 |---|---|---|---|
@@ -120,7 +120,7 @@ zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_
   B/02/                              well: one image per field of view and round
     0/                               field FOV_1, round 0: c = DAPI_0, Pol-II-S2P, FLAG, PCNA
       0/ 1/ 2/ 3/                    pyramid levels, (c, z, y, x) uint16, 1000 × 1000 at level 0;
-                                     levels 1 to 3 copied from the source (judgement call 12)
+                                     levels 1 to 3 copied from the source (judgment call 12)
     1/                               field FOV_1, round 1: c = DAPI_1, H3K27Ac, bCatenin, pH3
       0/ 1/ 2/ 3/
       labels/                        nucleiRaw, cells, cyto, membrane, embryoRaw, Pol-II-S2P_foci,
@@ -132,18 +132,18 @@ zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_
 ```
 
 - **Axes and units** come from the source: `c` channel; `z`, `y`, `x` in
-  micrometres; scale `[1, 1, 0.65, 0.65]` at level 0, doubling in y and x per
-  level, plus a translation at levels 1 to 3 (judgement call 12). Channel names, colours and display windows come from the source's
+  micrometers; scale `[1, 1, 0.65, 0.65]` at level 0, doubling in y and x per
+  level, plus a translation at levels 1 to 3 (judgment call 12). Channel names, colors and display windows come from the source's
   `omero` block, in the source's order.
-- **One image per field of view and round** (judgement call 3). Each image is
+- **One image per field of view and round** (judgment call 3). Each image is
   the field's 1000 × 1000 pixels cut from the source well image, named for the
   field and round, and tagged in the well metadata with its acquisition, the
   round. Its multiscales metadata adds a translation to its scale: the field's
-  position on the stage, in micrometres, from the `FOV_ROI_table`, so a viewer
+  position on the stage, in micrometers, from the `FOV_ROI_table`, so a viewer
   can lay a well out as the source did.
 - **The plate and well metadata** list all four rounds, each tagged with its
-  acquisition (judgement call 4).
-- **Chunks and shards** (judgement call 5), as (c, z, y, x):
+  acquisition (judgment call 4).
+- **Chunks and shards** (judgment call 5), as (c, z, y, x):
   - **Images:** chunks of `1 × 1 × 1000 × 1000`, one whole plane of one
     channel of one field, in shards of `1 × 32 × 1000 × 1000`, about 15 MB.
     Showing one plane fetches the shard index and one chunk, about 0.5 MB; an
@@ -154,16 +154,16 @@ zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_
     span every plane. A label plane compresses to about 6 KB, so a 10-plane
     shard would make a label volume cost 28 requests per field for almost no
     data; a full-depth shard is about 1.6 MB and costs one.
-- **Codec:** blosc zstd level 5 with bitshuffle (judgement call 6).
+- **Codec:** blosc zstd level 5 with bitshuffle (judgment call 6).
 - **Empty chunks:** within a field almost nothing is empty. Image planes hold
   camera noise (values 0 to 8) even outside the embryo, and only label planes
   above and below the embryo are all zero: 6 of 271 for `nucleiRaw` in one
   C/02 field. zarr skips writing an all-zero chunk, and it reads back as the
   fill value, 0.
 - **Root attributes** name the source study, the zip, the preprint and the
-  licence, so the store can be traced without this document.
+  license, so the store can be traced without this document.
 
-**ROI tables, folded into the layout** (judgement call 7). The source's three
+**ROI tables, folded into the layout** (judgment call 7). The source's three
 AnnData tables become structure and attributes rather than tables:
 
 | Source table | Holds | In the store |
@@ -181,16 +181,16 @@ Each field image keeps, as attributes, the field's source name (`FOV_1` to
 - **Reference the zip in place.** Each chunk would need a custom codec that
   inflates raw Deflate, and Arraylake cannot hold virtual references to an
   HTTPS-only host. The staged copy in R2 fixes the second problem, which is why
-  a virtual store remains an option (judgement call 8).
+  a virtual store remains an option (judgment call 8).
 - **Copy the blosc-lz4 frames unchanged.** No pixel decode, but the store
   would be about 1.03 TB, nearly twice the zip.
 - **The source's well image, one image per round.** Each well image is about 96%
   filler (well C/02 at level 3), and the chunk grid cuts across the fields, so
   reading one embryo reads two to four partly empty grid cells. In the
   well-image layout an embryo volume takes about 2.0 s from London even in
-  32-plane shards, against 1.3 s per field (judgement call 3).
+  32-plane shards, against 1.3 s per field (judgment call 3).
 - **pcodec.** On field pixels it compresses 11 to 21% smaller than blosc
-  zstd 5 with bitshuffle, but decodes four times slower (judgement call 6).
+  zstd 5 with bitshuffle, but decodes four times slower (judgment call 6).
 - **Other chunk and shard shapes.** Each layout was costed for six reads
   (one plane, a whole well at level 3, an xz slice, an embryo volume at
   levels 0 and 1, all 16 channels of an embryo, and a training patch), from
@@ -287,7 +287,7 @@ default; from London, 64 in flight doubled throughput.
 - That every field's level-0 chunks are present. Only one image's chunk
   pattern has been compared against its `FOV_ROI_table`.
 
-## Judgement calls
+## Judgment calls
 
 1. **Stage the zip in R2 first.** Converting straight from EBI would avoid
    storing the zip, but any rerun of the conversion (a bug, a different chunk

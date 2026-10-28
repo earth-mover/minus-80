@@ -26,10 +26,10 @@ The convention, for a level whose pixels are ``f`` level-0 pixels wide:
 
 - coarse pixel ``j`` stands for level-0 pixels ``j * f`` to ``j * f + f - 1``,
   which is what averaging or picking within ``f x f`` blocks produces;
-- OME-Zarr places pixels by their centres, so coarse pixel ``j``'s centre is
+- OME-Zarr places pixels by their centers, so coarse pixel ``j``'s center is
   at level-0 position ``j * f + (f - 1) / 2``;
-- the cut image's own coordinates put level 0's first pixel centre at 0, so a
-  level's translation is its first pixel centre minus the window's origin,
+- the cut image's own coordinates put level 0's first pixel center at 0, so a
+  level's translation is its first pixel center minus the window's origin,
   in physical units.
 
 An axis that is not cut (channel, or z when every plane is kept) is just a
@@ -50,8 +50,8 @@ class CroppedLevel:
     window: dict[str, tuple[int, int]]
     #: Pixel size per axis, the source level's own.
     scale: dict[str, float]
-    #: Where the first pixel's centre sits, per axis, relative to level 0's
-    #: first pixel centre, in the same units as ``scale``.
+    #: Where the first pixel's center sits, per axis, relative to level 0's
+    #: first pixel center, in the same units as ``scale``.
     translation: dict[str, float]
 
     @property

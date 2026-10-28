@@ -6,7 +6,7 @@ What Fractal writes
 acquisition as one well-sized image: the microscope's fields of view are
 pasted onto a blank canvas at their stage positions, with zeros between them.
 Where each field sits is not in the image metadata but in an AnnData table
-beside it, ``tables/FOV_ROI_table``, one row per field, in micrometres.
+beside it, ``tables/FOV_ROI_table``, one row per field, in micrometers.
 
 OME-Zarr's plate layout gives each field its own image instead. To get there,
 a reader has to:
@@ -49,7 +49,7 @@ FIELDS_TABLE = "FOV_ROI_table"
 #: The group under each image where Fractal keeps its AnnData tables.
 TABLES = "tables"
 #: How far a position may sit from a whole pixel and still count as one. The
-#: tables store micrometres as float64, so 0.65 * 1945 comes back as
+#: tables store micrometers as float64, so 0.65 * 1945 comes back as
 #: 1264.2500000000002, not 1264.25.
 WHOLE_PIXEL = 1e-6
 
@@ -178,12 +178,12 @@ def field_number(name: str) -> int:
     return int(match.group(1))
 
 
-def whole_pixels(where: str, micrometres: float, pixel: float) -> int:
-    """A length in micrometres as whole pixels, or ``ValueError`` if it is not one."""
-    n = micrometres / pixel
+def whole_pixels(where: str, micrometers: float, pixel: float) -> int:
+    """A length in micrometers as whole pixels, or ``ValueError`` if it is not one."""
+    n = micrometers / pixel
     if abs(n - round(n)) > WHOLE_PIXEL:
         raise ValueError(
-            f"{where}: {micrometres} µm is {n} pixels of {pixel} µm, not a whole number"
+            f"{where}: {micrometers} µm is {n} pixels of {pixel} µm, not a whole number"
         )
     return round(n)
 

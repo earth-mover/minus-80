@@ -20,7 +20,7 @@ Each item was found in a real deposit, BioImage Archive S-BIAD3228:
   every well holds 0 to 3. Acquisitions are found from the image groups.
 - Each acquisition's copy of `FOV_ROI_table` lists the same fields in a
   different order, so rows are matched by field name.
-- Positions are float64 micrometres, so a whole pixel can come back as
+- Positions are float64 micrometers, so a whole pixel can come back as
   `1264.2500000000002`. Positions within 1e-6 of a pixel count as whole.
 
 ## Limits
