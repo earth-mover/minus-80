@@ -36,7 +36,7 @@ says where it sits.
 - **Image levels are 2 x 2 averages, labels keep one pixel.** Compared on one
   grid cell of C/02 round 1 (planes 130 to 139): `nucleiRaw` level 1 equals
   the bottom-right pixel of each 2 x 2 block of level 0 on all 2.5 million
-  pixels; DAPI level 1 is within 0.09 grey levels on average of the 2 x 2
+  pixels; DAPI level 1 is within 0.09 gray levels on average of the 2 x 2
   mean, though no simple rounding reproduces it exactly. Either way coarse
   pixel `j` stands for the block of level-0 pixels from `2j`, so the same
   translation applies to images and labels.

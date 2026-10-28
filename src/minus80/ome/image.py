@@ -350,7 +350,7 @@ def image_attrs(
     axis's type; :func:`axis_types` says how an axis it leaves out is typed.
 
     ``level_scales`` and ``level_translations`` give each level's pixel size
-    and first pixel centre outright, one per-axis mapping per level, for levels
+    and first pixel center outright, one per-axis mapping per level, for levels
     whose geometry does not follow from their shapes: a window cut from a
     coarser level of a larger image can be a pixel wider than level 0 divided
     by the factor, and start part of a pixel off level 0's corner. Level 0's

@@ -201,10 +201,10 @@ def level_transforms(dataset: dict) -> tuple[list[float], list[float]]:
 def level_window(dataset: dict, fine: list[float], roi: dict, shape) -> tuple[int, int, int, int]:
     """The level's ``(y0, y1, x0, x1)`` in the source level, from its stored scale and translation.
 
-    In the source well image, level-0 pixel ``i`` has its centre at ``i * p``,
+    In the source well image, level-0 pixel ``i`` has its center at ``i * p``,
     and a coarse pixel ``j`` of size ``s`` stands for the level-0 pixels from
-    ``j * s / p``, so its centre is at ``(j + 1/2) * s - p / 2``. The level's
-    first pixel centre is its translation plus the field's origin, so
+    ``j * s / p``, so its center is at ``(j + 1/2) * s - p / 2``. The level's
+    first pixel center is its translation plus the field's origin, so
 
         j = (translation + origin + p / 2) / s - 1/2
 
