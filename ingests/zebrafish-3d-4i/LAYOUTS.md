@@ -8,12 +8,13 @@ decisions; this file records the mapping and what the source taught us.
 
 | Source | Store |
 |---|---|
-| `<row>/<col>/<round>/<level>`: one well-sized image per round, `(c, z, y, x)` uint16, every field pasted at its stage position | `<row>/<col>/<image>/<level>`: one image per field and round, cut from the well image |
-| field `FOV_n` in round `r` | image `4 * (n - 1) + r` |
-| `<row>/<col>/1/labels/<name>/<level>`, `(z, y, x)` uint32 | `<row>/<col>/<image of round 1>/labels/<name>/<level>`, cut to the field |
+| `<row>/<col>/<round>/<level>`: one well-sized image per round, `(c, z, y, x)` uint16, 4 channels, every field pasted at its stage position | `<row>/<col>/<image>/<level>`: one image per field, cut from the well images of all four rounds, 16 channels |
+| field `FOV_n` | image `n - 1` |
+| channel `c` of round `r` | channel `4 * r + c` of the field's image; its name, color, window and `wavelength_id` are the source's, and the image's annotations record `r` and `c` |
+| `<row>/<col>/1/labels/<name>/<level>`, `(z, y, x)` uint32 | `<row>/<col>/<image>/labels/<name>/<level>`, cut to the field; the annotations record round 1 |
 | `FOV_ROI_table`: one row per field | the images themselves; each row's position is the image's translation in the well's `scene`, and the row is kept in the image's `annotations` |
 | `well_ROI_table`, `embryoRaw_ROI_table` | kept as rows in the well group's `annotations` |
-| plate `acquisitions` 0 to 2 | acquisitions 0 to 3, each described by its channels |
+| plate `acquisitions` 0 to 2 | no acquisitions, since every image holds all four rounds; the plate's `source.rounds` lists each round's channels, and `source.source_acquisitions` keeps the source's list |
 
 Level 0 of a field is its exact 1000 x 1000 window. Levels 1 to 3 are the
 source's own pixels: the window covers every coarse pixel the field touches,
@@ -25,8 +26,9 @@ says where it sits.
 - **Round 3 is missing from the HCS metadata.** Every well holds image groups
   `0` to `3`, but the plate lists acquisitions 0 to 2 and each well lists
   images 0 to 2, so a reader that follows the metadata never finds round 3
-  (DAPI_3, Nanog, YAP, XRN2). The store lists all four; the original list is
-  kept as the plate's `source.source_acquisitions`. Worth reporting to the
+  (DAPI_3, Nanog, YAP, XRN2). Every image in the store holds all four
+  rounds' channels; the original list is kept as the plate's
+  `source.source_acquisitions`. Worth reporting to the
   authors.
 - **`FOV_ROI_table` rows are in no fixed order, and the order differs between
   rounds.** In well C/02, rounds 0 to 2 list FOV_1, FOV_7, FOV_4, FOV_6,
@@ -57,5 +59,5 @@ says where it sits.
 
 ## Plate `field_count`
 
-The plate's `field_count` is the most fields any well holds (9), not the most
-images (36): rounds are acquisitions, not fields.
+The plate's `field_count` is the most fields any well holds (9), which is
+also the most images, since each image is one field.
