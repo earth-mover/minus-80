@@ -14,7 +14,7 @@ decisions; this file records the mapping and what the source taught us.
 | `<row>/<col>/1/labels/<name>/<level>`, `(z, y, x)` uint32 | `<row>/<col>/<image>/labels/<name>/<level>`, cut to the field; the annotations record round 1 |
 | `FOV_ROI_table`: one row per field | the images themselves; each row's position is the image's translation in the well's `scene`, and the row is kept in the image's `annotations` |
 | `well_ROI_table`, `embryoRaw_ROI_table` | kept as rows in the well group's `annotations` |
-| plate `acquisitions` 0 to 2 | no acquisitions, since every image holds all four rounds; the plate's `source.rounds` lists each round's channels, and `source.source_acquisitions` keeps the source's list |
+| plate `acquisitions` 0 to 2 | no acquisitions, since every image holds all four rounds; the plate's `source.rounds` lists each round's channels, round 3 per well, and `source.source_acquisitions` keeps the source's list |
 
 Level 0 of a field is its exact 1000 x 1000 window. Levels 1 to 3 are the
 source's own pixels: the window covers every coarse pixel the field touches,
@@ -30,6 +30,14 @@ says where it sits.
   rounds' channels; the original list is kept as the plate's
   `source.source_acquisitions`. Worth reporting to the
   authors.
+- **Round 3 stains different markers in different wells.** In 21 wells it is
+  DAPI_3, Nanog, YAP and XRN2. In 9 it restains three markers from an
+  earlier round, named with a `_restained` suffix: round 1's (H3K27Ac,
+  bCatenin, pH3) in C/06, F/06 and G/06; round 0's (Pol-II-S2P, FLAG, PCNA)
+  in B/06, E/06 and G/05; round 2's (H2B, ALYREF, Pol-II-S5P) in D/06, F/07
+  and G/07. Rounds 0 to 2 are the same in every well. The only record is
+  each image's `omero` channel list, so the ingest names every image's
+  channels from its own well and never from a plate-wide list.
 - **`FOV_ROI_table` rows are in no fixed order, and the order differs between
   rounds.** In well C/02, rounds 0 to 2 list FOV_1, FOV_7, FOV_4, FOV_6,
   FOV_3, FOV_5, FOV_2; round 3 lists FOV_3, FOV_2, FOV_5, FOV_1, FOV_6, FOV_7,
