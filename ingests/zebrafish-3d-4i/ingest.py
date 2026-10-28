@@ -649,7 +649,12 @@ def convert(
         with Progress(f"copying well {well}: {description}", arrays, unit="arrays") as note:
             for field in fields:
                 pixels.rejected.clear()
+                copying = time.monotonic()
                 copy_image(pixels, session.store, well, field, channels, labels, note)
+                say(
+                    f"  {field.name} copied in {time.monotonic() - copying:.0f} s; "
+                    f"peak memory so far {peak_memory_gb():.1f} GB"
+                )
                 if pixels.rejected:
                     # Unreadable chunks only show while copying, so the image's
                     # annotations, written before the copy, gain them now.
