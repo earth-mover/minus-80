@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import zlib
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import numpy as np
 from virtualizarr.manifests import ManifestArray
 from virtualizarr.parsers.zarr.zip import ZipEntry, parse_zip_index
 
 from minus80.core.aio import run_sync
-from minus80.core.fetch import iter_ranges, read_range
+from minus80.core.fetch import iter_ranges, object_size, read_range
 from minus80.core.manifest import manifest_array
 from minus80.core.registry import store_and_key
 
@@ -40,6 +41,53 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
     """
     store, name = store_and_key(url)
     return run_sync(parse_zip_index(store, name))
+
+
+def cached_zip_index(url: str, path: Path) -> dict[str, ZipEntry]:
+    """:func:`zip_index`, read from the archive once and kept in a file at ``path``.
+
+    Why keep it
+    -----------
+    Finding a member in a zip means reading the archive's table of contents
+    (its central directory) at the end of the file. For a large archive that is
+    slow and worth doing only once: S-BIAD3228's is 178 MB for two million
+    members and takes minutes to fetch from far away. A kept copy is also a
+    record of exactly what the archive held when it was read.
+
+    What the file holds
+    -------------------
+    A compressed ``.npz`` with one row per member (name, data offset,
+    compressed and uncompressed length, compression method), plus the URL and
+    the archive's size in bytes.
+
+    When it is used
+    ---------------
+    - No file at ``path``: the index is read from the archive and written there.
+    - A file for this ``url`` and an archive of the same size: the file is used,
+      at the cost of one ``HEAD`` request to check the size.
+    - A file for another URL, or an archive whose size has changed: raises
+      ``ValueError`` rather than read members at stale offsets. Delete the file
+      to read the archive again.
+    """
+    size = object_size(url)
+    if path.exists():
+        with np.load(path, allow_pickle=False) as saved:
+            if str(saved["url"]) != url:
+                raise ValueError(f"{path} indexes {saved['url']}, not {url}")
+            if int(saved["size"]) != size:
+                raise ValueError(f"{path} indexes {url} at {int(saved['size'])} bytes; it is now {size}")
+            return {str(n): ZipEntry(int(o), int(c), int(u), int(m)) for n, o, c, u, m in
+                    zip(saved["names"], saved["offsets"], saved["compressed"],
+                        saved["uncompressed"], saved["methods"])}
+    index = zip_index(url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = list(index.values())
+    np.savez_compressed(path, url=url, size=size, names=np.array(list(index)),
+                        offsets=np.array([e.data_offset for e in entries], np.uint64),
+                        compressed=np.array([e.compressed_length for e in entries], np.uint64),
+                        uncompressed=np.array([e.uncompressed_length for e in entries], np.uint64),
+                        methods=np.array([e.method for e in entries], np.uint16))
+    return index
 
 
 def read_member(url: str, entry: ZipEntry) -> bytes:

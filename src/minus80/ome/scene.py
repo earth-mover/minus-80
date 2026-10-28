@@ -50,18 +50,25 @@ def scene_attrs(
     units = units or {}
     types = axis_types(dims, dimensions)
     check_axis_types(dims, types)
-    axes = [v06_ct.Axis(name=d, type=t, unit=units.get(d), discrete=True if t in _DISCRETE else None)
-            for d, t in zip(dims, types)]
+    axes = [
+        v06_ct.Axis(name=d, type=t, unit=units.get(d), discrete=True if t in _DISCRETE else None)
+        for d, t in zip(dims, types)
+    ]
     transforms = []
     for path, shift in translations.items():
         if missing := set(dims) - set(shift):
             raise ValueError(f"{path}: no translation given for axes {sorted(missing)}")
-        transforms.append(v06_ct.Translation(
-            translation=tuple(float(shift[d]) for d in dims),
-            input=v06_ct.CoordinateSystemIdentifier(name=INTRINSIC, path=path),
-            output=v06_ct.CoordinateSystemIdentifier(name=name)))
-    scene = SceneAttrs(coordinateSystems=(v06_ct.CoordinateSystem(name=name, axes=tuple(axes)),),
-                       coordinateTransformations=tuple(transforms))
+        transforms.append(
+            v06_ct.Translation(
+                translation=tuple(float(shift[d]) for d in dims),
+                input=v06_ct.CoordinateSystemIdentifier(name=INTRINSIC, path=path),
+                output=v06_ct.CoordinateSystemIdentifier(name=name),
+            )
+        )
+    scene = SceneAttrs(
+        coordinateSystems=(v06_ct.CoordinateSystem(name=name, axes=tuple(axes)),),
+        coordinateTransformations=tuple(transforms),
+    )
     document = {"version": VERSIONS[VERSION], "scene": _document(scene)}
     validate(document, VERSION, model="scene")
     return {"ome": document}

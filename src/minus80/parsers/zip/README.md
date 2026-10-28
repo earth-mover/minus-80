@@ -4,7 +4,9 @@ Zip archive members as virtual Zarr chunks, one member per chunk.
 
 The parser is for zips of other files, such as TIFF frames or safetensors,
 where the caller lays out the array. For a zipped Zarr store (`.zarr.zip`), use
-VirtualiZarr's `ZippedZarrParser` instead, which reads the store's own metadata.
+VirtualiZarr's `ZippedZarrParser` instead, which reads the store's own metadata;
+when its members are Deflate-compressed and must be read rather than
+referenced, open it with `store.MemberStore`.
 
 Only STORED (uncompressed) members can be chunks. A Deflate member is a bare
 Deflate stream, and imagecodecs-zarr's `Deflate(raw=True)`, the one Zarr codec
@@ -15,6 +17,7 @@ belongs upstream beside `ZippedZarrParser`, which lists it as future work.
 | Module | What it does |
 | --- | --- |
 | `members` | `zip_index(url)` lists an archive's members; `member_array(...)` builds an array with one member per chunk; `read_member(url, entry)` fetches one member's bytes, inflating a Deflate member |
+| `store` | `MemberStore` opens a zipped Zarr store in place for zarr to read: each key is fetched from its member by one range request and inflated on a worker thread, so zarr's concurrent reads stay concurrent. For reading the pixels of a `.zarr.zip` whose members are Deflate-compressed, which cannot be referenced virtually; its docstring says why zarr's `ZipStore` and fsspec's zip filesystem are slower for this |
 | `buffers` | Reads zip structures from bytes already fetched, without the central directory: the end record from an archive's tail, the members in a window, and `walk_archive`, which walks a whole remote archive in order |
 | `safetensors_ranges` | `tensor_ranges(data, file_offset)` gives each tensor's byte range in a safetensors file, including one stored inside a zip member |
 
