@@ -8,23 +8,23 @@ and a few metadata documents per well, and decodes no pixels.
 
 The code is in three parts:
 
-- :mod:`inputs` loads the central directory and a well's metadata (fetched
-  once, then cached);
-- :mod:`layout` computes the layout from them, as pure functions over data
-  frames; its docstring defines the terms used here (member, chunk, run,
+- :mod:`inputs` loads the central directory and a well's raw metadata
+  (fetched once, then cached);
+- :mod:`layout` computes everything from them, as pure functions; its
+  docstring defines the terms used here (member, span, chunk, run, region,
   range, z index, padding);
-- this module prints the answers on the command line, or writes them into
-  an interactive page (``html``), built from ``map.html`` and
-  ``map.js`` beside it.
+- this module only formats: it prints the answers, or writes them into an
+  interactive page (``html``), built from ``map.html`` and ``map.js`` beside
+  it.
 
 Commands, run from the repository root::
 
     uv run --package zebrafish-3d-4i-ingest --group explore \\
         python ingests/zebrafish-3d-4i/explore/zipmap.py overview
     ... zipmap.py runs C/02                # a well's arrays and metadata, in file order
-    ... zipmap.py order C/02/2/0           # the (channel, z index) order inside one array
+    ... zipmap.py order C/02/2/0           # the (channel, z index) groups inside one array
     ... zipmap.py member C/02/2/0/1/13/0/7 # where one member is and what it covers
-    ... zipmap.py field C/02 FOV_1         # the chunks one field needs, and their byte spans
+    ... zipmap.py field C/02 FOV_1         # the chunks one field needs, and their spans
     ... zipmap.py ranges C/02 --mib 64     # range requests to read a well
     ... zipmap.py meta C/02/2/.zattrs      # print one metadata document
     ... zipmap.py html --wells C/02,E/04   # written to the cache directory unless -o is given
@@ -35,66 +35,61 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import math
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
 import layout
-from inputs import CACHE, SOURCE, load_central_directory, load_directory_facts, load_member, load_well_metadata
+from inputs import CACHE, SOURCE, directory_facts, directory_table, load_member, load_well_metadata
 
 HERE = Path(__file__).parent
-#: Request latency and throughput measured on 2026-10-27, for the range estimates.
-READ_SETTINGS = (
-    ("R2 in-region", 0.100, 64, 584e6),
-    ("EBI from London", 0.370, 16, 280e6),
-)
 
 
 def format_bytes(count: float) -> str:
-    if count >= 1e8:
+    """A byte count in GB, MB or kB (powers of 1000), as the interactive map writes it too."""
+    if count >= 1e9:
         return f"{count / 1e9:.2f} GB"
-    if count >= 1e5:
+    if count >= 1e6:
         return f"{count / 1e6:.1f} MB"
-    return f"{count / 1e3:.1f} kB"
+    if count >= 1e3:
+        return f"{count / 1e3:.1f} kB"
+    return f"{count:.0f} B"
 
 
 def load_members(source: str) -> pl.DataFrame:
-    facts = load_directory_facts(source)
-    return layout.describe_members(load_central_directory(source), facts["directory_offset"])
+    """Every member in file order, with its span and what its name addresses (:func:`layout.describe_members`)."""
+    return layout.describe_members(directory_table(source))
+
+
+def load_geometry(source: str, well: str) -> dict:
+    """A well's geometry (:func:`layout.well_geometry`), from its raw metadata."""
+    return layout.well_geometry(load_well_metadata(well, source), well)
 
 
 def print_overview(source: str) -> None:
     """Member kinds, wells in file order, and the plate-level members between wells."""
     members = load_members(source)
     print(f"{len(members):,} members; the last one ends at {format_bytes(members['end'].max())}\n")
-    kinds = members.group_by("kind").agg(
-        pl.len().alias("members"), pl.sum("compressed").alias("zip bytes"), pl.sum("empty"), pl.sum("padding"),
-    )
-    print(kinds.sort("members", descending=True))
-    wells = (
-        members.filter(pl.col("well").is_not_null()).group_by("well")
-        .agg(pl.min("start"), pl.max("end"), pl.len().alias("members"), pl.sum("empty")).sort("start")
-    )
+    print(layout.kind_summary(members))
     print("\nwells in file order:")
-    for well in wells.iter_rows(named=True):
+    for well in layout.wells_in_file_order(members).iter_rows(named=True):
         print(f"  {well['well']}  {well['start'] / 1e9:7.1f} – {well['end'] / 1e9:7.1f} GB  "
               f"{format_bytes(well['end'] - well['start']):>9}  {well['members']:>7,} members  {well['empty']:>3} empty")
     print("\nplate-level members, outside every well:")
-    for member in members.filter(pl.col("well").is_null()).iter_rows(named=True):
+    for member in layout.plate_members(members).iter_rows(named=True):
         print(f"  {member['name']:<14} at {member['start'] / 1e9:7.1f} GB")
 
 
 def print_runs(source: str, well: str) -> None:
     """A well's runs in file order: each array, metadata folder and table."""
     members = load_members(source).filter(pl.col("well") == well)
-    well_start = members["start"].min()
-    print(f"{well}: {len(members):,} members, bytes {well_start / 1e9:.2f} – {members['end'].max() / 1e9:.2f} GB\n")
+    region_start = members["start"].min()
+    print(f"{well}: {len(members):,} members, bytes {region_start / 1e9:.2f} – {members['end'].max() / 1e9:.2f} GB\n")
     print(f"{'#':>3} {'start':>9} {'size':>10} {'members':>8} {'empty':>5} {'pad':>5}  what")
     for run in layout.runs(members).iter_rows(named=True):
         what = run["array"] if run["kind"] in ("image", "label") else f"[{run['kind']}] {run['array'] or '/'}"
-        print(f"{run['run']:>3} {(run['start'] - well_start) / 1e9:8.3f}G {format_bytes(run['end'] - run['start']):>10}"
+        print(f"{run['run']:>3} {(run['start'] - region_start) / 1e9:8.3f}G {format_bytes(run['end'] - run['start']):>10}"
               f" {run['members']:>8,} {run['empty']:>5} {run['padding']:>5}  {what}")
 
 
@@ -132,65 +127,54 @@ def print_member(source: str, name: str) -> None:
     elif member["padding"]:
         print("       status: an all-zero padding frame")
     if member["kind"] in ("image", "label"):
-        metadata = load_well_metadata(load_central_directory(source), member["well"], source)
-        well_start = members.filter(pl.col("well") == member["well"])["start"].min()
-        first_plane = member["z"] * layout.PLANES_PER_CHUNK
-        fields = layout.fields_in_cell(metadata, member["level"], member["y"], member["x"])
-        print(f"  within the well: {(member['start'] - well_start) / 1e9:.3f} GB in, "
-              f"in 64 MiB range #{(member['start'] - well_start) // (64 << 20)}")
-        print(f"  planes {first_plane}–{first_plane + layout.PLANES_PER_CHUNK - 1}; "
-              f"fields overlapping this grid cell: {', '.join(fields) or 'none'}")
+        well_members = members.filter(pl.col("well") == member["well"])
+        context = layout.member_context(well_members, member, load_geometry(source, member["well"]))
+        first, last = context["planes"]
+        print(f"  within the well's region: {context['into_region'] / 1e9:.3f} GB in, "
+              f"in 64 MiB range #{context['range_number']}")
+        print(f"  planes {first}–{last}; fields overlapping this grid cell: {', '.join(context['fields']) or 'none'}")
 
 
 def print_field(source: str, well: str, field_name: str, level: int) -> None:
-    """The chunks one field needs at one level, and how many separate byte spans they make."""
-    members = load_members(source)
-    metadata = load_well_metadata(load_central_directory(source), well, source)
-    field = next((field for field in metadata["fields"] if field["name"] == field_name), None)
+    """The chunks one field needs at one level, and how many separate spans they make."""
+    geometry = load_geometry(source, well)
+    field = next((field for field in geometry["fields"] if field["name"] == field_name), None)
     if field is None:
-        raise SystemExit(f"{well} has fields {[field['name'] for field in metadata['fields']]}")
-    window = layout.field_window(field, level, metadata["pixel_um"])
-    cells = layout.grid_cells(window)
-    print(f"{well} {field_name}: x {field['x_micrometer']} µm, y {field['y_micrometer']} µm")
+        raise SystemExit(f"{well} has fields {[field['name'] for field in geometry['fields']]}")
+    well_members = load_members(source).filter(pl.col("well") == well)
+    window, cells, arrays = layout.field_chunks(well_members, geometry, field, level)
+    print(f"{well} {field_name}: x {field['x_micrometer']} µm, y {field['y_micrometer']} µm, "
+          f"{field['len_x_micrometer']} × {field['len_y_micrometer']} µm")
     print(f"level {level}: rows {window[0]}, columns {window[1]} → grid cells {sorted(cells)}")
-    chunks = layout.chunks_only(members).filter((pl.col("well") == well) & (pl.col("level") == level))
-    in_cells = pl.Series([(row, column) in cells for row, column in zip(chunks["y"].to_list(), chunks["x"].to_list())])
-    for (array,), array_chunks in chunks.filter(in_cells).group_by("array", maintain_order=True):
-        spans = layout.merge_spans(array_chunks.sort("start"))
-        print(f"  {array:<32} {len(array_chunks):>5} chunks {format_bytes(array_chunks['compressed'].sum()):>9}  "
-              f"{len(spans):>4} separate byte spans: one request each if read alone")
+    for array in arrays:
+        print(f"  {array['array']:<32} {array['chunks']:>5} chunks {format_bytes(array['compressed']):>9}  "
+              f"{array['spans']:>4} separate spans: one request each if read alone")
 
 
 def print_ranges(source: str, well: str, range_mib: int, gap_mib: int) -> None:
     """Range requests to read a well: the whole region, or only the chunks that must be decoded."""
-    members = load_members(source).filter(pl.col("well") == well)
-    metadata = load_well_metadata(load_central_directory(source), well, source)
-    range_bytes = range_mib << 20
-    region = members["end"].max() - members["start"].min()
-    print(f"{well}: a region of {format_bytes(region)}")
-    print(f"  the whole region in {range_mib} MiB ranges: {math.ceil(region / range_bytes):,} requests")
-    chunks = layout.chunks_only(members)
-    to_decode = chunks.filter(pl.Series(layout.needed(chunks, metadata)) & ~pl.col("padding") & ~pl.col("empty"))
-    spans = layout.merge_spans(to_decode, gap=gap_mib << 20)
-    span_bytes = sum(end - start for start, end in spans)
-    requests = layout.range_count(spans, range_bytes)
-    print(f"  only the chunks to decode: {len(to_decode):,} chunks, {format_bytes(to_decode['compressed'].sum())}")
-    print(f"    merged across gaps up to {gap_mib} MiB: {len(spans):,} spans, {format_bytes(span_bytes)}, "
-          f"{requests:,} requests of up to {range_mib} MiB")
-    for where, latency, concurrency, throughput in READ_SETTINGS:
-        waves = math.ceil(requests / concurrency)
-        print(f"    {where:<16} {waves} waves × {latency * 1000:.0f} ms = {waves * latency:5.1f} s of waiting;"
-              f" {span_bytes / throughput:5.1f} s of transfer at {throughput / 1e6:.0f} MB/s")
+    well_members = load_members(source).filter(pl.col("well") == well)
+    plan = layout.range_plan(well_members, load_geometry(source, well), range_mib << 20, gap_mib << 20)
+    print(f"{well}: a region of {format_bytes(plan['region'])}")
+    print(f"  the whole region in {range_mib} MiB ranges: {plan['region_requests']:,} requests")
+    print(f"  only the chunks to decode: {plan['to_decode']:,} chunks, {format_bytes(plan['to_decode_bytes'])}")
+    print(f"    merged across gaps up to {gap_mib} MiB: {plan['spans']:,} spans, {format_bytes(plan['span_bytes'])}, "
+          f"{plan['requests']:,} requests of up to {range_mib} MiB")
+    for estimate in plan["estimates"]:
+        setting = estimate["setting"]
+        print(f"    {setting.name:<16} {estimate['waves']} waves × {setting.latency_s * 1000:.0f} ms = "
+              f"{estimate['waiting_s']:5.1f} s of waiting; {estimate['transfer_s']:5.1f} s of transfer "
+              f"at {setting.throughput / 1e6:.0f} MB/s")
 
 
 def print_document(source: str, key: str) -> None:
     """One metadata document, or the metadata member names that contain ``key``."""
     members = load_members(source)
-    metadata_members = members.filter(pl.col("kind").is_in(["meta", "table"]))
-    if key in set(metadata_members["name"].to_list()):
+    metadata_names = members.filter(pl.col("kind").is_in(["meta", "table"]))["name"]
+    if key in set(metadata_names.to_list()):
         print(json.dumps(json.loads(load_member(key, source)), indent=2))
         return
-    matches = metadata_members.filter(pl.col("name").str.contains(key, literal=True))["name"]
+    matches = metadata_names.filter(metadata_names.str.contains(key, literal=True))
     print("\n".join(matches.head(50).to_list()))
     if len(matches) > 50:
         print(f"... {len(matches)} matches")
@@ -201,51 +185,43 @@ def encode_column(values: np.ndarray) -> str:
     return base64.b64encode(np.ascontiguousarray(values).tobytes()).decode()
 
 
-def run_color_code(run: dict) -> int:
+def run_color_slot(run: dict) -> int:
     """The page's color slot for a run: the round for an image run, 4 for labels, -1 for metadata."""
     if run["kind"] == "image":
         return int(run["array"].split("/")[2])
     return 4 if run["kind"] == "label" else -1
 
 
-def well_page_data(members: pl.DataFrame, metadata: dict) -> dict:
-    """Everything the page draws for one well: its runs, fields and every chunk."""
-    well_start = int(members["start"].min())
-    chunks = layout.chunks_only(members)
+def well_page_data(well_members: pl.DataFrame, geometry: dict) -> dict:
+    """Everything the page draws for one well, encoded for the page: its runs, fields and every chunk."""
+    region_start = int(well_members["start"].min())
+    chunks = layout.chunks_only(well_members)
     arrays = chunks["array"].unique(maintain_order=True).to_list()
     array_index = {array: index for index, array in enumerate(arrays)}
-    empty = chunks["empty"].to_numpy()
-    padding = chunks["padding"].to_numpy()
-    to_decode = layout.needed(chunks, metadata) & ~padding & ~empty
-    # Three flags in one byte per chunk: 1 empty, 2 padding, 4 to decode.
-    flags = empty.astype(np.uint8) | padding.astype(np.uint8) << 1 | to_decode.astype(np.uint8) << 2
     runs = []
-    for run in layout.runs(members).iter_rows(named=True):
+    for run in layout.runs(well_members).iter_rows(named=True):
         is_chunk_run = run["kind"] in ("image", "label")
         parts = (run["array"] or "").split("/")
         runs.append({
             "array": run["array"], "kind": run["kind"], "members": run["members"],
             "empty": run["empty"], "padding": run["padding"],
-            "start": run["start"] - well_start, "end": run["end"] - well_start,
+            "start": run["start"] - region_start, "end": run["end"] - region_start,
             "round": int(parts[2]) if is_chunk_run else None, "level": int(parts[-1]) if is_chunk_run else None,
         })
-    fields = []
-    for field in metadata["fields"]:
-        windows = [layout.field_window(field, level, metadata["pixel_um"]) for level in range(layout.LEVELS)]
-        fields.append({"name": field["name"], "windows": [[*rows, *columns] for rows, columns in windows]})
-    metadata_members = members.filter(~pl.col("kind").is_in(["image", "label"]))
+    metadata_members = well_members.filter(~pl.col("kind").is_in(["image", "label"]))
     return {
-        "start": well_start,
-        "size": int(members["end"].max()) - well_start,
+        "start": region_start,
+        "size": int(well_members["end"].max()) - region_start,
         "arrays": arrays,
         "array_kinds": ["label" if "/labels/" in array else "image" for array in arrays],
         "runs": runs,
-        "metadata_members": [[row["name"], row["start"] - well_start] for row in metadata_members.iter_rows(named=True)],
-        "fields": fields,
-        "grid": metadata["grid"],
-        "channels": metadata["channels"],
+        "metadata_members": [[row["name"], row["start"] - region_start] for row in metadata_members.iter_rows(named=True)],
+        "fields": layout.field_windows(geometry),
+        "grid": geometry["grid"],
+        "channels": geometry["channels"],
+        "max_z": layout.highest_z_index(chunks),
         "chunks": {
-            "start": encode_column((chunks["start"] - well_start).to_numpy().astype(np.float64)),
+            "start": encode_column((chunks["start"] - region_start).to_numpy().astype(np.float64)),
             "bytes": encode_column((chunks["end"] - chunks["start"]).to_numpy().astype(np.uint32)),
             "compressed": encode_column(chunks["compressed"].to_numpy().astype(np.uint32)),
             "frame": encode_column(chunks["uncompressed"].to_numpy().astype(np.uint32)),
@@ -254,7 +230,7 @@ def well_page_data(members: pl.DataFrame, metadata: dict) -> dict:
             "z": encode_column(chunks["z"].to_numpy().astype(np.int16)),
             "y": encode_column(chunks["y"].to_numpy().astype(np.int16)),
             "x": encode_column(chunks["x"].to_numpy().astype(np.int16)),
-            "flags": encode_column(flags),
+            "flags": encode_column(layout.chunk_flags(chunks, geometry)),
         },
     }
 
@@ -262,25 +238,21 @@ def well_page_data(members: pl.DataFrame, metadata: dict) -> dict:
 def write_page(source: str, wells_argument: str, out: Path) -> None:
     """Write the interactive map: the whole zip's runs, the directory, and every chunk of the chosen wells."""
     members = load_members(source)
-    facts = load_directory_facts(source)
-    wells = (
-        members.filter(pl.col("well").is_not_null()).group_by("well")
-        .agg(pl.min("start"), pl.max("end"), pl.len().alias("members")).sort("start")
-    )
-    chosen = wells["well"].to_list() if wells_argument == "all" else [w.strip() for w in wells_argument.split(",")]
-    directory = load_central_directory(source)
-    well_metadata = {well: load_well_metadata(directory, well, source) for well in chosen}
+    facts = directory_facts(source)
+    wells = layout.wells_in_file_order(members)
+    chosen = wells["well"].to_list() if wells_argument == "all" else [name.strip() for name in wells_argument.split(",")]
+    geometries = {well: load_geometry(source, well) for well in chosen}
     page_data = {
         "first_well": chosen[0],
         "zip": {
             "size": facts["archive_size"],
             "wells": [
-                {**well, "fields": len(well_metadata[well["well"]]["fields"]) if well["well"] in well_metadata else None,
-                 "embedded": well["well"] in well_metadata}
+                {**well, "fields": len(geometries[well["well"]]["fields"]) if well["well"] in geometries else None,
+                 "embedded": well["well"] in geometries}
                 for well in wells.iter_rows(named=True)
             ],
-            "runs": [[run["start"], run["end"], run_color_code(run)] for run in layout.runs(members).iter_rows(named=True)],
-            "plate_members": [[row["name"], row["start"]] for row in members.filter(pl.col("well").is_null()).iter_rows(named=True)],
+            "runs": [[run["start"], run["end"], run_color_slot(run)] for run in layout.runs(members).iter_rows(named=True)],
+            "plate_members": [[row["name"], row["start"]] for row in layout.plate_members(members).iter_rows(named=True)],
         },
         "directory": {
             "offset": facts["directory_offset"],
@@ -289,7 +261,7 @@ def write_page(source: str, wells_argument: str, out: Path) -> None:
             "by_well": layout.directory_by_well(members),
         },
         "wells": {
-            well: well_page_data(members.filter(pl.col("well") == well), well_metadata[well]) for well in chosen
+            well: well_page_data(members.filter(pl.col("well") == well), geometries[well]) for well in chosen
         },
     }
     # "</" inside the embedded JSON would end the <script> element early.
@@ -298,7 +270,7 @@ def write_page(source: str, wells_argument: str, out: Path) -> None:
     page = page.replace("/*SCRIPT*/", (HERE / "map.js").read_text(), 1).replace("__DATA__", data, 1)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page)
-    print(f"wrote {out} ({len(page) / 1e6:.1f} MB; wells: {', '.join(chosen)})")
+    print(f"wrote {out} ({format_bytes(len(page))}; wells: {', '.join(chosen)})")
 
 
 def main() -> None:
@@ -307,9 +279,9 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("overview", help="member kinds, wells in file order, plate-level members")
     commands.add_parser("runs", help="a well's arrays and metadata in file order").add_argument("well")
-    commands.add_parser("order", help="the (channel, z index) order inside one array").add_argument("array")
+    commands.add_parser("order", help="the (channel, z index) groups inside one array").add_argument("array")
     commands.add_parser("member", help="where one member is and what it covers").add_argument("name")
-    field = commands.add_parser("field", help="the chunks one field needs, and their byte spans")
+    field = commands.add_parser("field", help="the chunks one field needs, and their spans")
     field.add_argument("well")
     field.add_argument("field", help="FOV_1, FOV_2, ...")
     field.add_argument("--level", type=int, default=0)
@@ -319,7 +291,7 @@ def main() -> None:
     ranges.add_argument("--gap", type=int, default=1, help="merge spans across gaps up to this many MiB")
     commands.add_parser("meta", help="print a metadata document, or list names containing the text").add_argument("key")
     html = commands.add_parser("html", help="write the interactive map, to open in a browser")
-    html.add_argument("--wells", default="C/02,E/04", help="wells to embed, comma separated, or all (about 2 MB each)")
+    html.add_argument("--wells", default="C/02,E/04", help="wells to embed, comma separated, or all (about 3 MB each)")
     html.add_argument("-o", "--out", type=Path, default=CACHE / "zip-map.html")
     args = parser.parse_args()
 
