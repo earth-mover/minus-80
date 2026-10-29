@@ -127,7 +127,8 @@ def test_a_stopped_run_resumes_and_the_plate_comes_last(plate, tmp_path):
     repo = _repo(tmp_path / "repo")
     assert _convert(url, repo, wells=["B/02"]) == ["B/02"]
     root = zarr.open_group(repo.readonly_session("main").store, mode="r")
-    assert "C/03" not in root
+    # Every well's group exists from the start; only a copied well has its metadata.
+    assert ingest.committed_wells(root, list(fixture.WELLS)) == ["B/02"]
     assert "B/02" in [w["path"] for w in dict(root.attrs)["ome"]["plate"]["wells"]]
     assert _convert(url, repo, wells=["C/03"]) == ["C/03"]
     assert _convert(url, repo) == []
@@ -135,6 +136,42 @@ def test_a_stopped_run_resumes_and_the_plate_comes_last(plate, tmp_path):
     assert [w["path"] for w in dict(root.attrs)["ome"]["plate"]["wells"]] == list(fixture.WELLS)
     messages = [c.message for c in repo.ancestry(branch="main")]
     assert sum(m.startswith("Add well") for m in messages) == 2
+
+
+def test_a_well_stopped_after_checkpoints_resumes_after_the_runs_they_hold(plate, tmp_path, monkeypatch, capsys):
+    """Checkpoints commit the copied runs; a later run copies only the rest and ends with the same pixels."""
+    url, _ = plate
+    repo = _repo(tmp_path / "repo")
+    check_well, stopped = ingest.check_well, []
+
+    def stop_once(plan, *args):
+        if not stopped:
+            stopped.append(plan.well)
+            raise ValueError("stopped after the copy")
+        return check_well(plan, *args)
+
+    monkeypatch.setattr(ingest, "check_well", stop_once)
+    with pytest.raises(ingest.WellsFailed):
+        _convert(url, repo, wells=["B/02"], checkpoint_seconds=0)
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    assert ingest.committed_wells(root, ["B/02"]) == []
+    held = root["B/02"].attrs[ingest.PROGRESS]["complete_runs"]
+    assert held
+
+    decoded = []
+    decode_run = ingest.decode_run
+    monkeypatch.setattr(ingest, "decode_run", lambda run, *a: decoded.append(run.key) or decode_run(run, *a))
+    assert _convert(url, repo, wells=["B/02"], checkpoint_seconds=0) == ["B/02"]
+    assert "resuming B/02" in capsys.readouterr().out
+    assert not {tuple(k) for k in held} & set(decoded), "runs the checkpoints held are not copied again"
+
+    fresh = _repo(tmp_path / "fresh")
+    _convert(url, fresh, wells=["B/02"])
+    resumed = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    expected = zarr.open_group(fresh.readonly_session("main").store, mode="r")
+    assert ingest.PROGRESS not in resumed["B/02"].attrs
+    for path in ("B/02/0/0", "B/02/0/2", "B/02/0/labels/nucleiRaw/0"):
+        np.testing.assert_array_equal(resumed[path][:], expected[path][:])
 
 
 def test_verify_fails_a_store_missing_a_well(plate, tmp_path):
