@@ -227,9 +227,13 @@ def inflate_member(stored: bytes, entry: Mapping) -> bytes:
     zlib releases the GIL while it inflates, so callers can inflate many
     members at once on a thread pool.
 
-    Raises ``ValueError`` if the inflated bytes fail the CRC.
+    Raises ``ValueError``, naming the member, if its bytes do not inflate or
+    the inflated bytes fail the CRC.
     """
-    contents = inflate(stored, int(entry["method"]))
+    try:
+        contents = inflate(stored, int(entry["method"]))
+    except zlib.error as error:
+        raise ValueError(f"{entry['name']}: its stored bytes do not inflate ({error})") from error
     if zlib.crc32(contents) != int(entry["crc32"]):
         raise ValueError(f"{entry['name']}: the CRC does not match the directory's")
     return contents
