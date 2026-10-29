@@ -942,7 +942,7 @@ class WellWriter:
             target[self.plan.channel_offset(run.array.round) + run.channel] = pixels
         else:
             target[:] = pixels
-        self.counters.uploaded_field(pixels.nbytes)
+        self.counters.uploaded_field()
 
     def _finished(self, future: Future, nbytes: int, key: tuple[str, int | None]) -> None:
         self.decoded.give(nbytes)
@@ -991,8 +991,6 @@ class Counters:
         self.fetched = 0
         self.decoding: Progress | None = None
         self.uploaded = 0
-        #: Bytes of decoded pixels written through zarr.
-        self.uploaded_bytes = 0
         #: Compressed bytes of the channel runs waiting for metadata.
         self.waiting = 0
         #: The copy's budgets, once it starts, for what each holds.
@@ -1003,10 +1001,9 @@ class Counters:
         self._lock = threading.Lock()
         self._cpu = (time.monotonic(), sum(os.times()[:2]))
 
-    def uploaded_field(self, nbytes: int) -> None:
+    def uploaded_field(self) -> None:
         with self._lock:
             self.uploaded += 1
-            self.uploaded_bytes += nbytes
 
     def _cores_busy(self) -> float:
         """CPU seconds used per second since the last line: how many cores the copy kept busy."""
@@ -1021,7 +1018,7 @@ class Counters:
         if self.fetched_held is not None and self.decoded_held is not None:
             held = (
                 f"; holding {self.fetched_held.held / 1e9:.1f} GB fetched and not yet decoded, "
-                f"{self.decoded_held.held / 1e9:.1f} GB decoded and not yet uploaded"
+                f"{self.decoded_held.held / 1e9:.1f} GB being decoded or waiting to upload"
             )
         if (m := self.meter) is not None:
             mean = m.seconds / m.writes if m.writes else 0.0
@@ -1032,7 +1029,7 @@ class Counters:
         return (
             f"well {self.well}, {self.stage}: fetched {self.fetched / 1e9:.2f} GB "
             f"({self.fetched / elapsed / 1e6:.0f} MB/s), {decoded:,} chunks decoded, "
-            f"{self.uploaded:,} fields uploaded ({self.uploaded_bytes / 1e9:.1f} GB of pixels), "
+            f"{self.uploaded:,} fields uploaded, "
             f"{self.waiting / 1e9:.2f} GB waiting for metadata{held}{stored}; "
             f"{self._cores_busy():.1f} cores busy, peak memory {peak_memory_gb():.1f} GB"
         )
