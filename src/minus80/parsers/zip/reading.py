@@ -179,6 +179,7 @@ def stream_members(
     *,
     range_bytes: int = RANGE_BYTES,
     concurrency: int = STREAM_CONCURRENCY,
+    window: int | None = None,
     progress: bool = True,
     registry: ObjectStoreRegistry | None = None,
 ) -> Iterator[StoredMember]:
@@ -188,8 +189,9 @@ def stream_members(
     :func:`read_members` would make one request per member. ``members``
     comes from :func:`~minus80.parsers.zip.streaming.spans_in_file_order`.
     Spans that touch are fetched as one region, cut into requests of at most
-    ``range_bytes``, ``concurrency`` at a time, and
-    :class:`~minus80.parsers.zip.streaming.MemberCutter` cuts the members out.
+    ``range_bytes``, ``concurrency`` at a time and at most ``window`` ahead of
+    the oldest one not yet cut (see :func:`~minus80.core.fetch.iter_ranges`),
+    and :class:`~minus80.parsers.zip.streaming.MemberCutter` cuts the members out.
     ``iter_ranges`` issues requests only as the caller takes members, so a
     slow consumer holds the fetching back rather than filling memory.
 
@@ -198,7 +200,7 @@ def stream_members(
     """
     cutter = MemberCutter(members)
     for offset, data in iter_ranges(
-        url, member_regions(members), block=range_bytes, concurrency=concurrency,
+        url, member_regions(members), block=range_bytes, concurrency=concurrency, window=window,
         progress=progress, patient=True, registry=registry,
     ):
         yield from cutter.feed(offset, data)
