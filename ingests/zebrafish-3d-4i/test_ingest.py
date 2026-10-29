@@ -279,3 +279,52 @@ def test_an_image_chunk_holding_several_channels_is_refused(plate):
     ).encode()
     with pytest.raises(ValueError, match="2 channels"):
         state.add_document("B/02/0/0/.zarray", document)
+
+
+
+def _damage(monkeypatch, name, times):
+    """Make member ``name`` fail to inflate the first ``times`` times it is inflated."""
+    inflate_member, seen = ingest.inflate_member, []
+
+    def damaged(stored, entry):
+        if entry["name"] == name and len(seen) < times:
+            seen.append(name)
+            raise ValueError(f"{name}: its stored bytes do not inflate (Error -3)")
+        return inflate_member(stored, entry)
+
+    monkeypatch.setattr(ingest, "inflate_member", damaged)
+    return seen
+
+
+def _unreadable(root, well):
+    """The unreadable source chunks listed on any of the well's images."""
+    listed = {}
+    for name, image in root[well].groups():
+        listed.update(dict(image.attrs)["annotations"]["unreadable_source_chunks"])
+    return listed
+
+
+#: A level-0 chunk of B/02's first round that a field covers.
+DAMAGED = "B/02/0/0/0/0/2/1"
+
+
+def test_a_member_damaged_in_transfer_is_read_again(plate, tmp_path, monkeypatch, capsys):
+    url, _ = plate
+    repo = _repo(tmp_path / "repo")
+    seen = _damage(monkeypatch, DAMAGED, times=1)
+    assert _convert(url, repo, wells=["B/02"]) == ["B/02"]
+    assert seen == [DAMAGED]
+    assert "the first copy was damaged in transfer" in capsys.readouterr().out
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    assert _unreadable(root, "B/02") == {}
+
+
+def test_a_member_damaged_in_the_source_is_read_as_0_and_listed(plate, tmp_path, monkeypatch):
+    url, _ = plate
+    repo = _repo(tmp_path / "repo")
+    _damage(monkeypatch, DAMAGED, times=2)
+    assert _convert(url, repo, wells=["B/02"]) == ["B/02"]
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    unreadable = _unreadable(root, "B/02")
+    assert list(unreadable) == [DAMAGED]
+    assert "the source member is damaged" in unreadable[DAMAGED]

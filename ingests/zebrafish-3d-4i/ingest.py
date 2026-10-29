@@ -200,7 +200,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
@@ -212,7 +212,7 @@ from zarr.codecs import BloscCodec
 from zarr.core.buffer import default_buffer_prototype
 from zarr.storage import MemoryStore
 
-from minus80.core.fetch import cache_dir
+from minus80.core.fetch import cache_dir, read_range
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, storage_for
 from minus80.core.metered import Meter, MeteredStore
 from minus80.core.progress import Heartbeat, Progress, StallWatch, peak_memory_gb
@@ -240,7 +240,7 @@ from minus80.parsers.fractal.plate import (
     read_plate,
     read_table,
 )
-from minus80.parsers.zip.directory import inflate_member
+from minus80.parsers.zip.directory import inflate_member, member_stored_bytes
 from minus80.parsers.zip.reading import RANGE_BYTES, cached_central_directory, read_members, stream_members
 from minus80.parsers.zip.streaming import StoredMember, spans_in_file_order
 from minus80.parsers.zip.zarr_v2 import ArraySpec, ChunkKey, array_paths, chunk_key, decode_chunk, frame_problem
@@ -637,6 +637,32 @@ class DecodedRun:
     buffers: dict[str, np.ndarray]
 
 
+def read_member_again(url: str, member: StoredMember, registry=None) -> bytes:
+    """The member's stored bytes, fetched again on their own, from its local header to the next member."""
+    entry = member.entry
+    span = read_range(url, entry["start"], entry["end"], patient=True, registry=registry)
+    return member_stored_bytes(span, entry["start"], entry)
+
+
+def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMember], bytes]) -> bytes:
+    """A member's contents, fetching the member a second time if its bytes do not inflate or fail the CRC.
+
+    A transfer can deliver the right number of wrong bytes, and only the
+    inflate and the CRC see it. If the second copy is good, the first was
+    damaged on the way and the copy goes on with the second. If it fails too,
+    the source member itself is damaged, and the ``ValueError`` says so.
+    """
+    try:
+        return inflate_member(member.stored, member.entry)
+    except ValueError as first:
+        try:
+            contents = inflate_member(read_again(member), member.entry)
+        except ValueError as again:
+            raise ValueError(f"{again}; read twice, so the source member is damaged") from first
+        say(f"  {member.name}: the first copy was damaged in transfer ({first}); the second is good")
+        return contents
+
+
 def _decode_into(
     member: StoredMember,
     key: ChunkKey,
@@ -644,12 +670,15 @@ def _decode_into(
     spec: ArraySpec,
     windows: Sequence[tuple[str, tuple[int, int], tuple[int, int]]],
     buffers: dict[str, np.ndarray],
+    read_again: Callable[[StoredMember], bytes],
 ) -> tuple[str, str, list[str]] | None:
     """Decode one chunk and copy each field's part of it into that field's buffer.
 
     Runs on a worker thread; each chunk writes a different part of each
     buffer, so the chunks of one channel run decode in parallel. Returns None,
-    or ``(name, reason, fields)`` for a chunk that cannot be decoded.
+    or ``(name, reason, fields)`` for a chunk that cannot be decoded: a member
+    damaged in the source (:func:`inflate_or_read_again`) or a Blosc frame cut
+    short.
     """
     depth, chunk_z, chunk_y, chunk_x = next(iter(buffers.values())).shape[0], *spec.chunks[-3:]
     z_index, y_index, x_index = key.index[-3:]
@@ -663,7 +692,10 @@ def _decode_into(
         # An empty member holds no chunk; it reads as the fill value, 0, and
         # empty_source_chunks lists it on the images it falls in.
         return None
-    data = inflate_member(member.stored, member.entry)
+    try:
+        data = inflate_or_read_again(member, read_again)
+    except ValueError as damaged:
+        return member.name, str(damaged), [name for name, *_ in touched]
     if (reason := frame_problem(data, spec.compressor)) is not None:
         return member.name, reason, [name for name, *_ in touched]
     chunk = decode_chunk(data, spec)
@@ -709,7 +741,8 @@ def prepare(run: ChannelRun, state: WellState) -> Prepared:
 
 
 def decode_run(
-    run: ChannelRun, prepared: Prepared, state: WellState, pool: ThreadPoolExecutor, note: Progress
+    run: ChannelRun, prepared: Prepared, state: WellState, pool: ThreadPoolExecutor, note: Progress,
+    read_again: Callable[[StoredMember], bytes],
 ) -> DecodedRun:
     """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
 
@@ -728,7 +761,7 @@ def decode_run(
             (depth, window["y"][1] - window["y"][0], window["x"][1] - window["x"][0]), dtype=spec.dtype
         )
     futures = [
-        pool.submit(_decode_into, member, plan.chunks[member.name], array, spec, windows, buffers)
+        pool.submit(_decode_into, member, plan.chunks[member.name], array, spec, windows, buffers, read_again)
         for member in run.members
     ]
     for future in futures:
@@ -1064,7 +1097,7 @@ def _next(items: queue.Queue, stop: threading.Event):
 def _decode(
     jobs: queue.Queue, writes: queue.Queue, out: queue.Queue, stop: threading.Event,
     state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
-    timings: Timings,
+    timings: Timings, read_again: Callable[[StoredMember], bytes],
 ) -> None:
     """Decode channel runs one after another, on their own thread, and pass them to the writer.
 
@@ -1077,7 +1110,7 @@ def _decode(
             run, prepared = job
             decoded.take(prepared.decoded_bytes())
             started = time.monotonic()
-            result = decode_run(run, prepared, state, pool, note)
+            result = decode_run(run, prepared, state, pool, note, read_again)
             timings.decode += time.monotonic() - started
             fetched.give(run.stored_bytes())
             writes.put(result)
@@ -1175,6 +1208,9 @@ def copy_well(
             f"fetch_ahead ({fetch_ahead / 1e9:.1f} GB) must exceed the waiting limit "
             f"({waiting_limit / 1e9:.1f} GB) by at least {LARGEST_RUN / 1e9:.1f} GB"
         )
+    def read_again(member: StoredMember) -> bytes:
+        return read_member_again(url, member, registry)
+
     out: queue.Queue = queue.Queue()
     jobs: queue.Queue = queue.Queue()
     writes: queue.Queue = queue.Queue()
@@ -1205,7 +1241,7 @@ def copy_well(
             ),
             threading.Thread(
                 target=_decode, name="decode-runs", daemon=True,
-                args=(jobs, writes, out, stop, state, pool, note, fetched, decoded, timings),
+                args=(jobs, writes, out, stop, state, pool, note, fetched, decoded, timings, read_again),
             ),
             threading.Thread(target=_write, args=(writes, out, stop, writer), name="write", daemon=True),
         ]
@@ -1222,7 +1258,7 @@ def copy_well(
                 if kind == "written":
                     break
                 if kind == "document":
-                    state.add_document(item.name, inflate_member(item.stored, item.entry))
+                    state.add_document(item.name, inflate_or_read_again(item, read_again))
                 elif kind == "run":
                     waiting.append(item)
                     counters.waiting += item.stored_bytes()
