@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from minus80.core.progress import Progress
+from minus80.core.progress import Progress, StallWatch
 
 
 @pytest.fixture
@@ -76,3 +76,20 @@ def test_heartbeat_stops_when_the_block_ends():
         pass
     time.sleep(0.15)
     assert out.getvalue() == ""
+
+
+def test_a_stall_prints_every_thread_and_the_log_tail_then_its_end(tmp_path):
+    log = tmp_path / "library.log"
+    log.write_text("".join(f"line {n}\n" for n in range(100)))
+    counters = {"done": 0}
+    with open(tmp_path / "out.txt", "w+") as out:
+        with StallWatch(lambda: counters["done"], after=0.3, log=str(log), tail=3, stream=out):
+            time.sleep(1.0)
+            counters["done"] += 1
+            time.sleep(0.6)
+        out.seek(0)
+        text = out.read()
+    assert "no progress for" in text
+    assert "Thread" in text and "test_progress.py" in text
+    assert "line 97" in text and "line 99" in text and "line 96" not in text
+    assert "stall ended after" in text

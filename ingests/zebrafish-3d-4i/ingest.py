@@ -130,9 +130,9 @@ well needs lies inside that region (PLAN.md, decision 14).
   whole channel of one level, or a whole label level. The assignments of
   several runs run at once, up to ``--upload-workers`` of them, while later
   runs decode and fetch, and zarr's ``async.concurrency`` sets how many
-  shards each assignment uploads at once. Creating an array has to wait
-  until no assignment is running (``ArrayGate`` says why); that happens
-  in a few batches per well. A chunk is one
+  shards each assignment uploads at once. zarr writes through a
+  ``minus80.core.metered.MeteredStore``, which counts the stored bytes and
+  times each shard write. A chunk is one
   plane of one channel and a shard holds 32 planes; for labels, a shard
   holds all 271 planes, because a label plane compresses to only a few KB.
   Every shard is written once and never read back.
@@ -141,23 +141,31 @@ well needs lies inside that region (PLAN.md, decision 14).
   that every round's ``FOV_ROI_table`` agrees and that each pyramid level is
   the one above halved, and the fields it finds must be the ones the copy
   used.
-- **Commits.** Each well is one commit. The well's own metadata is written in
-  that same commit. So a well is either fully in the store or not there at
-  all. If a run stops, the next run starts again at the first well that is
-  not yet committed. A well that fails is reported and skipped, and the run
-  goes on to the next well and exits nonzero at the end, listing the failed
-  wells. The shards a failed well uploaded stay in storage, uncommitted and
-  unreachable, until Icechunk's garbage collection removes them. At the end,
-  every run writes the plate's metadata. That metadata lists exactly the
-  wells that are on the branch at that moment.
+- **Commits.** Before any well, the run creates the plate's root, row and
+  well groups, so that processes copying different wells never create the
+  same group. While a well is copied, it commits every 5 minutes
+  (``--checkpoint-minutes``): the running uploads finish, the well's group
+  records which channel runs are complete, and the commit is made. The
+  well's own metadata goes in its last commit, so a well counts as on the
+  branch only once all of it is copied; until then its arrays hold zeros
+  where runs are still missing. If a run stops, the next run resumes the
+  well after the channel runs its commits hold, and fetches only the rest.
+  A well that fails is reported and skipped, and the run goes on to the
+  next well and exits nonzero at the end, listing the failed wells. The
+  shards uploaded after a well's last commit stay in storage, unreachable,
+  until Icechunk's garbage collection removes them. At the end, every run
+  writes the plate's metadata. That metadata lists exactly the wells that
+  are on the branch at that moment.
 - **Progress.** Decoding prints a line every few seconds, counting chunks.
   Every 30 s a heartbeat line names the stage the well is in (streaming,
   checking, writing metadata, committing) with what has been fetched and
   uploaded and at what rates, the chunks decoded, the bytes held between
   the stages, the assignments running, the cores busy and memory, so a
   long commit or check is not mistaken for a hang and a slow stage shows
-  where the bytes pile up. A range request that takes over 20 s is
-  reported on its own line. The well's last line says how long each stage
+  where the bytes pile up. A range request or a shard write that takes over
+  20 s is reported on its own line. If the copy stops moving for a minute,
+  every thread's stack is printed, with the end of ``--stall-log`` (such as
+  Icechunk's log), and again every 5 minutes while the stall lasts. The well's last line says how long each stage
   was held back by the next.
 - **Speed.** Fetching, decoding and uploading run at once, each waiting only
   when the bytes it has passed on reach their limit, so a well takes about
@@ -192,8 +200,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
@@ -207,7 +214,8 @@ from zarr.storage import MemoryStore
 
 from minus80.core.fetch import cache_dir
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, storage_for
-from minus80.core.progress import Heartbeat, Progress, peak_memory_gb
+from minus80.core.metered import Meter, MeteredStore
+from minus80.core.progress import Heartbeat, Progress, StallWatch, peak_memory_gb
 from minus80.ome import (
     image_annotation,
     image_attrs,
@@ -303,6 +311,16 @@ UPLOAD_WORKERS = 8
 #: zarr's ``async.concurrency``: how many shards one assignment encodes and
 #: uploads at once. zarr's own default is 10.
 ZARR_CONCURRENCY = 32
+
+#: Seconds between the commits made while a well is copied. A failure loses
+#: at most this much uploading, and each commit pauses the uploads only while
+#: the assignments already running finish.
+CHECKPOINT_SECONDS = 300
+
+#: The attribute of a well's group that records which channel runs earlier
+#: commits hold, so that a later run resumes after them. It is removed when
+#: the well is complete.
+PROGRESS = "copy_progress"
 
 #: Tables that describe the whole well rather than one field. Their rows are
 #: kept in the well's attributes, so nothing the source recorded is lost.
@@ -508,7 +526,10 @@ class WellState:
         self.scales: list[dict[str, float]] | None = None
         self._fields: dict[int, list[Field]] = {}
         #: Chunks that could not be decoded, by field name, with the reason.
+        #: The decoding thread adds to it and the writing thread copies it at
+        #: each checkpoint, so both go through ``_unreadable_lock``.
         self.unreadable: dict[str, dict[str, str]] = {}
+        self._unreadable_lock = threading.Lock()
 
     def add_document(self, name: str, data: bytes) -> None:
         """Keep a metadata document, and learn what it says."""
@@ -533,6 +554,19 @@ class WellState:
                     attrs = json.loads(self.documents[round_attrs])
                     self.scales = multiscale_scales(attrs, IMAGE_DIMS, round_attrs)
                     break
+
+    def record_unreadable(self, field: str, name: str, reason: str) -> None:
+        with self._unreadable_lock:
+            self.unreadable.setdefault(field, {})[name] = reason
+
+    def unreadable_copy(self) -> dict[str, dict[str, str]]:
+        with self._unreadable_lock:
+            return {field: dict(chunks) for field, chunks in self.unreadable.items()}
+
+    def confirmed(self, array_path: str) -> bool:
+        """True once the array's own ``.zarray`` has arrived and agrees with every encoding its chunks were decoded with."""
+        own = self.specs.get(array_path)
+        return own is not None and all(used == own for used in self.used.get(array_path, []))
 
     def spec_for(self, array: SourceArray) -> ArraySpec | None:
         """The encoding to decode an array's chunks with: its own, else that of the first array of the same level and kind.
@@ -675,15 +709,15 @@ def prepare(run: ChannelRun, state: WellState) -> Prepared:
 
 
 def decode_run(
-    run: ChannelRun, prepared: Prepared, plan: WellPlan, pool: ThreadPoolExecutor, note: Progress,
-    unreadable: dict[str, dict[str, str]],
+    run: ChannelRun, prepared: Prepared, state: WellState, pool: ThreadPoolExecutor, note: Progress
 ) -> DecodedRun:
     """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
 
     ``note`` counts the run's chunks as they finish, decoded or skipped, and
-    each chunk that cannot be decoded is recorded in ``unreadable`` under
-    every field it touches.
+    each chunk that cannot be decoded is recorded in ``state`` under every
+    field it touches.
     """
+    plan = state.plan
     array, spec, fields = prepared.array, prepared.spec, prepared.fields
     depth = spec.shape[0] if array.label is not None else spec.shape[1]
     windows, buffers = [], {}
@@ -701,7 +735,7 @@ def decode_run(
         if (problem := future.result()) is not None:
             name, reason, touched = problem
             for field_name in touched:
-                unreadable.setdefault(field_name, {})[name] = reason
+                state.record_unreadable(field_name, name, reason)
         note.advance()
     return DecodedRun(array, run.key[1], fields, buffers)
 
@@ -737,55 +771,6 @@ class Budget:
             self._changed.notify_all()
 
 
-class ArrayGate:
-    """Keeps creating groups and arrays apart from writing chunks, within one Icechunk session.
-
-    zarr formats the store's name on its event loop while creating an array,
-    Icechunk's store blocks the loop to do it, and writes from other threads
-    to the same session then wait on each other forever. So creating waits
-    until no assignment is running and holds new ones back until it is done.
-    Each well creates its arrays in a few batches, at the first channel run
-    of each level and label, so the copy rarely waits here; ``waited`` says
-    how long it did.
-    """
-
-    def __init__(self) -> None:
-        self.running = 0
-        self.waited = 0.0
-        self._creating = False
-        self._changed = threading.Condition()
-
-    @contextmanager
-    def assigning(self) -> Iterator[None]:
-        with self._changed:
-            while self._creating:
-                self._changed.wait()
-            self.running += 1
-        try:
-            yield
-        finally:
-            with self._changed:
-                self.running -= 1
-                self._changed.notify_all()
-
-    @contextmanager
-    def creating(self) -> Iterator[None]:
-        with self._changed:
-            started = time.monotonic()
-            while self._creating:
-                self._changed.wait()
-            self._creating = True
-            while self.running:
-                self._changed.wait()
-            self.waited += time.monotonic() - started
-        try:
-            yield
-        finally:
-            with self._changed:
-                self._creating = False
-                self._changed.notify_all()
-
-
 @dataclass(frozen=True)
 class _Target:
     """Where one field of a channel run is written: the image group, the groups below it, and the array."""
@@ -802,45 +787,112 @@ class _Target:
         return "/".join((self.image, *self.groups, self.name))
 
 
+class WellSession:
+    """The writable session a well is copied in, renewed at each checkpoint.
+
+    A commit leaves an Icechunk session read-only, so each checkpoint commits
+    and opens a new writable session on the branch. zarr writes through a
+    :class:`~minus80.core.metered.MeteredStore`, which adds every shard
+    written to ``meter``.
+    """
+
+    def __init__(self, repo, branch: str, meter: Meter) -> None:
+        self.repo, self.branch, self.meter = repo, branch, meter
+        self._open()
+
+    def _open(self) -> None:
+        self.session = self.repo.writable_session(self.branch)
+        store = MeteredStore(self.session.store, self.meter, name=f"icechunk://{self.branch}")
+        self.dest = zarr.open_group(store, mode="a", zarr_format=3)
+
+    def commit(self, message: str) -> None:
+        commit(self.session, message)
+        self._open()
+
+
 class WellWriter:
     """Writes decoded channel runs into the well's images, creating each array the first time it is written.
 
     Each field of a run is one zarr assignment, started on ``pool``;
     ``write`` returns once they are started, so the assignments of several
     runs run at once, up to the pool's size. Each finished assignment gives
-    its buffer's bytes back to ``decoded`` and drops the buffer. Groups and
-    arrays are created under ``gate``, and each array is opened once and
-    kept, so assignments never touch the store's metadata.
+    its buffer's bytes back to ``decoded`` and drops the buffer. Each array is
+    opened or created once per session and kept.
+
+    Every ``checkpoint_seconds`` the writer lets the running assignments
+    finish, records in the well's group which channel runs are complete
+    (:data:`PROGRESS`, with the unreadable chunks found so far) and commits.
+    A run counts as complete once all its fields are written and its array's
+    own ``.zarray`` has confirmed the encoding it was decoded with; a run
+    still unconfirmed is copied again by a later run of the ingest.
     """
 
     def __init__(
-        self, dest: zarr.Group, plan: WellPlan, shard_depth: int, pool: ThreadPoolExecutor,
-        counters: Counters, gate: ArrayGate, decoded: Budget, out: queue.Queue,
+        self, well_session: WellSession, plan: WellPlan, state: WellState, shard_depth: int,
+        pool: ThreadPoolExecutor, counters: Counters, decoded: Budget, out: queue.Queue,
+        *, finished: set[tuple[str, int | None]], checkpoint_seconds: float, timings: Timings,
     ) -> None:
-        self.dest, self.plan, self.shard_depth = dest, plan, shard_depth
-        self.pool, self.counters, self.gate, self.decoded, self.out = pool, counters, gate, decoded, out
+        self.well_session, self.plan, self.state, self.shard_depth = well_session, plan, state, shard_depth
+        self.pool, self.counters, self.decoded, self.out = pool, counters, decoded, out
+        self.checkpoint_seconds, self.timings = checkpoint_seconds, timings
         self.channels = sum(plan.channels.values())
         self.arrays: dict[str, zarr.Array] = {}
         self.assignments: list[Future] = []
+        #: Channel runs earlier commits hold, recorded again at every checkpoint.
+        self.carried = set(finished)
+        #: Channel runs whose every field is written, and the fields each run still waits for.
+        self.written: set[tuple[str, int | None]] = set()
+        self._remaining: dict[tuple[str, int | None], int] = {}
+        self._lock = threading.Lock()
+        self._checkpointed = time.monotonic()
+        #: Assignments started since the last checkpoint; a commit with none would be empty.
+        self._since_checkpoint = 0
 
     def write(self, run: DecodedRun) -> None:
         """Start one zarr assignment per field: a whole channel of one level, or a whole label level."""
+        if self._since_checkpoint and time.monotonic() - self._checkpointed >= self.checkpoint_seconds:
+            self.checkpoint()
+        key = (run.array.path, run.channel)
+        if not run.fields:
+            self.written.add(key)
+            return
         targets = {field.name: self._where(run, field) for field in run.fields}
-        if missing := [t for t in targets.values() if t.path not in self.arrays]:
-            with self.gate.creating():
-                for target in missing:
-                    self.arrays[target.path] = self._create(target)
+        for target in targets.values():
+            if target.path not in self.arrays:
+                self.arrays[target.path] = self._open_or_create(target)
+        with self._lock:
+            self._remaining[key] = len(run.fields)
         for field in run.fields:
             target = self.arrays[targets[field.name].path]
             nbytes = run.buffers[field.name].nbytes
             future = self.pool.submit(self._assign, run, field, target)
-            future.add_done_callback(lambda done, n=nbytes: self._finished(done, n))
+            future.add_done_callback(lambda done, n=nbytes, k=key: self._finished(done, n, k))
             self.assignments.append(future)
+            self._since_checkpoint += 1
 
     def finish(self) -> None:
         """Wait for every assignment started; raise the first that failed."""
         for future in self.assignments:
             future.result()
+        self.assignments.clear()
+
+    def checkpoint(self) -> None:
+        """Let the running assignments finish, record the complete channel runs and commit."""
+        started = time.monotonic()
+        self.counters.stage = "checkpoint: finishing uploads"
+        self.finish()
+        self.counters.stage = "checkpoint: committing"
+        confirmed = {key for key in self.written if self.state.confirmed(key[0])}
+        complete = sorted((list(key) for key in self.carried | confirmed), key=lambda k: (k[0], k[1] or 0))
+        group = self.well_session.dest.require_group(self.plan.well)
+        group.attrs[PROGRESS] = {"complete_runs": complete, "unreadable": self.state.unreadable_copy()}
+        self.well_session.commit(f"{self.plan.well}: {len(complete)} channel runs copied so far")
+        self.arrays.clear()
+        self.timings.checkpoints += 1
+        self.timings.checkpoint_seconds += time.monotonic() - started
+        self.counters.stage = "streaming"
+        self._checkpointed = time.monotonic()
+        self._since_checkpoint = 0
 
     def _where(self, run: DecodedRun, field: Field) -> _Target:
         pixels = run.buffers[field.name]
@@ -853,20 +905,25 @@ class WellWriter:
 
     def _assign(self, run: DecodedRun, field: Field, target: zarr.Array) -> None:
         pixels = run.buffers.pop(field.name)
-        with self.gate.assigning():
-            if run.array.label is None:
-                target[self.plan.channel_offset(run.array.round) + run.channel] = pixels
-            else:
-                target[:] = pixels
+        if run.array.label is None:
+            target[self.plan.channel_offset(run.array.round) + run.channel] = pixels
+        else:
+            target[:] = pixels
         self.counters.uploaded_field(pixels.nbytes)
 
-    def _finished(self, future: Future, nbytes: int) -> None:
+    def _finished(self, future: Future, nbytes: int, key: tuple[str, int | None]) -> None:
         self.decoded.give(nbytes)
         if not future.cancelled() and (error := future.exception()) is not None:
             self.out.put(("error", error))
+            return
+        with self._lock:
+            self._remaining[key] -= 1
+            if self._remaining[key] == 0:
+                del self._remaining[key]
+                self.written.add(key)
 
-    def _create(self, target: _Target) -> zarr.Array:
-        group = self.dest.require_group(target.image)
+    def _open_or_create(self, target: _Target) -> zarr.Array:
+        group = self.well_session.dest.require_group(target.image)
         for name in target.groups:
             group = group.require_group(name)
         if target.name in group:
@@ -905,10 +962,11 @@ class Counters:
         self.uploaded_bytes = 0
         #: Compressed bytes of the channel runs waiting for metadata.
         self.waiting = 0
-        #: The copy's budgets and gate, once it starts, for what each holds.
+        #: The copy's budgets, once it starts, for what each holds.
         self.fetched_held: Budget | None = None
         self.decoded_held: Budget | None = None
-        self.gate: ArrayGate | None = None
+        #: The shards written to the store: their stored bytes and time.
+        self.meter: Meter | None = None
         self._lock = threading.Lock()
         self._cpu = (time.monotonic(), sum(os.times()[:2]))
 
@@ -926,25 +984,36 @@ class Counters:
     def line(self) -> str:
         elapsed = max(time.monotonic() - self.started, 1e-9)
         decoded = self.decoding.done if self.decoding is not None else 0
-        held = ""
-        if self.fetched_held is not None and self.decoded_held is not None and self.gate is not None:
+        held = stored = ""
+        if self.fetched_held is not None and self.decoded_held is not None:
             held = (
                 f"; holding {self.fetched_held.held / 1e9:.1f} GB fetched and not yet decoded, "
-                f"{self.decoded_held.held / 1e9:.1f} GB decoded and not yet uploaded, "
-                f"{self.gate.running} assignments running"
+                f"{self.decoded_held.held / 1e9:.1f} GB decoded and not yet uploaded"
+            )
+        if (m := self.meter) is not None:
+            mean = m.seconds / m.writes if m.writes else 0.0
+            stored = (
+                f"; stored {m.bytes / 1e9:.2f} GB ({m.bytes / elapsed / 1e6:.0f} MB/s) in {m.writes:,} shard writes, "
+                f"{m.running} running, {mean:.1f} s each on average, slowest {m.slowest:.0f} s"
             )
         return (
             f"well {self.well}, {self.stage}: fetched {self.fetched / 1e9:.2f} GB "
             f"({self.fetched / elapsed / 1e6:.0f} MB/s), {decoded:,} chunks decoded, "
-            f"{self.uploaded:,} fields uploaded ({self.uploaded_bytes / 1e9:.1f} GB of pixels, "
-            f"{self.uploaded_bytes / elapsed / 1e6:.0f} MB/s), {self.waiting / 1e9:.2f} GB waiting for metadata"
-            f"{held}; {self._cores_busy():.1f} cores busy, peak memory {peak_memory_gb():.1f} GB"
+            f"{self.uploaded:,} fields uploaded ({self.uploaded_bytes / 1e9:.1f} GB of pixels), "
+            f"{self.waiting / 1e9:.2f} GB waiting for metadata{held}{stored}; "
+            f"{self._cores_busy():.1f} cores busy, peak memory {peak_memory_gb():.1f} GB"
         )
+
+    def signature(self) -> tuple:
+        """What changes while the copy moves, for :class:`~minus80.core.progress.StallWatch`."""
+        decoded = self.decoding.done if self.decoding is not None else 0
+        writes = self.meter.writes if self.meter is not None else 0
+        return (self.stage, self.fetched, decoded, self.uploaded, writes)
 
 
 def _fetch(
-    url: str, plan: WellPlan, out: queue.Queue, fetched: Budget, stop: threading.Event,
-    counters: Counters, **read,
+    url: str, plan: WellPlan, members: Sequence[Mapping], out: queue.Queue, fetched: Budget,
+    stop: threading.Event, counters: Counters, **read,
 ) -> None:
     """Stream the well's members, handing metadata over one by one and chunks as whole channel runs.
 
@@ -957,7 +1026,7 @@ def _fetch(
     """
     try:
         run, finished = None, set()
-        for member in stream_members(url, plan.members, **read):
+        for member in stream_members(url, members, **read):
             if stop.is_set():
                 return
             counters.fetched += member.entry["end"] - member.entry["start"]
@@ -993,7 +1062,7 @@ def _next(items: queue.Queue, stop: threading.Event):
 
 
 def _decode(
-    jobs: queue.Queue, writes: queue.Queue, out: queue.Queue, stop: threading.Event, plan: WellPlan,
+    jobs: queue.Queue, writes: queue.Queue, out: queue.Queue, stop: threading.Event,
     state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
     timings: Timings,
 ) -> None:
@@ -1008,7 +1077,7 @@ def _decode(
             run, prepared = job
             decoded.take(prepared.decoded_bytes())
             started = time.monotonic()
-            result = decode_run(run, prepared, plan, pool, note, state.unreadable)
+            result = decode_run(run, prepared, state, pool, note)
             timings.decode += time.monotonic() - started
             fetched.give(run.stored_bytes())
             writes.put(result)
@@ -1040,14 +1109,15 @@ class Timings:
     decode: float = 0.0
     fetch_held_back: float = 0.0
     decode_held_back: float = 0.0
-    creating_arrays: float = 0.0
+    checkpoints: int = 0
+    checkpoint_seconds: float = 0.0
     commit: float = 0.0
 
     def line(self, total: float) -> str:
         return (
             f"{total:.0f} s in all: decoding {self.decode:.0f} s; fetch held back by decoding "
-            f"{self.fetch_held_back:.0f} s, decoding held back by uploads {self.decode_held_back:.0f} s, "
-            f"uploads paused for array creation {self.creating_arrays:.0f} s; commit {self.commit:.0f} s"
+            f"{self.fetch_held_back:.0f} s, decoding held back by uploads {self.decode_held_back:.0f} s; "
+            f"{self.checkpoints} checkpoints, {self.checkpoint_seconds:.0f} s; final commit {self.commit:.0f} s"
         )
 
 
@@ -1062,8 +1132,10 @@ def copy_well(
     url: str,
     plan: WellPlan,
     state: WellState,
-    dest: zarr.Group,
+    well_session: WellSession,
     *,
+    finished: set[tuple[str, int | None]],
+    checkpoint_seconds: float,
     shard_depth: int,
     concurrency: int,
     range_bytes: int,
@@ -1091,6 +1163,10 @@ def copy_well(
     A channel run that arrives before the metadata it needs waits until that
     metadata arrives; if the runs waiting hold more than ``waiting_limit``
     compressed bytes, the well fails, naming the metadata still missing.
+
+    Channel runs in ``finished``, which earlier commits hold, are not
+    fetched; the metadata documents always are. The writer commits every
+    ``checkpoint_seconds`` (:class:`WellWriter`).
     """
     if fetch_ahead < waiting_limit + LARGEST_RUN:
         # Runs waiting for metadata count against fetch_ahead; if they could
@@ -1103,25 +1179,33 @@ def copy_well(
     jobs: queue.Queue = queue.Queue()
     writes: queue.Queue = queue.Queue()
     stop = threading.Event()
-    fetched, decoded, gate = Budget(fetch_ahead, stop), Budget(decoded_limit, stop), ArrayGate()
-    counters.fetched_held, counters.decoded_held, counters.gate = fetched, decoded, gate
+    fetched, decoded = Budget(fetch_ahead, stop), Budget(decoded_limit, stop)
+    counters.fetched_held, counters.decoded_held = fetched, decoded
     waiting: deque[ChannelRun] = deque()
+    members = [
+        m for m in plan.members
+        if (key := plan.chunks.get(m["name"])) is None or plan.run_key(key) not in finished
+    ]
     with (
         ThreadPoolExecutor(decode_threads, thread_name_prefix="decode") as pool,
         ThreadPoolExecutor(upload_workers, thread_name_prefix="field") as fields,
-        Progress(f"well {plan.well}: decoding chunks", len(plan.chunks), unit="chunks") as note,
+        Progress(f"well {plan.well}: decoding chunks", sum(m["name"] in plan.chunks for m in members),
+                 unit="chunks") as note,
     ):
         counters.decoding = note
-        writer = WellWriter(dest, plan, shard_depth, fields, counters, gate, decoded, out)
+        writer = WellWriter(
+            well_session, plan, state, shard_depth, fields, counters, decoded, out,
+            finished=finished, checkpoint_seconds=checkpoint_seconds, timings=timings,
+        )
         threads = [
             threading.Thread(
-                target=_fetch, args=(url, plan, out, fetched, stop, counters), name="fetch", daemon=True,
+                target=_fetch, args=(url, plan, members, out, fetched, stop, counters), name="fetch", daemon=True,
                 kwargs={"concurrency": concurrency, "range_bytes": range_bytes, "window": read_window,
                         "registry": registry},
             ),
             threading.Thread(
                 target=_decode, name="decode-runs", daemon=True,
-                args=(jobs, writes, out, stop, plan, state, pool, note, fetched, decoded, timings),
+                args=(jobs, writes, out, stop, state, pool, note, fetched, decoded, timings),
             ),
             threading.Thread(target=_write, args=(writes, out, stop, writer), name="write", daemon=True),
         ]
@@ -1165,7 +1249,6 @@ def copy_well(
                 thread.join(timeout=THREAD_JOIN_TIMEOUT)
             timings.fetch_held_back = fetched.waited
             timings.decode_held_back = decoded.waited
-            timings.creating_arrays = gate.waited
 
 
 def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) -> list[Field]:
@@ -1342,7 +1425,7 @@ def committed_wells(root: zarr.Group, wells: Sequence[str]) -> list[str]:
     """The wells already on the branch, in plate order.
 
     A well counts as committed when its group has its ``well`` metadata,
-    because that metadata is written in the same commit as the well's pixels.
+    because that metadata goes in the well's last commit, after all its pixels.
     """
     return [w for w in wells if w in root and "well" in dict(root[w].attrs).get("ome", {})]
 
@@ -1433,6 +1516,28 @@ def open_repository(location: str):
     return icechunk.Repository.open_or_create(storage_for(location))
 
 
+def create_plate_groups(repo, branch: str, wells: Sequence[str]) -> None:
+    """Create the root, row and well groups of the plate, and commit them if any were missing.
+
+    Every well's copy then only adds below its own well group, so several
+    processes copying different wells never both create the same group,
+    which Icechunk could not merge.
+    """
+    session = repo.writable_session(branch)
+    root = zarr.open_group(session.store, mode="a", zarr_format=3)
+    created = 0
+    for well in wells:
+        row, column = well.split("/")
+        if row not in root:
+            root.require_group(row)
+            created += 1
+        if column not in root[row]:
+            root[row].require_group(column)
+            created += 1
+    if created:
+        commit(session, f"Create the plate's row and well groups ({created} groups)")
+
+
 def plate_documents(url: str, directory: pa.Table, registry=None) -> dict[str, bytes]:
     """The plate's own metadata documents and its rows' group markers, which sit between wells.
 
@@ -1460,12 +1565,27 @@ def convert_well(
     timings: Timings,
     **copy,
 ) -> None:
-    """Copy one well, check it against its metadata, write its metadata and commit it."""
+    """Copy one well, check it against its metadata, write its metadata and commit it.
+
+    The copy commits as it goes (:class:`WellWriter`). If the well's group
+    records channel runs that earlier commits hold (:data:`PROGRESS`), the
+    copy resumes after them. The well's own metadata goes in the last commit,
+    so a well counts as on the branch only once every run is copied.
+    """
     well = plan.well
     state = WellState(plan, documents)
-    session = repo.writable_session(branch)
-    dest = zarr.open_group(session.store, mode="a", zarr_format=3)
-    copy_well(url, plan, state, dest, timings=timings, counters=counters, **copy)
+    meter = Meter()
+    counters.meter = meter
+    well_session = WellSession(repo, branch, meter)
+    progress = dict(well_session.dest[well].attrs).get(PROGRESS, {}) if well in well_session.dest else {}
+    finished = {(path, channel) for path, channel in progress.get("complete_runs", [])}
+    for field_name, chunks in progress.get("unreadable", {}).items():
+        for name, reason in chunks.items():
+            state.record_unreadable(field_name, name, reason)
+    if finished:
+        say(f"  resuming {well}: {len(finished)} channel runs already committed")
+    copy_well(url, plan, state, well_session, finished=finished, timings=timings, counters=counters, **copy)
+    dest = well_session.dest
     counters.stage = "checking metadata"
     src = documents_store(state.documents)
     plate = read_plate(src, wells=[well])
@@ -1481,11 +1601,13 @@ def convert_well(
             say(f"  {field.name}: {len(unreadable)} unreadable source chunks, read as 0")
     counters.stage = "writing well metadata"
     dest[well].attrs.update(well_document(plate, src, url, well, fields))
+    if PROGRESS in dest[well].attrs:
+        del dest[well].attrs[PROGRESS]
     counters.stage = "committing"
     # A commit writes one manifest per array, so its cost grows with the
     # number of arrays (docs/ingest.md). Timing it shows that cost early.
     committing = time.monotonic()
-    commit(session, f"Add well {well}: {len(fields)} embryos x {len(channels)} channels")
+    well_session.commit(f"Add well {well}: {len(fields)} embryos x {len(channels)} channels")
     timings.commit = time.monotonic() - committing
 
 
@@ -1506,6 +1628,8 @@ def convert(
     fetch_ahead: int = FETCH_AHEAD,
     decoded_limit: int = DECODED_LIMIT,
     read_window: int = READ_WINDOW,
+    checkpoint_seconds: float = CHECKPOINT_SECONDS,
+    stall_log: str | None = None,
     registry=None,
 ) -> list[str]:
     """Convert some or all wells of the zip at ``url`` into ``repo``.
@@ -1527,7 +1651,10 @@ def convert(
     ``waiting_limit`` caps the compressed bytes of channel runs waiting for
     metadata; ``fetch_ahead`` and ``decoded_limit`` cap the bytes between
     the stages (:func:`copy_well`), and ``read_window`` the range requests
-    asked for and not yet cut into members. ``registry`` decides how ``url`` is read, as for any minus80
+    asked for and not yet cut into members. Each well commits every
+    ``checkpoint_seconds`` as it is copied. When the copy stops moving for a
+    minute, every thread's stack is printed, with the end of ``stall_log``
+    if given (such as Icechunk's log). ``registry`` decides how ``url`` is read, as for any minus80
     reader.
     """
     started = time.monotonic()
@@ -1555,8 +1682,9 @@ def convert(
         chosen = list(wells) if wells else listed
         if unknown := set(chosen) - set(listed):
             raise ValueError(f"not wells of the plate: {sorted(unknown)}")
-        setup["step"] = "opening the branch"
-        branch_root = zarr.open_group(repo.writable_session(branch).store, mode="a", zarr_format=3)
+        setup["step"] = "creating the plate's groups"
+        create_plate_groups(repo, branch, listed)
+        branch_root = zarr.open_group(repo.readonly_session(branch).store, mode="r", zarr_format=3)
         done = committed_wells(branch_root, chosen)
     todo = [w for w in chosen if w not in done]
     say(f"converting {len(todo)} wells ({len(done)} already committed)")
@@ -1570,6 +1698,7 @@ def convert(
         "fetch_ahead": fetch_ahead,
         "decoded_limit": decoded_limit,
         "read_window": read_window,
+        "checkpoint_seconds": checkpoint_seconds,
         "registry": registry,
     }
 
@@ -1582,7 +1711,7 @@ def convert(
             say(f"well {well} ({n} of {len(todo)}): {len(plan.members):,} members, {size / 1e9:.2f} GB")
             counters, timings = Counters(well), Timings()
             try:
-                with Heartbeat(counters.line):
+                with Heartbeat(counters.line), StallWatch(counters.signature, log=stall_log):
                     convert_well(url, repo, branch, plan, documents, counters, timings, **copy)
             except Exception as error:  # noqa: BLE001 - one well's failure must not stop the others
                 failed[well] = repr(error)
@@ -1642,6 +1771,13 @@ def main() -> None:
         "--read-window", type=int, default=READ_WINDOW,
         help="range requests asked for and not yet cut into members",
     )
+    parser.add_argument(
+        "--checkpoint-minutes", type=float, default=CHECKPOINT_SECONDS / 60,
+        help="minutes between the commits made while a well is copied",
+    )
+    parser.add_argument(
+        "--stall-log", help="a log file whose last lines are printed when the copy stops moving",
+    )
     args = parser.parse_args()
     try:
         convert(
@@ -1659,6 +1795,8 @@ def main() -> None:
             fetch_ahead=int(args.fetch_ahead_gb * 1e9),
             decoded_limit=int(args.decoded_limit_gb * 1e9),
             read_window=args.read_window,
+            checkpoint_seconds=args.checkpoint_minutes * 60,
+            stall_log=args.stall_log,
         )
     except WellsFailed as error:
         for well, reason in error.failed.items():
