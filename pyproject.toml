@@ -46,6 +46,6 @@ virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da04771
 flac-numcodecs = { git = "https://github.com/ianhi/flac-numcodecs", tag = "zarr3-flac-codec-2026-10-19" }
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m \"not network\""
 testpaths = ["tests"]
-markers = ["network: reads a real file over HTTPS"]
+markers = ["network: reads a real file over HTTPS; deselected unless run with -m network"]
