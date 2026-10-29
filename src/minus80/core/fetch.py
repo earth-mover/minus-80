@@ -22,20 +22,28 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from collections import deque
-from collections.abc import Iterable, Iterator, Sequence
-from itertools import islice
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, wait
 from pathlib import Path
 from typing import BinaryIO
 
 from obspec_utils.registry import ObjectStoreRegistry
 
-from .aio import submit
+from .aio import own_loop, submit
 from .progress import Progress
 from .registry import as_url, file_path, resolve, store_and_key
 
 BLOCK = 32 << 20
 CONCURRENCY = 16
+
+#: Seconds a piece may be in flight before :func:`iter_ranges` asks for it a
+#: second time and takes whichever answer comes first. A server can leave one
+#: request waiting for minutes while the rest finish in seconds; EBI did so for
+#: 60 to 90 s at a time while serving a 64 MiB piece usually took under 10 s.
+#: A piece that takes longer than this is also reported.
+HEDGE_AFTER = 20.0
 
 
 def cache_dir() -> str:
@@ -74,14 +82,21 @@ def iter_ranges(
     progress: bool = True,
     patient: bool = False,
     registry: ObjectStoreRegistry | None = None,
+    window: int | None = None,
+    hedge_after: float | None = HEDGE_AFTER,
 ) -> Iterator[tuple[int, bytes]]:
     """Each ``[start, end)`` range of ``url`` as ``(start, data)``, in the order given.
 
     A range longer than ``block`` is split into pieces of at most ``block``
     bytes, yielded in order. Every piece is its own GET; at most
     ``concurrency`` are in flight, and pieces are yielded as soon as they and
-    every piece before them have arrived, so memory stays near
-    ``concurrency * block``. A short piece raises ``OSError``.
+    every piece before them have arrived. Requests go on starting while an
+    earlier piece is still out, up to ``window`` pieces (default
+    ``2 * concurrency``) asked for and not yet yielded, so one slow piece does
+    not leave the other connections idle; memory stays near ``window * block``.
+    A piece still out after ``hedge_after`` seconds is asked for again, and a
+    line reports each piece that took that long. A short piece raises
+    ``OSError``.
 
     Pieces are fetched one ``get_range`` each because ``obstore.get_ranges``
     merges adjacent ranges into one request even with ``coalesce=0``, which
@@ -91,7 +106,7 @@ def iter_ranges(
     labelled with the file name, counting bytes against the total asked for.
     """
     pieces = [(s, min(s + block, end)) for start, end in ranges for s in range(start, end, block)]
-    fetched = _fetch_pieces(url, pieces, concurrency, patient, registry)
+    fetched = _fetch_pieces(url, pieces, concurrency, window or 2 * concurrency, hedge_after, patient, registry)
     if not progress:
         yield from fetched
         return
@@ -251,24 +266,84 @@ def _checked(buf, url: str, start: int, end: int) -> bytes:
     return data
 
 
-def _fetch_pieces(url: str, pieces: list[tuple[int, int]], concurrency: int, patient: bool,
+class _Piece:
+    """One piece of :func:`iter_ranges`, with every request made for it."""
+
+    def __init__(self, start: int, end: int, request: Callable[[], Future[bytes]]) -> None:
+        self.start, self.end, self._request = start, end, request
+        self.began = time.monotonic()
+        #: When the first request for the piece finished, for the slow-piece report.
+        self.finished: float | None = None
+        self.requests: list[Future[bytes]] = []
+        self.ask()
+
+    def ask(self) -> None:
+        future = self._request()
+        future.add_done_callback(self._done)
+        self.requests.append(future)
+
+    def _done(self, _future: Future) -> None:
+        if self.finished is None:
+            self.finished = time.monotonic()
+
+    def in_flight(self) -> int:
+        return sum(not future.done() for future in self.requests)
+
+    def _answer(self) -> Future[bytes] | None:
+        return next((f for f in self.requests if f.done() and not f.cancelled() and f.exception() is None), None)
+
+    def ready(self) -> bool:
+        """True once one request has answered, or every request has failed."""
+        return self._answer() is not None or all(future.done() for future in self.requests)
+
+    def result(self) -> bytes:
+        answer = self._answer()
+        self.cancel()
+        return (answer or self.requests[0]).result()
+
+    def cancel(self) -> None:
+        for future in self.requests:
+            future.cancel()
+
+
+def _fetch_pieces(url: str, pieces: list[tuple[int, int]], concurrency: int, window: int,
+                  hedge_after: float | None, patient: bool,
                   registry: ObjectStoreRegistry | None) -> Iterator[tuple[int, bytes]]:
     # Each GET is a coroutine rather than a thread-pool task because a running
     # thread cannot be stopped: after an error or an early stop by the caller,
     # a patient store's GETs would keep retrying for up to twenty minutes and
     # hold the interpreter open at exit. Cancelling the coroutine drops the
-    # request.
+    # request. The GETs run on a loop of their own, so a stall on zarr's loop,
+    # which carries every write, does not stop them.
     store, key = _store_and_key(url, patient, registry)
-    it = iter(pieces)
-    pending = deque((s, submit(_get_async(store, key, url, s, e)))
-                    for s, e in islice(it, max(1, concurrency)))
+    loop = own_loop("fetch")
+    name = url.rsplit("/", 1)[-1]
+    todo = deque(pieces)
+    started: deque[_Piece] = deque()
+    window = max(window, concurrency)
     try:
-        while pending:
-            start, future = pending.popleft()
-            data = future.result()
-            if (piece := next(it, None)) is not None:
-                pending.append((piece[0], submit(_get_async(store, key, url, *piece))))
-            yield start, data
+        while todo or started:
+            while todo and len(started) < window and sum(p.in_flight() for p in started) < concurrency:
+                start, end = todo.popleft()
+                started.append(_Piece(start, end, lambda s=start, e=end: submit(_get_async(store, key, url, s, e), loop)))
+            head = started[0]
+            if head.ready():
+                started.popleft()
+                data = head.result()
+                took = (head.finished or time.monotonic()) - head.began
+                if hedge_after is not None and took > hedge_after:
+                    print(f"      slow range [{head.start:,}, {head.end:,}) of {name}: {took:.0f} s"
+                          f"{', asked for twice' if len(head.requests) > 1 else ''}", flush=True)
+                yield head.start, data
+                continue
+            timeout = None
+            if hedge_after is not None and len(head.requests) == 1:
+                timeout = head.began + hedge_after - time.monotonic()
+                if timeout <= 0:
+                    head.ask()
+                    continue
+            waiting = [f for piece in started for f in piece.requests if not f.done()]
+            wait(waiting, timeout=timeout, return_when=FIRST_COMPLETED)
     finally:
-        for _, future in pending:
-            future.cancel()
+        for piece in started:
+            piece.cancel()

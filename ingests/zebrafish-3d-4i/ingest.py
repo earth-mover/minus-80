@@ -79,9 +79,14 @@ well needs lies inside that region (PLAN.md, decision 14).
   ``C/02/2/0`` (``minus80.parsers.zip.zarr_v2``).
 - **Fetching.** ``minus80.parsers.zip.reading.stream_members`` reads a well's
   region as 64 MiB range requests, many at once, and cuts the members out
-  of them as they arrive. A thread does this ahead of the rest, so the
-  network stays busy while the CPU works. It hands over finished channel
-  runs and waits once two are queued that the main thread has not taken.
+  of them in order. New requests go on starting while an earlier one is
+  slow, up to 64 asked for ahead of the cutting, and a request still out
+  after 20 s is made a second time, so one slow request does not idle the
+  others (``minus80.core.fetch.iter_ranges``). A thread of its own does
+  this and hands over finished channel runs. It waits only when the runs it
+  has handed over and that are not yet decoded hold 8 GB compressed
+  (``--fetch-ahead-gb``), so the fetch keeps going while earlier runs
+  decode and upload.
 - **Channel runs.** Within one array the zip stores one channel at a time,
   so the chunks arrive as *channel runs*: every chunk of one channel of one
   array, or every chunk of one label array. A destination shard needs four
@@ -102,14 +107,15 @@ well needs lies inside that region (PLAN.md, decision 14).
   and kind before its own ``.zarray`` arrives; every array's own
   ``.zarray`` is checked against the encoding used before the well is
   committed.
-- **Memory.** At any moment the copy holds: the channel runs waiting for
-  metadata, compressed; one channel run being decoded, compressed, and its
-  fields' buffers; the previous run's buffers while they upload; up to two
-  compressed runs queued by the fetching thread and one it is assembling;
-  the range requests in flight, 64 MiB each; and the cutter's buffer, the
-  part of a range not yet cut into members.
-- **Decoding.** For each chunk in a grid cell that some field touches, a
-  thread pool inflates it, checks its Blosc frame, decodes it and copies
+- **Memory.** At any moment the copy holds: up to 8 GB of compressed
+  channel runs fetched and not yet decoded, the runs waiting for metadata
+  among them; one run being assembled; up to 64 range requests of 64 MiB
+  asked for and not yet cut; the cutter's buffer, the part of a range not
+  yet cut into members; up to 16 GB of decoded pixels not yet uploaded
+  (``--decoded-limit-gb``); and zarr's shards while it encodes them.
+- **Decoding.** A thread decodes one channel run after another, and waits
+  when the decoded runs not yet uploaded hold 16 GB. For each chunk in a
+  grid cell that some field touches, a thread pool inflates it, checks its Blosc frame, decodes it and copies
   each field's part into that field's buffer. zlib and Blosc release the
   GIL, so this uses every core.
 - **Cutting each level.** The module ``minus80.ome.crop`` works out which part
@@ -121,10 +127,12 @@ well needs lies inside that region (PLAN.md, decision 14).
   Each level's translation records exactly where the cut sits. A later
   commit can replace these levels with ones rebuilt from level 0.
 - **Writing.** Each channel run becomes one zarr assignment per field: a
-  whole channel of one level, or a whole label level. zarr encodes and
-  uploads its shards while the next channel run decodes. Several fields are
-  assigned at once (``--upload-workers``), and zarr's ``async.concurrency``
-  sets how many shards each assignment uploads at once. A chunk is one
+  whole channel of one level, or a whole label level. The assignments of
+  several runs run at once, up to ``--upload-workers`` of them, while later
+  runs decode and fetch, and zarr's ``async.concurrency`` sets how many
+  shards each assignment uploads at once. Creating an array has to wait
+  until no assignment is running (``ArrayGate`` says why); that happens
+  in a few batches per well. A chunk is one
   plane of one channel and a shard holds 32 planes; for labels, a shard
   holds all 271 planes, because a label plane compresses to only a few KB.
   Every shard is written once and never read back.
@@ -144,10 +152,15 @@ well needs lies inside that region (PLAN.md, decision 14).
   wells that are on the branch at that moment.
 - **Progress.** Decoding prints a line every few seconds, counting chunks.
   Every 30 s a heartbeat line names the stage the well is in (streaming,
-  checking, writing metadata, committing) with what has been fetched and at
-  what rate, the chunks decoded, the fields uploaded and memory, so a long
-  commit or check is not mistaken for a hang.
-- **Speed.** Fetching, decoding and uploading overlap, so a well takes about
+  checking, writing metadata, committing) with what has been fetched and
+  uploaded and at what rates, the chunks decoded, the bytes held between
+  the stages, the assignments running, the cores busy and memory, so a
+  long commit or check is not mistaken for a hang and a slow stage shows
+  where the bytes pile up. A range request that takes over 20 s is
+  reported on its own line. The well's last line says how long each stage
+  was held back by the next.
+- **Speed.** Fetching, decoding and uploading run at once, each waiting only
+  when the bytes it has passed on reach their limit, so a well takes about
   as long as the slowest of them. To go faster still, start more processes
   and give each one different wells with ``--wells``. Each process commits
   its own wells, and Icechunk rebases each commit onto the others.
@@ -164,20 +177,23 @@ Running it
 
     uv run --package zebrafish-3d-4i-ingest python ingests/zebrafish-3d-4i/ingest.py \\
         --source <zip URL> --repo <dir | arraylake://org/repo> [--wells C/02,E/05] \\
-        [--upload-workers 4] [--zarr-concurrency 32] [--waiting-limit-gb 4]
+        [--upload-workers 8] [--zarr-concurrency 32] [--waiting-limit-gb 4] \\
+        [--fetch-ahead-gb 8] [--decoded-limit-gb 16] [--read-window 64]
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import re
 import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
@@ -253,10 +269,10 @@ READ_CONCURRENCY = 64
 #: about 25 connections from one address (PLAN.md), so stay well below that.
 EBI_READ_CONCURRENCY = 16
 
-#: How many finished channel runs the fetching thread may queue before the
-#: main thread takes them. Once taken, a run is decoded at once or waits for
-#: metadata, and :data:`WAITING_LIMIT` bounds the runs that wait.
-RUNS_AHEAD = 2
+#: Range requests asked for and not yet cut into members: one slow request
+#: holds back cutting, but not fetching, until this many are out. 64 of
+#: 64 MiB is 4 GiB.
+READ_WINDOW = 64
 
 #: The most compressed bytes that channel runs may hold while they wait for
 #: metadata. The first round's runs hold about 2 GB until level 0's first
@@ -264,8 +280,25 @@ RUNS_AHEAD = 2
 #: would buffer the whole well, up to 27 GB.
 WAITING_LIMIT = 4 * 10**9
 
-#: How many fields are assigned through zarr at once.
-UPLOAD_WORKERS = 4
+#: The largest compressed channel run of any well: channel 3 of B/05's
+#: round-3 level 0, 1.44 GB, from the central directory.
+LARGEST_RUN = 1_500_000_000
+
+#: The most compressed bytes of channel runs handed over by the fetching
+#: thread and not yet decoded, counting the runs waiting for metadata. Below
+#: it, the fetch never waits for decoding or uploads. It must exceed
+#: :data:`WAITING_LIMIT` by :data:`LARGEST_RUN`, or runs waiting for metadata
+#: could fill it and stop the fetch before the metadata arrives.
+FETCH_AHEAD = 8 * 10**9
+
+#: The most bytes of decoded pixels not yet uploaded. A level-0 channel run of
+#: seven fields decodes to about 3.8 GB (7 x 271 planes x 1000 x 1000 x 2
+#: bytes), so this holds about four of them.
+DECODED_LIMIT = 16 * 10**9
+
+#: How many fields are assigned through zarr at once, across every channel
+#: run being uploaded.
+UPLOAD_WORKERS = 8
 
 #: zarr's ``async.concurrency``: how many shards one assignment encodes and
 #: uploads at once. zarr's own default is 10.
@@ -611,16 +644,47 @@ def _decode_into(
     return None
 
 
-def decode_run(run: ChannelRun, state: WellState, pool: ThreadPoolExecutor, note: Progress) -> DecodedRun:
-    """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
+@dataclass
+class Prepared:
+    """What decoding a channel run needs from the well's metadata, read on the main thread."""
 
-    ``note`` counts the run's chunks as they finish, decoded or skipped.
-    """
+    array: SourceArray
+    spec: ArraySpec
+    fields: list[Field]
+
+    def decoded_bytes(self) -> int:
+        """The bytes of the per-field buffers the run decodes into."""
+        depth = self.spec.shape[0] if self.array.label is not None else self.spec.shape[1]
+        level = self.array.level
+        return sum(
+            depth
+            * (f.levels[level].window["y"][1] - f.levels[level].window["y"][0])
+            * (f.levels[level].window["x"][1] - f.levels[level].window["x"][0])
+            for f in self.fields
+        ) * self.spec.dtype.itemsize
+
+
+def prepare(run: ChannelRun, state: WellState) -> Prepared:
+    """Read what decoding ``run`` needs from the well's state, and record what it used for :func:`check_well`."""
     array = state.plan.arrays[run.key[0]]
     spec = state.spec_for(array)
     state.used.setdefault(array.path, []).append(spec)
     fields = state.fields_at(array.level)
     state.placed.append((array.level, fields))
+    return Prepared(array, spec, fields)
+
+
+def decode_run(
+    run: ChannelRun, prepared: Prepared, plan: WellPlan, pool: ThreadPoolExecutor, note: Progress,
+    unreadable: dict[str, dict[str, str]],
+) -> DecodedRun:
+    """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
+
+    ``note`` counts the run's chunks as they finish, decoded or skipped, and
+    each chunk that cannot be decoded is recorded in ``unreadable`` under
+    every field it touches.
+    """
+    array, spec, fields = prepared.array, prepared.spec, prepared.fields
     depth = spec.shape[0] if array.label is not None else spec.shape[1]
     windows, buffers = [], {}
     for field in fields:
@@ -630,65 +694,188 @@ def decode_run(run: ChannelRun, state: WellState, pool: ThreadPoolExecutor, note
             (depth, window["y"][1] - window["y"][0], window["x"][1] - window["x"][0]), dtype=spec.dtype
         )
     futures = [
-        pool.submit(_decode_into, member, state.plan.chunks[member.name], array, spec, windows, buffers)
+        pool.submit(_decode_into, member, plan.chunks[member.name], array, spec, windows, buffers)
         for member in run.members
     ]
     for future in futures:
         if (problem := future.result()) is not None:
             name, reason, touched = problem
             for field_name in touched:
-                state.unreadable.setdefault(field_name, {})[name] = reason
+                unreadable.setdefault(field_name, {})[name] = reason
         note.advance()
     return DecodedRun(array, run.key[1], fields, buffers)
+
+
+class Budget:
+    """The bytes one stage of the copy may hold at once.
+
+    ``take`` waits while the bytes held would pass the limit, except that a
+    stage holding nothing may always take, so one item larger than the limit
+    still goes through. The seconds spent waiting add up in ``waited``: they
+    show how long a later stage held this one back.
+    """
+
+    def __init__(self, limit: int, stop: threading.Event) -> None:
+        self.limit, self.stop = limit, stop
+        self.held = 0
+        self.waited = 0.0
+        self._changed = threading.Condition()
+
+    def take(self, n: int) -> None:
+        with self._changed:
+            started = time.monotonic()
+            while self.held and self.held + n > self.limit:
+                if self.stop.is_set():
+                    raise RuntimeError("stopped")
+                self._changed.wait(1)
+            self.waited += time.monotonic() - started
+            self.held += n
+
+    def give(self, n: int) -> None:
+        with self._changed:
+            self.held -= n
+            self._changed.notify_all()
+
+
+class ArrayGate:
+    """Keeps creating groups and arrays apart from writing chunks, within one Icechunk session.
+
+    zarr formats the store's name on its event loop while creating an array,
+    Icechunk's store blocks the loop to do it, and writes from other threads
+    to the same session then wait on each other forever. So creating waits
+    until no assignment is running and holds new ones back until it is done.
+    Each well creates its arrays in a few batches, at the first channel run
+    of each level and label, so the copy rarely waits here; ``waited`` says
+    how long it did.
+    """
+
+    def __init__(self) -> None:
+        self.running = 0
+        self.waited = 0.0
+        self._creating = False
+        self._changed = threading.Condition()
+
+    @contextmanager
+    def assigning(self) -> Iterator[None]:
+        with self._changed:
+            while self._creating:
+                self._changed.wait()
+            self.running += 1
+        try:
+            yield
+        finally:
+            with self._changed:
+                self.running -= 1
+                self._changed.notify_all()
+
+    @contextmanager
+    def creating(self) -> Iterator[None]:
+        with self._changed:
+            started = time.monotonic()
+            while self._creating:
+                self._changed.wait()
+            self._creating = True
+            while self.running:
+                self._changed.wait()
+            self.waited += time.monotonic() - started
+        try:
+            yield
+        finally:
+            with self._changed:
+                self._creating = False
+                self._changed.notify_all()
+
+
+@dataclass(frozen=True)
+class _Target:
+    """Where one field of a channel run is written: the image group, the groups below it, and the array."""
+
+    image: str
+    groups: tuple[str, ...]
+    name: str
+    shape: tuple[int, ...]
+    dtype: np.dtype
+    label: bool
+
+    @property
+    def path(self) -> str:
+        return "/".join((self.image, *self.groups, self.name))
 
 
 class WellWriter:
     """Writes decoded channel runs into the well's images, creating each array the first time it is written.
 
-    Each field of a run is one assignment, and the assignments run on
-    ``pool``, several at once; each writes its own array. The groups and
-    arrays are opened or created first, one at a time: zarr formats the
-    store's name on its event loop while creating an array, Icechunk's store
-    blocks the loop to do it, and writes from other threads to the same
-    session then wait on each other forever.
+    Each field of a run is one zarr assignment, started on ``pool``;
+    ``write`` returns once they are started, so the assignments of several
+    runs run at once, up to the pool's size. Each finished assignment gives
+    its buffer's bytes back to ``decoded`` and drops the buffer. Groups and
+    arrays are created under ``gate``, and each array is opened once and
+    kept, so assignments never touch the store's metadata.
     """
 
     def __init__(
-        self, dest: zarr.Group, plan: WellPlan, shard_depth: int, pool: ThreadPoolExecutor, counters: Counters
+        self, dest: zarr.Group, plan: WellPlan, shard_depth: int, pool: ThreadPoolExecutor,
+        counters: Counters, gate: ArrayGate, decoded: Budget, out: queue.Queue,
     ) -> None:
         self.dest, self.plan, self.shard_depth = dest, plan, shard_depth
-        self.pool, self.counters = pool, counters
+        self.pool, self.counters, self.gate, self.decoded, self.out = pool, counters, gate, decoded, out
         self.channels = sum(plan.channels.values())
+        self.arrays: dict[str, zarr.Array] = {}
+        self.assignments: list[Future] = []
 
     def write(self, run: DecodedRun) -> None:
-        """One zarr assignment per field: a whole channel of one level, or a whole label level."""
-        targets = [(field, self._target(run, field)) for field in run.fields]
-        futures = [self.pool.submit(self._assign, run, field, target) for field, target in targets]
-        for future in futures:
+        """Start one zarr assignment per field: a whole channel of one level, or a whole label level."""
+        targets = {field.name: self._where(run, field) for field in run.fields}
+        if missing := [t for t in targets.values() if t.path not in self.arrays]:
+            with self.gate.creating():
+                for target in missing:
+                    self.arrays[target.path] = self._create(target)
+        for field in run.fields:
+            target = self.arrays[targets[field.name].path]
+            nbytes = run.buffers[field.name].nbytes
+            future = self.pool.submit(self._assign, run, field, target)
+            future.add_done_callback(lambda done, n=nbytes: self._finished(done, n))
+            self.assignments.append(future)
+
+    def finish(self) -> None:
+        """Wait for every assignment started; raise the first that failed."""
+        for future in self.assignments:
             future.result()
 
-    def _target(self, run: DecodedRun, field: Field) -> zarr.Array:
+    def _where(self, run: DecodedRun, field: Field) -> _Target:
         pixels = run.buffers[field.name]
-        image = self.dest.require_group(f"{self.plan.well}/{image_path(field)}")
+        image = f"{self.plan.well}/{image_path(field)}"
         if run.array.label is None:
-            return self._array(image, str(run.array.level), (self.channels, *pixels.shape), pixels.dtype, label=False)
-        group = image.require_group(f"labels/{run.array.label}")
-        return self._array(group, str(run.array.level), pixels.shape, pixels.dtype, label=True)
+            return _Target(image, (), str(run.array.level), (self.channels, *pixels.shape), pixels.dtype, False)
+        return _Target(
+            image, ("labels", run.array.label), str(run.array.level), pixels.shape, pixels.dtype, True
+        )
 
     def _assign(self, run: DecodedRun, field: Field, target: zarr.Array) -> None:
-        if run.array.label is None:
-            target[self.plan.channel_offset(run.array.round) + run.channel] = run.buffers[field.name]
-        else:
-            target[:] = run.buffers[field.name]
-        self.counters.uploaded_field()
+        pixels = run.buffers.pop(field.name)
+        with self.gate.assigning():
+            if run.array.label is None:
+                target[self.plan.channel_offset(run.array.round) + run.channel] = pixels
+            else:
+                target[:] = pixels
+        self.counters.uploaded_field(pixels.nbytes)
 
-    def _array(self, group: zarr.Group, name: str, shape, dtype, *, label: bool) -> zarr.Array:
-        if name in group:
-            return group[name]
-        depth, height, width = shape[-3:]
+    def _finished(self, future: Future, nbytes: int) -> None:
+        self.decoded.give(nbytes)
+        if not future.cancelled() and (error := future.exception()) is not None:
+            self.out.put(("error", error))
+
+    def _create(self, target: _Target) -> zarr.Array:
+        group = self.dest.require_group(target.image)
+        for name in target.groups:
+            group = group.require_group(name)
+        if target.name in group:
+            return group[target.name]
+        label, dtype = target.label, target.dtype
+        depth, height, width = target.shape[-3:]
         return group.create_array(
-            name,
-            shape=shape,
+            target.name,
+            shape=target.shape,
             chunks=(1, height, width) if label else (1, 1, height, width),
             shards=(depth, height, width) if label else (1, self.shard_depth, height, width),
             dtype=dtype,
@@ -714,35 +901,58 @@ class Counters:
         self.fetched = 0
         self.decoding: Progress | None = None
         self.uploaded = 0
+        #: Bytes of decoded pixels written through zarr.
+        self.uploaded_bytes = 0
         #: Compressed bytes of the channel runs waiting for metadata.
         self.waiting = 0
+        #: The copy's budgets and gate, once it starts, for what each holds.
+        self.fetched_held: Budget | None = None
+        self.decoded_held: Budget | None = None
+        self.gate: ArrayGate | None = None
         self._lock = threading.Lock()
+        self._cpu = (time.monotonic(), sum(os.times()[:2]))
 
-    def uploaded_field(self) -> None:
+    def uploaded_field(self, nbytes: int) -> None:
         with self._lock:
             self.uploaded += 1
+            self.uploaded_bytes += nbytes
+
+    def _cores_busy(self) -> float:
+        """CPU seconds used per second since the last line: how many cores the copy kept busy."""
+        now, cpu = time.monotonic(), sum(os.times()[:2])
+        (then, before), self._cpu = self._cpu, (now, cpu)
+        return (cpu - before) / max(now - then, 1e-9)
 
     def line(self) -> str:
         elapsed = max(time.monotonic() - self.started, 1e-9)
         decoded = self.decoding.done if self.decoding is not None else 0
+        held = ""
+        if self.fetched_held is not None and self.decoded_held is not None and self.gate is not None:
+            held = (
+                f"; holding {self.fetched_held.held / 1e9:.1f} GB fetched and not yet decoded, "
+                f"{self.decoded_held.held / 1e9:.1f} GB decoded and not yet uploaded, "
+                f"{self.gate.running} assignments running"
+            )
         return (
             f"well {self.well}, {self.stage}: fetched {self.fetched / 1e9:.2f} GB "
             f"({self.fetched / elapsed / 1e6:.0f} MB/s), {decoded:,} chunks decoded, "
-            f"{self.uploaded:,} fields uploaded, {self.waiting / 1e9:.2f} GB waiting for metadata, "
-            f"peak memory {peak_memory_gb():.1f} GB"
+            f"{self.uploaded:,} fields uploaded ({self.uploaded_bytes / 1e9:.1f} GB of pixels, "
+            f"{self.uploaded_bytes / elapsed / 1e6:.0f} MB/s), {self.waiting / 1e9:.2f} GB waiting for metadata"
+            f"{held}; {self._cores_busy():.1f} cores busy, peak memory {peak_memory_gb():.1f} GB"
         )
 
 
 def _fetch(
-    url: str, plan: WellPlan, out: queue.Queue, ahead: threading.Semaphore, stop: threading.Event,
+    url: str, plan: WellPlan, out: queue.Queue, fetched: Budget, stop: threading.Event,
     counters: Counters, **read,
 ) -> None:
     """Stream the well's members, handing metadata over one by one and chunks as whole channel runs.
 
     Runs on its own thread. Each channel run is handed over only when the
-    next one starts, because only then is it complete. ``ahead`` lets at most
-    :data:`RUNS_AHEAD` runs sit in ``out`` before the main thread takes them,
-    so the fetching holds those runs, the one it is assembling, the requests
+    next one starts, because only then is it complete. Handing a run over
+    takes its compressed bytes from ``fetched``, which waits only while the
+    runs handed over and not yet decoded hold :data:`FETCH_AHEAD`, so the
+    fetching holds those runs, the one it is assembling, the requests
     in flight and the cutter's buffer.
     """
     try:
@@ -758,45 +968,94 @@ def _fetch(
             run_key = plan.run_key(key)
             if run is None or run.key != run_key:
                 if run is not None:
-                    _hand_over(run, out, ahead, stop)
+                    fetched.take(run.stored_bytes())
+                    out.put(("run", run))
                     finished.add(run.key)
                 if run_key in finished:
                     raise ValueError(f"{run_key}: its chunks resume after another channel's began")
                 run = ChannelRun(run_key)
             run.members.append(member)
         if run is not None:
-            _hand_over(run, out, ahead, stop)
+            fetched.take(run.stored_bytes())
+            out.put(("run", run))
         out.put(("end", None))
     except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
         out.put(("error", error))
 
 
-def _hand_over(run: ChannelRun, out: queue.Queue, ahead: threading.Semaphore, stop: threading.Event) -> None:
-    while not ahead.acquire(timeout=1):
-        if stop.is_set():
-            raise RuntimeError("stopped")
-    out.put(("run", run))
+def _next(items: queue.Queue, stop: threading.Event):
+    while True:
+        try:
+            return items.get(timeout=1)
+        except queue.Empty:
+            if stop.is_set():
+                raise RuntimeError("stopped") from None
+
+
+def _decode(
+    jobs: queue.Queue, writes: queue.Queue, out: queue.Queue, stop: threading.Event, plan: WellPlan,
+    state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
+    timings: Timings,
+) -> None:
+    """Decode channel runs one after another, on their own thread, and pass them to the writer.
+
+    Before decoding, a run takes its decoded size from ``decoded``, so this
+    thread waits while the runs not yet uploaded hold :data:`DECODED_LIMIT`.
+    Once decoded, a run gives its compressed bytes back to ``fetched``.
+    """
+    try:
+        while (job := _next(jobs, stop)) is not None:
+            run, prepared = job
+            decoded.take(prepared.decoded_bytes())
+            started = time.monotonic()
+            result = decode_run(run, prepared, plan, pool, note, state.unreadable)
+            timings.decode += time.monotonic() - started
+            fetched.give(run.stored_bytes())
+            writes.put(result)
+        writes.put(None)
+    except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
+        out.put(("error", error))
+
+
+def _write(writes: queue.Queue, out: queue.Queue, stop: threading.Event, writer: WellWriter) -> None:
+    """Start each decoded run's assignments on the writer's pool, then wait for all of them."""
+    try:
+        while (run := _next(writes, stop)) is not None:
+            writer.write(run)
+        writer.finish()
+        out.put(("written", None))
+    except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
+        out.put(("error", error))
 
 
 @dataclass
 class Timings:
-    """Seconds each stage of a well took, for the progress lines."""
+    """Seconds each stage of a well took, for the progress lines.
+
+    The stages run at once, so these do not add up to the well's time. The
+    ``held back`` figures say which stage set the pace: the fetch waits when
+    decoding falls behind, and decoding waits when uploads fall behind.
+    """
 
     decode: float = 0.0
-    waiting_for_writes: float = 0.0
+    fetch_held_back: float = 0.0
+    decode_held_back: float = 0.0
+    creating_arrays: float = 0.0
     commit: float = 0.0
 
     def line(self, total: float) -> str:
         return (
-            f"{total:.0f} s in all: decoding {self.decode:.0f} s, waiting for uploads "
-            f"{self.waiting_for_writes:.0f} s, commit {self.commit:.0f} s"
+            f"{total:.0f} s in all: decoding {self.decode:.0f} s; fetch held back by decoding "
+            f"{self.fetch_held_back:.0f} s, decoding held back by uploads {self.decode_held_back:.0f} s, "
+            f"uploads paused for array creation {self.creating_arrays:.0f} s; commit {self.commit:.0f} s"
         )
 
 
-#: Seconds to wait for the fetching thread to stop once the copy has ended
-#: or failed. It is a daemon thread, so one stuck in a request does not keep
-#: the process alive, and the copy's own error surfaces without waiting on it.
-FETCHER_JOIN_TIMEOUT = 10.0
+#: Seconds to wait for each of the copy's threads to stop once the copy has
+#: ended or failed. They are daemon threads, so one stuck in a request does
+#: not keep the process alive, and the copy's own error surfaces without
+#: waiting on it.
+THREAD_JOIN_TIMEOUT = 10.0
 
 
 def copy_well(
@@ -808,84 +1067,105 @@ def copy_well(
     shard_depth: int,
     concurrency: int,
     range_bytes: int,
+    read_window: int,
     decode_threads: int | None,
     upload_workers: int,
     waiting_limit: int,
+    fetch_ahead: int,
+    decoded_limit: int,
     registry,
     timings: Timings,
     counters: Counters,
 ) -> None:
     """Stream one well's members and copy every channel run into the well's images.
 
-    Three things run at once: a thread fetching ranges and cutting members
-    out of them; this thread decoding channel runs on a pool; and one thread
-    writing the previous channel run through zarr, its fields on a pool of
-    ``upload_workers``. A channel run that arrives before the metadata it
-    needs waits until that metadata arrives; if the runs waiting hold more
-    than ``waiting_limit`` compressed bytes, the well fails, naming the
-    metadata still missing.
+    Four things run at once, each on its own thread: fetching ranges and
+    cutting members out of them; this thread, which reads the metadata as it
+    arrives and passes on each channel run once its metadata is in; decoding
+    channel runs, each on a pool of ``decode_threads``; and starting zarr
+    assignments, one per field, on a pool of ``upload_workers`` shared by
+    every run. Each stage waits for the next only when the bytes between
+    them reach a limit: ``fetch_ahead`` compressed bytes handed over and not
+    yet decoded, ``decoded_limit`` bytes decoded and not yet uploaded.
+
+    A channel run that arrives before the metadata it needs waits until that
+    metadata arrives; if the runs waiting hold more than ``waiting_limit``
+    compressed bytes, the well fails, naming the metadata still missing.
     """
+    if fetch_ahead < waiting_limit + LARGEST_RUN:
+        # Runs waiting for metadata count against fetch_ahead; if they could
+        # fill it, the fetch would stop before the metadata they wait for.
+        raise ValueError(
+            f"fetch_ahead ({fetch_ahead / 1e9:.1f} GB) must exceed the waiting limit "
+            f"({waiting_limit / 1e9:.1f} GB) by at least {LARGEST_RUN / 1e9:.1f} GB"
+        )
     out: queue.Queue = queue.Queue()
-    ahead, stop = threading.Semaphore(RUNS_AHEAD), threading.Event()
-    fetcher = threading.Thread(
-        target=_fetch, args=(url, plan, out, ahead, stop, counters),
-        kwargs={"concurrency": concurrency, "range_bytes": range_bytes, "registry": registry},
-        daemon=True,
-    )
+    jobs: queue.Queue = queue.Queue()
+    writes: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    fetched, decoded, gate = Budget(fetch_ahead, stop), Budget(decoded_limit, stop), ArrayGate()
+    counters.fetched_held, counters.decoded_held, counters.gate = fetched, decoded, gate
     waiting: deque[ChannelRun] = deque()
-    writing: Future | None = None
     with (
         ThreadPoolExecutor(decode_threads, thread_name_prefix="decode") as pool,
         ThreadPoolExecutor(upload_workers, thread_name_prefix="field") as fields,
-        ThreadPoolExecutor(1, thread_name_prefix="write") as uploads,
         Progress(f"well {plan.well}: decoding chunks", len(plan.chunks), unit="chunks") as note,
     ):
         counters.decoding = note
-        writer = WellWriter(dest, plan, shard_depth, fields, counters)
-        fetcher.start()
+        writer = WellWriter(dest, plan, shard_depth, fields, counters, gate, decoded, out)
+        threads = [
+            threading.Thread(
+                target=_fetch, args=(url, plan, out, fetched, stop, counters), name="fetch", daemon=True,
+                kwargs={"concurrency": concurrency, "range_bytes": range_bytes, "window": read_window,
+                        "registry": registry},
+            ),
+            threading.Thread(
+                target=_decode, name="decode-runs", daemon=True,
+                args=(jobs, writes, out, stop, plan, state, pool, note, fetched, decoded, timings),
+            ),
+            threading.Thread(target=_write, args=(writes, out, stop, writer), name="write", daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
         try:
-            ended = False
-            while not ended:
-                kind, item = out.get()
+            while True:
+                try:
+                    kind, item = out.get(timeout=1)
+                except queue.Empty:
+                    continue
                 if kind == "error":
                     raise item
+                if kind == "written":
+                    break
                 if kind == "document":
                     state.add_document(item.name, inflate_member(item.stored, item.entry))
                 elif kind == "run":
-                    ahead.release()
                     waiting.append(item)
                     counters.waiting += item.stored_bytes()
-                else:
-                    ended = True
                 while waiting and state.ready(waiting[0]):
                     run = waiting.popleft()
                     counters.waiting -= run.stored_bytes()
-                    started = time.monotonic()
-                    decoded = decode_run(run, state, pool, note)
-                    timings.decode += time.monotonic() - started
-                    if writing is not None:
-                        started = time.monotonic()
-                        writing.result()
-                        timings.waiting_for_writes += time.monotonic() - started
-                    writing = uploads.submit(writer.write, decoded)
+                    jobs.put((run, prepare(run, state)))
                 if counters.waiting > waiting_limit:
                     raise ValueError(
                         f"{plan.well}: {len(waiting)} channel runs hold {counters.waiting / 1e9:.2f} GB "
                         f"waiting for metadata, over the limit of {waiting_limit / 1e9:.2f} GB; "
                         f"{waiting[0].key} still needs {', '.join(state.missing(waiting[0]))}"
                     )
-            if waiting:
-                raise ValueError(
-                    f"{plan.well}: {len(waiting)} channel runs never had their metadata, "
-                    f"from {waiting[0].key}, which needs {', '.join(state.missing(waiting[0]))}"
-                )
-            if writing is not None:
-                started = time.monotonic()
-                writing.result()
-                timings.waiting_for_writes += time.monotonic() - started
+                if kind == "end":
+                    if waiting:
+                        raise ValueError(
+                            f"{plan.well}: {len(waiting)} channel runs never had their metadata, "
+                            f"from {waiting[0].key}, which needs {', '.join(state.missing(waiting[0]))}"
+                        )
+                    jobs.put(None)
         finally:
             stop.set()
-            fetcher.join(timeout=FETCHER_JOIN_TIMEOUT)
+            for thread in threads:
+                thread.join(timeout=THREAD_JOIN_TIMEOUT)
+            timings.fetch_held_back = fetched.waited
+            timings.decode_held_back = decoded.waited
+            timings.creating_arrays = gate.waited
 
 
 def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) -> list[Field]:
@@ -1223,6 +1503,9 @@ def convert(
     upload_workers: int = UPLOAD_WORKERS,
     zarr_concurrency: int = ZARR_CONCURRENCY,
     waiting_limit: int = WAITING_LIMIT,
+    fetch_ahead: int = FETCH_AHEAD,
+    decoded_limit: int = DECODED_LIMIT,
+    read_window: int = READ_WINDOW,
     registry=None,
 ) -> list[str]:
     """Convert some or all wells of the zip at ``url`` into ``repo``.
@@ -1242,14 +1525,18 @@ def convert(
     ``upload_workers`` is how many fields are assigned through zarr at once,
     and ``zarr_concurrency`` sets zarr's ``async.concurrency`` for the run.
     ``waiting_limit`` caps the compressed bytes of channel runs waiting for
-    metadata. ``registry`` decides how ``url`` is read, as for any minus80
+    metadata; ``fetch_ahead`` and ``decoded_limit`` cap the bytes between
+    the stages (:func:`copy_well`), and ``read_window`` the range requests
+    asked for and not yet cut into members. ``registry`` decides how ``url`` is read, as for any minus80
     reader.
     """
     started = time.monotonic()
     say(
         f"converting {url}: {read_concurrency} range requests of {range_bytes >> 20} MiB in flight, "
-        f"{decode_threads or 'default'} decode threads, {upload_workers} upload workers, "
-        f"zarr async concurrency {zarr_concurrency}, waiting limit {waiting_limit / 1e9:.1f} GB"
+        f"up to {read_window} asked for ahead, {decode_threads or 'default'} decode threads, "
+        f"{upload_workers} upload workers, zarr async concurrency {zarr_concurrency}; limits: "
+        f"{waiting_limit / 1e9:.1f} GB waiting for metadata, {fetch_ahead / 1e9:.1f} GB fetched ahead, "
+        f"{decoded_limit / 1e9:.1f} GB decoded ahead"
     )
     setup = {"step": "reading the zip's central directory"}
     with Heartbeat(lambda: f"setup: {setup['step']}, {time.monotonic() - started:.0f} s so far"):
@@ -1280,6 +1567,9 @@ def convert(
         "decode_threads": decode_threads,
         "upload_workers": upload_workers,
         "waiting_limit": waiting_limit,
+        "fetch_ahead": fetch_ahead,
+        "decoded_limit": decoded_limit,
+        "read_window": read_window,
         "registry": registry,
     }
 
@@ -1340,6 +1630,18 @@ def main() -> None:
         "--waiting-limit-gb", type=float, default=WAITING_LIMIT / 1e9,
         help="the most compressed GB of channel runs that may wait for metadata",
     )
+    parser.add_argument(
+        "--fetch-ahead-gb", type=float, default=FETCH_AHEAD / 1e9,
+        help="the most compressed GB fetched and not yet decoded, waiting runs included",
+    )
+    parser.add_argument(
+        "--decoded-limit-gb", type=float, default=DECODED_LIMIT / 1e9,
+        help="the most GB of decoded pixels not yet uploaded",
+    )
+    parser.add_argument(
+        "--read-window", type=int, default=READ_WINDOW,
+        help="range requests asked for and not yet cut into members",
+    )
     args = parser.parse_args()
     try:
         convert(
@@ -1354,6 +1656,9 @@ def main() -> None:
             upload_workers=args.upload_workers,
             zarr_concurrency=args.zarr_concurrency,
             waiting_limit=int(args.waiting_limit_gb * 1e9),
+            fetch_ahead=int(args.fetch_ahead_gb * 1e9),
+            decoded_limit=int(args.decoded_limit_gb * 1e9),
+            read_window=args.read_window,
         )
     except WellsFailed as error:
         for well, reason in error.failed.items():
