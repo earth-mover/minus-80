@@ -141,7 +141,9 @@ MANIFEST_FETCH_CONCURRENCY = 32
 COMMIT_REBASE_TRIES = 100
 
 
-def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
+def commit(
+    session, message: str, *, metadata: dict | None = None, tries: int = COMMIT_REBASE_TRIES
+) -> str:
     """Commit a writable session, rebasing onto concurrent commits on its branch.
 
     A commit from a session that no longer sits at the branch tip fails outright.
@@ -150,11 +152,14 @@ def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
     touching different nodes of the same store. A conflict the solver cannot
     resolve, such as the same array written twice differently, still raises
     ``RebaseFailedError``, because picking a winner there is the caller's call.
+
+    ``metadata`` is stored on the snapshot beside the message, so a reader of the
+    history can tell what a commit changed without diffing it.
     """
     import icechunk
 
     return session.commit(
-        message, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
+        message, metadata=metadata, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
     )
 
 
