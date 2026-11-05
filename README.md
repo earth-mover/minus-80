@@ -3,7 +3,7 @@
 Tooling and scripts for zero-copy ingest of biology data into [Icechunk](https://icechunk.io).
 
 - `src/minus80/`: one Python package, with shared layers and format parsers
-- `ingests/`: one directory per archive, with its scripts, layout notes and demo notebook
+- `ingests/`: one directory per archive, with its scripts, layout notes and a notebook that opens the store
 - [`docs/`](docs/README.md): how to ingest an archive, what each format allows, and upstream work
 
 ```python

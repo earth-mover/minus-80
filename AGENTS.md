@@ -69,8 +69,9 @@ ingest, the work is not done. That rules out:
   nothing, so a parser's dependencies load only when it is imported;
   `tests/test_imports.py` checks this.
 - `ingests/<archive>/` holds one archive's ingest: scripts, `LAYOUTS.md`, a
-  verify script and a demo notebook. Each is a workspace member that depends on
-  `minus-80`.
+  verify script and a notebook that opens the finished store cold. Each is a
+  workspace member that depends on `minus-80`. Demos that combine stores live
+  in a separate repository and only read them.
 - An ingest imports from `minus80`, never from another ingest. Code only one
   archive needs stays in that ingest. Anything a second archive could use moves
   into `minus80`.
