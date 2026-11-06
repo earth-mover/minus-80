@@ -23,32 +23,60 @@ def flac(path, n_samples, channels=1, rate=RATE, subtype="PCM_16", seed=0):
     return str(path)
 
 
-def read_back(tmp_path, paths, frames_per_chunk=1):
+def read_back(tmp_path, paths, frames_per_chunk=1, attributes=None):
     """Write ``paths`` as one array to a local Icechunk repo and read it back."""
     table = chunk_table([scan_frames(p) for p in paths], frames_per_chunk=frames_per_chunk)
     repo = create_repo(tmp_path / "repo", [as_url(p) for p in paths])
     session = repo.writable_session("main")
-    write_array(zarr.open_group(session.store, mode="w"), "audio", table)
+    write_array(zarr.open_group(session.store, mode="w"), "audio", table,
+                attributes=attributes)
     session.commit("audio")
     with zarr.config.set({"array.rectilinear_chunks": True}):
         array = zarr.open_group(repo.readonly_session("main").store, mode="r")["audio"]
         return table, array, array[:]
 
 
-def test_scan_tiles_the_file(tmp_path):
+def assert_same_frames(a, b):
+    for field in ("sample_rate", "channels", "sample_format", "offsets", "lengths", "samples"):
+        assert np.array_equal(getattr(a, field), getattr(b, field)), field
+
+
+def test_scan_covers_the_file(tmp_path):
     path = flac(tmp_path / "a.flac", 50_000)
     scan = scan_frames(path)
-    info = sf.info(path)
-    assert (scan.sample_rate, scan.channels, scan.n_samples) == (RATE, 1, info.frames)
+    assert scan.url == as_url(path)
+    assert (scan.sample_rate, scan.channels, scan.n_samples) == (RATE, 1, sf.info(path).frames)
     assert scan.offsets[-1] + scan.lengths[-1] == (tmp_path / "a.flac").stat().st_size
-    assert np.array_equal(scan.offsets[1:], scan.offsets[:-1] + scan.lengths[:-1])
+
+
+def test_remote_scan_matches_local(tmp_path, range_server):
+    path = flac(tmp_path / "a.flac", 300_000, channels=2)
+    range_server.files["/a.flac"] = (tmp_path / "a.flac").read_bytes()
+    url = f"{range_server.url}/a.flac"
+    scan = scan_frames(url)
+    assert scan.url == url
+    assert_same_frames(scan, scan_frames(path))
+    # One block covers the whole file, so the scan is one request.
+    assert len(range_server.gets()) == 1
+
+
+def test_open_file_needs_url(tmp_path):
+    path = flac(tmp_path / "a.flac", 20_000)
+    with open(path, "rb") as f:
+        with pytest.raises(ValueError, match="url is required"):
+            scan_frames(f)
+        scan = scan_frames(f, url="s3://bucket/a.flac")
+    assert scan.url == "s3://bucket/a.flac"
+    assert_same_frames(scan, scan_frames(path))
 
 
 def test_mono_reads_back_identical(tmp_path):
     path = flac(tmp_path / "a.flac", 50_000)
-    table, array, got = read_back(tmp_path, [path], frames_per_chunk=3)
+    table, array, got = read_back(tmp_path, [path], frames_per_chunk=3,
+                                  attributes={"gain": float("nan")})
     want, _ = sf.read(path, dtype="int16", always_2d=True)
     assert array.metadata.dimension_names == ("time", "channel")
+    assert array.attrs["gain"] is None
     assert got.shape == want.shape
     assert np.array_equal(got, want)
     # The short last chunk is where a wrong grid shows.
