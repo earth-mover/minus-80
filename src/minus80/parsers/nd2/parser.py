@@ -1,9 +1,9 @@
-"""Address an ND2's frames over the network without moving its pixels.
+r"""Index an ND2's frames from its chunk map and turn them into ``ManifestArray``\ s.
 
 An ND2 file ends with a chunk map: a flat table of ``name -> (offset, size)``
-covering every chunk in the file, including each image frame. So a reader that
-can fetch the tail can address the whole file arithmetically, with no walk from
-one frame to the next. That is the whole reason a 300 MB file indexes in four
+covering every chunk in the file, including each image frame. A reader that
+can fetch the tail can therefore address the whole file arithmetically, without
+walking from one frame to the next, which is why a remote file indexes in four
 range requests.
 
 The parsing is ``nd2``'s. This module fetches ranges, hands them to that
@@ -15,12 +15,15 @@ from __future__ import annotations
 import dataclasses
 import os
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 from minus80.core import as_url
 from minus80.core.fetch import object_size, write_ranges
 from minus80.core.manifest import channel_last_transpose, manifest_array
+from minus80.core.registry import file_path
 from virtualizarr.manifests import ManifestArray
 
 #: Bytes taken from the start of the file. The version chunk lives here.
@@ -35,14 +38,6 @@ TAIL_BLOCK = 512 << 10
 #: server 90 ms away.
 COALESCE_GAP = 1 << 20
 
-#: A chunk's pixel data starts this far past the offset the chunk map records:
-#: a fixed-size chunk header, the chunk's name, and padding to a page boundary.
-#: ``nd2`` exposes the alignment it uses, so the number is not written here.
-try:  # pragma: no cover - the constant has moved between nd2 releases
-    from nd2._parse._chunk_decode import CHUNK_ALIGNMENT as FRAME_HEADER_BYTES
-except ImportError:  # pragma: no cover
-    FRAME_HEADER_BYTES = 4096
-
 
 class UnsupportedND2(Exception):
     """The file is an ND2 whose frames cannot be referenced as stored bytes."""
@@ -54,8 +49,12 @@ class ND2Index:
 
     ``frame_offsets`` is one byte offset per stage position, in the file's own
     order, pointing at the first pixel byte rather than at the chunk header.
-    Each frame is ``(y, x, c)`` and C-contiguous, which is what lets
-    :meth:`position_array` present it as ``(c, y, x)`` without moving a byte.
+    Each frame is ``(y, x, c)`` and C-contiguous, which is what lets the arrays
+    present it as ``(c, y, x)`` without moving a byte.
+
+    ``pixel_size_um`` holds ``y`` and ``x`` only for the axes the file marks as
+    calibrated. ``requests`` and ``fetched_bytes`` are what indexing a remote
+    file cost, and 0 for a local path or a file object.
     """
 
     url: str
@@ -82,69 +81,118 @@ class ND2Index:
 
     @property
     def codecs(self) -> list[dict]:
-        """The codec chain that reads interleaved bytes as ``(c, y, x)``.
+        """The codec chain that reads one frame's interleaved ``(y, x, c)`` bytes as ``(c, y, x)``."""
+        return _codecs(3)
 
-        Zarr v3's ``transpose`` is an array-to-array codec: it declares that the
-        stored order is a permutation of the array's, so a conformant reader
-        does the permutation and the stored bytes are never rewritten. Here the
-        array is ``(c, y, x)`` and the file holds ``(y, x, c)``.
+    def position_array(self, position: int, *, attributes: Mapping | None = None) -> ManifestArray:
+        """One stage position as a ``(c, y, x)`` array whose single chunk is the stored frame.
+
+        Its attributes carry ``channel_names``, ``scale`` and ``units`` for the
+        calibrated image axes, and ``stage_position_um``, the stage coordinates
+        as the file states them. ``attributes`` are merged over these.
         """
-        return _transpose_codecs(3)
+        stage = {}
+        if self.stage_positions_um:
+            stage["stage_position_um"] = list(self.stage_positions_um[position])
+        return self._array(
+            [self.frame_offsets[position]], shape=self.frame_shape,
+            dimension_names=("c", "y", "x"), attributes={**stage, **(attributes or {})})
 
-    def position_array(self, position: int) -> ManifestArray:
-        """One stage position as a ``(c, y, x)`` array of a single chunk.
+    def position_arrays(self, *, attributes: Mapping | None = None) -> dict[str, ManifestArray]:
+        """Every stage position as :meth:`position_array`, keyed ``"0"``, ``"1"``, … in file order."""
+        return {str(p): self.position_array(p, attributes=attributes) for p in range(self.positions)}
 
-        The chunk is the frame as the file stores it. Chunking is never chosen
-        here: a chunk of the store is a chunk of the source, so no read of this
-        array asks the server for a range the file does not already have.
+    def stacked_array(self, *, attributes: Mapping | None = None) -> ManifestArray:
+        """Every position of the file as one ``(position, c, y, x)`` array, one frame per chunk.
+
+        It references the same bytes as the position arrays, so writing both
+        costs references and no storage. Its attributes are those of
+        :meth:`position_array` less the stage position.
         """
-        return _frames(
-            self.url, shape=self.frame_shape, chunk_shape=self.frame_shape,
-            offsets=np.array([[[self.frame_offsets[position]]]], dtype="u8"),
-            frame_bytes=self.frame_bytes, dtype=self.dtype, codecs=self.codecs,
-            dimension_names=("c", "y", "x"))
+        return self._array(
+            self.frame_offsets, shape=(self.positions, *self.frame_shape),
+            dimension_names=("position", "c", "y", "x"), attributes=attributes)
 
-    def stacked_array(self, *, attrs: dict | None = None) -> ManifestArray:
-        """Every position of the file as one ``(position, c, y, x)`` array.
+    def _array(self, offsets: Sequence[int], *, shape, dimension_names, attributes) -> ManifestArray:
+        """An array whose chunks are whole frames, one per entry of ``offsets``."""
+        chunk_shape = (1,) * (len(shape) - 3) + self.frame_shape
+        grid = tuple(s // c for s, c in zip(shape, chunk_shape))
+        return manifest_array(
+            self.url, np.asarray(offsets, dtype=np.uint64).reshape(grid),
+            np.full(grid, self.frame_bytes, dtype=np.uint64),
+            shape=shape, chunk_shape=chunk_shape, dtype=self.dtype,
+            codecs=_codecs(len(shape)), dimension_names=dimension_names,
+            attributes={**self._physical(), **(attributes or {})})
 
-        The same bytes as :meth:`position_array`, addressed once more. A chunk is
-        still one frame, so the second presentation costs references and no
-        storage.
-        """
-        return _frames(
-            self.url, shape=(self.positions, *self.frame_shape),
-            chunk_shape=(1, *self.frame_shape),
-            offsets=np.array(self.frame_offsets, dtype="u8").reshape(-1, 1, 1, 1),
-            frame_bytes=self.frame_bytes, dtype=self.dtype,
-            codecs=_transpose_codecs(4),
-            dimension_names=("position", "c", "y", "x"), attrs=attrs)
-
-
-def _frames(url: str, *, shape, chunk_shape, offsets: np.ndarray, frame_bytes: int,
-            dtype, codecs, dimension_names, attrs: dict | None = None) -> ManifestArray:
-    """A virtual array whose every chunk is one whole frame of ``url``."""
-    return manifest_array(
-        url, offsets, np.full(offsets.shape, frame_bytes, dtype=np.uint64),
-        shape=shape, chunk_shape=chunk_shape, dtype=dtype, codecs=codecs,
-        dimension_names=dimension_names, attributes=attrs)
+    def _physical(self) -> dict:
+        attrs: dict = {}
+        if self.channel_names:
+            attrs["channel_names"] = list(self.channel_names)
+        if self.pixel_size_um:
+            attrs["scale"] = dict(self.pixel_size_um)
+            attrs["units"] = {axis: "micrometer" for axis in self.pixel_size_um}
+        return attrs
 
 
-def _transpose_codecs(rank: int) -> list[dict]:
-    """``transpose`` then ``bytes`` for a chunk whose channel axis is stored last."""
+def _codecs(rank: int) -> list[dict]:
     return [channel_last_transpose(rank), {"name": "bytes", "configuration": {"endian": "little"}}]
 
 
-@dataclasses.dataclass(frozen=True)
-class _Fetched:
-    """What indexing one file cost: the URL, its length, and the requests and bytes it took."""
+def index_nd2(source: str | Path | BinaryIO, *, url: str | None = None) -> ND2Index:
+    """Read one ND2's metadata and frame addresses.
 
-    url: str
-    size: int
-    requests: int
-    bytes: int
+    ``source`` is a URL, a local path, or an open binary file. ``url`` is the
+    address the arrays record; it defaults to the source's own URL. A file
+    object has no address, so passing one without ``url`` raises ``ValueError``.
+
+    A remote file costs four requests: one for its length, one block from each
+    end, and one coalesced range for the metadata chunks between them. No pixel
+    byte is fetched. A local path or a file object is read in place.
+
+    Raises :class:`UnsupportedND2` for a file whose frames are compressed, whose
+    rows are padded, or whose acquisition loops over anything but stage
+    positions.
+    """
+    if hasattr(source, "read"):
+        if url is None:
+            raise ValueError("a file object has no address: pass url= for the manifest to record")
+        return _index(source, url, requests=0, fetched_bytes=0)
+    source_url = as_url(source)
+    path = file_path(source_url)
+    if path is not None:
+        return _index(path, url or source_url, requests=0, fetched_bytes=0)
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp, "source.nd2")
+        requests, fetched = _sparse_copy(source_url, local)
+        return _index(local, url or source_url, requests=requests, fetched_bytes=fetched)
 
 
-def _coalesce(ranges: Sequence[tuple[int, int]], gap: int = COALESCE_GAP):
+def _sparse_copy(url: str, local: Path) -> tuple[int, int]:
+    """Write ``url``'s metadata chunks into a sparse file of the same length at ``local``.
+
+    ``nd2.ND2File`` reads the file it is given by seeking, so it needs a file
+    that has the right length and the right bytes wherever it looks. Every
+    frame region stays a hole, and nothing reads one. Returns the requests made
+    and the bytes fetched.
+    """
+    from nd2._parse._chunk_decode import get_chunkmap
+
+    size = object_size(url, patient=True)
+    with open(local, "wb") as sparse:
+        sparse.truncate(size)
+        ends = [(0, min(HEAD_BLOCK, size)), (max(0, size - TAIL_BLOCK), size)]
+        fetched = write_ranges(url, ends, sparse, progress=False, patient=True)
+        sparse.flush()
+        with open(local, "rb") as fh:
+            chunkmap = get_chunkmap(fh)
+        # Each range is padded past its chunk's payload, so the last one can run
+        # past the end of the file.
+        wanted = [(lo, min(hi, size)) for lo, hi in _metadata_ranges(chunkmap, ends)]
+        fetched += write_ranges(url, wanted, sparse, progress=False, patient=True)
+    return 1 + len(ends) + len(wanted), fetched
+
+
+def _coalesce(ranges: Sequence[tuple[int, int]], gap: int = COALESCE_GAP) -> list[tuple[int, int]]:
     merged: list[list[int]] = []
     for lo, hi in sorted(ranges):
         if merged and lo - merged[-1][1] <= gap:
@@ -159,10 +207,12 @@ def _metadata_ranges(chunkmap, covered: Sequence[tuple[int, int]]):
 
     A chunk map records a chunk's payload size but not its header, and records
     ``-1`` for a few chunks whose size it does not know, so each range is padded
-    by a header's worth and short entries are given a fixed allowance.
+    by ``nd2``'s header alignment and short entries are given a fixed allowance.
     """
+    from nd2._parse._chunk_decode import CHUNK_ALIGNMENT
+
     wanted = [
-        (offset, offset + (size if size > 0 else HEAD_BLOCK) + FRAME_HEADER_BYTES)
+        (offset, offset + (size if size > 0 else HEAD_BLOCK) + CHUNK_ALIGNMENT)
         for name, (offset, size) in chunkmap.items()
         if not name.startswith(b"ImageDataSeq|")
     ]
@@ -171,84 +221,26 @@ def _metadata_ranges(chunkmap, covered: Sequence[tuple[int, int]]):
             yield lo, hi
 
 
-def _check_loops(f, ranges) -> None:
-    """Refuse a file whose frames are not one per stage position.
-
-    Each frame becomes a position of :meth:`ND2Index.stacked_array` and an array
-    of its own, so a file that loops over time or z as well would have its
-    timepoints presented as fields of view -- wrong, and wrong silently, since
-    the shapes are indistinguishable. An acquisition with those axes is
-    describable, but it is not what this parser builds today.
-    """
-    kinds = [getattr(loop, "type", type(loop).__name__) for loop in f.experiment]
-    if [k for k in kinds if k != "XYPosLoop"]:
-        raise UnsupportedND2(
-            f"{ranges.url}: the acquisition loops over {', '.join(kinds)}; this parser "
-            "addresses one frame per stage position and would present "
-            "the other axes as fields of view"
-        )
-
-
-def _stage_positions(nd2_file) -> tuple[tuple[float, float, float], ...]:
-    """Each position's stage coordinates in micrometres, in the file's order.
-
-    The positions come from the acquisition's own ``XYPosLoop``. A file with no
-    such loop has one field of view and no coordinate to give.
-    """
-    for loop in nd2_file.experiment:
-        points = getattr(getattr(loop, "parameters", None), "points", None)
-        if points:
-            return tuple(tuple(float(v) for v in p.stagePositionUm) for p in points)
-    return ()
-
-
-def index_nd2(url: str) -> ND2Index:
-    """Read one ND2's metadata and frame addresses over bounded range requests.
-
-    Costs four requests against a remote file: one for its length, one block
-    from each end, and one coalesced range for the metadata chunks that fall
-    between them. No pixel byte is fetched.
-
-    Raises :class:`UnsupportedND2` for a file whose frames are compressed, or
-    whose rows are padded, because neither can be referenced as stored bytes.
-    """
+def _index(file: Path | BinaryIO, url: str, *, requests: int, fetched_bytes: int) -> ND2Index:
+    """Describe ``file``: a path, opened and closed here, or a caller's open file, left open."""
     import nd2
-    from nd2._parse._chunk_decode import get_chunkmap
 
-    url = as_url(url)
-    size = object_size(url)
-    requests, fetched = 1, 0
-    with tempfile.TemporaryDirectory() as tmp:
-        # ``nd2.ND2File`` takes a path and memory-maps it, so the whole public
-        # API needs a file that is the right length and has the right bytes
-        # wherever it looks. Fetching only the metadata chunks into an
-        # otherwise empty file gives it exactly that: every frame region stays
-        # a hole, and nothing here reads one.
-        local = os.path.join(tmp, "source.nd2")
-        with open(local, "wb") as sparse:
-            sparse.truncate(size)
-            blocks = [(0, min(HEAD_BLOCK, size)), (max(0, size - TAIL_BLOCK), size)]
-            fetched += write_ranges(url, blocks, sparse, progress=False)
-            requests += len(blocks)
-            sparse.flush()
-
-            with open(local, "rb") as fh:
-                chunkmap = get_chunkmap(fh)
-            # Each range is padded past its chunk's payload, so the last one
-            # can run past the end of the file.
-            wanted = [(lo, min(hi, size)) for lo, hi in _metadata_ranges(chunkmap, blocks)]
-            fetched += write_ranges(url, wanted, sparse, progress=False)
-            requests += len(wanted)
-
-        with nd2.ND2File(local) as f:
-            return _describe(f, chunkmap, _Fetched(url, size, requests, fetched))
+    if isinstance(file, Path):
+        with nd2.ND2File(file) as f:
+            return _describe(f, url=url, size=file.stat().st_size, requests=requests,
+                             fetched_bytes=fetched_bytes)
+    size = file.seek(0, os.SEEK_END)
+    # ``ND2File.close`` closes the handle it was given, which belongs to the
+    # caller; left unclosed, ``nd2`` releases its reader without closing it.
+    return _describe(nd2.ND2File(file), url=url, size=size, requests=requests,
+                     fetched_bytes=fetched_bytes)
 
 
-def _describe(f, chunkmap, ranges) -> ND2Index:
+def _describe(f, *, url: str, size: int, requests: int, fetched_bytes: int) -> ND2Index:
     attrs = f.attributes
     if attrs.compressionType is not None:
         raise UnsupportedND2(
-            f"{ranges.url}: frames are {attrs.compressionType}-compressed; there is "
+            f"{url}: frames are {attrs.compressionType}-compressed; there is "
             "no Zarr codec for ND2's compression, so its bytes cannot be referenced"
         )
     channels = attrs.componentCount
@@ -256,18 +248,16 @@ def _describe(f, chunkmap, ranges) -> ND2Index:
     dtype = np.dtype(f.dtype)
     if attrs.widthBytes != width * channels * dtype.itemsize:
         raise UnsupportedND2(
-            f"{ranges.url}: a row occupies {attrs.widthBytes} bytes where "
+            f"{url}: a row occupies {attrs.widthBytes} bytes where "
             f"{width} x {channels} x {dtype.itemsize} pixels need "
             f"{width * channels * dtype.itemsize}; padded rows are not a Zarr chunk"
         )
-
-    _check_loops(f, ranges)
-    offsets = _frame_offsets(f, chunkmap)
-    voxel = f.voxel_size()
-    names = tuple(c.channel.name for c in (f.metadata.channels or ()))
+    _check_loops(f, url)
+    offsets = _frame_offsets(f)
+    channel_meta = f.metadata.channels or ()
     return ND2Index(
-        url=ranges.url,
-        size=ranges.size,
+        url=url,
+        size=size,
         positions=len(offsets),
         channels=channels,
         height=height,
@@ -275,32 +265,58 @@ def _describe(f, chunkmap, ranges) -> ND2Index:
         dtype=dtype,
         frame_offsets=offsets,
         frame_bytes=height * attrs.widthBytes,
-        channel_names=names,
-        # z is left out deliberately: the reader reports 1.0 for a file with no
-        # z loop, which is a placeholder for an absent axis and not a length.
-        pixel_size_um={"y": float(voxel.y), "x": float(voxel.x)},
+        channel_names=tuple(c.channel.name for c in channel_meta),
+        pixel_size_um=_pixel_size_um(channel_meta),
         stage_positions_um=_stage_positions(f),
         objective=(f.text_info or {}).get("optics"),
         text_info=dict(f.text_info or {}),
-        requests=ranges.requests,
-        fetched_bytes=ranges.bytes,
+        requests=requests,
+        fetched_bytes=fetched_bytes,
     )
 
 
-def _frame_offsets(f, chunkmap) -> tuple[int, ...]:
-    """Where each frame's pixels start, from the chunk map, in position order.
+def _check_loops(f, url: str) -> None:
+    """Refuse a file whose frames are not one per stage position.
 
-    The reader computes the same addresses from the same table, so its answer is
-    taken where it has one and the chunk map is the check on it. They have
-    agreed on every file seen so far; a disagreement means the header size
-    assumed here is wrong for that file, and the reader is the one to believe.
+    Each frame becomes a position, so a file that loops over time or z as well
+    would have its timepoints presented as fields of view, and silently, since
+    the shapes are indistinguishable.
     """
-    from_map = {
-        int(name[len(b"ImageDataSeq|"): -1]): offset + FRAME_HEADER_BYTES
-        for name, (offset, _) in chunkmap.items()
-        if name.startswith(b"ImageDataSeq|")
-    }
-    reader = dict(getattr(f._rdr, "_frame_offsets", {}) or {})
-    if reader and reader != from_map:
-        from_map = reader
-    return tuple(from_map[i] for i in sorted(from_map))
+    kinds = [getattr(loop, "type", type(loop).__name__) for loop in f.experiment]
+    if [k for k in kinds if k != "XYPosLoop"]:
+        raise UnsupportedND2(
+            f"{url}: the acquisition loops over {', '.join(kinds)}; this parser "
+            "addresses one frame per stage position and would present "
+            "the other axes as fields of view"
+        )
+
+
+def _pixel_size_um(channel_meta) -> dict[str, float]:
+    """The ``y`` and ``x`` pixel size in micrometres, for each axis the file marks as calibrated.
+
+    ``nd2``'s ``voxel_size()`` answers 1.0 for an axis with no calibration, a
+    placeholder that would read as a real micrometre.
+    """
+    if not channel_meta:
+        return {}
+    volume = channel_meta[0].volume
+    (x, y, _), (x_ok, y_ok, _) = volume.axesCalibration, volume.axesCalibrated
+    return {axis: float(v) for axis, v, ok in (("y", y, y_ok), ("x", x, x_ok)) if ok}
+
+
+def _stage_positions(f) -> tuple[tuple[float, float, float], ...]:
+    """Each position's stage coordinates in micrometres, from the acquisition's ``XYPosLoop``.
+
+    A file with no such loop has one field of view and no coordinate to give.
+    """
+    for loop in f.experiment:
+        points = getattr(getattr(loop, "parameters", None), "points", None)
+        if points:
+            return tuple(tuple(float(v) for v in p.stagePositionUm) for p in points)
+    return ()
+
+
+def _frame_offsets(f) -> tuple[int, ...]:
+    """Where each frame's pixels start, in position order, as ``nd2``'s reader computes them from the chunk map."""
+    offsets = f._rdr._frame_offsets
+    return tuple(offsets[i] for i in sorted(offsets))
