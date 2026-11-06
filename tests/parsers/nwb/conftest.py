@@ -3,12 +3,13 @@
 Each file has the shapes the parser has to get right: a chunked, gzip-compressed
 regularly-sampled ``ElectricalSeries`` whose channel axis is a
 ``DynamicTableRegion`` into the electrodes table, an irregularly-sampled
-``SpatialSeries`` containing NaNs, and a ``Units`` table with a ragged column.
-Ids are not ``0..n-1``, so a row position and a row id cannot be mistaken for
-each other.
+``SpatialSeries`` containing NaNs, a ``Units`` table with a ragged column, and
+a trials table whose ``timeseries`` column is a compound dataset holding object
+references. Ids are not ``0..n-1``, so a row position and a row id cannot be
+mistaken for each other.
 
 A generated file exercises pynwb's writer defaults, not every writer's (see
-``minus80/core/GOTCHAS.md``). Set ``MINUS80_NWB_SAMPLES`` to two real NWB files,
+``docs/formats.md``). Set ``MINUS80_NWB_SAMPLES`` to two real NWB files,
 separated by ``os.pathsep``, to run the same suite against them instead; the
 tests assume only the groups named above.
 """
@@ -52,20 +53,21 @@ def write_sample(path, seed: int) -> None:
     channels = nwbfile.create_electrode_table_region(
         region=list(range(N_CHANNELS)), description="all channels"
     )
-    nwbfile.add_acquisition(
-        ElectricalSeries(
-            name="ElectricalSeries",
-            data=H5DataIO(
-                rng.integers(-2000, 2000, (N_SAMPLES, N_CHANNELS), dtype="int16"),
-                chunks=(10_000, N_CHANNELS),
-                compression="gzip",
-            ),
-            electrodes=channels,
-            rate=RATE,
-            starting_time=STARTING_TIME,
-            conversion=1e-6,
-        )
+    series = ElectricalSeries(
+        name="ElectricalSeries",
+        data=H5DataIO(
+            rng.integers(-2000, 2000, (N_SAMPLES, N_CHANNELS), dtype="int16"),
+            chunks=(10_000, N_CHANNELS),
+            compression="gzip",
+        ),
+        electrodes=channels,
+        rate=RATE,
+        starting_time=STARTING_TIME,
+        conversion=1e-6,
     )
+    nwbfile.add_acquisition(series)
+    nwbfile.add_trial(start_time=1.0, stop_time=2.0, timeseries=[series])
+    nwbfile.add_trial(start_time=3.0, stop_time=4.5, timeseries=[series])
 
     n_pos = 3_000
     position = rng.normal(size=(n_pos, 2))
