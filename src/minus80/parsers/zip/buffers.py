@@ -12,11 +12,11 @@ the caller has already read:
   header, each located by the one before it.
 - :func:`scan_local_headers`: the members whose local headers appear in a window
   that starts mid-archive.
-- :func:`read_member`: one member's uncompressed bytes from a window.
+- :func:`member_from_buffer`: one member's uncompressed bytes from a window.
 
-:func:`walk_archive` applies :func:`walk_local_headers` to a whole remote
-archive, fetching it in order in pieces (:func:`fetch_pieces`), for when every
-member is wanted but the central directory is not.
+:func:`walk_archive` applies :func:`walk_local_headers` to a whole archive,
+fetching it in order in pieces, for when every member is wanted but the
+central directory is not.
 
 Members are returned as ``virtualizarr`` ``ZipEntry`` records, with
 ``data_offset`` counted from the start of the archive, so they can be used for
@@ -34,20 +34,22 @@ import io
 import re
 import struct
 import zipfile
-from collections import deque
-from collections.abc import Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Iterator
 from typing import NamedTuple
 
-import obstore
 from virtualizarr.parsers.zarr.zip import ZipEntry, _parse_zip64_extra
 
-from minus80.parsers.zip.members import member_bytes
+from . import _source
+from ._source import Source
+from .members import member_bytes
 
 _LOCAL_HEADER = struct.Struct("<IHHHHHIIIHH")
 _LOCAL_SIGNATURE = b"PK\x03\x04"
 _ZIP64_SENTINEL = 0xFFFFFFFF
 _DATA_DESCRIPTOR = 0x08
+#: Enough of an archive's end to hold the end record behind the longest
+#: comment, the ZIP64 locator and the ZIP64 end record.
+_TAIL = (1 << 16) + 22 + 20 + 56
 
 
 class EndRecord(NamedTuple):
@@ -128,7 +130,7 @@ def scan_local_headers(buf: bytes, offset: int = 0) -> Iterator[LocalMember]:
             yield member
 
 
-def read_member(buf: bytes, member: LocalMember, offset: int = 0) -> bytes:
+def member_from_buffer(buf: bytes, member: LocalMember, offset: int = 0) -> bytes:
     """The member's uncompressed bytes, from ``buf`` (which starts at ``offset`` in the archive).
 
     Handles STORED and DEFLATE members.
@@ -147,46 +149,30 @@ class WalkedMember(NamedTuple):
     data: memoryview
 
 
-def fetch_pieces(store, key: str, pieces: Iterable[tuple[int, int]], *, threads: int = 32,
-                 prefetch: int = 48) -> Iterator[bytes]:
-    """The bytes of each ``(start, length)`` piece of ``key``, in order, with ``prefetch`` GETs in flight.
+def walk_archive(source: Source, end: int | None = None, *, piece: int = 16 << 20, concurrency: int = 32,
+                 max_carry: int = 256 << 20) -> Iterator[WalkedMember]:
+    """Every member of the archive that lies before ``end``, in archive order.
 
-    ``store`` is an obstore store. Each piece is its own GET.
-    ``obstore.get_ranges`` would coalesce neighbouring pieces, and for a whole
-    archive that is one enormous GET held in memory.
-    """
-    with ThreadPoolExecutor(threads) as ex:
-        pending, it = deque(), iter(pieces)
-        for p in it:
-            pending.append(ex.submit(_get, store, key, *p))
-            if len(pending) == prefetch:
-                break
-        while pending:
-            data = pending.popleft().result()
-            if (p := next(it, None)) is not None:
-                pending.append(ex.submit(_get, store, key, *p))
-            yield data
-
-
-def walk_archive(store, key: str, end: int, *, piece: int = 16 << 20, threads: int = 32,
-                 prefetch: int = 48, max_carry: int = 256 << 20) -> Iterator[WalkedMember]:
-    """Every member of the archive at ``key`` that lies before ``end``, in archive order.
-
-    Reads ``[0, end)`` in GETs of ``piece`` bytes (see :func:`fetch_pieces`) and
-    locates each local header where the member before it ends, so data offsets
-    are exact without the central directory. Pass the central directory's
-    offset (:func:`end_of_central_directory`) as ``end`` to walk the whole
-    archive; ending exactly there shows the members tile the data region.
+    Reads ``[0, end)`` in GETs of ``piece`` bytes, ``concurrency`` at a time,
+    and locates each local header where the member before it ends, so data
+    offsets are exact without the central directory. ``end`` defaults to the
+    central directory's offset, read from the archive's tail with
+    :func:`end_of_central_directory`; ending exactly there shows the members
+    tile the data region.
 
     A member that spans pieces is carried into the next one. Raises
     ``ValueError`` when the carried bytes exceed ``max_carry`` (bytes that are
     not a local header, or a member larger than that), or when the walk stops
     short of ``end``. Members whose sizes are in a data descriptor raise too;
-    see :func:`walk_local_headers`.
+    see :func:`walk_local_headers`. A short read raises ``OSError``.
     """
-    pieces = [(s, min(piece, end - s)) for s in range(0, end, piece)]
+    if end is None:
+        size = _source.size(source, patient=True)
+        tail_start = max(0, size - _TAIL)
+        end = end_of_central_directory(_source.read(source, tail_start, size, patient=True), size).offset
     buf, buf_offset = b"", 0
-    for data in fetch_pieces(store, key, pieces, threads=threads, prefetch=prefetch):
+    for _, data in _source.ranges(source, [(0, end)], block=piece, concurrency=concurrency,
+                                  progress=True, patient=True):
         buf += data
         view = memoryview(buf)
         header_offset = buf_offset
@@ -219,10 +205,6 @@ class _TailFile(io.BytesIO):
 
     def tell(self) -> int:
         return super().tell() + self._start
-
-
-def _get(store, key: str, start: int, length: int) -> bytes:
-    return bytes(obstore.get_range(store, key, start=start, length=length))
 
 
 def _local_header(buf: bytes, i: int, offset: int) -> LocalMember | None:

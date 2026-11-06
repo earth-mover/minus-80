@@ -31,12 +31,6 @@ def safetensors_header(data: bytes) -> dict:
     return json.loads(data[8:8 + length])
 
 
-def safetensors_body(data: bytes) -> bytes:
-    """The tensor bytes of a safetensors file, after its header."""
-    (length,) = struct.unpack("<Q", data[:8])
-    return data[8 + length:]
-
-
 def tensor_ranges(data: bytes, file_offset: int = 0) -> dict[str, TensorRange]:
     """The byte range of each tensor in a safetensors file.
 

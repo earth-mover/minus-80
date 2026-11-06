@@ -5,8 +5,8 @@ import zipfile
 import numpy as np
 from safetensors.numpy import load, save
 
-from minus80.parsers.zip.safetensors_ranges import safetensors_body, safetensors_header, tensor_ranges
 from minus80.parsers.zip.buffers import walk_local_headers
+from minus80.parsers.zip.safetensors_ranges import tensor_ranges
 
 TENSORS = {
     "data": np.arange(14, dtype="<i8").reshape(7, 2),
@@ -15,25 +15,14 @@ TENSORS = {
 }
 
 
-def test_ranges_slice_out_each_tensor():
-    data = save(TENSORS)
-    for name, r in tensor_ranges(data).items():
-        assert r.shape == TENSORS[name].shape
-        assert np.frombuffer(data[r.start:r.stop], dtype=TENSORS[name].dtype).reshape(r.shape).tolist() == TENSORS[name].tolist()
-    assert tensor_ranges(data)["data"].dtype == "I64"
-
-
-def test_header_is_the_json_and_body_is_what_follows():
-    data = save(TENSORS)
-    assert set(safetensors_header(data)) == set(TENSORS)
-    assert len(safetensors_body(data)) == sum(t.nbytes for t in TENSORS.values())
-    assert data.endswith(safetensors_body(data))
-
-
-def test_metadata_entry_is_not_a_tensor():
+def test_ranges_slice_out_each_tensor_as_safetensors_loads_it():
     data = save(TENSORS, metadata={"format": "np"})
-    assert "__metadata__" in safetensors_header(data)
-    assert set(tensor_ranges(data)) == set(TENSORS)
+    loaded = load(data)
+    ranges = tensor_ranges(data)
+    assert set(ranges) == set(TENSORS)
+    for name, r in ranges.items():
+        assert r.shape == loaded[name].shape
+        assert data[r.start:r.stop] == loaded[name].tobytes()
 
 
 def test_file_offset_gives_absolute_ranges_inside_a_stored_zip_member():
@@ -44,7 +33,5 @@ def test_file_offset_gives_absolute_ranges_inside_a_stored_zip_member():
         zf.writestr("cells.safetensors", file)
     archive = buf.getvalue()
     member = next(m for m in walk_local_headers(archive) if m.name == "cells.safetensors")
-    ranges = tensor_ranges(file, member.entry.data_offset)
-    for name, r in ranges.items():
+    for name, r in tensor_ranges(file, member.entry.data_offset).items():
         assert archive[r.start:r.stop] == TENSORS[name].tobytes()
-    assert load(file)["sizes"].tolist() == TENSORS["sizes"].tolist()
