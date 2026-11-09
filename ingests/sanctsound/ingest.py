@@ -118,8 +118,8 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     cached = {i: cache / f"{i:04d}.npz" for i in keep}
     todo = [i for i in keep if not cached[i].exists()]
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
-    # Processes, not threads: threads contend with each other, and eight scan
-    # more slowly in total than one.
+    # Processes, because PyAV's demuxer returns to Python for every packet, so
+    # threads queue for the GIL: eight threads scan more slowly in total than one.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
             ProcessPoolExecutor() as pool:
