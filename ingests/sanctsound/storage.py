@@ -6,6 +6,7 @@ the pipeline and the parsing of NOAA's data.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -13,6 +14,7 @@ import obstore
 from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import GCSStore
 
+from minus80.core.fetch import download_then_index
 from minus80.core.registry import CLIENT_OPTIONS, RETRY_CONFIG
 from minus80.core.remote import reader
 from minus80.parsers.flac import ChunkTable, FrameScan, scan_frames
@@ -54,15 +56,26 @@ def read_object(key: str) -> bytes:
                   cached_blocks=1).read()
 
 
-def scan_recording(key: str) -> FrameScan:
-    """Every FLAC frame of one recording, read through obstore.
+# Where recordings are downloaded for scanning. /dev/shm is held in memory, so
+# the VM's disk does not limit the scan; it exists on Linux only.
+SCAN_SCRATCH = "/dev/shm/sanctsound" if os.path.isdir("/dev/shm") else None
 
-    PyAV could open the HTTPS URL itself, but the FFmpeg in PyAV's Linux wheels
-    fails on HTTPS with "Input/output error". Reading through obstore also
-    retries each range on its own. The references record the ``gs://`` URL.
+
+def scan_recording(key: str) -> FrameScan:
+    """Every FLAC frame of one recording, found by downloading it, then parsing.
+
+    The download uses parallel range requests and the parse reads a local
+    file, as docs/formats.md describes; parsing while fetching leaves each
+    process waiting on one request at a time. PyAV is never handed the URL,
+    because the FFmpeg in PyAV's Linux wheels fails on HTTPS with
+    "Input/output error". The references record the ``gs://`` URL, and the
+    local copy is deleted once scanned.
     """
-    source = reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20, cached_blocks=2)
-    return scan_frames(source, url=BASE + key)
+    path = download_then_index(BASE + key, SCAN_SCRATCH, registry=BUCKET_REGISTRY)
+    try:
+        return scan_frames(path, url=BASE + key)
+    finally:
+        os.remove(path)
 
 
 def deployment_prefix(site: str, dep: str) -> str:
