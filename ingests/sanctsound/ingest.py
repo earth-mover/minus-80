@@ -19,9 +19,9 @@ Two steps, run as subcommands:
     scan DEPLOYMENT [START/END ...]   read every frame offset into a chunk table
     build DEPLOYMENT --repo PATH      write the deployment from that table
 
-The scan reads every byte of every recording, so run it beside the data. The
-chunk table it leaves behind is small (about 1.3 MB for 175,000 chunks) and lets
-a rebuild skip the audio entirely.
+The scan reads every byte of every recording. The chunk table it leaves behind
+is small (about 1.3 MB for 175,000 chunks) and lets a rebuild skip the audio
+entirely.
 
 The file follows the pipeline: scanning, building, then one section per group in
 the order ``build`` writes them, each opening with a comment on what NOAA
@@ -88,10 +88,16 @@ EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
 # reading the file, but files in 36 of SanctSound's 196 deployments have none, so
 # the only uniform way to find every frame is to read every byte once.
 #
-# scan_deployment does that read, from a machine in the bucket's region, and saves
-# the result as a chunk table: about 1.3 MB for CI01_01's 272 GB. A build reads
-# the table and never touches the audio. Recording start times come from the
-# file names, because the FLAC files carry no tags.
+# scan_deployment does that read and saves the result as a chunk table: about
+# 1.3 MB for CI01_01's 272 GB. A build reads the table and never touches the
+# audio. Recording start times come from the file names, because the FLAC files
+# carry no tags.
+#
+# The scan runs anywhere, but its speed is set by bandwidth, so where it runs
+# decides how long it takes. The published scans ran on a cloud VM (an AWS
+# c6in.2xlarge, through Coiled) at about 174 MB/s, which reads CI01_01 in about
+# 26 minutes. A home connection reached about 30 MB/s, which would take about
+# two and a half hours.
 
 
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
@@ -124,7 +130,8 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     cached = {i: cache / f"{i:04d}.npz" for i in keep}
     todo = [i for i in keep if not cached[i].exists()]
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
-    # Four workers saturate a cloud VM's bandwidth; eight are slower than four.
+    # Four threads, because the scan is bound by bandwidth: on the cloud VM the
+    # published scans ran on, four read at about 174 MB/s and eight at about 62.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
             ThreadPoolExecutor(max_workers=4) as pool:

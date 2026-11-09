@@ -83,8 +83,9 @@ These layouts were considered and rejected when the store was first built:
 
 ## What has been tested
 
-The port was checked against a local Icechunk repo with a virtual chunk
-container for the NOAA bucket. Every run read the bucket anonymously.
+The port was checked on a laptop over a home connection, against a local
+Icechunk repo with a virtual chunk container for the NOAA bucket. Every run
+read the bucket anonymously, and the timings below are for that connection.
 
 | Check | Result |
 |---|---|
