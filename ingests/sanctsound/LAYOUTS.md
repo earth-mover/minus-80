@@ -111,9 +111,9 @@ those zeros would sit mid-array where Zarr returns them as data. Readers set
 `zarr.config.set({"array.rectilinear_chunks": True})` and need the `flac` codec.
 
 A chunk is 512 FLAC frames, 2,097,152 samples at a blocksize of 4096. See
-`ingest.FRAMES_PER_CHUNK` for why that is open. A group's `audio/segments`
-table is what `time_index` on the waveform names, and `time_index_rule` states
-how to turn a sample index into a time and back.
+`ingest.FRAMES_PER_CHUNK` for why that is open. The waveform's `time_index`
+attribute names its group's `audio/segments` table, and that table's `comment`
+says how to turn a sample index into a time and back.
 
 ## Judgement calls
 

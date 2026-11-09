@@ -34,7 +34,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -60,30 +59,21 @@ CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-
 # 175,314 references for CI01_01 instead of about 90 million.
 FRAMES_PER_CHUNK = 512
 
-TIME_RULE = (
-    "Wall-clock time for sample index i: find the segment k in audio/segments with "
-    "start_sample[k] <= i < start_sample[k] + n_samples[k], then "
-    "time(i) = start_time[k] + (i - start_sample[k]) / sample_rate_hz. "
-    "Recordings are packed contiguously in this array but DO NOT tile the timeline: "
-    "a sample belongs to exactly one segment, and there is no sample for the gaps "
-    "between recordings. To go the other way, find k with "
-    "start_time[k] <= t < end_time[k]; if none, that instant was not recorded. "
-    "Absolute timestamps derive from source filenames and are accurate to about "
-    "1.5 s; relative timing within a segment is exact.")
-
-
-
-@cache
-def bucket():
-    """NOAA's bucket, read anonymously and with core's retries for public archives."""
-    return GCSStore(BUCKET, skip_signature=True, client_options=CLIENT_OPTIONS,
-                    retry_config=RETRY_CONFIG)
+# NOAA's bucket allows anonymous reads. The retry settings are core's, for a
+# public archive that drops connections.
+BUCKET_STORE = GCSStore(BUCKET, skip_signature=True, client_options=CLIENT_OPTIONS,
+                        retry_config=RETRY_CONFIG)
+BUCKET_REGISTRY = ObjectStoreRegistry({BASE: BUCKET_STORE})
 
 
 def list_keys(prefix: str, suffix: str) -> list[tuple[str, int]]:
-    """Every ``(key, size)`` under ``prefix`` ending in ``suffix``."""
-    return sorted((o["path"], o["size"]) for page in obstore.list(bucket(), prefix=prefix)
-                  for o in page if o["path"].endswith(suffix))
+    """Every key under ``prefix`` that ends in ``suffix``, with its size in bytes."""
+    keys = []
+    for batch in obstore.list(BUCKET_STORE, prefix=prefix):
+        for item in batch:
+            if item["path"].endswith(suffix):
+                keys.append((item["path"], item["size"]))
+    return sorted(keys)
 
 
 def read_object(key: str) -> bytes:
@@ -93,12 +83,8 @@ def read_object(key: str) -> bytes:
     to matter. Each range is retried on its own, so a dropped connection costs
     one range.
     """
-    registry = ObjectStoreRegistry({BASE: bucket()})
-    return reader(BASE + key, registry=registry, block=16 << 20, cached_blocks=1).read()
-
-
-def list_recordings(prefix: str) -> list[tuple[str, int]]:
-    return list_keys(prefix, ".flac")
+    return reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20,
+                  cached_blocks=1).read()
 
 
 def deployment_prefix(site: str, dep: str) -> str:
@@ -200,7 +186,7 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     dep = dep.upper()
     windows = [parse_window(w) for w in window_args]
     cache.mkdir(parents=True, exist_ok=True)
-    items = list_recordings(deployment_prefix(dep[:4], dep) + "audio/")
+    items = list_keys(deployment_prefix(dep[:4], dep) + "audio/", ".flac")
     print(f"{dep}: listed {len(items)} files, {sum(s for _, s in items) / 1e9:.1f} GB",
           flush=True)
     keep = overlapping(items, windows) if windows else list(range(len(items)))
@@ -258,7 +244,7 @@ def write_audio(group, table: DeploymentTable):
             blocksize=int(chunks.blocksize), units="1",
             processing_level="raw uncalibrated counts",
             coverage_content_type="physicalMeasurement",
-            time_index="audio/segments", time_index_rule=TIME_RULE,
+            time_index="audio/segments",
             comment="int16 counts, not sound pressure: add calibration/counts_to_upa_db "
                     "to 20*log10(|counts|) for dB re 1 uPa. Every recording is mono, so "
                     "the waveform has no channel axis. Chunks are byte-range "
@@ -295,7 +281,18 @@ def write_audio(group, table: DeploymentTable):
                  "filename timestamps are imprecise by up to ~1.5 s. Use this to "
                  "judge timestamp confidence, never to trim samples. NaN on the "
                  "last segment.")
-    seg.attrs.update(featureType="timeSeries", comment=TIME_RULE)
+    seg.attrs.update(featureType="timeSeries", comment=(
+        "The waveform holds every recording end to end, with no gaps between them. "
+        "Each row of audio/segments describes one recording: its first sample in the "
+        "waveform (start_sample), its length in samples (n_samples), and when it "
+        "started (start_time).\n\n"
+        "To find when sample i was recorded, find the row where start_sample <= i < "
+        "start_sample + n_samples. The time is start_time + (i - start_sample) / "
+        "sample_rate_hz.\n\n"
+        "To find the sample recorded at time t, find the row where start_time <= t < "
+        "end_time. If no row contains t, nothing was recorded at that moment.\n\n"
+        "Start times come from the file names and are accurate to about 1.5 seconds. "
+        "Times within one recording are exact."))
     if table.windows:
         audio.attrs.update(
             audio_selection=list(table.windows),
