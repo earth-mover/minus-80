@@ -172,22 +172,26 @@ region, and the laptop run dropped chunks. Price indexing before you start
 because local reads are bound by memory bandwidth; time the read a user sees
 against downloading the files.
 
-### Parse in processes, and use threads only to wait on reads
+### Time workers before choosing threads or processes
 
-Threads in one Python process share the global interpreter lock (GIL). A thread
-pool speeds up work that waits on the network, but a parser that returns to
-Python for every small record makes its threads compete for the lock, and more
-threads can make the total slower. Run parsing in a process pool, and keep
-threads for plain reads such as range GETs. Before choosing a worker count, time
-one worker against several. If the total falls as workers are added, they are
-contending with each other, not saturating the network.
+Which is faster depends on whether the work holds Python's global interpreter
+lock (GIL). Threads win when the work runs outside the GIL: waiting on network
+reads, or C code that releases the lock while it works. They share memory, so
+nothing is pickled between workers and nothing is copied. Threads lose when the
+work returns to Python often, because they queue for the lock, and adding
+threads can make the total slower. Processes avoid the lock, but pay for
+startup, pickling and memory.
 
-The SanctSound FLAC scan is an example. PyAV's demuxer returns to Python for
-every packet, and a 371 MB recording has 127,400. On a laptop, scanning a local
-copy ran at 1.5 GB/s in one process and 6.6 GB/s in eight, but at 350 MB/s
-with four threads and 125 MB/s with eight. On a cloud VM, four threads had read
-the bucket at 174 MB/s and eight at 62 MB/s, a drop that had been taken for a
-bandwidth limit.
+So time one worker against several before choosing. If the total rises with
+more workers, the work runs outside the GIL and threads are enough. If it
+falls, the workers are contending: try processes before blaming the network.
+
+The SanctSound FLAC scan is an example of the second kind. PyAV's demuxer
+returns to Python for every packet, and a 371 MB recording has 127,400. On a
+laptop, scanning a local copy ran at 1.5 GB/s in one process and 6.6 GB/s in
+eight, but at 350 MB/s with four threads and 125 MB/s with eight. On a cloud
+VM, four threads had read the bucket at 174 MB/s and eight at 62 MB/s, a drop
+that had been taken for a bandwidth limit.
 
 ### Decode only to build a derived layer, and only once
 
