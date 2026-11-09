@@ -22,6 +22,9 @@ Two steps, run as subcommands:
 The scan reads every byte of every recording, so run it beside the data. The
 chunk table it leaves behind is small (about 1.3 MB for 175,000 chunks) and lets
 a rebuild skip the audio entirely.
+
+The file reads top down. ``scan_deployment`` and ``build`` come first, then each
+group's writer in the order ``build`` calls them, then the helpers they share.
 """
 from __future__ import annotations
 
@@ -47,9 +50,13 @@ from minus80.core.registry import CLIENT_OPTIONS, RETRY_CONFIG
 from minus80.core.remote import reader
 from minus80.parsers.flac import ChunkTable, FrameScan, chunk_table, scan_frames, write_array
 
+
 BUCKET = "noaa-passive-bioacoustic"
+
 BASE = f"gs://{BUCKET}/"
+
 GCS = f"https://storage.googleapis.com/{BUCKET}/"
+
 CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-10-19"
 
 # Reproduces the chunking of the published earthmover-biology/sanctsound store,
@@ -59,120 +66,15 @@ CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-
 # 175,314 references for CI01_01 instead of about 90 million.
 FRAMES_PER_CHUNK = 512
 
+EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
+             calendar="proleptic_gregorian")
+
 # NOAA's bucket allows anonymous reads. The retry settings are core's, for a
 # public archive that drops connections.
 BUCKET_STORE = GCSStore(BUCKET, skip_signature=True, client_options=CLIENT_OPTIONS,
                         retry_config=RETRY_CONFIG)
+
 BUCKET_REGISTRY = ObjectStoreRegistry({BASE: BUCKET_STORE})
-
-
-def list_keys(prefix: str, suffix: str) -> list[tuple[str, int]]:
-    """Every key under ``prefix`` that ends in ``suffix``, with its size in bytes."""
-    keys = []
-    for batch in obstore.list(BUCKET_STORE, prefix=prefix):
-        for item in batch:
-            if item["path"].endswith(suffix):
-                keys.append((item["path"], item["size"]))
-    return sorted(keys)
-
-
-def read_object(key: str) -> bytes:
-    """The whole object, fetched in 16 MB ranges.
-
-    Product files run to 600 MB, and a single long GET is cut short often enough
-    to matter. Each range is retried on its own, so a dropped connection costs
-    one range.
-    """
-    return reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20,
-                  cached_blocks=1).read()
-
-
-def deployment_prefix(site: str, dep: str) -> str:
-    return f"sanctsound/audio/{site.lower()}/sanctsound_{dep.lower()}/"
-
-
-# Each filename form the ingest reads, with the strptime format of its date and
-# time digits. LAYOUTS.md lists the forms it does not read yet.
-FILENAME_TIMES = [
-    # 20181031T220000Z (CI01_01, SB01_03). SB01_03's first and last files add
-    # _Post-Deployment or _Pre-Retrieval, but belong to the continuous series.
-    (re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"), "%Y%m%d%H%M%S"),
-    # 201122183500: a two-digit year, the most common form.
-    (re.compile(r"_(\d{6})(\d{6})\.flac$"), "%y%m%d%H%M%S"),
-]
-
-
-def parse_start(name: str) -> datetime:
-    """Start time from the filename. The FLAC files carry no tags at all."""
-    for pattern, fmt in FILENAME_TIMES:
-        if match := pattern.search(name):
-            return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
-    raise ValueError(f"no timestamp pattern matches {name!r}")
-
-
-@dataclass(frozen=True)
-class DeploymentTable:
-    """A deployment's chunk table with what the parser's table does not carry.
-
-    ``start`` is each recording's start time in nanoseconds since the epoch, from
-    its filename. ``windows`` and ``n_listed`` are set when only the recordings
-    around some time windows were scanned.
-    """
-
-    chunks: ChunkTable
-    start: np.ndarray
-    windows: tuple[str, ...] = ()
-    n_listed: int | None = None
-
-    def save(self, path) -> None:
-        """Write the parser's table fields plus ``start`` to one ``.npz``."""
-        extra = dict(windows=np.array(self.windows), n_listed=self.n_listed) \
-            if self.windows else {}
-        np.savez_compressed(path, **asdict(self.chunks), start=self.start, **extra)
-
-    @classmethod
-    def load(cls, path) -> DeploymentTable:
-        """Read a saved table. A file with no ``channels`` field is mono.
-
-        ``ci01_01_chunks.npz`` and its siblings predate the ``channels`` field,
-        and every SanctSound recording is mono.
-        """
-        with np.load(path, allow_pickle=False) as z:
-            fields = {k: z[k] for k in ChunkTable.__dataclass_fields__ if k in z}
-            fields.setdefault("channels", 1)
-            fields["sample_rate"] = int(fields["sample_rate"])
-            fields["blocksize"] = int(fields["blocksize"])
-            fields["channels"] = int(fields["channels"])
-            windows = tuple(str(w) for w in z["windows"]) if "windows" in z else ()
-            return cls(ChunkTable(**fields), z["start"].astype("int64"), windows,
-                       int(z["n_listed"]) if "n_listed" in z else None)
-
-
-def scan_recording(key: str) -> FrameScan:
-    """Scan one recording over HTTPS, recording its ``gs://`` URL."""
-    return scan_frames(GCS + key, url=BASE + key)
-
-
-def deployment_table(items, scans, *, windows=(), n_listed=None) -> DeploymentTable:
-    table = chunk_table(scans, frames_per_chunk=FRAMES_PER_CHUNK)
-    start = np.array([int(parse_start(key).timestamp()) * 10**9 for key, _ in items],
-                     "int64")
-    return DeploymentTable(table, start, tuple(windows), n_listed)
-
-
-def overlapping(items, windows) -> list[int]:
-    """Indices of the recordings that overlap any window. A recording is taken to run
-    until the next one starts; the last is kept if a window starts after it."""
-    starts = [parse_start(key) for key, _ in items]
-    ends = starts[1:] + [datetime.max.replace(tzinfo=timezone.utc)]
-    return [i for i, (a, b) in enumerate(zip(starts, ends))
-            if any(a < hi and lo < b for lo, hi in windows)]
-
-
-def parse_window(text: str):
-    lo, hi = (datetime.fromisoformat(t).replace(tzinfo=timezone.utc)
-              for t in text.split("/"))
-    return lo, hi
 
 
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
@@ -184,45 +86,85 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     where it stopped.
     """
     dep = dep.upper()
-    windows = [parse_window(w) for w in window_args]
     cache.mkdir(parents=True, exist_ok=True)
     items = list_keys(deployment_prefix(dep[:4], dep) + "audio/", ".flac")
     print(f"{dep}: listed {len(items)} files, {sum(s for _, s in items) / 1e9:.1f} GB",
           flush=True)
-    keep = overlapping(items, windows) if windows else list(range(len(items)))
-    if windows:
+
+    keep = list(range(len(items)))
+    if window_args:
+        windows = [[datetime.fromisoformat(t).replace(tzinfo=timezone.utc)
+                    for t in w.split("/")] for w in window_args]
+        # A recording is taken to run until the next one starts, so the last one is
+        # kept whenever a window starts after it.
+        starts = [parse_start(key) for key, _ in items]
+        ends = starts[1:] + [datetime.max.replace(tzinfo=timezone.utc)]
+        keep = [i for i, (a, b) in enumerate(zip(starts, ends))
+                if any(a < hi and lo < b for lo, hi in windows)]
         print(f"{len(keep)} overlap the windows, "
               f"{sum(items[i][1] for i in keep) / 1e9:.1f} GB", flush=True)
 
-    def cached(i):
-        return cache / f"{i:04d}.npz"
-
-    todo = [i for i in keep if not cached(i).exists()]
+    cached = {i: cache / f"{i:04d}.npz" for i in keep}
+    todo = [i for i in keep if not cached[i].exists()]
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
     # Four workers saturate a cloud VM's bandwidth; eight are slower than four.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
             ThreadPoolExecutor(max_workers=4) as pool:
-        for i, scan in zip(todo, pool.map(lambda i: scan_recording(items[i][0]), todo)):
-            scan.save(cached(i))
+        scans = pool.map(lambda i: scan_frames(GCS + items[i][0], url=BASE + items[i][0]),
+                         todo)
+        for i, scan in zip(todo, scans):
+            scan.save(cached[i])
             progress.advance(items[i][1])
-    kept = [items[i] for i in keep]
-    table = deployment_table(kept, [FrameScan.load(cached(i)) for i in keep],
-                             windows=window_args, n_listed=len(items))
-    table.save(out)
+
+    chunks = chunk_table([FrameScan.load(cached[i]) for i in keep],
+                         frames_per_chunk=FRAMES_PER_CHUNK)
+    start = np.array([int(parse_start(items[i][0]).timestamp()) * 10**9 for i in keep],
+                     "int64")
+    DeploymentTable(chunks, start, tuple(window_args), len(items)).save(out)
     print(f"scan complete; chunk table in {out}", flush=True)
 
 
+def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
+          measure: bool = True) -> None:
+    """Write one deployment into a repo and commit it.
 
-EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
-             calendar="proleptic_gregorian")
+    ``measure=False`` skips the calibration offset, which reads eight hours of
+    audio, and leaves the group without ``counts_to_upa_db``.
+    """
+    # The waveform's chunk grid is rectilinear, and zarr refuses to read or write
+    # one unless this is set.
+    with zarr.config.set({"array.rectilinear_chunks": True}):
+        dep, site = dep.upper(), dep.upper()[:4]
+        repo = repository(repo_location, create=True)
+        session = repo.writable_session(branch)
+        root = zarr.open_group(session.store, mode="a")
+        dg = root.require_group(dep)
+        sample_rate = int(table.chunks.sample_rate)
+        hours = int(table.chunks.n_samples.sum()) / sample_rate / 3600
 
-
-def write_small_array(group, name, data, dims, **attrs):
-    """Write a small materialized array in one chunk."""
-    data = np.asarray(data)
-    return group.create_array(name, data=data, chunks=data.shape or "auto",
-                              dimension_names=dims, attributes=attrs, overwrite=True)
+        write_audio(dg, table)
+        print(f"waveform: {len(table.chunks.edge)} chunks, {hours:.1f} h at {sample_rate} Hz, "
+              f"blocksize {int(table.chunks.blocksize)}", flush=True)
+        n_events, n_labels = write_products(dg, site, dep)
+        print(f"products: {n_events} detections, {n_labels} labels", flush=True)
+        n_temp = write_temperature(dg, site, dep)
+        print(f"temperature: {n_temp:,} samples" if n_temp
+              else "temperature: NOAA published no logger record", flush=True)
+        measured = None
+        if "sound_levels" in dg and measure:
+            measured = measure_counts_offset(dg)
+            print(f"calibration: {measured['offset_db']:.3f} dB, "
+                  f"sd {measured['standard_deviation_db']:.4f} dB", flush=True)
+        # write_calibration reads the serial number write_provenance records
+        write_provenance(root, dg, site, dep)
+        write_calibration(dg, site, dep, measured)
+        snapshot = session.commit(f"{dep}: {len(table.chunks.n_samples)} recordings "
+                                  f"({hours:.1f} h)")
+        print(f"committed {snapshot}", flush=True)
+        check = zarr.open_group(repo.readonly_session(branch).store, mode="r")
+        for row in selftest_from_store_only(check):
+            print(row, flush=True)
 
 
 def write_audio(group, table: DeploymentTable):
@@ -307,15 +249,18 @@ def write_audio(group, table: DeploymentTable):
         time_coverage_end=str(np.datetime64(int(ends.max()), "ns")))
 
 
-
 SPL_DIM = {"BB_1h": None, "OL_1h": "frequency_octave",
            "TOL_1h": "frequency_third_octave", "PSD_1h": "frequency_psd"}
+
 SPL_VAR = {"BB_1h": "broadband_spl", "OL_1h": "octave_spl",
            "TOL_1h": "third_octave_spl", "PSD_1h": "psd"}
+
 SPL_STANDARD_NAME = "sound_pressure_level_in_water"
+
 # The reference quantity CF defines each name against, for explaining a correction.
 CF_REFERENCE = {"sound_intensity_level_in_water": "6.7e-19 W m-2",
                 "sound_pressure_level_in_water": "1e-6 Pa"}
+
 # Every detection label in SanctSound, by base label: NOAA's label without its
 # `_1d`/`_1h`/`_1hr`/`_1min`/`_manual` resolution or method suffix. Biological ones
 # carry a CF 6.1.2 taxon, with the WoRMS AphiaID looked up by name (2026-09-24).
@@ -336,117 +281,12 @@ TAXON = {
     "redgrouper": ("Epinephelus morio", 159354),
     "blackgrouper": ("Mycteroperca bonaci", 159231),
 }
+
 # MFA is mid-frequency active sonar: the `sonar` files name their variable
 # `mfa_presence`.
 ANTHROPOGENIC = {"Explosions", "ships", "sonar", "MFA"}
+
 UNKNOWN_SOURCE = {"unknownimpulse"}
-
-
-def base_label(label: str) -> str:
-    return re.sub(r"_(1d|1h|1hr|1min|manual)$", "", label)
-
-
-def sound_source(label: str) -> tuple[str, str, str]:
-    """`(source_type, taxon name, taxon LSID)` for a detection label.
-
-    An unknown label raises: a default here would publish a guess as a fact.
-    """
-    base = base_label(label)
-    if base in TAXON:
-        name, aphia = TAXON[base]
-        return "biological", name, f"urn:lsid:marinespecies.org:taxname:{aphia}"
-    if base in ANTHROPOGENIC:
-        return "anthropogenic", "", ""
-    if base in UNKNOWN_SOURCE:
-        return "unknown", "", ""
-    raise KeyError(f"detection label {label!r} is not in TAXON, ANTHROPOGENIC or "
-                   f"UNKNOWN_SOURCE")
-
-
-def product_keys(product: str, site: str, dep: str) -> list[str]:
-    keys = list_keys(f"sanctsound/products/{product}/{site.lower()}/", ".nc")
-    return [k for k, _ in keys if f"_{dep}_" in k]
-
-
-def product_label(key: str, dep: str) -> str:
-    """`.../SanctSound_CI01_01_BB_1h.nc` -> `BB_1h`."""
-    return key.split("/")[-1].removesuffix(".nc").removeprefix(f"SanctSound_{dep}_")
-
-
-def open_netcdf(key):
-    import h5py
-
-    return h5py.File(io.BytesIO(read_object(key)), "r")
-
-
-def as_text(v) -> str:
-    return v.decode() if isinstance(v, bytes) else str(v)
-
-
-def source_doi(f) -> str:
-    """The bare DOI from a product file's `id`, which NOAA writes as an http URL."""
-    return as_text(f.attrs["id"]).split("doi.org/")[-1]
-
-
-def source_history(f) -> str:
-    """NOAA writes `history` as a one-element Python list literal; unwrap it."""
-    h = as_text(f.attrs.get("history", ""))
-    if h.startswith('["') and h.endswith('"]'):
-        h = h[2:-2]
-    return h
-
-
-def write_temperature(group, site: str, dep: str):
-    """The mooring's temperature logger record, from NOAA's original .rsk file.
-
-    Materialized, not referenced: an .rsk is an SQLite database, so its values have
-    no byte ranges a Zarr chunk could point at. Returns the sample count, or None
-    when NOAA published no logger record for the deployment.
-    """
-    from pyrsktools import RSK
-
-    keys = [k for k, _ in list_keys(deployment_prefix(site, dep) + "ancillary/temperature/",
-                                ".rsk")]
-    if not keys:
-        return None
-    if len(keys) != 1:
-        raise ValueError(f"{dep}: expected one .rsk temperature record, found {keys}")
-    with tempfile.NamedTemporaryFile(suffix=".rsk") as fh:
-        fh.write(read_object(keys[0]))
-        fh.flush()
-        with RSK(fh.name) as rsk:
-            rsk.readdata()
-            data, inst, deployment = rsk.data, rsk.instrument, rsk.deployment
-            (channel,) = rsk.channels
-
-    t = group.require_group("temperature")
-    day = 86400 // int(np.median(np.diff(data["timestamp"][:1000]))
-                       .astype("timedelta64[s]").astype(int))
-    for name, values, dims, attrs in [
-        ("time", data["timestamp"].astype("datetime64[ns]").astype("int64"), ("time",),
-         dict(standard_name="time", long_name="logger timestamp", **EPOCH)),
-        ("sea_water_temperature", data["temperature"], ("time",),
-         dict(standard_name="sea_water_temperature", units="degree_Celsius",
-              long_name=f"{channel.longNamePlainText} ({channel.shortName})",
-              coordinates="time")),
-    ]:
-        t.create_array(name, data=np.asarray(values), chunks=(min(day, len(values)),),
-                       dimension_names=dims, attributes=attrs, overwrite=True)
-    t.attrs.update(
-        title="Mooring temperature",
-        featureType="timeSeries",
-        instrument=f"{inst.model} temperature logger",
-        instrument_serial_number=str(inst.serialID),
-        source_uri=f"gs://{BUCKET}/{keys[0]}",
-        logger_time_drift_ms=int(deployment.loggerTimeDrift),
-        logger_time_drift_comment="RBR's loggerTimeDrift field for this record, as "
-                                  "the .rsk reports it; the timestamps are not "
-                                  "corrected for it.",
-        time_of_download=str(deployment.timeOfDownload),
-        comment="The logger's full record, read with pyrsktools. It starts before "
-                "the mooring went in and ends after it came out; the values outside "
-                "the deployment period were not logged at depth.")
-    return len(data)
 
 
 def write_products(group, site: str, dep: str):
@@ -456,29 +296,30 @@ def write_products(group, site: str, dep: str):
     contiguous 204 MB block, so virtualizing it would make every frequency query
     pull the whole file. Virtualize what is big; copy what is small.
     """
+    import h5py
     from zarr.codecs.numcodecs import Zstd
 
-    level_keys = product_keys("sound_level_metrics", site, dep)
+    levels = product_files("sound_level_metrics", site, dep)
     # NOAA did not publish sound levels for every deployment (none for OC01_01).
-    sl = group.require_group("sound_levels") if level_keys else None
-    for key in level_keys:
-        label = product_label(key, dep)
-        with open_netcdf(key) as f:
+    sl = group.require_group("sound_levels") if levels else None
+    for label, key in levels.items():
+        with h5py.File(io.BytesIO(read_object(key)), "r") as f:
+            attrs = text_attributes(f)
             # Every product carries the same hourly axis; the last one written wins.
             write_small_array(sl, "time", f["time"][()].astype("int64") * 10**9, ("time",),
                  standard_name="time", **EPOCH,
-                 comment=as_text(f["time"].attrs["comment"]))
+                 comment=text_attributes(f["time"])["comment"])
             fdim = SPL_DIM[label]
             if fdim:
                 write_small_array(sl, fdim, f["frequency"][()].astype("float64"), (fdim,),
                      standard_name="sound_frequency", units="Hz")
             spl = f["sound_pressure_levels"][()]
-            src = f["sound_pressure_levels"].attrs
+            src = text_attributes(f["sound_pressure_levels"])
             # The source declares `time: sum`, which contradicts its own history:
             # every product is an hourly median of 1-second values.
             comment = (f"cell_methods follow the method stated in source_history. The "
-                       f"source declares cell_methods={as_text(src['cell_methods'])!r}.")
-            declared = as_text(src["standard_name"])
+                       f"source declares cell_methods={src['cell_methods']!r}.")
+            declared = src["standard_name"]
             if declared != SPL_STANDARD_NAME:
                 why = (f" (CF defines that against {CF_REFERENCE[declared]})"
                        if declared in CF_REFERENCE else "")
@@ -501,21 +342,21 @@ def write_products(group, site: str, dep: str):
                     cell_methods="time: median (interval: 1 s)",
                     coverage_content_type="physicalMeasurement",
                     source_product=label, source_file=GCS + key,
-                    doi=f"https://doi.org/{source_doi(f)}",
-                    source_title=as_text(f.attrs["title"]),
-                    source_history=source_history(f),
-                    source_citation=as_text(f.attrs["citation"]),
-                    source_date_issued=as_text(f.attrs["date_issued"]),
+                    doi=f"https://doi.org/{attrs['id'].split('doi.org/')[-1]}",
+                    source_title=attrs["title"],
+                    source_history=attrs.get("history", ""),
+                    source_citation=attrs["citation"],
+                    source_date_issued=attrs["date_issued"],
                     comment=comment))
     if sl is not None:
         sl.attrs["time_coverage_resolution"] = "P1H"
 
     rows, methods, dois = [], {}, {}
-    for key in product_keys("detections", site, dep):
-        label = product_label(key, dep)
-        with open_netcdf(key) as f:
-            methods[label] = source_history(f)
-            dois[label] = source_doi(f)
+    for label, key in product_files("detections", site, dep).items():
+        with h5py.File(io.BytesIO(read_object(key)), "r") as f:
+            attrs = text_attributes(f)
+            methods[label] = attrs.get("history", "")
+            dois[label] = attrs["id"].split("doi.org/")[-1]
             # Variable names do not follow the label: `finwhale_1d` has
             # `finwhale_presence`, `Explosions` has `explosions_presence`, `sonar`
             # has `mfa_presence`. Match on the suffix, and demand exactly one.
@@ -587,6 +428,104 @@ def write_products(group, site: str, dep: str):
         "is 1."))
     return len(rows), len(labels)
 
+
+def sound_source(label: str) -> tuple[str, str, str]:
+    """`(source_type, taxon name, taxon LSID)` for a detection label.
+
+    An unknown label raises: a default here would publish a guess as a fact.
+    """
+    base = re.sub(r"_(1d|1h|1hr|1min|manual)$", "", label)
+    if base in TAXON:
+        name, aphia = TAXON[base]
+        return "biological", name, f"urn:lsid:marinespecies.org:taxname:{aphia}"
+    if base in ANTHROPOGENIC:
+        return "anthropogenic", "", ""
+    if base in UNKNOWN_SOURCE:
+        return "unknown", "", ""
+    raise KeyError(f"detection label {label!r} is not in TAXON, ANTHROPOGENIC or "
+                   f"UNKNOWN_SOURCE")
+
+
+def product_files(product: str, site: str, dep: str) -> dict[str, str]:
+    """A deployment's files of one NOAA product, keyed by label.
+
+    ``.../SanctSound_CI01_01_BB_1h.nc`` has the label ``BB_1h``.
+    """
+    files = {}
+    for key, _ in list_keys(f"sanctsound/products/{product}/{site.lower()}/", ".nc"):
+        if f"_{dep}_" in key:
+            label = key.split("/")[-1].removesuffix(".nc").removeprefix(f"SanctSound_{dep}_")
+            files[label] = key
+    return files
+
+
+def text_attributes(node) -> dict[str, str]:
+    """The attributes of a node in one of NOAA's netCDF files, as text.
+
+    h5py returns some text attributes as bytes, which are decoded. NOAA writes
+    ``history`` as a one-element Python list literal, which is unwrapped.
+    Attributes starting with an underscore are netCDF's own bookkeeping and are
+    left out.
+    """
+    attrs = {k: v.decode() if isinstance(v, bytes) else str(v)
+             for k, v in node.attrs.items() if not k.startswith("_")}
+    history = attrs.get("history", "")
+    if history.startswith('["') and history.endswith('"]'):
+        attrs["history"] = history[2:-2]
+    return attrs
+
+
+def write_temperature(group, site: str, dep: str):
+    """The mooring's temperature logger record, from NOAA's original .rsk file.
+
+    Materialized, not referenced: an .rsk is an SQLite database, so its values have
+    no byte ranges a Zarr chunk could point at. Returns the sample count, or None
+    when NOAA published no logger record for the deployment.
+    """
+    from pyrsktools import RSK
+
+    keys = [k for k, _ in list_keys(deployment_prefix(site, dep) + "ancillary/temperature/",
+                                ".rsk")]
+    if not keys:
+        return None
+    if len(keys) != 1:
+        raise ValueError(f"{dep}: expected one .rsk temperature record, found {keys}")
+    with tempfile.NamedTemporaryFile(suffix=".rsk") as fh:
+        fh.write(read_object(keys[0]))
+        fh.flush()
+        with RSK(fh.name) as rsk:
+            rsk.readdata()
+            data, inst, deployment = rsk.data, rsk.instrument, rsk.deployment
+            (channel,) = rsk.channels
+
+    t = group.require_group("temperature")
+    day = 86400 // int(np.median(np.diff(data["timestamp"][:1000]))
+                       .astype("timedelta64[s]").astype(int))
+    for name, values, dims, attrs in [
+        ("time", data["timestamp"].astype("datetime64[ns]").astype("int64"), ("time",),
+         dict(standard_name="time", long_name="logger timestamp", **EPOCH)),
+        ("sea_water_temperature", data["temperature"], ("time",),
+         dict(standard_name="sea_water_temperature", units="degree_Celsius",
+              long_name=f"{channel.longNamePlainText} ({channel.shortName})",
+              coordinates="time")),
+    ]:
+        t.create_array(name, data=np.asarray(values), chunks=(min(day, len(values)),),
+                       dimension_names=dims, attributes=attrs, overwrite=True)
+    t.attrs.update(
+        title="Mooring temperature",
+        featureType="timeSeries",
+        instrument=f"{inst.model} temperature logger",
+        instrument_serial_number=str(inst.serialID),
+        source_uri=f"gs://{BUCKET}/{keys[0]}",
+        logger_time_drift_ms=int(deployment.loggerTimeDrift),
+        logger_time_drift_comment="RBR's loggerTimeDrift field for this record, as "
+                                  "the .rsk reports it; the timestamps are not "
+                                  "corrected for it.",
+        time_of_download=str(deployment.timeOfDownload),
+        comment="The logger's full record, read with pyrsktools. It starts before "
+                "the mooring went in and ends after it came out; the values outside "
+                "the deployment period were not logged at depth.")
+    return len(data)
 
 
 BAND_HZ = (20.0, 24000.0)
@@ -857,16 +796,6 @@ for byte, and, where NOAA published sound levels, an offset from counts to micro
 derived from them.
 """
 
-
-def deployment_line(name: str, group) -> str:
-    """One Markdown bullet describing a deployment, from its own attributes."""
-    a, w = group.attrs, group["audio/waveform"]
-    hours = w.shape[0] / w.attrs["sample_rate_hz"] / 3600
-    return (f"- `{name}`: {SANCTUARY[a['site_id'][:2]]} site {a['site_id']}, "
-            f"{str(a['time_coverage_start'])[:10]} to {str(a['time_coverage_end'])[:10]}, "
-            f"{hours:,.0f} hours at {w.attrs['sample_rate_hz'] / 1000:g} kHz")
-
-
 ROOT_INHERITED = ("naming_authority", "license", "acknowledgement", "keywords",
                   "keywords_vocabulary", "project", "publisher_name", "publisher_email",
                   "publisher_url", "institution", "contributor_name", "contributor_role")
@@ -885,10 +814,12 @@ def write_provenance(root, group, site: str, dep: str):
     meta = json.loads(read_object(meta_key))
     # Every product file repeats these attributes; not every deployment has sound
     # levels, but every one has detections.
-    source_key = ([k for k in product_keys("sound_level_metrics", site, dep)
-                   if k.endswith("_BB_1h.nc")] or product_keys("detections", site, dep))[0]
-    with open_netcdf(source_key) as f:
-        nc = {k: as_text(f.attrs[k]) for k in f.attrs if not k.startswith("_")}
+    import h5py
+
+    source_key = (product_files("sound_level_metrics", site, dep).get("BB_1h")
+                  or next(iter(product_files("detections", site, dep).values())))
+    with h5py.File(io.BytesIO(read_object(source_key)), "r") as f:
+        nc = text_attributes(f)
     uri = str(group["audio/segments/source_uri"][0])
     serial = uri.split("/")[-1].split("_")[3]
     lat, lon = float(meta["LOCATION"]["lat"]), float(meta["LOCATION"]["lon"])
@@ -925,6 +856,18 @@ def write_provenance(root, group, site: str, dep: str):
         data_quality_source="data_quality from the deployment metadata JSON; "
                             "data_quality_comment from the product netCDF files")
 
+    # One Markdown bullet per deployment in the store, from its own attributes.
+    deployment_lines = []
+    for name, g in sorted(root.groups()):
+        rate = g["audio/waveform"].attrs["sample_rate_hz"]
+        hours = g["audio/waveform"].shape[0] / rate / 3600
+        site = g.attrs["site_id"]
+        deployment_lines.append(
+            f"- `{name}`: {SANCTUARY[site[:2]]} site {site}, "
+            f"{str(g.attrs['time_coverage_start'])[:10]} to "
+            f"{str(g.attrs['time_coverage_end'])[:10]}, "
+            f"{hours:,.0f} hours at {rate / 1000:g} kHz")
+
     now = datetime.now(timezone.utc)
     root.attrs.put({k: nc[k] for k in ROOT_INHERITED} | dict(
         date_created=root.attrs.get("date_created", now.strftime("%Y-%m-%dT%H:%M:%SZ")),
@@ -944,7 +887,7 @@ def write_provenance(root, group, site: str, dep: str):
                 "referenced. NOAA's own title, history and citation for each product "
                 "are kept verbatim on the variable it became.",
         description=ROOT_DESCRIPTION % dict(
-            deployments="\n".join(deployment_line(n, g) for n, g in sorted(root.groups())),
+            deployments="\n".join(deployment_lines),
             codec_url=CODEC_URL, audio_doi=meta["DOI"].split("doi.org/")[-1]),
         comment="One group per deployment. Audio arrays are byte-range references "
                 "into NOAA's bucket; nothing is copied. Sample rate and FLAC blocksize "
@@ -958,7 +901,6 @@ def write_provenance(root, group, site: str, dep: str):
         date_modified=now.strftime("%Y-%m-%d")))
 
 
-
 def selftest_from_store_only(root: zarr.Group) -> list[dict]:
     """Resolve each detection time to an audio sample using only the store.
 
@@ -968,22 +910,111 @@ def selftest_from_store_only(root: zarr.Group) -> list[dict]:
     recording; recordings do not tile the timeline, so one that falls in a gap
     between them, or before the first, is refused.
     """
-    return [selftest_deployment(name, root[name]) for name in sorted(root.group_keys())]
+    rows = []
+    for dep in sorted(root.group_keys()):
+        group = root[dep]
+        seg = group["audio/segments"]
+        sample_rate = int(group["audio/waveform"].attrs["sample_rate_hz"])
+        starts = seg["start_time"][:].astype("datetime64[ns]")
+        n_samples = seg["n_samples"][:]
+        times = group["detections/start_time"][:].astype("datetime64[ns]")
+        k = np.searchsorted(starts, times, side="right") - 1
+        into = np.round((times - starts[np.maximum(k, 0)]) / np.timedelta64(1, "s")
+                        * sample_rate)
+        resolved = int(np.count_nonzero((k >= 0) & (into < n_samples[np.maximum(k, 0)])))
+        rows.append(dict(deployment=dep, segments=len(starts), sample_rate=sample_rate,
+                         detections=len(times), resolved=resolved,
+                         refused=len(times) - resolved))
+    return rows
 
 
-def selftest_deployment(dep: str, group) -> dict:
-    seg = group["audio/segments"]
-    sample_rate = int(group["audio/waveform"].attrs["sample_rate_hz"])
-    starts = seg["start_time"][:].astype("datetime64[ns]")
-    n_samples = seg["n_samples"][:]
-    times = group["detections/start_time"][:].astype("datetime64[ns]")
-    k = np.searchsorted(starts, times, side="right") - 1
-    into = np.round((times - starts[np.maximum(k, 0)]) / np.timedelta64(1, "s")
-                    * sample_rate)
-    resolved = int(np.count_nonzero((k >= 0) & (into < n_samples[np.maximum(k, 0)])))
-    return dict(deployment=dep, segments=len(starts), sample_rate=sample_rate,
-                detections=len(times), resolved=resolved, refused=len(times) - resolved)
+@dataclass(frozen=True)
+class DeploymentTable:
+    """A deployment's chunk table with what the parser's table does not carry.
 
+    ``start`` is each recording's start time in nanoseconds since the epoch, from
+    its filename. ``windows`` and ``n_listed`` are set when only the recordings
+    around some time windows were scanned.
+    """
+
+    chunks: ChunkTable
+    start: np.ndarray
+    windows: tuple[str, ...] = ()
+    n_listed: int | None = None
+
+    def save(self, path) -> None:
+        """Write the parser's table fields plus ``start`` to one ``.npz``."""
+        extra = dict(windows=np.array(self.windows), n_listed=self.n_listed) \
+            if self.windows else {}
+        np.savez_compressed(path, **asdict(self.chunks), start=self.start, **extra)
+
+    @classmethod
+    def load(cls, path) -> DeploymentTable:
+        """Read a saved table. A file with no ``channels`` field is mono.
+
+        ``ci01_01_chunks.npz`` and its siblings predate the ``channels`` field,
+        and every SanctSound recording is mono.
+        """
+        with np.load(path, allow_pickle=False) as z:
+            fields = {k: z[k] for k in ChunkTable.__dataclass_fields__ if k in z}
+            fields.setdefault("channels", 1)
+            fields["sample_rate"] = int(fields["sample_rate"])
+            fields["blocksize"] = int(fields["blocksize"])
+            fields["channels"] = int(fields["channels"])
+            windows = tuple(str(w) for w in z["windows"]) if "windows" in z else ()
+            return cls(ChunkTable(**fields), z["start"].astype("int64"), windows,
+                       int(z["n_listed"]) if "n_listed" in z else None)
+
+
+# Each filename form the ingest reads, with the strptime format of its date and
+# time digits. LAYOUTS.md lists the forms it does not read yet.
+FILENAME_TIMES = [
+    # 20181031T220000Z (CI01_01, SB01_03). SB01_03's first and last files add
+    # _Post-Deployment or _Pre-Retrieval, but belong to the continuous series.
+    (re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"), "%Y%m%d%H%M%S"),
+    # 201122183500: a two-digit year, the most common form.
+    (re.compile(r"_(\d{6})(\d{6})\.flac$"), "%y%m%d%H%M%S"),
+]
+
+
+def parse_start(name: str) -> datetime:
+    """Start time from the filename. The FLAC files carry no tags at all."""
+    for pattern, fmt in FILENAME_TIMES:
+        if match := pattern.search(name):
+            return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
+    raise ValueError(f"no timestamp pattern matches {name!r}")
+
+
+def list_keys(prefix: str, suffix: str) -> list[tuple[str, int]]:
+    """Every key under ``prefix`` that ends in ``suffix``, with its size in bytes."""
+    keys = []
+    for batch in obstore.list(BUCKET_STORE, prefix=prefix):
+        for item in batch:
+            if item["path"].endswith(suffix):
+                keys.append((item["path"], item["size"]))
+    return sorted(keys)
+
+
+def read_object(key: str) -> bytes:
+    """The whole object, fetched in 16 MB ranges.
+
+    Product files run to 600 MB, and a single long GET is cut short often enough
+    to matter. Each range is retried on its own, so a dropped connection costs
+    one range.
+    """
+    return reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20,
+                  cached_blocks=1).read()
+
+
+def deployment_prefix(site: str, dep: str) -> str:
+    return f"sanctsound/audio/{site.lower()}/sanctsound_{dep.lower()}/"
+
+
+def write_small_array(group, name, data, dims, **attrs):
+    """Write a small materialized array in one chunk."""
+    data = np.asarray(data)
+    return group.create_array(name, data=data, chunks=data.shape or "auto",
+                              dimension_names=dims, attributes=attrs, overwrite=True)
 
 
 def repository(location: str, *, create: bool = False):
@@ -1000,48 +1031,6 @@ def repository(location: str, *, create: bool = False):
     if create:
         return create_repo(location, [], prefixes=[BASE], open_existing=True)
     return open_repository(location)
-
-
-def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
-          measure: bool = True) -> None:
-    """Write one deployment into a repo and commit it.
-
-    ``measure=False`` skips the calibration offset, which reads eight hours of
-    audio, and leaves the group without ``counts_to_upa_db``.
-    """
-    # The waveform's chunk grid is rectilinear, and zarr refuses to read or write
-    # one unless this is set.
-    with zarr.config.set({"array.rectilinear_chunks": True}):
-        dep, site = dep.upper(), dep.upper()[:4]
-        repo = repository(repo_location, create=True)
-        session = repo.writable_session(branch)
-        root = zarr.open_group(session.store, mode="a")
-        dg = root.require_group(dep)
-        sample_rate = int(table.chunks.sample_rate)
-        hours = int(table.chunks.n_samples.sum()) / sample_rate / 3600
-
-        write_audio(dg, table)
-        print(f"waveform: {len(table.chunks.edge)} chunks, {hours:.1f} h at {sample_rate} Hz, "
-              f"blocksize {int(table.chunks.blocksize)}", flush=True)
-        n_events, n_labels = write_products(dg, site, dep)
-        print(f"products: {n_events} detections, {n_labels} labels", flush=True)
-        n_temp = write_temperature(dg, site, dep)
-        print(f"temperature: {n_temp:,} samples" if n_temp
-              else "temperature: NOAA published no logger record", flush=True)
-        measured = None
-        if "sound_levels" in dg and measure:
-            measured = measure_counts_offset(dg)
-            print(f"calibration: {measured['offset_db']:.3f} dB, "
-                  f"sd {measured['standard_deviation_db']:.4f} dB", flush=True)
-        # write_calibration reads the serial number write_provenance records
-        write_provenance(root, dg, site, dep)
-        write_calibration(dg, site, dep, measured)
-        snapshot = session.commit(f"{dep}: {len(table.chunks.n_samples)} recordings "
-                                  f"({hours:.1f} h)")
-        print(f"committed {snapshot}", flush=True)
-        check = zarr.open_group(repo.readonly_session(branch).store, mode="r")
-        for row in selftest_from_store_only(check):
-            print(row, flush=True)
 
 
 def main(argv=None) -> None:
