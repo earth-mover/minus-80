@@ -23,9 +23,10 @@ The scan reads every byte of every recording, so run it beside the data. The
 chunk table it leaves behind is small (about 1.3 MB for 175,000 chunks) and lets
 a rebuild skip the audio entirely.
 
-The file reads top down. ``scan_deployment`` and ``build`` come first, then each
-group's writer in the order ``build`` calls them. Reading NOAA's bucket and writing
-the store are in ``storage.py``.
+The file follows the pipeline: scanning, building, then one section per group in
+the order ``build`` writes them, each opening with a comment on what NOAA
+publishes and how the store holds it. Reading NOAA's bucket and writing the
+store are in ``storage.py``.
 """
 from __future__ import annotations
 
@@ -60,6 +61,8 @@ from storage import (
 )
 
 
+# The flac-numcodecs tag that registers the "flac" Zarr codec, named in the
+# store's text so readers can install it.
 CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-10-19"
 
 
@@ -70,8 +73,25 @@ CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-
 # 175,314 references for CI01_01 instead of about 90 million.
 FRAMES_PER_CHUNK = 512
 
+
+# CF time units for every time array in the store: integer nanoseconds since the
+# Unix epoch.
 EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
              calendar="proleptic_gregorian")
+
+
+# Scanning: finding every FLAC frame
+#
+# A virtual store needs the byte offset and length of every chunk it references.
+# In a FLAC file the natural unit is the frame, a few thousand samples that decode
+# on their own. FLAC can carry a SEEKTABLE that locates some frames without
+# reading the file, but files in 36 of SanctSound's 196 deployments have none, so
+# the only uniform way to find every frame is to read every byte once.
+#
+# scan_deployment does that read, from a machine in the bucket's region, and saves
+# the result as a chunk table: about 1.3 MB for CI01_01's 272 GB. A build reads
+# the table and never touches the audio. Recording start times come from the
+# file names, because the FLAC files carry no tags.
 
 
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
@@ -122,6 +142,34 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     print(f"scan complete; chunk table in {out}", flush=True)
 
 
+# Each filename form the ingest reads, with the strptime format of its date and
+# time digits. LAYOUTS.md lists the forms it does not read yet.
+FILENAME_TIMES = [
+    # 20181031T220000Z (CI01_01, SB01_03). SB01_03's first and last files add
+    # _Post-Deployment or _Pre-Retrieval, but belong to the continuous series.
+    (re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"), "%Y%m%d%H%M%S"),
+    # 201122183500: a two-digit year, the most common form.
+    (re.compile(r"_(\d{6})(\d{6})\.flac$"), "%y%m%d%H%M%S"),
+]
+
+
+def parse_start(name: str) -> datetime:
+    """Start time from the filename. The FLAC files carry no tags at all."""
+    for pattern, fmt in FILENAME_TIMES:
+        if match := pattern.search(name):
+            return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
+    raise ValueError(f"no timestamp pattern matches {name!r}")
+
+
+# Building: one deployment group
+#
+# build writes one deployment's group from its chunk table: the audio first, then
+# NOAA's sound levels and detections, the mooring's temperature log, the
+# calibration, and the attributes that say where everything came from. It
+# commits once at the end, then checks, using only the committed store, that a
+# detection's time can be found in the audio.
+
+
 def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
           measure: bool = True) -> None:
     """Write one deployment into a repo and commit it.
@@ -143,8 +191,10 @@ def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str =
         write_audio(dg, table)
         print(f"waveform: {len(table.chunks.edge)} chunks, {hours:.1f} h at {sample_rate} Hz, "
               f"blocksize {int(table.chunks.blocksize)}", flush=True)
-        n_events, n_labels = write_products(dg, site, dep)
-        print(f"products: {n_events} detections, {n_labels} labels", flush=True)
+        n_levels = write_sound_levels(dg, site, dep)
+        print(f"sound levels: {n_levels} products", flush=True)
+        n_events, n_labels = write_detections(dg, site, dep)
+        print(f"detections: {n_events} events, {n_labels} labels", flush=True)
         n_temp = write_temperature(dg, site, dep)
         print(f"temperature: {n_temp:,} samples" if n_temp
               else "temperature: NOAA published no logger record", flush=True)
@@ -162,6 +212,17 @@ def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str =
         check = zarr.open_group(repo.readonly_session(branch).store, mode="r")
         for row in selftest_from_store_only(check):
             print(row, flush=True)
+
+
+# Audio: the waveform and its segment table
+#
+# A deployment is hundreds of recordings. CI01_01's are nominally three hours
+# each. The waveform puts all of them on one sample axis, end to end, as
+# references into NOAA's FLAC files. It has no time coordinate, because the
+# recordings do not tile the timeline: there are gaps between some of them, and
+# the start times in the file names are off by up to 1.5 s. A time for every
+# sample would be wrong at every boundary. Instead, audio/segments holds one row
+# per recording, which is enough to turn a sample index into a time and back.
 
 
 def write_audio(group, table: DeploymentTable):
@@ -246,55 +307,31 @@ def write_audio(group, table: DeploymentTable):
         time_coverage_end=str(np.datetime64(int(ends.max()), "ns")))
 
 
-SPL_DIM = {"BB_1h": None, "OL_1h": "frequency_octave",
-           "TOL_1h": "frequency_third_octave", "PSD_1h": "frequency_psd"}
-
-SPL_VAR = {"BB_1h": "broadband_spl", "OL_1h": "octave_spl",
-           "TOL_1h": "third_octave_spl", "PSD_1h": "psd"}
-
-SPL_STANDARD_NAME = "sound_pressure_level_in_water"
-
-
-# The reference quantity CF defines each name against, for explaining a correction.
-CF_REFERENCE = {"sound_intensity_level_in_water": "6.7e-19 W m-2",
-                "sound_pressure_level_in_water": "1e-6 Pa"}
-
-
-# Every detection label in SanctSound, by base label: NOAA's label without its
-# `_1d`/`_1h`/`_1hr`/`_1min`/`_manual` resolution or method suffix. Biological ones
-# carry a CF 6.1.2 taxon, with the WoRMS AphiaID looked up by name (2026-09-24).
-TAXON = {
-    "bluewhale": ("Balaenoptera musculus", 137090),
-    "finwhale": ("Balaenoptera physalus", 137091),
-    "humpbackwhale": ("Megaptera novaeangliae", 137092),
-    "GoogleAI_humpbackwhale": ("Megaptera novaeangliae", 137092),
-    "seiwhale": ("Balaenoptera borealis", 137088),
-    "minkewhale": ("Balaenoptera acutorostrata", 137087),
-    "northatlanticrightwhale": ("Eubalaena glacialis", 159023),
-    "killerwhale": ("Orcinus orca", 137102),
-    "dolphins": ("Delphinidae", 136980),
-    "pinnipeds": ("Pinnipedia", 148736),
-    "bocaccio": ("Sebastes paucispinis", 274833),
-    "plainfinmidshipman": ("Porichthys notatus", 275658),
-    "atlanticcod": ("Gadus morhua", 126436),
-    "redgrouper": ("Epinephelus morio", 159354),
-    "blackgrouper": ("Mycteroperca bonaci", 159231),
-}
+# Sound levels
+#
+# NOAA computed hourly sound levels for most deployments and published them as
+# netCDF files, in dB re 1 micropascal: broadband (BB), octave bands (OL),
+# third-octave bands (TOL) and the power spectral density (PSD). Each value is
+# the median of one-second values within the hour. They are copied into the
+# store, not referenced. They total about 205 MB, and PSD_1h is one contiguous
+# 204 MB block, so a reference would make every frequency selection read the
+# whole file.
+#
+# NOAA's metadata needs two corrections, each recorded on the array it applies
+# to. BB_1h declares the CF standard name for sound intensity, though its own
+# long_name and the other three products say sound pressure. And the files
+# declare cell_methods "time: sum" (all four of CI01_01's do), where their history
+# describes a median.
 
 
-# MFA is mid-frequency active sonar: the `sonar` files name their variable
-# `mfa_presence`.
-ANTHROPOGENIC = {"Explosions", "ships", "sonar", "MFA"}
+def write_sound_levels(group, site: str, dep: str) -> int:
+    """Copy NOAA's hourly sound levels into ``group/sound_levels``.
 
-UNKNOWN_SOURCE = {"unknownimpulse"}
-
-
-def write_products(group, site: str, dep: str):
-    """Materialize the sound levels and detections.
-
-    These are ~205 MB total and the source chunking is unusable: PSD_1h is one
-    contiguous 204 MB block, so virtualizing it would make every frequency query
-    pull the whole file. Virtualize what is big; copy what is small.
+    Each product file becomes one array on a shared hourly ``time`` axis, with its
+    own frequency axis where it has one. NOAA's title, history, citation and DOI
+    are kept verbatim on the array, and any correction to NOAA's metadata is
+    described in the array's ``comment``. Returns the number of products, which
+    is zero for a deployment NOAA published no sound levels for.
     """
     import h5py
     from zarr.codecs.numcodecs import Zstd
@@ -309,7 +346,7 @@ def write_products(group, site: str, dep: str):
             write_small_array(sl, "time", f["time"][()].astype("int64") * 10**9, ("time",),
                  standard_name="time", **EPOCH,
                  comment=text_attributes(f["time"])["comment"])
-            fdim = SPL_DIM[label]
+            name, fdim = SOUND_LEVELS[label]
             if fdim:
                 write_small_array(sl, fdim, f["frequency"][()].astype("float64"), (fdim,),
                      standard_name="sound_frequency", units="Hz")
@@ -331,7 +368,7 @@ def write_products(group, site: str, dep: str):
                     f"https://cfconventions.org/Data/cf-standard-names/current/src/"
                     f"cf-standard-name-table.xml")
             sl.create_array(
-                SPL_VAR[label], data=spl,
+                name, data=spl,
                 chunks=(256, 4096) if label == "PSD_1h" else spl.shape,
                 dimension_names=("time",) if fdim is None else ("time", fdim),
                 compressors=[Zstd(level=5)], overwrite=True,
@@ -350,6 +387,58 @@ def write_products(group, site: str, dep: str):
                     comment=comment))
     if sl is not None:
         sl.attrs["time_coverage_resolution"] = "P1H"
+    return len(levels)
+
+
+
+# Each NOAA product's array name in the store, and the frequency axis it varies
+# along. Broadband is one number per hour, so it has none.
+SOUND_LEVELS = {
+    "BB_1h": ("broadband_spl", None),
+    "OL_1h": ("octave_spl", "frequency_octave"),
+    "TOL_1h": ("third_octave_spl", "frequency_third_octave"),
+    "PSD_1h": ("psd", "frequency_psd"),
+}
+
+
+# The CF standard name every sound-level array carries, whatever its file declares.
+SPL_STANDARD_NAME = "sound_pressure_level_in_water"
+
+
+# The reference quantity CF defines each name against, for explaining a correction.
+CF_REFERENCE = {"sound_intensity_level_in_water": "6.7e-19 W m-2",
+                "sound_pressure_level_in_water": "1e-6 Pa"}
+
+
+# Detections
+#
+# NOAA's analysts and automatic detectors marked when they heard particular
+# sounds: whales, fish, ships, explosions and sonar. Each label (bluewhale,
+# ships, finwhale_1d) is a separate netCDF file with its own DOI, and the files
+# differ in shape. Labels with a window suffix (_1d, _1h) have one row per day or
+# hour with a presence flag; the others list events only. In CI01_01, seven of
+# eight files keep their real times in start_time and end_time, and carry an
+# all-zero time variable. write_detections merges them into one event table,
+# sorted by time.
+#
+# A label only means something if the store says what made the sound. For
+# biological labels that is a species or group, which TAXON maps to a
+# scientific name and a WoRMS identifier, so the store can carry the CF
+# attributes biological_taxon_name and biological_taxon_lsid. ANTHROPOGENIC and
+# UNKNOWN_SOURCE list the other labels. A label in none of the three raises,
+# rather than publishing a guess.
+
+
+def write_detections(group, site: str, dep: str) -> tuple[int, int]:
+    """Merge NOAA's detection files into ``group/detections``.
+
+    ``detections`` is one event table, one row per row of any detection file,
+    sorted by start time: ``start_time``, ``end_time``, ``label``, ``presence``
+    and ``effort``. ``detections/labels`` has one row per label, saying what
+    made the sound (see :func:`sound_source`), how NOAA detected it, and the
+    DOI of that label's product. Returns the number of events and of labels.
+    """
+    import h5py
 
     rows, methods, dois = [], {}, {}
     for label, key in product_files("detections", site, dep).items():
@@ -446,6 +535,46 @@ def sound_source(label: str) -> tuple[str, str, str]:
                    f"UNKNOWN_SOURCE")
 
 
+# What made the sound, for every biological label in SanctSound: the scientific
+# name, and its AphiaID in the World Register of Marine Species (WoRMS), looked up
+# by name on 2026-09-24. Keys are NOAA's labels without their resolution or method
+# suffix (_1d, _1h, _1hr, _1min, _manual).
+TAXON = {
+    "bluewhale": ("Balaenoptera musculus", 137090),
+    "finwhale": ("Balaenoptera physalus", 137091),
+    "humpbackwhale": ("Megaptera novaeangliae", 137092),
+    "GoogleAI_humpbackwhale": ("Megaptera novaeangliae", 137092),
+    "seiwhale": ("Balaenoptera borealis", 137088),
+    "minkewhale": ("Balaenoptera acutorostrata", 137087),
+    "northatlanticrightwhale": ("Eubalaena glacialis", 159023),
+    "killerwhale": ("Orcinus orca", 137102),
+    "dolphins": ("Delphinidae", 136980),
+    "pinnipeds": ("Pinnipedia", 148736),
+    "bocaccio": ("Sebastes paucispinis", 274833),
+    "plainfinmidshipman": ("Porichthys notatus", 275658),
+    "atlanticcod": ("Gadus morhua", 126436),
+    "redgrouper": ("Epinephelus morio", 159354),
+    "blackgrouper": ("Mycteroperca bonaci", 159231),
+}
+
+
+# MFA is mid-frequency active sonar: the `sonar` files name their variable
+# `mfa_presence`.
+ANTHROPOGENIC = {"Explosions", "ships", "sonar", "MFA"}
+
+
+# Impulses whose source NOAA did not identify.
+UNKNOWN_SOURCE = {"unknownimpulse"}
+
+
+# Temperature
+#
+# Some moorings carried an RBR temperature logger. NOAA publishes its record as
+# an .rsk file, which is an SQLite database, so its values have no byte ranges to
+# reference, and they are copied. The record covers the logger's whole run,
+# including the time before the mooring went in and after it came out.
+
+
 def write_temperature(group, site: str, dep: str):
     """The mooring's temperature logger record, from NOAA's original .rsk file.
 
@@ -499,7 +628,18 @@ def write_temperature(group, site: str, dep: str):
     return len(data)
 
 
-BAND_HZ = (20.0, 24000.0)
+# Calibration: from counts to sound pressure
+#
+# The audio is raw 16-bit counts. Turning a count into micropascals needs the
+# gain of the whole recording chain, and NOAA does not publish it. NOAA does
+# publish a one-page calibration certificate per deployment, and the hourly sound
+# levels above, which are in micropascals.
+#
+# So the offset is measured. measure_counts_offset repeats NOAA's broadband
+# method on eight hours of the store's own audio, and compares the result with
+# NOAA's published level for the same hours. write_calibration stores that
+# offset, the certificate's PDF byte for byte, and the certificate's values,
+# transcribed by hand into CERTIFICATES and used as a cross-check.
 
 
 def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
@@ -558,6 +698,75 @@ def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
     med = np.array([r["offset_median"] for r in rows])
     return dict(offset_db=float(med.mean()), standard_deviation_db=float(med.std(ddof=1)),
                 hours=rows)
+
+
+# The frequency band NOAA's broadband level integrates over, per its history.
+BAND_HZ = (20.0, 24000.0)
+
+
+def write_calibration(group, site: str, dep: str, measured: dict | None):
+    """The certificate byte for byte, the sensitivity it states, and the offset
+    `measure_counts_offset` derived. `measured` is that function's return value, or
+    None for a deployment with no published sound levels to measure against."""
+    ((key, _),) = list_keys(deployment_prefix(site, dep) + "ancillary/calibration/", ".pdf")
+    pdf = read_object(key)
+    sha = hashlib.sha256(pdf).hexdigest()
+    if sha not in CERTIFICATES:
+        raise KeyError(f"no transcription for {key} (sha256 {sha}); add it to "
+                       f"CERTIFICATES")
+    certificate = CERTIFICATES[sha]
+
+    cal = group.require_group("calibration")
+    write_small_array(cal, "certificate", np.frombuffer(pdf, dtype="uint8"), ("byte",),
+         long_name="calibration certificate, verbatim", media_type="application/pdf",
+         source_uri=BASE + key, sha256=sha, issuer=certificate.issuer,
+         test_date=certificate.test_date,
+         comment="The bytes of the published PDF, stored as a plain uint8 array. Zarr "
+                 "has no PDF codec and no reader will open this for you: media_type "
+                 "is a hint, not a decoder. To recover the file: "
+                 "open('calibration.pdf', 'wb').write(bytes(group['certificate'][:]))")
+    certificate.write(cal)
+
+    if measured is not None:
+        offset_db = measured["offset_db"]
+        write_small_array(cal, "counts_to_upa_db", np.float64(round(offset_db, 3)), (),
+             long_name="offset from int16 counts to sound pressure", units="dB",
+             comment="Add this to 20*log10(|counts|) to obtain dB re 1 uPa. Derived, not "
+                     "published: NOAA's BB_1h method, as its history states it (1 Hz / 1 s "
+                     "PSD, integrated over 20 Hz to 24 kHz, hourly median of the 1-second "
+                     "values), applied to audio/waveform and differenced against "
+                     "sound_levels/broadband_spl for the same hour.",
+             method=f"{len(measured['hours'])} full hours spread evenly across the "
+                    f"deployment, each wholly inside one recording",
+             hours=[h["time"] for h in measured["hours"]],
+             standard_deviation_db=round(measured["standard_deviation_db"], 4),
+             n_hours=len(measured["hours"]), band_hz=list(BAND_HZ),
+             source="derived from sound_levels/broadband_spl",
+             cross_check=certificate.cross_check(offset_db))
+        offset = ("counts_to_upa_db is measured against this deployment's own published "
+                  "sound levels, and cross_check compares it with the certificate.")
+    elif "sound_levels" in group:
+        offset = ("The counts-to-micropascal offset was not measured for this build, and "
+                  "this group holds none.")
+    else:
+        offset = ("NOAA published no sound levels for this deployment, so no "
+                  "counts-to-micropascal offset could be measured against them, and this "
+                  "group holds none.")
+
+    serial = certificate.device_serial
+    serial_recordings = str(group.attrs["instrument_serial_number"])
+    cal.attrs.update(
+        title=f"Hydrophone calibration for deployment {dep}",
+        comment=f"NOAA publishes this calibration as a one-page PDF beside the recordings. "
+                f"{certificate.summary} {offset}",
+        instrument_serial_number_certificate=serial,
+        instrument_serial_number_recordings=serial_recordings,
+        serial_number_comment=(
+            f"The certificate and every audio file name both name device serial {serial}."
+            if serial == serial_recordings else
+            f"The certificate names device serial {serial}; every audio file name and the "
+            f"deployment attributes name {serial_recordings}. Both are recorded verbatim, "
+            f"with no claim about which identifies which component."))
 
 
 #: The level of a full-scale int16 sample, in dB re one count.
@@ -662,115 +871,14 @@ CERTIFICATES = {
 }
 
 
-def write_calibration(group, site: str, dep: str, measured: dict | None):
-    """The certificate byte for byte, the sensitivity it states, and the offset
-    `measure_counts_offset` derived. `measured` is that function's return value, or
-    None for a deployment with no published sound levels to measure against."""
-    ((key, _),) = list_keys(deployment_prefix(site, dep) + "ancillary/calibration/", ".pdf")
-    pdf = read_object(key)
-    sha = hashlib.sha256(pdf).hexdigest()
-    if sha not in CERTIFICATES:
-        raise KeyError(f"no transcription for {key} (sha256 {sha}); add it to "
-                       f"CERTIFICATES")
-    certificate = CERTIFICATES[sha]
-
-    cal = group.require_group("calibration")
-    write_small_array(cal, "certificate", np.frombuffer(pdf, dtype="uint8"), ("byte",),
-         long_name="calibration certificate, verbatim", media_type="application/pdf",
-         source_uri=BASE + key, sha256=sha, issuer=certificate.issuer,
-         test_date=certificate.test_date,
-         comment="The bytes of the published PDF, stored as a plain uint8 array. Zarr "
-                 "has no PDF codec and no reader will open this for you: media_type "
-                 "is a hint, not a decoder. To recover the file: "
-                 "open('calibration.pdf', 'wb').write(bytes(group['certificate'][:]))")
-    certificate.write(cal)
-
-    if measured is not None:
-        offset_db = measured["offset_db"]
-        write_small_array(cal, "counts_to_upa_db", np.float64(round(offset_db, 3)), (),
-             long_name="offset from int16 counts to sound pressure", units="dB",
-             comment="Add this to 20*log10(|counts|) to obtain dB re 1 uPa. Derived, not "
-                     "published: NOAA's BB_1h method, as its history states it (1 Hz / 1 s "
-                     "PSD, integrated over 20 Hz to 24 kHz, hourly median of the 1-second "
-                     "values), applied to audio/waveform and differenced against "
-                     "sound_levels/broadband_spl for the same hour.",
-             method=f"{len(measured['hours'])} full hours spread evenly across the "
-                    f"deployment, each wholly inside one recording",
-             hours=[h["time"] for h in measured["hours"]],
-             standard_deviation_db=round(measured["standard_deviation_db"], 4),
-             n_hours=len(measured["hours"]), band_hz=list(BAND_HZ),
-             source="derived from sound_levels/broadband_spl",
-             cross_check=certificate.cross_check(offset_db))
-        offset = ("counts_to_upa_db is measured against this deployment's own published "
-                  "sound levels, and cross_check compares it with the certificate.")
-    elif "sound_levels" in group:
-        offset = ("The counts-to-micropascal offset was not measured for this build, and "
-                  "this group holds none.")
-    else:
-        offset = ("NOAA published no sound levels for this deployment, so no "
-                  "counts-to-micropascal offset could be measured against them, and this "
-                  "group holds none.")
-
-    serial = certificate.device_serial
-    serial_recordings = str(group.attrs["instrument_serial_number"])
-    cal.attrs.update(
-        title=f"Hydrophone calibration for deployment {dep}",
-        comment=f"NOAA publishes this calibration as a one-page PDF beside the recordings. "
-                f"{certificate.summary} {offset}",
-        instrument_serial_number_certificate=serial,
-        instrument_serial_number_recordings=serial_recordings,
-        serial_number_comment=(
-            f"The certificate and every audio file name both name device serial {serial}."
-            if serial == serial_recordings else
-            f"The certificate names device serial {serial}; every audio file name and the "
-            f"deployment attributes name {serial_recordings}. Both are recorded verbatim, "
-            f"with no claim about which identifies which component."))
-
-
-# Site-code prefixes, from the project overview (LAYOUTS.md, "The archive").
-SANCTUARY = {"CI": "Channel Islands", "MB": "Monterey Bay", "OC": "Olympic Coast",
-             "SB": "Stellwagen Bank", "GR": "Gray's Reef", "FK": "Florida Keys",
-             "HI": "Hawaiian Islands Humpback Whale", "PM": "Papahānaumokuākea"}
-
-ROOT_DESCRIPTION = """\
-## SanctSound, virtualized
-
-Hydrophone audio from [SanctSound](https://sanctsound.ioos.us/), one group per deployment:
-
-%(deployments)s
-
-The audio stays in NOAA's public bucket: this store holds byte-range references into the
-FLAC files under `gs://noaa-passive-bioacoustic`, and copies none of them. NOAA's
-detections and hourly sound levels for each deployment, where NOAA published them, sit
-beside its audio and share its clock.
-
-**Reading the audio needs two opt-ins.** Chunks end where recordings end, so the grid is
-rectilinear: use zarr-python 3.2 or newer and set
-`zarr.config.set({"array.rectilinear_chunks": True})`. Zarr also registers no audio
-codec, so the chunks need one: install tag `zarr3-flac-codec-2026-10-19` of
-[flac-numcodecs](%(codec_url)s), which registers a `flac` codec with Zarr. It is not in a
-release yet. xarray opens the store from release 2026.09.0, the first with
-[pydata/xarray#11592](https://github.com/pydata/xarray/pull/11592). The published
-products read with stock Zarr.
-
-**Published sources, each with its own DOI**
-
-- Raw audio: [%(audio_doi)s](https://doi.org/%(audio_doi)s)
-- Detections: one DOI per label, in `<deployment>/detections/labels/doi`
-- Sound levels: one DOI per product, on each variable in `<deployment>/sound_levels`
-
-**License.** NOAA's terms, carried verbatim in the `license` attribute: the data may be
-used and redistributed for free, but they are not intended for legal use, and NOAA gives
-no warranty of accuracy or fitness.
-
-Each deployment's `calibration` group holds the certificate NOAA publishes as a PDF, byte
-for byte, and, where NOAA published sound levels, an offset from counts to micropascals
-derived from them.
-"""
-
-ROOT_INHERITED = ("naming_authority", "license", "acknowledgement", "keywords",
-                  "keywords_vocabulary", "project", "publisher_name", "publisher_email",
-                  "publisher_url", "institution", "contributor_name", "contributor_role")
+# Provenance
+#
+# Every group says where it came from. A deployment's attributes come from NOAA's
+# metadata JSON for that deployment (location, depth, DOI, people, data quality)
+# and from one of its product files, which repeat the project's attributes
+# (license, publisher, keywords). The root attributes describe the whole store and
+# list every deployment in it, so they are rewritten each time a deployment is
+# added.
 
 
 def write_provenance(root, group, site: str, dep: str):
@@ -873,6 +981,64 @@ def write_provenance(root, group, site: str, dep: str):
         date_modified=now.strftime("%Y-%m-%d")))
 
 
+# Site-code prefixes, from the project overview (LAYOUTS.md, "The archive").
+SANCTUARY = {"CI": "Channel Islands", "MB": "Monterey Bay", "OC": "Olympic Coast",
+             "SB": "Stellwagen Bank", "GR": "Gray's Reef", "FK": "Florida Keys",
+             "HI": "Hawaiian Islands Humpback Whale", "PM": "Papahānaumokuākea"}
+
+
+# Project attributes that every product file repeats, copied to the root as they are.
+ROOT_INHERITED = ("naming_authority", "license", "acknowledgement", "keywords",
+                  "keywords_vocabulary", "project", "publisher_name", "publisher_email",
+                  "publisher_url", "institution", "contributor_name", "contributor_role")
+
+
+# The root's Markdown description. write_provenance fills in the list of
+# deployments, the codec link and the audio DOI.
+ROOT_DESCRIPTION = """\
+## SanctSound, virtualized
+
+Hydrophone audio from [SanctSound](https://sanctsound.ioos.us/), one group per deployment:
+
+%(deployments)s
+
+The audio stays in NOAA's public bucket: this store holds byte-range references into the
+FLAC files under `gs://noaa-passive-bioacoustic`, and copies none of them. NOAA's
+detections and hourly sound levels for each deployment, where NOAA published them, sit
+beside its audio and share its clock.
+
+**Reading the audio needs two opt-ins.** Chunks end where recordings end, so the grid is
+rectilinear: use zarr-python 3.2 or newer and set
+`zarr.config.set({"array.rectilinear_chunks": True})`. Zarr also registers no audio
+codec, so the chunks need one: install tag `zarr3-flac-codec-2026-10-19` of
+[flac-numcodecs](%(codec_url)s), which registers a `flac` codec with Zarr. It is not in a
+release yet. xarray opens the store from release 2026.09.0, the first with
+[pydata/xarray#11592](https://github.com/pydata/xarray/pull/11592). The published
+products read with stock Zarr.
+
+**Published sources, each with its own DOI**
+
+- Raw audio: [%(audio_doi)s](https://doi.org/%(audio_doi)s)
+- Detections: one DOI per label, in `<deployment>/detections/labels/doi`
+- Sound levels: one DOI per product, on each variable in `<deployment>/sound_levels`
+
+**License.** NOAA's terms, carried verbatim in the `license` attribute: the data may be
+used and redistributed for free, but they are not intended for legal use, and NOAA gives
+no warranty of accuracy or fitness.
+
+Each deployment's `calibration` group holds the certificate NOAA publishes as a PDF, byte
+for byte, and, where NOAA published sound levels, an offset from counts to micropascals
+derived from them.
+"""
+
+
+# Selftest
+#
+# A store is self-describing if a stranger holding only the store can use it.
+# selftest_from_store_only tries one concrete use for every detection: finding the
+# audio sample where it starts, using nothing but what the store says.
+
+
 def selftest_from_store_only(root: zarr.Group) -> list[dict]:
     """Resolve each detection time to an audio sample using only the store.
 
@@ -898,25 +1064,6 @@ def selftest_from_store_only(root: zarr.Group) -> list[dict]:
                          detections=len(times), resolved=resolved,
                          refused=len(times) - resolved))
     return rows
-
-
-# Each filename form the ingest reads, with the strptime format of its date and
-# time digits. LAYOUTS.md lists the forms it does not read yet.
-FILENAME_TIMES = [
-    # 20181031T220000Z (CI01_01, SB01_03). SB01_03's first and last files add
-    # _Post-Deployment or _Pre-Retrieval, but belong to the continuous series.
-    (re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"), "%Y%m%d%H%M%S"),
-    # 201122183500: a two-digit year, the most common form.
-    (re.compile(r"_(\d{6})(\d{6})\.flac$"), "%y%m%d%H%M%S"),
-]
-
-
-def parse_start(name: str) -> datetime:
-    """Start time from the filename. The FLAC files carry no tags at all."""
-    for pattern, fmt in FILENAME_TIMES:
-        if match := pattern.search(name):
-            return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
-    raise ValueError(f"no timestamp pattern matches {name!r}")
 
 
 def main(argv=None) -> None:

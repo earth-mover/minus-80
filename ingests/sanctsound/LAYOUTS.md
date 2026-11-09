@@ -163,7 +163,7 @@ None of these raises an error.
 1. Seven of eight CI01_01 detection files have an all-zero `time`, a phony
    netCDF dimension. The real times are `start_time` and `end_time`, in
    milliseconds since the epoch. Only `bluewhale` has a real `time` and no
-   `start_time`. `write_products` reads whichever the file has.
+   `start_time`. `write_detections` reads whichever the file has.
 2. Variable names do not follow the label: `finwhale_1d` holds
    `finwhale_presence`, `Explosions` holds `explosions_presence`, `sonar` holds
    `mfa_presence`. The ingest matches on the `_presence` and `_effort` suffixes and
