@@ -32,6 +32,14 @@ def test_reopening_an_older_repo_reads_with_retries(tmp_path):
     assert _tries(icechunk.Repository.open(storage=storage)) == 1
 
 
+def test_a_gcs_source_gets_an_anonymous_container(tmp_path):
+    prefix = "gs://noaa-passive-bioacoustic/"
+    create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    repo = open_repository(tmp_path / "repo")
+    assert list(repo.config.virtual_chunk_containers) == [prefix]
+    assert _tries(repo) == REMOTE_READ_TRIES
+
+
 def test_more_tries_than_the_floor_are_kept(tmp_path):
     config = icechunk.RepositoryConfig.default()
     config.storage = icechunk.StorageSettings(retries=icechunk.StorageRetriesSettings(max_tries=50))
