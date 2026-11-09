@@ -24,9 +24,8 @@ is small (about 1.3 MB for 175,000 chunks) and lets a rebuild skip the audio
 entirely.
 
 The file follows the pipeline: scanning, building, then one section per group in
-the order ``build`` writes them, each opening with a comment on what NOAA
-publishes and how the store holds it. Reading NOAA's bucket and writing the
-store are in ``storage.py``.
+the order ``build`` writes them. Reading NOAA's bucket and writing the store are
+in ``storage.py``.
 """
 from __future__ import annotations
 
@@ -87,20 +86,6 @@ EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
 # on their own. FLAC can carry a SEEKTABLE that locates some frames without
 # reading the file, but files in 36 of SanctSound's 196 deployments have none, so
 # the only uniform way to find every frame is to read every byte once.
-#
-# scan_deployment does that read and saves the result as a chunk table: about
-# 1.3 MB for CI01_01's 272 GB. A build reads the table and never touches the
-# audio. Recording start times come from the file names, because the FLAC files
-# carry no tags.
-#
-# The scan runs anywhere, one process per recording at a time. Parsing is fast:
-# on a laptop, one process scans a local file at about 1.5 GB/s and eight reach
-# about 6.6 GB/s together, so reading the bucket sets the pace. The published
-# scans ran on a cloud VM (an AWS c6in.2xlarge, through Coiled) with four
-# threads instead of processes, and reached about 174 MB/s. Threads slow the
-# scan down: on the same laptop, four threads together scan a local file at
-# about 350 MB/s and eight at about 125 MB/s. How fast processes read the
-# bucket from a cloud VM has not been measured.
 
 
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
@@ -169,15 +154,6 @@ def parse_start(name: str) -> datetime:
         if match := pattern.search(name):
             return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
     raise ValueError(f"no timestamp pattern matches {name!r}")
-
-
-# Building: one deployment group
-#
-# build writes one deployment's group from its chunk table: the audio first, then
-# NOAA's sound levels and detections, the mooring's temperature log, the
-# calibration, and the attributes that say where everything came from. It
-# commits once at the end, then checks, using only the committed store, that a
-# detection's time can be found in the audio.
 
 
 def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
@@ -400,7 +376,6 @@ def write_sound_levels(group, site: str, dep: str) -> int:
     return len(levels)
 
 
-
 # Each NOAA product's array name in the store, and the frequency axis it varies
 # along. Broadband is one number per hour, so it has none.
 SOUND_LEVELS = {
@@ -428,8 +403,7 @@ CF_REFERENCE = {"sound_intensity_level_in_water": "6.7e-19 W m-2",
 # differ in shape. Labels with a window suffix (_1d, _1h) have one row per day or
 # hour with a presence flag; the others list events only. In CI01_01, seven of
 # eight files keep their real times in start_time and end_time, and carry an
-# all-zero time variable. write_detections merges them into one event table,
-# sorted by time.
+# all-zero time variable.
 #
 # A label only means something if the store says what made the sound. For
 # biological labels that is a species or group, which TAXON maps to a
@@ -645,11 +619,8 @@ def write_temperature(group, site: str, dep: str):
 # publish a one-page calibration certificate per deployment, and the hourly sound
 # levels above, which are in micropascals.
 #
-# So the offset is measured. measure_counts_offset repeats NOAA's broadband
-# method on eight hours of the store's own audio, and compares the result with
-# NOAA's published level for the same hours. write_calibration stores that
-# offset, the certificate's PDF byte for byte, and the certificate's values,
-# transcribed by hand into CERTIFICATES and used as a cross-check.
+# So the offset is measured from the store's own audio against those published
+# levels, and the certificate is kept as a cross-check.
 
 
 def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
@@ -881,16 +852,6 @@ CERTIFICATES = {
 }
 
 
-# Provenance
-#
-# Every group says where it came from. A deployment's attributes come from NOAA's
-# metadata JSON for that deployment (location, depth, DOI, people, data quality)
-# and from one of its product files, which repeat the project's attributes
-# (license, publisher, keywords). The root attributes describe the whole store and
-# list every deployment in it, so they are rewritten each time a deployment is
-# added.
-
-
 def write_provenance(root, group, site: str, dep: str):
     """Root and deployment attributes, inherited from NOAA's metadata where it says it.
 
@@ -1040,13 +1001,6 @@ Each deployment's `calibration` group holds the certificate NOAA publishes as a 
 for byte, and, where NOAA published sound levels, an offset from counts to micropascals
 derived from them.
 """
-
-
-# Selftest
-#
-# A store is self-describing if a stranger holding only the store can use it.
-# selftest_from_store_only tries one concrete use for every detection: finding the
-# audio sample where it starts, using nothing but what the store says.
 
 
 def selftest_from_store_only(root: zarr.Group) -> list[dict]:
