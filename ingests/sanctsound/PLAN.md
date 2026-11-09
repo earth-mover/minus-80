@@ -18,15 +18,14 @@ what a rebuild of the published store would change.
 So far the code has been ported and checked against a local Icechunk repo. No
 shared resource has been written.
 
-**Asked of the reviewer:** approve the port, and decide the four calls below
+**Asked of the reviewer:** approve the port, and decide the three calls below
 before any rebuild of the published store.
 
 | # | Decision | Recommended |
 |---|---|---|
 | 1 | Frames per chunk: 512, as published, or one, the FLAC frame | Keep 512 for the rebuild, and measure one-frame reads before changing it |
-| 2 | Waveform shape: the published store is `("time",)`, the shared parser writes `("time", "channel")` | Rebuild on a branch, update the readers, then move `main` |
-| 3 | The calibration offset, never run on the ported code | Measure it on Coiled as part of the rebuild |
-| 4 | Where the saved chunk tables live | Beside the store, in the repo's bucket prefix |
+| 2 | The calibration offset, never run on the ported code | Measure it on Coiled as part of the rebuild |
+| 3 | Where the saved chunk tables live | Beside the store, in the repo's bucket prefix |
 
 ## The archive
 
@@ -89,7 +88,7 @@ container for the NOAA bucket. Every run read the bucket anonymously.
 
 | Check | Result |
 |---|---|
-| `uv run pytest` | 231 passed, 4 skipped, 1 xfailed |
+| `uv run pytest` | 233 passed, 4 skipped, 1 xfailed |
 | Scan one CI01_01 recording (371 MB) over HTTPS with `scan_frames` | 23 s; all 249 chunks match the chunk table the published store was built from |
 | The same recording through `ingest.py scan` | Identical chunk table and start time |
 | Build CI01_01 from its saved chunk table | 355 recordings, 175,314 chunks, 1,062.5 h; 2,008 detections in 8 labels; 2,617,447 temperature samples; 17 s in all |
@@ -112,17 +111,11 @@ The other seven deployments were not rebuilt locally.
    165. How much that slows a read has not been measured. **Recommended:** keep 512 for the rebuild, since it reproduces
    the store that was verified, and time an hour's read at one frame per chunk
    before changing it. `ingest.FRAMES_PER_CHUNK` holds the value.
-2. **Waveform shape.** The shared parser always writes
-   `("time", "channel")`, so mono and multichannel arrays index the same way.
-   The published waveform is `("time",)`. A rebuild therefore breaks every
-   reader that indexes the waveform with one index, including the demo
-   notebooks in the bio-demos repository. **Recommended:** write the rebuild
-   to a branch, update the readers to select channel 0, then move `main`.
-3. **The calibration offset.** `measure_counts_offset` was ported unchanged
-   apart from reading channel 0, and has not run since the port.
+2. **The calibration offset.** `measure_counts_offset` was ported unchanged,
+   and has not run since the port.
    **Recommended:** run it on Coiled during the rebuild, and compare each
    deployment's `counts_to_upa_db` with the published value.
-4. **The saved chunk tables.** Each deployment's frame scan is saved as a
+3. **The saved chunk tables.** Each deployment's frame scan is saved as a
    1 to 2 MB `.npz`, which lets a rebuild skip reading the audio. The scan of
    CI01_01 alone reads 272 GB. The tables are data, so they are not committed.
    They currently exist only on one laptop. **Recommended:** upload them to the
@@ -134,6 +127,11 @@ These calls were made in the port and need no decision:
   chunk table and the array writer were already in `minus80.parsers.flac`. The
   `gs://` virtual chunk container, with anonymous credentials, was added to
   `minus80.core.icechunk_io` for this ingest.
+- **The waveform has no channel axis.** Every recording is mono, so the
+  ingest passes `channel_axis=False` to the shared `write_array`, which then
+  writes `("time",)`, the published store's shape. The parser's default stays
+  `("time", "channel")`, and it refuses `channel_axis=False` for a table with
+  more than one channel.
 - **The detection selftest reads only the segment table.** It checks each
   detection time against the recording bounds, and resolves the same 1,986 of
   2,008 detections as the earlier version, which went through an xarray index.
@@ -150,7 +148,7 @@ These calls were made in the port and need no decision:
 | Upload the saved chunk tables | The repo's bucket prefix | Yes |
 | Rebuild all eight deployments on Coiled, from the chunk tables, to a new branch of `earthmover-biology/sanctsound` | A branch; `main` is untouched | Yes, and an API-client grant on the repo |
 | Verify the branch with `verify.py` for each deployment | Nothing | |
-| Update the bio-demos readers and move `main` to the branch | `main` | Yes |
+| Check the bio-demos notebooks against the branch, then move `main` to it | `main` | Yes |
 
 Out of scope:
 
@@ -159,6 +157,6 @@ Out of scope:
 - moving the detections to an Iceberg table, as the repository rules ask for
   tabular data with no Zarr convention.
 
-The main risk is that a reader breaks without warning. The rebuild changes the
-waveform's shape and some attribute text, so it stays on a branch until the
-readers are updated.
+The main risk is that a reader breaks without warning. The rebuild keeps the
+waveform's shape but changes some attribute text, so it stays on a branch until
+the bio-demos notebooks have run against it.

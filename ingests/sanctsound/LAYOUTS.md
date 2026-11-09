@@ -92,7 +92,7 @@ constant inside one and vary between them.
 
 | node | content | stored as |
 | --- | --- | --- |
-| `audio/waveform` | `("time", "channel")`, int16; every recording end to end; length-1 channel axis | references into the FLAC files |
+| `audio/waveform` | `("time",)`, int16; every recording end to end | references into the FLAC files |
 | `audio/segments/` | `start_sample`, `n_samples`, `start_time`, `end_time`, `source_uri`, `overlap_seconds`, one row per recording | written |
 | `sound_levels/` | `broadband_spl`, `octave_spl`, `third_octave_spl`, `psd` on one hourly `time` axis, with `frequency_*` axes | written, from NOAA's netCDF |
 | `detections/` | one event table: `start_time`, `end_time`, `label`, `presence`, `effort` | written, from NOAA's netCDF |
@@ -125,8 +125,10 @@ how to turn a sample index into a time and back.
   maintainer to settle.
 - **One concatenated array per deployment, no padding.** The 3.05 h gap and the
   apparent overlaps are carried by the segment table, not by fill values.
-- **Mono waveform with a channel axis.** Every SanctSound recording is mono. The
-  shared parser always writes `("time", "channel")`.
+- **No channel axis.** Every SanctSound recording is mono, so the waveform is
+  written with `write_array(..., channel_axis=False)` as `("time",)`. A
+  length-1 channel axis would add an index to every read and carry no
+  information.
 - **Sound levels are copied, not referenced.** See above.
 - **Corrected standard name.** NOAA's `BB_1h` declares
   `sound_intensity_level_in_water`, which CF v94 defines against 6.7e-19 W m-2.

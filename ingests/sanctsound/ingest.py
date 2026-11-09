@@ -7,7 +7,7 @@ the archive contains and how it maps onto the store; this file is the code.
 
 One group per deployment (``CI01_01``), holding:
 
-    audio/waveform        every recording end to end, ("time", "channel")
+    audio/waveform        every recording end to end, ("time",)
     audio/segments/       one row per recording: sample <-> wall-clock index
     detections/           one event table across NOAA's detection files
     sound_levels/         BB, OL, TOL and PSD on one hourly axis
@@ -254,7 +254,7 @@ def write_audio(group, table: DeploymentTable):
     uris = [str(u) for u in chunks.source_uri]
     audio = group.require_group("audio")
     waveform = write_array(
-        audio, "waveform", chunks,
+        audio, "waveform", chunks, channel_axis=False,
         attributes=dict(
             long_name="hydrophone signal, every recording end to end",
             sample_rate_hz=sample_rate, bits_per_sample=16,
@@ -263,8 +263,8 @@ def write_audio(group, table: DeploymentTable):
             coverage_content_type="physicalMeasurement",
             time_index="audio/segments", time_index_rule=TIME_RULE,
             comment="int16 counts, not sound pressure: add calibration/counts_to_upa_db "
-                    "to 20*log10(|counts|) for dB re 1 uPa. The channel axis has length "
-                    "1 because every recording is mono. Chunks are byte-range "
+                    "to 20*log10(|counts|) for dB re 1 uPa. Every recording is mono, so "
+                    "the waveform has no channel axis. Chunks are byte-range "
                     "references into NOAA's FLAC; reading needs the 'flac' Zarr codec "
                     "from flac-numcodecs, tag zarr3-flac-codec-2026-10-19."))
     audio.attrs.update(
@@ -666,7 +666,7 @@ def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
     with Progress("measuring calibration offset", len(picks), unit="hours",
                   every=30) as progress:
         for h, i0 in picks:
-            hour = w[i0: i0 + 3600 * sr, 0]
+            hour = w[i0: i0 + 3600 * sr]
             power = []
             for b in range(0, 3600, block_s):
                 x = hour[b * sr: (b + block_s) * sr].astype("float64")

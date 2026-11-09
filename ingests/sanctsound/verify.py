@@ -34,7 +34,7 @@ def check(waveform, seg_start: int, seg_n: int, url: str) -> bool:
         for name, off in [("head", 0), ("mid", seg_n // 2), ("tail", max(0, seg_n - N))]:
             n = min(N, seg_n - off)
             f.seek(off)
-            want = f.read(n, dtype="int16", always_2d=True)
+            want = f.read(n, dtype="int16")
             got = waveform[seg_start + off: seg_start + off + n]
             same = got.shape == want.shape and np.array_equal(got, want)
             ok &= same

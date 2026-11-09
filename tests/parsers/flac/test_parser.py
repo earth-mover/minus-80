@@ -23,12 +23,12 @@ def flac(path, n_samples, channels=1, rate=RATE, subtype="PCM_16", seed=0):
     return str(path)
 
 
-def read_back(tmp_path, paths, frames_per_chunk=1):
+def read_back(tmp_path, paths, frames_per_chunk=1, **write):
     """Write ``paths`` as one array to a local Icechunk repo and read it back."""
     table = chunk_table([scan_frames(p) for p in paths], frames_per_chunk=frames_per_chunk)
     repo = create_repo(tmp_path / "repo", [as_url(p) for p in paths])
     session = repo.writable_session("main")
-    write_array(zarr.open_group(session.store, mode="w"), "audio", table)
+    write_array(zarr.open_group(session.store, mode="w"), "audio", table, **write)
     session.commit("audio")
     with zarr.config.set({"array.rectilinear_chunks": True}):
         array = zarr.open_group(repo.readonly_session("main").store, mode="r")["audio"]
@@ -54,6 +54,21 @@ def test_mono_reads_back_identical(tmp_path):
     # The short last chunk is where a wrong grid shows.
     assert table.edge[-1] < table.edge[0]
     assert np.array_equal(array[-100:], want[-100:])
+
+
+def test_mono_without_a_channel_axis_reads_back_identical(tmp_path):
+    path = flac(tmp_path / "a.flac", 50_000)
+    _, array, got = read_back(tmp_path, [path], frames_per_chunk=3, channel_axis=False)
+    want, _ = sf.read(path, dtype="int16")
+    assert array.metadata.dimension_names == ("time",)
+    assert got.shape == want.shape == (50_000,)
+    assert np.array_equal(got, want)
+
+
+def test_stereo_refuses_to_drop_the_channel_axis(tmp_path):
+    path = flac(tmp_path / "a.flac", 30_000, channels=2)
+    with pytest.raises(ValueError, match="mono"):
+        read_back(tmp_path, [path], channel_axis=False)
 
 
 def test_stereo_reads_back_identical(tmp_path):
