@@ -15,7 +15,7 @@ from obstore.store import GCSStore
 
 from minus80.core.registry import CLIENT_OPTIONS, RETRY_CONFIG
 from minus80.core.remote import reader
-from minus80.parsers.flac import ChunkTable
+from minus80.parsers.flac import ChunkTable, FrameScan, scan_frames
 
 
 BUCKET = "noaa-passive-bioacoustic"
@@ -52,6 +52,17 @@ def read_object(key: str) -> bytes:
     """
     return reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20,
                   cached_blocks=1).read()
+
+
+def scan_recording(key: str) -> FrameScan:
+    """Every FLAC frame of one recording, read through obstore.
+
+    PyAV could open the HTTPS URL itself, but the FFmpeg in PyAV's Linux wheels
+    fails on HTTPS with "Input/output error". Reading through obstore also
+    retries each range on its own. The references record the ``gs://`` URL.
+    """
+    source = reader(BASE + key, registry=BUCKET_REGISTRY, block=16 << 20, cached_blocks=2)
+    return scan_frames(source, url=BASE + key)
 
 
 def deployment_prefix(site: str, dep: str) -> str:
