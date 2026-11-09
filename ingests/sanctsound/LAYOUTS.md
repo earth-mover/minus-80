@@ -22,7 +22,7 @@ sanctsound/
   audio/<site>/sanctsound_<deployment>/metadata/       SanctSound_<DEPLOYMENT>.json
   products/detections/<site>/                          species and event presence
   products/sound_level_metrics/<site>/                 BB, OL, TOL, PSD
-  products/sound_propagation_models/<site>/            modelled, site level
+  products/sound_propagation_models/<site>/            modeled, site level
   products/sound_clips/<site>/                         short WAV excerpts
 ```
 
@@ -119,7 +119,7 @@ how to turn a sample index into a time and back.
 
 - **Frames per chunk.** The shared FLAC parser's default is one frame per
   chunk. The ingest merges 512, the value the published
-  `earthmover-demos/sanctsound` store uses, to hold CI01_01 at 175,314
+  `earthmover-biology/sanctsound` store uses, to hold CI01_01 at 175,314
   references instead of about 90 million. The repository rule is to match the
   source's storage unit, so this is a deviation. It is recorded here for a
   maintainer to settle.

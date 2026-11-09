@@ -50,8 +50,8 @@ GCS = f"https://storage.googleapis.com/{BUCKET}/"
 API = f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o"
 CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-10-19"
 
-# Reproduces the chunking of the published earthmover-demos/sanctsound store, where
-# a chunk is 512 FLAC frames. The parser's default is one frame per chunk, the
+# Reproduces the chunking of the published earthmover-biology/sanctsound store,
+# where a chunk is 512 FLAC frames. The parser's default is one frame per chunk, the
 # file's own storage unit, and merging frames is a choice this ingest has not
 # settled: 512 frames coarsens every read to about 22 s at 96 kHz but keeps
 # 175,314 references for CI01_01 instead of about 90 million.
@@ -69,7 +69,6 @@ TIME_RULE = (
     "1.5 s; relative timing within a segment is exact.")
 
 
-# ---------------------------------------------------------------------- listing
 
 def _list(prefix: str, suffix: str) -> list[tuple[str, int]]:
     """Every `(key, size)` under `prefix` ending in `suffix`, across all pages."""
@@ -113,7 +112,6 @@ def parse_start(name: str) -> datetime:
     raise ValueError(f"no timestamp pattern matches {name!r}")
 
 
-# ---------------------------------------------------------------------- chunk table
 
 @dataclass(frozen=True)
 class DeploymentTable:
@@ -153,17 +151,9 @@ class DeploymentTable:
                        int(z["n_listed"]) if "n_listed" in z else None)
 
 
-def scan_recordings(items: list[tuple[str, int]], *, workers: int = 4
-                    ) -> list[FrameScan]:
-    """Scan each ``(key, size)`` over HTTPS, recording the ``gs://`` URL.
-
-    Four workers saturate the bandwidth of a cloud VM; more make it slower.
-    """
-    def one(item):
-        return scan_frames(GCS + item[0], url=BASE + item[0])
-
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(one, items))
+def scan_recording(key: str) -> FrameScan:
+    """Scan one recording over HTTPS, recording its ``gs://`` URL."""
+    return scan_frames(GCS + key, url=BASE + key)
 
 
 def deployment_table(items, scans, *, windows=(), n_listed=None) -> DeploymentTable:
@@ -226,13 +216,13 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
 
     todo = [i for i in keep if not cached(i).exists()]
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
+    # Four workers saturate a cloud VM's bandwidth; eight are slower than four.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
-                  unit="GB", scale=1e9, every=30) as progress:
-        for b in range(0, len(todo), 4):
-            batch = todo[b:b + 4]
-            for i, scan in zip(batch, scan_recordings([items[i] for i in batch])):
-                _save_scan(cached(i), scan)
-                progress.advance(items[i][1])
+                  unit="GB", scale=1e9, every=30) as progress, \
+            ThreadPoolExecutor(max_workers=4) as pool:
+        for i, scan in zip(todo, pool.map(lambda i: scan_recording(items[i][0]), todo)):
+            _save_scan(cached(i), scan)
+            progress.advance(items[i][1])
     kept = [items[i] for i in keep]
     table = deployment_table(kept, [_load_scan(cached(i)) for i in keep],
                              windows=window_args, n_listed=len(items))
@@ -240,7 +230,6 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     print(f"scan complete; chunk table in {out}", flush=True)
 
 
-# ------------------------------------------------------------------------ writing
 
 EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
              calendar="proleptic_gregorian")
@@ -325,7 +314,6 @@ def write_audio(group, table: DeploymentTable):
     return len(chunks.edge), int(ns.sum()), waveform
 
 
-# ----------------------------------------------------------------------- products
 
 SPL_DIM = {"BB_1h": None, "OL_1h": "frequency_octave",
            "TOL_1h": "frequency_third_octave", "PSD_1h": "frequency_psd"}
@@ -634,7 +622,6 @@ def write_products(group, site: str, dep: str):
     return len(rows), len(labels)
 
 
-# --------------------------------------------------------------------- calibration
 
 BAND_HZ = (20.0, 24000.0)
 
@@ -846,7 +833,6 @@ def _write_calibration_attrs(cal, dep, certificate, serial_recordings, comment):
             f"with no claim about which identifies which component."))
 
 
-# ---------------------------------------------------------------------- provenance
 
 # Site-code prefixes, from the project overview (LAYOUTS.md, "The archive").
 SANCTUARY = {"CI": "Channel Islands", "MB": "Monterey Bay", "OC": "Olympic Coast",
@@ -870,9 +856,9 @@ rectilinear: use zarr-python 3.2 or newer and set
 `zarr.config.set({"array.rectilinear_chunks": True})`. Zarr also registers no audio
 codec, so the chunks need one: install tag `zarr3-flac-codec-2026-10-19` of
 [flac-numcodecs](%s), which registers a `flac` codec with Zarr. It is not in a
-release yet. To open the store with xarray, add
-[pydata/xarray#11592](https://github.com/pydata/xarray/pull/11592) until it lands. The
-published products read with stock Zarr.
+release yet. xarray opens the store from release 2026.09.0, the first with
+[pydata/xarray#11592](https://github.com/pydata/xarray/pull/11592). The published
+products read with stock Zarr.
 
 **Published sources, each with its own DOI**
 
@@ -990,7 +976,6 @@ def write_provenance(root, group, site: str, dep: str):
         date_modified=now.strftime("%Y-%m-%d")))
 
 
-# ------------------------------------------------------------------------ selftest
 
 def selftest_from_store_only(root: zarr.Group) -> list[dict]:
     """Resolve each detection time to an audio sample using only the store.
@@ -1018,35 +1003,21 @@ def _selftest_deployment(dep: str, group) -> dict:
                 detections=len(times), resolved=resolved, refused=len(times) - resolved)
 
 
-# ----------------------------------------------------------------------------- repo
 
 def repository(location: str, *, create: bool = False):
     """The Icechunk repo at ``location``: a directory, or ``arraylake://<org>/<repo>``.
 
-    A local repo gets a virtual chunk container for NOAA's bucket, read with
-    anonymous Google Cloud credentials. Arraylake repos hold their own containers,
-    and this never changes them.
+    A local repo gets a virtual chunk container for NOAA's bucket. Arraylake repos
+    hold their own containers, and this never changes them.
     """
-    import icechunk
-    from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository
+    from minus80.core.icechunk_io import (ARRAYLAKE, arraylake_repository, create_repo,
+                                          open_repository)
 
     if location.startswith(ARRAYLAKE):
         return arraylake_repository(location, source_prefixes=[BASE])
-    storage = icechunk.Storage.new_local_filesystem(str(Path(location).resolve()))
-    authorize = {BASE: icechunk.credentials.Credentials.Gcs(
-        icechunk.credentials.gcs_anonymous_credentials())}
-    if icechunk.Repository.exists(storage):
-        return icechunk.Repository.open(storage, authorize_virtual_chunk_access=authorize)
-    if not create:
-        raise FileNotFoundError(f"no repo at {location}")
-    config = icechunk.RepositoryConfig.default()
-    config.manifest = icechunk.ManifestConfig(
-        max_concurrent_manifest_fetches_during_commit=32)
-    config.set_virtual_chunk_container(icechunk.VirtualChunkContainer(
-        url_prefix=BASE,
-        store=icechunk.gcs_store({"google_skip_signature": "true"})))
-    return icechunk.Repository.create(storage, config=config,
-                                      authorize_virtual_chunk_access=authorize)
+    if create:
+        return create_repo(location, [], prefixes=[BASE], open_existing=True)
+    return open_repository(location)
 
 
 def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
