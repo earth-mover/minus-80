@@ -22,13 +22,14 @@ import zarr
 from minus80.core import remote
 
 import ingest
+from storage import BASE, GCS, repository
 
 N = 200_000
 
 
 def check(waveform, seg_start: int, seg_n: int, url: str) -> bool:
     """Compare three windows of one recording with libsndfile's decode of the file."""
-    https = ingest.GCS + url.removeprefix(ingest.BASE)
+    https = GCS + url.removeprefix(BASE)
     ok = True
     with sf.SoundFile(remote.reader(https)) as f:
         for name, off in [("head", 0), ("mid", seg_n // 2), ("tail", max(0, seg_n - N))]:
@@ -52,7 +53,7 @@ def main(argv=None) -> int:
                     help="segment indices; default is first, a third, two thirds, last")
     args = ap.parse_args(argv)
 
-    repo = ingest.repository(args.repo)
+    repo = repository(args.repo)
     root = zarr.open_group(repo.readonly_session(args.branch).store, mode="r")
     dg = root[args.deployment]
     with zarr.config.set({"array.rectilinear_chunks": True}):
