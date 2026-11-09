@@ -7,6 +7,8 @@ dependencies = [
     "arraylake>=1.7.0",
     "h5py>=3.16",
     "minus-80[flac]",
+    "obspec-utils",
+    "obstore",
     "pyrsktools",
     "scipy",
 ]

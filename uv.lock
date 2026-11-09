@@ -2453,6 +2453,8 @@ dependencies = [
     { name = "arraylake" },
     { name = "h5py" },
     { name = "minus-80", extra = ["flac"] },
+    { name = "obspec-utils" },
+    { name = "obstore" },
     { name = "pyrsktools" },
     { name = "scipy" },
 ]
@@ -2467,6 +2469,8 @@ requires-dist = [
     { name = "arraylake", specifier = ">=1.7.0" },
     { name = "h5py", specifier = ">=3.16" },
     { name = "minus-80", extras = ["flac"], editable = "." },
+    { name = "obspec-utils" },
+    { name = "obstore" },
     { name = "pyrsktools" },
     { name = "scipy" },
 ]

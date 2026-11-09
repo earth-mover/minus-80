@@ -27,27 +27,31 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import http.client
 import io
 import json
 import re
 import tempfile
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 
 import numpy as np
+import obstore
 import zarr
+from obspec_utils.registry import ObjectStoreRegistry
+from obstore.store import GCSStore
+
 from minus80.core.progress import Progress
+from minus80.core.registry import CLIENT_OPTIONS, RETRY_CONFIG
+from minus80.core.remote import reader
 from minus80.parsers.flac import ChunkTable, FrameScan, chunk_table, scan_frames, write_array
 
 BUCKET = "noaa-passive-bioacoustic"
 BASE = f"gs://{BUCKET}/"
 GCS = f"https://storage.googleapis.com/{BUCKET}/"
-API = f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o"
 CODEC_URL = "https://github.com/ianhi/flac-numcodecs/tree/zarr3-flac-codec-2026-10-19"
 
 # Reproduces the chunking of the published earthmover-biology/sanctsound store,
@@ -70,26 +74,35 @@ TIME_RULE = (
 
 
 
-def _list(prefix: str, suffix: str) -> list[tuple[str, int]]:
-    """Every `(key, size)` under `prefix` ending in `suffix`, across all pages."""
-    out, tok = [], None
-    while True:
-        u = f"{API}?maxResults=1000&prefix={prefix}&fields=items(name,size),nextPageToken"
-        if tok:
-            u += f"&pageToken={tok}"
-        d = json.load(urllib.request.urlopen(u))
-        out += [(o["name"], int(o["size"])) for o in d.get("items", [])
-                if o["name"].endswith(suffix)]
-        tok = d.get("nextPageToken")
-        if not tok:
-            return sorted(out)
+@cache
+def bucket():
+    """NOAA's bucket, read anonymously and with core's retries for public archives."""
+    return GCSStore(BUCKET, skip_signature=True, client_options=CLIENT_OPTIONS,
+                    retry_config=RETRY_CONFIG)
 
 
-def listing(prefix: str) -> list[tuple[str, int]]:
-    return _list(prefix, ".flac")
+def list_keys(prefix: str, suffix: str) -> list[tuple[str, int]]:
+    """Every ``(key, size)`` under ``prefix`` ending in ``suffix``."""
+    return sorted((o["path"], o["size"]) for page in obstore.list(bucket(), prefix=prefix)
+                  for o in page if o["path"].endswith(suffix))
 
 
-def _deployment_prefix(site: str, dep: str) -> str:
+def read_object(key: str) -> bytes:
+    """The whole object, fetched in 16 MB ranges.
+
+    Product files run to 600 MB, and a single long GET is cut short often enough
+    to matter. Each range is retried on its own, so a dropped connection costs
+    one range.
+    """
+    registry = ObjectStoreRegistry({BASE: bucket()})
+    return reader(BASE + key, registry=registry, block=16 << 20, cached_blocks=1).read()
+
+
+def list_recordings(prefix: str) -> list[tuple[str, int]]:
+    return list_keys(prefix, ".flac")
+
+
+def deployment_prefix(site: str, dep: str) -> str:
     return f"sanctsound/audio/{site.lower()}/sanctsound_{dep.lower()}/"
 
 
@@ -172,19 +185,19 @@ def overlapping(items, windows) -> list[int]:
             if any(a < hi and lo < b for lo, hi in windows)]
 
 
-def _window(text: str):
+def parse_window(text: str):
     lo, hi = (datetime.fromisoformat(t).replace(tzinfo=timezone.utc)
               for t in text.split("/"))
     return lo, hi
 
 
-def _save_scan(path: Path, scan: FrameScan) -> None:
+def save_scan(path: Path, scan: FrameScan) -> None:
     np.savez(path, url=scan.url, sample_rate=scan.sample_rate, channels=scan.channels,
              sample_format=scan.sample_format, offsets=scan.offsets,
              lengths=scan.lengths, samples=scan.samples)
 
 
-def _load_scan(path: Path) -> FrameScan:
+def load_scan(path: Path) -> FrameScan:
     with np.load(path, allow_pickle=False) as z:
         return FrameScan(url=str(z["url"]), sample_rate=int(z["sample_rate"]),
                          channels=int(z["channels"]),
@@ -201,9 +214,9 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     where it stopped.
     """
     dep = dep.upper()
-    windows = [_window(w) for w in window_args]
+    windows = [parse_window(w) for w in window_args]
     cache.mkdir(parents=True, exist_ok=True)
-    items = listing(_deployment_prefix(dep[:4], dep) + "audio/")
+    items = list_recordings(deployment_prefix(dep[:4], dep) + "audio/")
     print(f"{dep}: listed {len(items)} files, {sum(s for _, s in items) / 1e9:.1f} GB",
           flush=True)
     keep = overlapping(items, windows) if windows else list(range(len(items)))
@@ -221,10 +234,10 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
                   unit="GB", scale=1e9, every=30) as progress, \
             ThreadPoolExecutor(max_workers=4) as pool:
         for i, scan in zip(todo, pool.map(lambda i: scan_recording(items[i][0]), todo)):
-            _save_scan(cached(i), scan)
+            save_scan(cached(i), scan)
             progress.advance(items[i][1])
     kept = [items[i] for i in keep]
-    table = deployment_table(kept, [_load_scan(cached(i)) for i in keep],
+    table = deployment_table(kept, [load_scan(cached(i)) for i in keep],
                              windows=window_args, n_listed=len(items))
     table.save(out)
     print(f"scan complete; chunk table in {out}", flush=True)
@@ -235,7 +248,7 @@ EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
              calendar="proleptic_gregorian")
 
 
-def _put(group, name, data, dims, **attrs):
+def write_small_array(group, name, data, dims, **attrs):
     """Write a small materialized array in one chunk."""
     data = np.asarray(data)
     return group.create_array(name, data=data, chunks=data.shape or "auto",
@@ -278,19 +291,19 @@ def write_audio(group, table: DeploymentTable):
     t0s = np.asarray(table.start, "int64")
     ends = t0s + ns * 10**9 // sample_rate
     aux = dict(coverage_content_type="auxiliaryInformation")
-    _put(seg, "start_sample", starts, ("segment",), **aux,
+    write_small_array(seg, "start_sample", starts, ("segment",), **aux,
          long_name="index into audio/waveform of this recording's first sample")
-    _put(seg, "n_samples", ns, ("segment",), **aux,
+    write_small_array(seg, "n_samples", ns, ("segment",), **aux,
          long_name="number of samples in this recording", sample_dimension="time")
-    _put(seg, "start_time", t0s, ("segment",), **aux, **EPOCH,
+    write_small_array(seg, "start_time", t0s, ("segment",), **aux, **EPOCH,
          standard_name="time", long_name="recording start")
-    _put(seg, "end_time", ends, ("segment",), **aux, **EPOCH,
+    write_small_array(seg, "end_time", ends, ("segment",), **aux, **EPOCH,
          long_name="start_time + n_samples/sample_rate_hz")
-    _put(seg, "source_uri", np.array(uris, "<U160"), ("segment",),
+    write_small_array(seg, "source_uri", np.array(uris, "<U160"), ("segment",),
          long_name="object these samples are byte-range references into")
     overlap = np.full(len(ns), np.nan, dtype="float32")
     overlap[:-1] = (ends[:-1] - t0s[1:]) / 1e9
-    _put(seg, "overlap_seconds", overlap, ("segment",), **aux, units="s",
+    write_small_array(seg, "overlap_seconds", overlap, ("segment",), **aux, units="s",
          long_name="apparent overlap with the next recording; negative is a gap",
          comment="start_time[k+1] subtracted from end_time[k]. A positive value is "
                  "NOT duplicated audio: correlating the disputed samples across a "
@@ -349,16 +362,16 @@ ANTHROPOGENIC = {"Explosions", "ships", "sonar", "MFA"}
 UNKNOWN_SOURCE = {"unknownimpulse"}
 
 
-def _base_label(label: str) -> str:
+def base_label(label: str) -> str:
     return re.sub(r"_(1d|1h|1hr|1min|manual)$", "", label)
 
 
-def _source(label: str) -> tuple[str, str, str]:
+def sound_source(label: str) -> tuple[str, str, str]:
     """`(source_type, taxon name, taxon LSID)` for a detection label.
 
     An unknown label raises: a default here would publish a guess as a fact.
     """
-    base = _base_label(label)
+    base = base_label(label)
     if base in TAXON:
         name, aphia = TAXON[base]
         return "biological", name, f"urn:lsid:marinespecies.org:taxname:{aphia}"
@@ -370,61 +383,36 @@ def _source(label: str) -> tuple[str, str, str]:
                    f"UNKNOWN_SOURCE")
 
 
-def _product_keys(product: str, site: str, dep: str) -> list[str]:
-    keys = _list(f"sanctsound/products/{product}/{site.lower()}/", ".nc")
+def product_keys(product: str, site: str, dep: str) -> list[str]:
+    keys = list_keys(f"sanctsound/products/{product}/{site.lower()}/", ".nc")
     return [k for k, _ in keys if f"_{dep}_" in k]
 
 
-def _label(key: str, dep: str) -> str:
+def product_label(key: str, dep: str) -> str:
     """`.../SanctSound_CI01_01_BB_1h.nc` -> `BB_1h`."""
     return key.split("/")[-1].removesuffix(".nc").removeprefix(f"SanctSound_{dep}_")
 
 
-def _get(url: str, tries: int = 5) -> bytes:
-    """The whole object, resuming with a Range request when a transfer breaks off.
-
-    Product files run to 600 MB, and a single long GET is cut short often enough
-    to matter.
-    """
-    data = b""
-    for attempt in range(tries):
-        req = urllib.request.Request(
-            url, headers={"Range": f"bytes={len(data)}-"} if data else {})
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                total = int(r.headers["Content-Length"]) + len(data)
-                while chunk := r.read(8 << 20):
-                    data += chunk
-            if len(data) == total:
-                return data
-        except (http.client.IncompleteRead, OSError) as err:
-            if attempt == tries - 1:
-                raise
-            print(f"retrying {url.split('/')[-1]} at byte {len(data):,}: {err!r}",
-                  flush=True)
-    raise OSError(f"{url}: {len(data):,} bytes after {tries} tries")
-
-
-def _open_nc(key):
+def open_netcdf(key):
     import h5py
     t = time.perf_counter()
-    f = h5py.File(io.BytesIO(_get(GCS + key)), "r")
+    f = h5py.File(io.BytesIO(read_object(key)), "r")
     print(f"  read {key.split('/')[-1]} [{time.perf_counter() - t:.0f} s]", flush=True)
     return f
 
 
-def _text(v) -> str:
+def as_text(v) -> str:
     return v.decode() if isinstance(v, bytes) else str(v)
 
 
-def _doi(f) -> str:
+def source_doi(f) -> str:
     """The bare DOI from a product file's `id`, which NOAA writes as an http URL."""
-    return _text(f.attrs["id"]).split("doi.org/")[-1]
+    return as_text(f.attrs["id"]).split("doi.org/")[-1]
 
 
-def _history(f) -> str:
+def source_history(f) -> str:
     """NOAA writes `history` as a one-element Python list literal; unwrap it."""
-    h = _text(f.attrs.get("history", ""))
+    h = as_text(f.attrs.get("history", ""))
     if h.startswith('["') and h.endswith('"]'):
         h = h[2:-2]
     return h
@@ -439,14 +427,14 @@ def write_temperature(group, site: str, dep: str):
     """
     from pyrsktools import RSK
 
-    keys = [k for k, _ in _list(_deployment_prefix(site, dep) + "ancillary/temperature/",
+    keys = [k for k, _ in list_keys(deployment_prefix(site, dep) + "ancillary/temperature/",
                                 ".rsk")]
     if not keys:
         return None
     if len(keys) != 1:
         raise ValueError(f"{dep}: expected one .rsk temperature record, found {keys}")
     with tempfile.NamedTemporaryFile(suffix=".rsk") as fh:
-        fh.write(_get(GCS + keys[0]))
+        fh.write(read_object(keys[0]))
         fh.flush()
         with RSK(fh.name) as rsk:
             rsk.readdata()
@@ -492,27 +480,27 @@ def write_products(group, site: str, dep: str):
     """
     from zarr.codecs.numcodecs import Zstd
 
-    level_keys = _product_keys("sound_level_metrics", site, dep)
+    level_keys = product_keys("sound_level_metrics", site, dep)
     # NOAA did not publish sound levels for every deployment (none for OC01_01).
     sl = group.require_group("sound_levels") if level_keys else None
     for key in level_keys:
-        label = _label(key, dep)
-        with _open_nc(key) as f:
+        label = product_label(key, dep)
+        with open_netcdf(key) as f:
             # Every product carries the same hourly axis; the last one written wins.
-            _put(sl, "time", f["time"][()].astype("int64") * 10**9, ("time",),
+            write_small_array(sl, "time", f["time"][()].astype("int64") * 10**9, ("time",),
                  standard_name="time", **EPOCH,
-                 comment=_text(f["time"].attrs["comment"]))
+                 comment=as_text(f["time"].attrs["comment"]))
             fdim = SPL_DIM[label]
             if fdim:
-                _put(sl, fdim, f["frequency"][()].astype("float64"), (fdim,),
+                write_small_array(sl, fdim, f["frequency"][()].astype("float64"), (fdim,),
                      standard_name="sound_frequency", units="Hz")
             spl = f["sound_pressure_levels"][()]
             src = f["sound_pressure_levels"].attrs
             # The source declares `time: sum`, which contradicts its own history:
             # every product is an hourly median of 1-second values.
             comment = (f"cell_methods follow the method stated in source_history. The "
-                       f"source declares cell_methods={_text(src['cell_methods'])!r}.")
-            declared = _text(src["standard_name"])
+                       f"source declares cell_methods={as_text(src['cell_methods'])!r}.")
+            declared = as_text(src["standard_name"])
             if declared != SPL_STANDARD_NAME:
                 why = (f" (CF defines that against {CF_REFERENCE[declared]})"
                        if declared in CF_REFERENCE else "")
@@ -535,21 +523,21 @@ def write_products(group, site: str, dep: str):
                     cell_methods="time: median (interval: 1 s)",
                     coverage_content_type="physicalMeasurement",
                     source_product=label, source_file=GCS + key,
-                    doi=f"https://doi.org/{_doi(f)}",
-                    source_title=_text(f.attrs["title"]),
-                    source_history=_history(f),
-                    source_citation=_text(f.attrs["citation"]),
-                    source_date_issued=_text(f.attrs["date_issued"]),
+                    doi=f"https://doi.org/{source_doi(f)}",
+                    source_title=as_text(f.attrs["title"]),
+                    source_history=source_history(f),
+                    source_citation=as_text(f.attrs["citation"]),
+                    source_date_issued=as_text(f.attrs["date_issued"]),
                     comment=comment))
     if sl is not None:
         sl.attrs["time_coverage_resolution"] = "P1H"
 
     rows, methods, dois = [], {}, {}
-    for key in _product_keys("detections", site, dep):
-        label = _label(key, dep)
-        with _open_nc(key) as f:
-            methods[label] = _history(f)
-            dois[label] = _doi(f)
+    for key in product_keys("detections", site, dep):
+        label = product_label(key, dep)
+        with open_netcdf(key) as f:
+            methods[label] = source_history(f)
+            dois[label] = source_doi(f)
             # Variable names do not follow the label: `finwhale_1d` has
             # `finwhale_presence`, `Explosions` has `explosions_presence`, `sonar`
             # has `mfa_presence`. Match on the suffix, and demand exactly one.
@@ -574,16 +562,16 @@ def write_products(group, site: str, dep: str):
 
     det = group.require_group("detections")
     d = ("detection",)
-    _put(det, "start_time", np.array(start, "int64"), d, standard_name="time", **EPOCH)
-    _put(det, "end_time", np.array(end, "int64"), d,
+    write_small_array(det, "start_time", np.array(start, "int64"), d, standard_name="time", **EPOCH)
+    write_small_array(det, "end_time", np.array(end, "int64"), d,
          long_name="end of the detection window", **EPOCH)
-    _put(det, "label", np.array(label, "<U32"), d, long_name="detection label")
-    _put(det, "presence", np.array(presence, "int32"), d,
+    write_small_array(det, "label", np.array(label, "<U32"), d, long_name="detection label")
+    write_small_array(det, "presence", np.array(presence, "int32"), d,
          long_name="presence flag as published",
          comment="1 = present, 0 = not present. Labels with a window suffix (_1d, "
                  "_1h, _1min) have one row per window, present or not; every other "
                  "label lists presences only.")
-    _put(det, "effort", np.array(effort, "int32"), d,
+    write_small_array(det, "effort", np.array(effort, "int32"), d,
          long_name="detection effort flag as published",
          comment="1 = the window was analysed, 0 = it was not. Published only for "
                  "the daily (_1d) labels; -1 where the source has none.")
@@ -595,22 +583,22 @@ def write_products(group, site: str, dep: str):
         comment="One row per label in detections/label: what the label is, the "
                 "detector that produced it, and the DOI of its published product.")
     d = ("label",)
-    _put(lg, "label", np.array(labels, "<U32"), d, long_name="detection label")
-    sources = [_source(l) for l in labels]
-    _put(lg, "biological_taxon_name", np.array([t for _, t, _ in sources], "<U64"), d,
+    write_small_array(lg, "label", np.array(labels, "<U32"), d, long_name="detection label")
+    sources = [sound_source(l) for l in labels]
+    write_small_array(lg, "biological_taxon_name", np.array([t for _, t, _ in sources], "<U64"), d,
          standard_name="biological_taxon_name")
-    _put(lg, "biological_taxon_lsid", np.array([i for _, _, i in sources], "<U96"), d,
+    write_small_array(lg, "biological_taxon_lsid", np.array([i for _, _, i in sources], "<U96"), d,
          standard_name="biological_taxon_lsid")
-    _put(lg, "source_type", np.array([k for k, _, _ in sources], "<U16"), d,
+    write_small_array(lg, "source_type", np.array([k for k, _, _ in sources], "<U16"), d,
          long_name="biological, anthropogenic or unknown sound source")
     # The method is a property of the detector, not of a detection, and runs to
     # ~1 KB, so it lives per label.
-    _put(lg, "method", np.array([methods[l] for l in labels]), d,
+    write_small_array(lg, "method", np.array([methods[l] for l in labels]), d,
          long_name="detection method as described by the source file",
          comment="Copied verbatim from the source netCDF's `history` attribute. "
                  "Automatic detectors and manual analyst logging are both "
                  "represented; read it before comparing labels.")
-    _put(lg, "doi", np.array([dois[l] for l in labels], "<U18"), d,
+    write_small_array(lg, "doi", np.array([dois[l] for l in labels], "<U18"), d,
          long_name="DOI of the published detection product for this label",
          comment="Each detection product is archived separately, with its own DOI.")
     det.attrs.update(featureType="point", comment=(
@@ -688,7 +676,7 @@ def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
 # by the PDF's sha256 so a transcription is only ever applied to its own file. Two
 # kinds exist: a hydrophone's sensitivity in volts, and a recorder's end-to-end
 # full-scale response at each gain.
-_SENSITIVITY_COMMON = dict(long_name="hydrophone sensitivity", units="dB re 1 uPa/V",
+HYDROPHONE_CERTIFICATE_COMMON = dict(long_name="hydrophone sensitivity", units="dB re 1 uPa/V",
                            frequency_hz=250.0, instrument_model="SoundTrap HP1",
                            source_model="Center 327", source_serial="130307390",
                            source_level_db_re_1upa=120.0, coupler="OIC1",
@@ -696,19 +684,19 @@ _SENSITIVITY_COMMON = dict(long_name="hydrophone sensitivity", units="dB re 1 uP
                            source="certificate")
 
 
-def _sensitivity(value: float, serial: str, test_date: str) -> dict:
+def hydrophone_certificate(value: float, serial: str, test_date: str) -> dict:
     return {"kind": "hydrophone_sensitivity", "hydrophone_sensitivity": value,
-            "attrs": dict(_SENSITIVITY_COMMON, device_serial=serial, test_date=test_date),
+            "attrs": dict(HYDROPHONE_CERTIFICATE_COMMON, device_serial=serial, test_date=test_date),
             "issuer": "Ocean Instruments NZ"}
 
 
 CERTIFICATES = {
     "aca59f27c9d2151ae64fb14f62438f7b71301f1f6cc1b828499122b89f7a47e2":  # CI02_01
-        _sensitivity(178.4, "1046", "2018-08-31"),
+        hydrophone_certificate(178.4, "1046", "2018-08-31"),
     "3e687604f0bfbfb3312045a4e0dccd7d706e49fbfae273cb26d4ea18084836ae":  # CI04_01
-        _sensitivity(177.5, "1043", "2018-08-31"),
+        hydrophone_certificate(177.5, "1043", "2018-08-31"),
     "aad2e719ba9ae56bc3f5214ea92b45fa45b435deeada3411f3c569c0d2234d5d":  # CI05_01
-        _sensitivity(178.0, "1035", "2018-08-21"),
+        hydrophone_certificate(178.0, "1035", "2018-08-21"),
     "4994600e41ed813d46d31c240ea84ba37e8bfd9f5e0c3056de641c0a5ef885a7": {  # SB01_03
         "kind": "full_scale_response",
         "full_scale_response_db": {"high": 171.8, "low": 184.1},
@@ -721,13 +709,13 @@ CERTIFICATES = {
         "issuer": "Ocean Instruments NZ",
     },
     "f3f378411d23bcb7def863683964a469da1ceb6fe187e0d42505b94cda7a785d":  # CI01_01
-        _sensitivity(177.4, "1044", "2018-08-31"),
+        hydrophone_certificate(177.4, "1044", "2018-08-31"),
     "c506afa269534f6c07727a35a771d56db6f2ede7cd61e5bb66d13843a4824972":  # CI01_02
-        _sensitivity(177.1, "1054", "2018-09-19"),
+        hydrophone_certificate(177.1, "1054", "2018-09-19"),
     "d1db20b76f3b4f3f74701909218f9a8a4ac7aec79a34522ab92019749d396df7":  # OC01_03
-        _sensitivity(176.5, "1065", "2018-09-24"),
+        hydrophone_certificate(176.5, "1065", "2018-09-24"),
     "c2dd8bdb4bbd1ce02ba613e57a200dfafad32ba59d2837aaffd8f6ff94d156df":  # OC01_01
-        _sensitivity(178.2, "1057", "2018-09-24"),
+        hydrophone_certificate(178.2, "1057", "2018-09-24"),
 }
 
 
@@ -735,8 +723,8 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
     """The certificate byte for byte, the sensitivity it states, and the offset
     `measure_counts_offset` derived. `measured` is that function's return value, or
     None for a deployment with no published sound levels to measure against."""
-    ((key, _),) = _list(_deployment_prefix(site, dep) + "ancillary/calibration/", ".pdf")
-    pdf = urllib.request.urlopen(GCS + key).read()
+    ((key, _),) = list_keys(deployment_prefix(site, dep) + "ancillary/calibration/", ".pdf")
+    pdf = read_object(key)
     sha = hashlib.sha256(pdf).hexdigest()
     if sha not in CERTIFICATES:
         raise KeyError(f"no transcription for {key} (sha256 {sha}); add it to "
@@ -746,7 +734,7 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
     serial_recordings = str(group.attrs["instrument_serial_number"])
 
     cal = group.require_group("calibration")
-    _put(cal, "certificate", np.frombuffer(pdf, dtype="uint8"), ("byte",),
+    write_small_array(cal, "certificate", np.frombuffer(pdf, dtype="uint8"), ("byte",),
          long_name="calibration certificate, verbatim", media_type="application/pdf",
          source_uri=BASE + key, sha256=sha, issuer=certificate["issuer"],
          test_date=certificate["attrs"]["test_date"],
@@ -758,7 +746,7 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
     full_scale = 20 * np.log10(32768)
     if certificate["kind"] == "hydrophone_sensitivity":
         sens = certificate["hydrophone_sensitivity"]
-        _put(cal, "hydrophone_sensitivity", np.float64(sens), (), **certificate["attrs"])
+        write_small_array(cal, "hydrophone_sensitivity", np.float64(sens), (), **certificate["attrs"])
         what = ("The certificate gives the hydrophone sensitivity in volts, so it does not by "
                 "itself convert int16 counts to micropascals: the ADC full-scale voltage and "
                 "the gain setting are absent from it.")
@@ -770,10 +758,10 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
     else:
         responses = certificate["full_scale_response_db"]
         for gain, level in responses.items():
-            _put(cal, f"full_scale_response_{gain}_gain", np.float64(level), (),
+            write_small_array(cal, f"full_scale_response_{gain}_gain", np.float64(level), (),
                  long_name=f"sound pressure at digital full scale, {gain} gain",
                  units="dB re 1 uPa", **certificate["attrs"])
-        _put(cal, "calibration_tone_level", np.float64(certificate["calibration_tone_db"]), (),
+        write_small_array(cal, "calibration_tone_level", np.float64(certificate["calibration_tone_db"]), (),
              long_name="level of the recorder's calibration tone, referred to input",
              units="dB re 1 uPa", tone_frequency_hz=1000.0, **certificate["attrs"])
         implied = {g: level - full_scale for g, level in responses.items()}
@@ -788,7 +776,7 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
             f"from the {min(implied, key=lambda g: abs(off - implied[g]))}-gain figure.")
 
     if measured is None:
-        _write_calibration_attrs(cal, dep, certificate, serial_recordings, (
+        write_calibration_attrs(cal, dep, certificate, serial_recordings, (
             f"NOAA publishes this calibration as a one-page PDF beside the recordings. {what} "
             + ("NOAA published no sound levels for this deployment, so no "
                "counts-to-micropascal offset could be measured against them, and this "
@@ -798,7 +786,7 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
         return
 
     off = measured["offset_db"]
-    _put(cal, "counts_to_upa_db", np.float64(round(off, 3)), (),
+    write_small_array(cal, "counts_to_upa_db", np.float64(round(off, 3)), (),
          long_name="offset from int16 counts to sound pressure", units="dB",
          comment="Add this to 20*log10(|counts|) to obtain dB re 1 uPa. Derived, not "
                  "published: NOAA's BB_1h method, as its history states it (1 Hz / 1 s "
@@ -812,13 +800,13 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
          n_hours=len(measured["hours"]), band_hz=list(BAND_HZ),
          source="derived from sound_levels/broadband_spl",
          cross_check=cross_check(off))
-    _write_calibration_attrs(cal, dep, certificate, serial_recordings, (
+    write_calibration_attrs(cal, dep, certificate, serial_recordings, (
         f"NOAA publishes this calibration as a one-page PDF beside the recordings. {what} "
         "counts_to_upa_db is measured against this deployment's own published sound "
         "levels, and cross_check compares it with the certificate."))
 
 
-def _write_calibration_attrs(cal, dep, certificate, serial_recordings, comment):
+def write_calibration_attrs(cal, dep, certificate, serial_recordings, comment):
     serial = certificate["attrs"]["device_serial"]
     cal.attrs.update(
         title=f"Hydrophone calibration for deployment {dep}",
@@ -876,7 +864,7 @@ derived from them.
 """
 
 
-def _deployment_line(name: str, group) -> str:
+def deployment_line(name: str, group) -> str:
     """One Markdown bullet describing a deployment, from its own attributes."""
     a, w = group.attrs, group["audio/waveform"]
     hours = w.shape[0] / w.attrs["sample_rate_hz"] / 3600
@@ -898,15 +886,15 @@ def write_provenance(root, group, site: str, dep: str):
     project-level ACDD attributes, which every product file repeats. The root
     attributes are replaced whole, keeping only date_created.
     """
-    prefix = _deployment_prefix(site, dep)
+    prefix = deployment_prefix(site, dep)
     meta_key = f"{prefix}metadata/SanctSound_{dep}.json"
-    meta = json.load(urllib.request.urlopen(GCS + meta_key))
+    meta = json.loads(read_object(meta_key))
     # Every product file repeats these attributes; not every deployment has sound
     # levels, but every one has detections.
-    source_key = ([k for k in _product_keys("sound_level_metrics", site, dep)
-                   if k.endswith("_BB_1h.nc")] or _product_keys("detections", site, dep))[0]
-    with _open_nc(source_key) as f:
-        nc = {k: _text(f.attrs[k]) for k in f.attrs if not k.startswith("_")}
+    source_key = ([k for k in product_keys("sound_level_metrics", site, dep)
+                   if k.endswith("_BB_1h.nc")] or product_keys("detections", site, dep))[0]
+    with open_netcdf(source_key) as f:
+        nc = {k: as_text(f.attrs[k]) for k in f.attrs if not k.startswith("_")}
     uri = str(group["audio/segments/source_uri"][0])
     serial = uri.split("/")[-1].split("_")[3]
     lat, lon = float(meta["LOCATION"]["lat"]), float(meta["LOCATION"]["lon"])
@@ -962,7 +950,7 @@ def write_provenance(root, group, site: str, dep: str):
                 "referenced. NOAA's own title, history and citation for each product "
                 "are kept verbatim on the variable it became.",
         description=ROOT_DESCRIPTION % (
-            "\n".join(_deployment_line(n, g) for n, g in sorted(root.groups())),
+            "\n".join(deployment_line(n, g) for n, g in sorted(root.groups())),
             CODEC_URL),
         comment="One group per deployment. Audio arrays are byte-range references "
                 "into NOAA's bucket; nothing is copied. Sample rate and FLAC blocksize "
@@ -986,10 +974,10 @@ def selftest_from_store_only(root: zarr.Group) -> list[dict]:
     recording; recordings do not tile the timeline, so one that falls in a gap
     between them, or before the first, is refused.
     """
-    return [_selftest_deployment(name, root[name]) for name in sorted(root.group_keys())]
+    return [selftest_deployment(name, root[name]) for name in sorted(root.group_keys())]
 
 
-def _selftest_deployment(dep: str, group) -> dict:
+def selftest_deployment(dep: str, group) -> dict:
     seg = group["audio/segments"]
     sample_rate = int(group["audio/waveform"].attrs["sample_rate_hz"])
     starts = seg["start_time"][:].astype("datetime64[ns]")
