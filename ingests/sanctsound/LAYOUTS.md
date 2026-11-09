@@ -178,6 +178,22 @@ None of these raises an error.
    referenced. The ingest does not copy them.
 7. Instrument serial and depth are absent from the netCDFs. Depth is in the
    deployment's metadata JSON, which `write_provenance` reads.
+8. The ancillary folders are not laid out the same way in every deployment.
+   Surveyed on 2026-11-09 across the 183 deployments with audio:
+   - 46 hold a second copy of their certificate in a nested
+     `ancillary/calibration/calibration/` folder, and some likewise hold
+     `ancillary/temperature/temperature/`. The copies are the same size as
+     the originals.
+   - 29 keep their certificate directly in `ancillary/`, not in
+     `ancillary/calibration/`.
+   - 4 (in Hawaii) have two different certificates, one for the recorder and
+     one for the hydrophone, each also duplicated.
+   - 18 have no detection files, and 5 have no sound levels.
+   - 6 have filenames in forms `FILENAME_TIMES` does not read, two of them in
+     the Channel Islands (CI01_08 and CI04_08).
+
+   The code handles none of these yet except missing sound levels, so
+   87 deployments build as it stands.
 
 ## Facts the code depends on
 
