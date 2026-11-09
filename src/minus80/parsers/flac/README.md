@@ -20,6 +20,7 @@ write_array(group, "waveform", table)        # group in a writable Icechunk sess
 | `scan_frames(source, url=None)` | Byte offset, byte length and sample count of every frame in one file, read with libavformat (PyAV) |
 | `chunk_table(scans, frames_per_chunk=1)` | Groups each file's frames into chunks and checks that one codec configuration decodes them all. Returns a `ChunkTable`. |
 | `ChunkTable.save` / `.load` | Round-trip a table through `.npz`, so an array can be rebuilt without reading audio again |
+| `FrameScan.save` / `.load` | Round-trip one file's scan through `.npz`, so a long scan of many files can be cached and resumed |
 | `write_array(group, name, table)` | Creates the array and sets its virtual references in the group's Icechunk store |
 
 ## What it buys

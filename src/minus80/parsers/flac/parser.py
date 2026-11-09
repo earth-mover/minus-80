@@ -58,6 +58,17 @@ class FrameScan:
     def n_samples(self) -> int:
         return int(self.samples.sum())
 
+    def save(self, path) -> None:
+        """Write the scan to one ``.npz``, so a long scan can be cached and resumed."""
+        np.savez(path, **asdict(self))
+
+    @classmethod
+    def load(cls, path) -> FrameScan:
+        with np.load(path, allow_pickle=False) as z:
+            return cls(url=str(z["url"]), sample_rate=int(z["sample_rate"]),
+                       channels=int(z["channels"]), sample_format=str(z["sample_format"]),
+                       offsets=z["offsets"], lengths=z["lengths"], samples=z["samples"])
+
 
 def scan_frames(source, *, url: str | None = None) -> FrameScan:
     """Locate every frame of a FLAC file with libavformat.

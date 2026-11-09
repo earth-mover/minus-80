@@ -10,7 +10,13 @@ pytest.importorskip("flac_numcodecs.zarr3")
 
 from minus80.core import as_url  # noqa: E402
 from minus80.core.icechunk_io import create_repo  # noqa: E402
-from minus80.parsers.flac import ChunkTable, chunk_table, scan_frames, write_array  # noqa: E402
+from minus80.parsers.flac import (  # noqa: E402
+    ChunkTable,
+    FrameScan,
+    chunk_table,
+    scan_frames,
+    write_array,
+)
 
 RATE = 48_000
 
@@ -100,6 +106,16 @@ def test_table_round_trips_through_npz(tmp_path):
     loaded = ChunkTable.load(tmp_path / "table.npz")
     for field in ChunkTable.__dataclass_fields__:
         assert np.array_equal(getattr(loaded, field), getattr(table, field))
+
+
+def test_scan_round_trips_through_npz(tmp_path):
+    scan = scan_frames(flac(tmp_path / "a.flac", 20_000))
+    scan.save(tmp_path / "scan.npz")
+    back = FrameScan.load(tmp_path / "scan.npz")
+    assert (back.url, back.sample_rate, back.channels, back.sample_format) == (
+        scan.url, scan.sample_rate, scan.channels, scan.sample_format)
+    for field in ("offsets", "lengths", "samples"):
+        assert np.array_equal(getattr(back, field), getattr(scan, field))
 
 
 def test_refuses_24_bit(tmp_path):
