@@ -88,7 +88,7 @@ container for the NOAA bucket. Every run read the bucket anonymously.
 
 | Check | Result |
 |---|---|
-| `uv run pytest` | 233 passed, 4 skipped, 1 xfailed |
+| `uv run pytest` | 234 passed, 4 skipped, 1 xfailed |
 | Scan one CI01_01 recording (371 MB) over HTTPS with `scan_frames` | 23 s; all 249 chunks match the chunk table the published store was built from |
 | The same recording through `ingest.py scan` | Identical chunk table and start time |
 | Build CI01_01 from its saved chunk table | 355 recordings, 175,314 chunks, 1,062.5 h; 2,008 detections in 8 labels; 2,617,447 temperature samples; 17 s in all |

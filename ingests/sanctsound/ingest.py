@@ -31,7 +31,6 @@ import io
 import json
 import re
 import tempfile
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -106,24 +105,23 @@ def deployment_prefix(site: str, dep: str) -> str:
     return f"sanctsound/audio/{site.lower()}/sanctsound_{dep.lower()}/"
 
 
-TS_PATTERNS = [
-    # 20181031T220000Z (CI01_01, SB01_03); SB01_03's first and last files add
-    # _Post-Deployment / _Pre-Retrieval but are part of the continuous series
-    re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"),
-    re.compile(r"_(\d{6})(\d{6})\.flac$"),        # 201122183500 — 2-digit year, common
+# Each filename form the ingest reads, with the strptime format of its date and
+# time digits. LAYOUTS.md lists the forms it does not read yet.
+FILENAME_TIMES = [
+    # 20181031T220000Z (CI01_01, SB01_03). SB01_03's first and last files add
+    # _Post-Deployment or _Pre-Retrieval, but belong to the continuous series.
+    (re.compile(r"_(\d{8})T(\d{6})Z(?:_[A-Za-z-]+)?\.flac$"), "%Y%m%d%H%M%S"),
+    # 201122183500: a two-digit year, the most common form.
+    (re.compile(r"_(\d{6})(\d{6})\.flac$"), "%y%m%d%H%M%S"),
 ]
 
 
 def parse_start(name: str) -> datetime:
     """Start time from the filename. The FLAC files carry no tags at all."""
-    for i, p in enumerate(TS_PATTERNS):
-        m = p.search(name)
-        if m:
-            fmt = "%Y%m%d%H%M%S" if i == 0 else "%y%m%d%H%M%S"
-            return datetime.strptime(m.group(1) + m.group(2), fmt).replace(
-                tzinfo=timezone.utc)
+    for pattern, fmt in FILENAME_TIMES:
+        if match := pattern.search(name):
+            return datetime.strptime("".join(match.groups()), fmt).replace(tzinfo=timezone.utc)
     raise ValueError(f"no timestamp pattern matches {name!r}")
-
 
 
 @dataclass(frozen=True)
@@ -191,20 +189,6 @@ def parse_window(text: str):
     return lo, hi
 
 
-def save_scan(path: Path, scan: FrameScan) -> None:
-    np.savez(path, url=scan.url, sample_rate=scan.sample_rate, channels=scan.channels,
-             sample_format=scan.sample_format, offsets=scan.offsets,
-             lengths=scan.lengths, samples=scan.samples)
-
-
-def load_scan(path: Path) -> FrameScan:
-    with np.load(path, allow_pickle=False) as z:
-        return FrameScan(url=str(z["url"]), sample_rate=int(z["sample_rate"]),
-                         channels=int(z["channels"]),
-                         sample_format=str(z["sample_format"]), offsets=z["offsets"],
-                         lengths=z["lengths"], samples=z["samples"])
-
-
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
     """Scan a deployment's recordings and write its chunk table to ``out``.
 
@@ -234,10 +218,10 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
                   unit="GB", scale=1e9, every=30) as progress, \
             ThreadPoolExecutor(max_workers=4) as pool:
         for i, scan in zip(todo, pool.map(lambda i: scan_recording(items[i][0]), todo)):
-            save_scan(cached(i), scan)
+            scan.save(cached(i))
             progress.advance(items[i][1])
     kept = [items[i] for i in keep]
-    table = deployment_table(kept, [load_scan(cached(i)) for i in keep],
+    table = deployment_table(kept, [FrameScan.load(cached(i)) for i in keep],
                              windows=window_args, n_listed=len(items))
     table.save(out)
     print(f"scan complete; chunk table in {out}", flush=True)
@@ -266,7 +250,7 @@ def write_audio(group, table: DeploymentTable):
     sample_rate = int(chunks.sample_rate)
     uris = [str(u) for u in chunks.source_uri]
     audio = group.require_group("audio")
-    waveform = write_array(
+    write_array(
         audio, "waveform", chunks, channel_axis=False,
         attributes=dict(
             long_name="hydrophone signal, every recording end to end",
@@ -324,7 +308,6 @@ def write_audio(group, table: DeploymentTable):
     group.attrs.update(
         time_coverage_start=str(np.datetime64(int(t0s.min()), "ns")),
         time_coverage_end=str(np.datetime64(int(ends.max()), "ns")))
-    return len(chunks.edge), int(ns.sum()), waveform
 
 
 
@@ -395,10 +378,8 @@ def product_label(key: str, dep: str) -> str:
 
 def open_netcdf(key):
     import h5py
-    t = time.perf_counter()
-    f = h5py.File(io.BytesIO(read_object(key)), "r")
-    print(f"  read {key.split('/')[-1]} [{time.perf_counter() - t:.0f} s]", flush=True)
-    return f
+
+    return h5py.File(io.BytesIO(read_object(key)), "r")
 
 
 def as_text(v) -> str:
@@ -672,50 +653,104 @@ def measure_counts_offset(group, n_hours: int = 8, block_s: int = 60):
                 hours=rows)
 
 
-# Transcribed from each one-page PDF, which has no text layer to parse, and keyed
-# by the PDF's sha256 so a transcription is only ever applied to its own file. Two
-# kinds exist: a hydrophone's sensitivity in volts, and a recorder's end-to-end
-# full-scale response at each gain.
-HYDROPHONE_CERTIFICATE_COMMON = dict(long_name="hydrophone sensitivity", units="dB re 1 uPa/V",
-                           frequency_hz=250.0, instrument_model="SoundTrap HP1",
-                           source_model="Center 327", source_serial="130307390",
-                           source_level_db_re_1upa=120.0, coupler="OIC1",
-                           reference_instrument="B&K 2236 s/n 2015497", operator="JA",
-                           source="certificate")
+#: The level of a full-scale int16 sample, in dB re one count.
+INT16_FULL_SCALE_DB = 20 * np.log10(32768)
+
+#: The test setup every certificate in the archive names.
+CALIBRATION_SETUP = dict(frequency_hz=250.0, source_model="Center 327",
+                         source_serial="130307390", coupler="OIC1",
+                         reference_instrument="B&K 2236 s/n 2015497", operator="JA",
+                         source="certificate")
 
 
-def hydrophone_certificate(value: float, serial: str, test_date: str) -> dict:
-    return {"kind": "hydrophone_sensitivity", "hydrophone_sensitivity": value,
-            "attrs": dict(HYDROPHONE_CERTIFICATE_COMMON, device_serial=serial, test_date=test_date),
-            "issuer": "Ocean Instruments NZ"}
+@dataclass(frozen=True)
+class HydrophoneSensitivity:
+    """A SoundTrap HP1 certificate: the hydrophone's sensitivity in volts."""
+
+    sensitivity_db: float
+    device_serial: str
+    test_date: str
+    issuer = "Ocean Instruments NZ"
+    summary = ("The certificate gives the hydrophone sensitivity in volts, so it does not "
+               "by itself convert int16 counts to micropascals: the ADC full-scale voltage "
+               "and the gain setting are absent from it.")
+
+    def write(self, cal) -> None:
+        write_small_array(cal, "hydrophone_sensitivity", np.float64(self.sensitivity_db), (),
+                          long_name="hydrophone sensitivity", units="dB re 1 uPa/V",
+                          **CALIBRATION_SETUP, instrument_model="SoundTrap HP1",
+                          source_level_db_re_1upa=120.0, device_serial=self.device_serial,
+                          test_date=self.test_date)
+
+    def cross_check(self, offset_db: float) -> str:
+        at_1v = self.sensitivity_db - INT16_FULL_SCALE_DB
+        return (f"If the ADC full scale were 1 V, the certificate's {self.sensitivity_db} dB "
+                f"re 1 uPa/V would give {at_1v:.1f} dB. This value is "
+                f"{at_1v - offset_db:.1f} dB lower, which a full scale of "
+                f"{10 ** ((offset_db - at_1v) / 20):.2f} V would explain.")
 
 
+@dataclass(frozen=True)
+class FullScaleResponse:
+    """A SoundTrap 300 certificate: the recorder's end-to-end response at digital full
+    scale for each gain, which converts counts to micropascals directly."""
+
+    response_db: dict[str, float]
+    calibration_tone_db: float
+    device_serial: str
+    test_date: str
+    issuer = "Ocean Instruments NZ"
+
+    def implied_offsets(self) -> dict[str, float]:
+        return {gain: level - INT16_FULL_SCALE_DB for gain, level in self.response_db.items()}
+
+    @property
+    def summary(self) -> str:
+        return ("The certificate gives the recorder's end-to-end response at digital full "
+                "scale for each gain, which converts counts to micropascals directly: "
+                + ", ".join(f"{v:.1f} dB at {g} gain" for g, v in self.implied_offsets().items())
+                + ". It does not say which gain the deployment used.")
+
+    def write(self, cal) -> None:
+        attrs = dict(CALIBRATION_SETUP, instrument_model="SoundTrap 300 STD",
+                     source_level_db_re_1upa=121.0, device_serial=self.device_serial,
+                     test_date=self.test_date)
+        for gain, level in self.response_db.items():
+            write_small_array(cal, f"full_scale_response_{gain}_gain", np.float64(level), (),
+                              long_name=f"sound pressure at digital full scale, {gain} gain",
+                              units="dB re 1 uPa", **attrs)
+        write_small_array(cal, "calibration_tone_level", np.float64(self.calibration_tone_db), (),
+                          long_name="level of the recorder's calibration tone, referred to input",
+                          units="dB re 1 uPa", tone_frequency_hz=1000.0, **attrs)
+
+    def cross_check(self, offset_db: float) -> str:
+        implied = self.implied_offsets()
+        nearest = min(implied, key=lambda gain: abs(offset_db - implied[gain]))
+        return ("The certificate's full-scale responses imply "
+                + " and ".join(f"{v:.1f} dB at {g} gain" for g, v in implied.items())
+                + f"; this measured value is {abs(offset_db - implied[nearest]):.2f} dB "
+                f"from the {nearest}-gain figure.")
+
+
+# Transcribed by hand from each one-page PDF, which has no text layer to parse, and
+# keyed by the PDF's sha256 so a transcription is only ever applied to its own file.
 CERTIFICATES = {
-    "aca59f27c9d2151ae64fb14f62438f7b71301f1f6cc1b828499122b89f7a47e2":  # CI02_01
-        hydrophone_certificate(178.4, "1046", "2018-08-31"),
-    "3e687604f0bfbfb3312045a4e0dccd7d706e49fbfae273cb26d4ea18084836ae":  # CI04_01
-        hydrophone_certificate(177.5, "1043", "2018-08-31"),
-    "aad2e719ba9ae56bc3f5214ea92b45fa45b435deeada3411f3c569c0d2234d5d":  # CI05_01
-        hydrophone_certificate(178.0, "1035", "2018-08-21"),
-    "4994600e41ed813d46d31c240ea84ba37e8bfd9f5e0c3056de641c0a5ef885a7": {  # SB01_03
-        "kind": "full_scale_response",
-        "full_scale_response_db": {"high": 171.8, "low": 184.1},
-        "calibration_tone_db": 134.8,
-        "attrs": dict(instrument_model="SoundTrap 300 STD", device_serial="1677778970",
-                      frequency_hz=250.0, source_model="Center 327",
-                      source_serial="130307390", source_level_db_re_1upa=121.0,
-                      coupler="OIC1", reference_instrument="B&K 2236 s/n 2015497",
-                      test_date="2016-05-11", operator="JA", source="certificate"),
-        "issuer": "Ocean Instruments NZ",
-    },
     "f3f378411d23bcb7def863683964a469da1ceb6fe187e0d42505b94cda7a785d":  # CI01_01
-        hydrophone_certificate(177.4, "1044", "2018-08-31"),
+        HydrophoneSensitivity(177.4, "1044", "2018-08-31"),
     "c506afa269534f6c07727a35a771d56db6f2ede7cd61e5bb66d13843a4824972":  # CI01_02
-        hydrophone_certificate(177.1, "1054", "2018-09-19"),
-    "d1db20b76f3b4f3f74701909218f9a8a4ac7aec79a34522ab92019749d396df7":  # OC01_03
-        hydrophone_certificate(176.5, "1065", "2018-09-24"),
+        HydrophoneSensitivity(177.1, "1054", "2018-09-19"),
+    "aca59f27c9d2151ae64fb14f62438f7b71301f1f6cc1b828499122b89f7a47e2":  # CI02_01
+        HydrophoneSensitivity(178.4, "1046", "2018-08-31"),
+    "3e687604f0bfbfb3312045a4e0dccd7d706e49fbfae273cb26d4ea18084836ae":  # CI04_01
+        HydrophoneSensitivity(177.5, "1043", "2018-08-31"),
+    "aad2e719ba9ae56bc3f5214ea92b45fa45b435deeada3411f3c569c0d2234d5d":  # CI05_01
+        HydrophoneSensitivity(178.0, "1035", "2018-08-21"),
     "c2dd8bdb4bbd1ce02ba613e57a200dfafad32ba59d2837aaffd8f6ff94d156df":  # OC01_01
-        hydrophone_certificate(178.2, "1057", "2018-09-24"),
+        HydrophoneSensitivity(178.2, "1057", "2018-09-24"),
+    "d1db20b76f3b4f3f74701909218f9a8a4ac7aec79a34522ab92019749d396df7":  # OC01_03
+        HydrophoneSensitivity(176.5, "1065", "2018-09-24"),
+    "4994600e41ed813d46d31c240ea84ba37e8bfd9f5e0c3056de641c0a5ef885a7":  # SB01_03
+        FullScaleResponse({"high": 171.8, "low": 184.1}, 134.8, "1677778970", "2016-05-11"),
 }
 
 
@@ -730,87 +765,50 @@ def write_calibration(group, site: str, dep: str, measured: dict | None):
         raise KeyError(f"no transcription for {key} (sha256 {sha}); add it to "
                        f"CERTIFICATES")
     certificate = CERTIFICATES[sha]
-    has_levels = "sound_levels" in group
-    serial_recordings = str(group.attrs["instrument_serial_number"])
 
     cal = group.require_group("calibration")
     write_small_array(cal, "certificate", np.frombuffer(pdf, dtype="uint8"), ("byte",),
          long_name="calibration certificate, verbatim", media_type="application/pdf",
-         source_uri=BASE + key, sha256=sha, issuer=certificate["issuer"],
-         test_date=certificate["attrs"]["test_date"],
+         source_uri=BASE + key, sha256=sha, issuer=certificate.issuer,
+         test_date=certificate.test_date,
          comment="The bytes of the published PDF, stored as a plain uint8 array. Zarr "
                  "has no PDF codec and no reader will open this for you: media_type "
                  "is a hint, not a decoder. To recover the file: "
                  "open('calibration.pdf', 'wb').write(bytes(group['certificate'][:]))")
+    certificate.write(cal)
 
-    full_scale = 20 * np.log10(32768)
-    if certificate["kind"] == "hydrophone_sensitivity":
-        sens = certificate["hydrophone_sensitivity"]
-        write_small_array(cal, "hydrophone_sensitivity", np.float64(sens), (), **certificate["attrs"])
-        what = ("The certificate gives the hydrophone sensitivity in volts, so it does not by "
-                "itself convert int16 counts to micropascals: the ADC full-scale voltage and "
-                "the gain setting are absent from it.")
-        at_1v = sens - full_scale
-        cross_check = lambda off: (
-            f"If the ADC full scale were 1 V, the certificate's {sens} dB re 1 uPa/V would "
-            f"give {at_1v:.1f} dB. This value is {at_1v - off:.1f} dB lower, which a full "
-            f"scale of {10 ** ((off - at_1v) / 20):.2f} V would explain.")
+    if measured is not None:
+        offset_db = measured["offset_db"]
+        write_small_array(cal, "counts_to_upa_db", np.float64(round(offset_db, 3)), (),
+             long_name="offset from int16 counts to sound pressure", units="dB",
+             comment="Add this to 20*log10(|counts|) to obtain dB re 1 uPa. Derived, not "
+                     "published: NOAA's BB_1h method, as its history states it (1 Hz / 1 s "
+                     "PSD, integrated over 20 Hz to 24 kHz, hourly median of the 1-second "
+                     "values), applied to audio/waveform and differenced against "
+                     "sound_levels/broadband_spl for the same hour.",
+             method=f"{len(measured['hours'])} full hours spread evenly across the "
+                    f"deployment, each wholly inside one recording",
+             hours=[h["time"] for h in measured["hours"]],
+             standard_deviation_db=round(measured["standard_deviation_db"], 4),
+             n_hours=len(measured["hours"]), band_hz=list(BAND_HZ),
+             source="derived from sound_levels/broadband_spl",
+             cross_check=certificate.cross_check(offset_db))
+        offset = ("counts_to_upa_db is measured against this deployment's own published "
+                  "sound levels, and cross_check compares it with the certificate.")
+    elif "sound_levels" in group:
+        offset = ("The counts-to-micropascal offset was not measured for this build, and "
+                  "this group holds none.")
     else:
-        responses = certificate["full_scale_response_db"]
-        for gain, level in responses.items():
-            write_small_array(cal, f"full_scale_response_{gain}_gain", np.float64(level), (),
-                 long_name=f"sound pressure at digital full scale, {gain} gain",
-                 units="dB re 1 uPa", **certificate["attrs"])
-        write_small_array(cal, "calibration_tone_level", np.float64(certificate["calibration_tone_db"]), (),
-             long_name="level of the recorder's calibration tone, referred to input",
-             units="dB re 1 uPa", tone_frequency_hz=1000.0, **certificate["attrs"])
-        implied = {g: level - full_scale for g, level in responses.items()}
-        what = ("The certificate gives the recorder's end-to-end response at digital full "
-                "scale for each gain, which converts counts to micropascals directly: "
-                + ", ".join(f"{v:.1f} dB at {g} gain" for g, v in implied.items())
-                + ". It does not say which gain the deployment used.")
-        cross_check = lambda off: (
-            "The certificate's full-scale responses imply "
-            + " and ".join(f"{v:.1f} dB at {g} gain" for g, v in implied.items())
-            + f"; this measured value is {min(abs(off - v) for v in implied.values()):.2f} dB "
-            f"from the {min(implied, key=lambda g: abs(off - implied[g]))}-gain figure.")
+        offset = ("NOAA published no sound levels for this deployment, so no "
+                  "counts-to-micropascal offset could be measured against them, and this "
+                  "group holds none.")
 
-    if measured is None:
-        write_calibration_attrs(cal, dep, certificate, serial_recordings, (
-            f"NOAA publishes this calibration as a one-page PDF beside the recordings. {what} "
-            + ("NOAA published no sound levels for this deployment, so no "
-               "counts-to-micropascal offset could be measured against them, and this "
-               "group holds none." if not has_levels else
-               "The counts-to-micropascal offset was not measured for this build, and "
-               "this group holds none.")))
-        return
-
-    off = measured["offset_db"]
-    write_small_array(cal, "counts_to_upa_db", np.float64(round(off, 3)), (),
-         long_name="offset from int16 counts to sound pressure", units="dB",
-         comment="Add this to 20*log10(|counts|) to obtain dB re 1 uPa. Derived, not "
-                 "published: NOAA's BB_1h method, as its history states it (1 Hz / 1 s "
-                 "PSD, integrated over 20 Hz to 24 kHz, hourly median of the 1-second "
-                 "values), applied to audio/waveform and differenced against "
-                 "sound_levels/broadband_spl for the same hour.",
-         method=f"{len(measured['hours'])} full hours spread evenly across the "
-                f"deployment, each wholly inside one recording",
-         hours=[h["time"] for h in measured["hours"]],
-         standard_deviation_db=round(measured["standard_deviation_db"], 4),
-         n_hours=len(measured["hours"]), band_hz=list(BAND_HZ),
-         source="derived from sound_levels/broadband_spl",
-         cross_check=cross_check(off))
-    write_calibration_attrs(cal, dep, certificate, serial_recordings, (
-        f"NOAA publishes this calibration as a one-page PDF beside the recordings. {what} "
-        "counts_to_upa_db is measured against this deployment's own published sound "
-        "levels, and cross_check compares it with the certificate."))
-
-
-def write_calibration_attrs(cal, dep, certificate, serial_recordings, comment):
-    serial = certificate["attrs"]["device_serial"]
+    serial = certificate.device_serial
+    serial_recordings = str(group.attrs["instrument_serial_number"])
     cal.attrs.update(
         title=f"Hydrophone calibration for deployment {dep}",
-        comment=comment,
+        comment=f"NOAA publishes this calibration as a one-page PDF beside the recordings. "
+                f"{certificate.summary} {offset}",
         instrument_serial_number_certificate=serial,
         instrument_serial_number_recordings=serial_recordings,
         serial_number_comment=(
@@ -819,7 +817,6 @@ def write_calibration_attrs(cal, dep, certificate, serial_recordings, comment):
             f"The certificate names device serial {serial}; every audio file name and the "
             f"deployment attributes name {serial_recordings}. Both are recorded verbatim, "
             f"with no claim about which identifies which component."))
-
 
 
 # Site-code prefixes, from the project overview (LAYOUTS.md, "The archive").
@@ -832,7 +829,7 @@ ROOT_DESCRIPTION = """\
 
 Hydrophone audio from [SanctSound](https://sanctsound.ioos.us/), one group per deployment:
 
-%s
+%(deployments)s
 
 The audio stays in NOAA's public bucket: this store holds byte-range references into the
 FLAC files under `gs://noaa-passive-bioacoustic`, and copies none of them. NOAA's
@@ -843,14 +840,14 @@ beside its audio and share its clock.
 rectilinear: use zarr-python 3.2 or newer and set
 `zarr.config.set({"array.rectilinear_chunks": True})`. Zarr also registers no audio
 codec, so the chunks need one: install tag `zarr3-flac-codec-2026-10-19` of
-[flac-numcodecs](%s), which registers a `flac` codec with Zarr. It is not in a
+[flac-numcodecs](%(codec_url)s), which registers a `flac` codec with Zarr. It is not in a
 release yet. xarray opens the store from release 2026.09.0, the first with
 [pydata/xarray#11592](https://github.com/pydata/xarray/pull/11592). The published
 products read with stock Zarr.
 
 **Published sources, each with its own DOI**
 
-- Raw audio: [10.25921/saca-sp25](https://doi.org/10.25921/saca-sp25)
+- Raw audio: [%(audio_doi)s](https://doi.org/%(audio_doi)s)
 - Detections: one DOI per label, in `<deployment>/detections/labels/doi`
 - Sound levels: one DOI per product, on each variable in `<deployment>/sound_levels`
 
@@ -949,9 +946,9 @@ def write_provenance(root, group, site: str, dep: str):
                 "Zarr registers none. The published products are copied, not "
                 "referenced. NOAA's own title, history and citation for each product "
                 "are kept verbatim on the variable it became.",
-        description=ROOT_DESCRIPTION % (
-            "\n".join(deployment_line(n, g) for n, g in sorted(root.groups())),
-            CODEC_URL),
+        description=ROOT_DESCRIPTION % dict(
+            deployments="\n".join(deployment_line(n, g) for n, g in sorted(root.groups())),
+            codec_url=CODEC_URL, audio_doi=meta["DOI"].split("doi.org/")[-1]),
         comment="One group per deployment. Audio arrays are byte-range references "
                 "into NOAA's bucket; nothing is copied. Sample rate and FLAC blocksize "
                 "vary between deployments, so each deployment carries its own codec "
@@ -1024,40 +1021,27 @@ def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str =
         root = zarr.open_group(session.store, mode="a")
         dg = root.require_group(dep)
         sample_rate = int(table.chunks.sample_rate)
+        hours = int(table.chunks.n_samples.sum()) / sample_rate / 3600
 
-        t = time.perf_counter()
-        n_chunks, n_samples, _ = write_audio(dg, table)
-        hours = n_samples / sample_rate / 3600
-        print(f"waveform: {n_chunks} chunks, {hours:.1f} h at {sample_rate} Hz, "
-              f"blocksize {int(table.chunks.blocksize)} [{time.perf_counter() - t:.1f} s]",
-              flush=True)
-
-        t = time.perf_counter()
+        write_audio(dg, table)
+        print(f"waveform: {len(table.chunks.edge)} chunks, {hours:.1f} h at {sample_rate} Hz, "
+              f"blocksize {int(table.chunks.blocksize)}", flush=True)
         n_events, n_labels = write_products(dg, site, dep)
-        print(f"products: {n_events} detections, {n_labels} labels "
-              f"[{time.perf_counter() - t:.1f} s]", flush=True)
-
-        t = time.perf_counter()
+        print(f"products: {n_events} detections, {n_labels} labels", flush=True)
         n_temp = write_temperature(dg, site, dep)
-        print(f"temperature: {n_temp:,} samples [{time.perf_counter() - t:.1f} s]" if n_temp
+        print(f"temperature: {n_temp:,} samples" if n_temp
               else "temperature: NOAA published no logger record", flush=True)
-
         measured = None
         if "sound_levels" in dg and measure:
-            t = time.perf_counter()
             measured = measure_counts_offset(dg)
-            print(f"calibration: {measured['offset_db']:.3f} dB, sd "
-                  f"{measured['standard_deviation_db']:.4f} dB "
-                  f"[{time.perf_counter() - t:.0f} s]", flush=True)
-        else:
-            print("calibration: certificate only", flush=True)
+            print(f"calibration: {measured['offset_db']:.3f} dB, "
+                  f"sd {measured['standard_deviation_db']:.4f} dB", flush=True)
         # write_calibration reads the serial number write_provenance records
         write_provenance(root, dg, site, dep)
         write_calibration(dg, site, dep, measured)
-
-        t = time.perf_counter()
-        snap = session.commit(f"{dep}: {len(table.chunks.n_samples)} recordings ({hours:.1f} h)")
-        print(f"committed {snap} [{time.perf_counter() - t:.1f} s]", flush=True)
+        snapshot = session.commit(f"{dep}: {len(table.chunks.n_samples)} recordings "
+                                  f"({hours:.1f} h)")
+        print(f"committed {snapshot}", flush=True)
         check = zarr.open_group(repo.readonly_session(branch).store, mode="r")
         for row in selftest_from_store_only(check):
             print(row, flush=True)

@@ -52,7 +52,7 @@ SEEKTABLE where it exists. A SEEKTABLE also spaces seekpoints by time, not by
 frame count, so they are irregular in samples.
 
 The files carry no tags. A recording's start time exists only in its filename,
-in one of these forms (`ingest.TS_PATTERNS` parses the first two):
+in one of these forms (`ingest.FILENAME_TIMES` reads the first two):
 
 ```
 SanctSound_CI01_01_671379494_20181031T220000Z.flac                  ISO 8601
