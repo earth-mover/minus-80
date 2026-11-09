@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import io
 import json
+import multiprocessing
 import re
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
@@ -120,9 +121,11 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
     # Processes, because PyAV's demuxer returns to Python for every packet, so
     # threads queue for the GIL: eight threads scan more slowly in total than one.
+    # Spawned, not forked: listing the bucket has already started obstore's IO
+    # threads, and forking a process with running threads can deadlock.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
-            ProcessPoolExecutor() as pool:
+            ProcessPoolExecutor(mp_context=multiprocessing.get_context("spawn")) as pool:
         scans = [pool.submit(scan_frames, GCS + items[i][0], url=BASE + items[i][0])
                  for i in todo]
         for i, scan in zip(todo, scans):
@@ -170,7 +173,11 @@ def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str =
         repo = repository(repo_location, create=True)
         session = repo.writable_session(branch)
         root = zarr.open_group(session.store, mode="a")
-        dg = root.require_group(dep)
+        # A rebuild replaces the whole group, so nothing from an earlier build
+        # survives, such as the note that only some recordings are referenced.
+        if dep in root:
+            del root[dep]
+        dg = root.create_group(dep)
         sample_rate = int(table.chunks.sample_rate)
         hours = int(table.chunks.n_samples.sum()) / sample_rate / 3600
 
