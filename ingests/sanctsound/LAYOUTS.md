@@ -192,7 +192,9 @@ None of these raises an error.
   `ingest.CERTIFICATES`, so a new deployment needs its certificate transcribed.
 - Arraylake refuses `https://` virtual chunk prefixes, so references use `gs://`
   and the scan reads over HTTPS only to find offsets.
-- Frame scanning of one deployment reads every byte, so its speed is set by
-  bandwidth. The published scans ran on a cloud VM (an AWS c6in.2xlarge), where
-  four threads read at about 174 MB/s and eight at about 62 MB/s. A home
-  connection reached about 30 MB/s.
+- Frame scanning of one deployment reads every byte. Parsing is not the limit:
+  on a laptop, one process scans a local file at about 1.5 GB/s. Threads are:
+  several threads scan more slowly in total than one, so the scan uses
+  processes. The published scans used four threads on a cloud VM (an AWS
+  c6in.2xlarge) and reached about 174 MB/s; eight threads reached about 62 MB/s.
+  A home connection reached about 30 MB/s.

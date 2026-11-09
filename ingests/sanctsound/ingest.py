@@ -36,7 +36,7 @@ import io
 import json
 import re
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,11 +93,14 @@ EPOCH = dict(units="nanoseconds since 1970-01-01T00:00:00Z",
 # audio. Recording start times come from the file names, because the FLAC files
 # carry no tags.
 #
-# The scan runs anywhere, but its speed is set by bandwidth, so where it runs
-# decides how long it takes. The published scans ran on a cloud VM (an AWS
-# c6in.2xlarge, through Coiled) at about 174 MB/s, which reads CI01_01 in about
-# 26 minutes. A home connection reached about 30 MB/s, which would take about
-# two and a half hours.
+# The scan runs anywhere, one process per recording at a time. Parsing is fast:
+# on a laptop, one process scans a local file at about 1.5 GB/s and eight reach
+# about 6.6 GB/s together, so reading the bucket sets the pace. The published
+# scans ran on a cloud VM (an AWS c6in.2xlarge, through Coiled) with four
+# threads instead of processes, and reached about 174 MB/s. Threads slow the
+# scan down: on the same laptop, four threads together scan a local file at
+# about 350 MB/s and eight at about 125 MB/s. How fast processes read the
+# bucket from a cloud VM has not been measured.
 
 
 def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) -> None:
@@ -130,15 +133,15 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     cached = {i: cache / f"{i:04d}.npz" for i in keep}
     todo = [i for i in keep if not cached[i].exists()]
     print(f"{len(keep) - len(todo)} already cached, {len(todo)} to scan", flush=True)
-    # Four threads, because the scan is bound by bandwidth: on the cloud VM the
-    # published scans ran on, four read at about 174 MB/s and eight at about 62.
+    # Processes, not threads: threads contend with each other, and eight scan
+    # more slowly in total than one.
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
-            ThreadPoolExecutor(max_workers=4) as pool:
-        scans = pool.map(lambda i: scan_frames(GCS + items[i][0], url=BASE + items[i][0]),
-                         todo)
+            ProcessPoolExecutor() as pool:
+        scans = [pool.submit(scan_frames, GCS + items[i][0], url=BASE + items[i][0])
+                 for i in todo]
         for i, scan in zip(todo, scans):
-            scan.save(cached[i])
+            scan.result().save(cached[i])
             progress.advance(items[i][1])
 
     chunks = chunk_table([FrameScan.load(cached[i]) for i in keep],
