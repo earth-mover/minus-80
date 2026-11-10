@@ -267,3 +267,29 @@ def test_permute_dims_refuses_a_partial_order(tmp_path):
     a = _volume(tmp_path, "a.bin", _zcyx(), chunks=(1, 1, 4, 5))
     with pytest.raises(ValueError, match="not a permutation"):
         permute_dims(a, ("c", "z", "y"))
+
+
+def test_with_lengths_replaces_only_the_lengths():
+    from minus80.core.manifest import with_lengths
+
+    array = manifest_array(
+        np.array([["file:///a", "file:///a", MISSING]], dtype=object),
+        [[0, 10, 0]], [[5, 6, 0]], shape=(2, 6), chunk_shape=(2, 2), dtype="uint8",
+        codecs=BYTES, dimension_names=["y", "x"], fill_value=7,
+        attributes={"scale": {"y": 1.0, "x": 2.0}})
+    new = with_lengths(array, [[8, 9, 4]])
+    entries = [new.manifest.get_entry((0, i)) for i in range(3)]
+    assert [(e["path"], int(e["offset"]), int(e["length"])) for e in entries[:2]] == [
+        ("file:///a", 0, 8), ("file:///a", 10, 9)]
+    assert entries[2] is None
+    assert new.shape == array.shape
+    assert new.metadata.to_dict() == array.metadata.to_dict()
+
+
+def test_with_lengths_of_zero_makes_the_chunk_missing():
+    from minus80.core.manifest import with_lengths
+
+    array = manifest_array("file:///a", [[0, 4]], [[4, 4]], shape=(2, 4), chunk_shape=(2, 2),
+                           dtype="uint8", codecs=BYTES)
+    new = with_lengths(array, [[4, 0]])
+    assert new.manifest.get_entry((0, 1)) is None

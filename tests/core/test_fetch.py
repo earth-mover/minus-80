@@ -107,3 +107,18 @@ def test_download_sends_one_request_per_block(url, tmp_path, range_server):
     path = fetch.download_then_index(url, str(tmp_path), block=4096, concurrency=2)
     assert open(path, "rb").read() == DATA
     assert sorted(range_server.gets()) == ["bytes=0-4095", "bytes=4096-8191", "bytes=8192-11999"]
+
+
+def test_list_objects_gives_sizes_and_skips_empty_objects(tmp_path):
+    (tmp_path / "plate" / "sub").mkdir(parents=True)
+    (tmp_path / "plate" / "a.tif").write_bytes(b"abc")
+    (tmp_path / "plate" / "sub" / "b.tif").write_bytes(b"12345")
+    (tmp_path / "plate" / "marker").write_bytes(b"")
+    (tmp_path / "plate2").mkdir()
+    (tmp_path / "plate2" / "c.tif").write_bytes(b"x")
+    folder = (tmp_path / "plate").as_uri() + "/"
+    expected = {folder + "a.tif": 3, folder + "sub/b.tif": 5}
+    assert fetch.list_objects(folder) == expected
+    from minus80.core.registry import registry_for
+
+    assert fetch.list_objects(folder, registry=registry_for(folder)) == expected

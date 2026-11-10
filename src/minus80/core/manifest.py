@@ -117,6 +117,27 @@ def manifest_array(
     return ManifestArray(metadata=metadata, chunkmanifest=manifest)
 
 
+def with_lengths(array: ManifestArray, lengths: npt.ArrayLike) -> ManifestArray:
+    """``array`` with every chunk reference's length replaced by ``lengths``.
+
+    ``lengths`` is shaped like the chunk grid. Paths, offsets, codecs, fill
+    value, dimension names and attributes are kept, with ``source_url``
+    recomputed from the manifest as in :func:`manifest_array`. A chunk the
+    array already lacked stays missing whatever ``lengths`` says there, and a
+    new length of 0 makes a chunk missing.
+    """
+    grid = array.manifest.shape_chunk_grid
+    entries = [array.manifest.get_entry(k) for k in np.ndindex(*grid)]
+    paths = np.array([e["path"] if e else MISSING for e in entries], dtype=object).reshape(grid)
+    offsets = np.array([e["offset"] if e else 0 for e in entries], dtype=np.uint64).reshape(grid)
+    return manifest_array(
+        paths, offsets, lengths, shape=array.shape,
+        chunk_shape=manifest_chunk_shape(array.metadata), dtype=array.dtype,
+        codecs=[c.to_dict() for c in array.metadata.codecs],
+        dimension_names=array.metadata.dimension_names,
+        fill_value=array.metadata.fill_value, attributes=array.metadata.attributes)
+
+
 def _check_per_dimension(attrs: Mapping, dimension_names: Sequence[str | None] | None) -> None:
     dims = set(dimension_names or ())
     for key in _PER_DIMENSION:

@@ -116,6 +116,27 @@ def write_ranges(url: str, ranges: Iterable[tuple[int, int]], f: BinaryIO, **kw)
     return written
 
 
+def list_objects(folder_url: str, *, registry: ObjectStoreRegistry | None = None) -> dict[str, int]:
+    """Every object with bytes under ``folder_url``, by URL, with its size.
+
+    ``folder_url`` is a prefix, not a directory: ``s3://b/plate`` also lists
+    ``s3://b/plate2/x``, so end it with ``/`` to list one folder. Objects of
+    size 0 (S3 "folder" markers) are left out, because a reference to no bytes
+    is not a chunk.
+    """
+    import obstore
+
+    store, key = _store_and_key(folder_url + "x", False, registry)
+    prefix = key[:-1]
+    root = folder_url[: len(folder_url) - len(prefix)]
+    found = {}
+    for batch in obstore.list(store, prefix=prefix):
+        for obj in batch:
+            if obj["size"]:
+                found[root + obj["path"]] = int(obj["size"])
+    return found
+
+
 def download_then_index(
     url: str,
     dest_dir: str | None = None,
