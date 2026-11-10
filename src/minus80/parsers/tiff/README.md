@@ -70,6 +70,21 @@ A key is absent when the file states nothing for it.
 A tile or strip stored with zero bytes, and a page the series lists as absent,
 become missing chunks, which read as the fill value 0.
 
+## Checking an LZW strip: `lzw_valid_length`
+
+`lzw_valid_length(strip, nbytes)` returns `(length, decoded)` for one LZW strip
+whose uncompressed size is `nbytes`. `length` is the byte length a chunk
+reference should use so that the Zarr `imagecodecs_lzw` codec, which has no
+size to stop at, decodes exactly `nbytes`; it is `None` when no cut of 1 to 4
+bytes does. `decoded` is the strip decoded to `nbytes` the way tifffile does,
+so a caller building a derived level need not decode again.
+
+```python
+from minus80.parsers.tiff import lzw_valid_length
+
+length, decoded = lzw_valid_length(strip_bytes, nbytes)
+```
+
 ## Before indexing: `inspect`
 
 `minus80.parsers.tiff.inspect` answers questions about a TIFF, local or remote,
@@ -98,6 +113,11 @@ tifffile's own decode:
 
 Anything else raises `NotImplementedError` rather than writing references that
 decode wrong.
+
+Chunk references are written as the file states them, with no decode. A few
+LZW strips end with a mis-width end code that the Zarr codec reads as data;
+`lzw_valid_length` finds the reference length that avoids it, for callers that
+decode the strip anyway.
 
 A reduced level gets a `scale` only when its own page's resolution tags state
 one; it is never derived from level 0's. OME-XML and ImageJ metadata describe

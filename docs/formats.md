@@ -106,6 +106,12 @@ number of bytes. A 131 MB stack with a 658-page directory chain takes 190 s to
 index from a laptop, and 2.7 s to download whole.
 `minus80.parsers.tiff.inspect.indexing_cost` measures both strategies.
 
+### Say when a bucket is public
+
+Anonymous reads from a public S3 bucket need `MINUS80_S3_ANONYMOUS=1` in the
+environment; without it, obstore and icechunk sign every request and the read
+fails.
+
 ### Probe the layout before walking it
 
 A TIFF's directories form a linked list, but writers often lay them out at a

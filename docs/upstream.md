@@ -53,6 +53,7 @@ retired in favour of virtual-tiff.
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
 | A Deflate zip member is a bare Deflate stream. imagecodecs-zarr's `Deflate(raw=True)` cannot decode one without being told its uncompressed size, because `deflate_decode` with `raw=True` needs `out`. The zip parser therefore accepts only STORED members as chunks. | `minus80.parsers.zip.members` | Decode raw Deflate when the output size is unknown. | not filed |
+| A few LZW strips, seen in PerkinElmer Harmony and Operetta files, write the end-of-information code at the previous code width just after the code table crosses a width boundary. tifffile and libtiff decode into the strip's known size and never read it. imagecodecs-zarr's `Lzw` codec calls `lzw_decode` with no size, so it returns a few bytes too many or raises `LzwError`. `lzw_valid_length` finds the shorter reference length whose unbounded decode equals the bounded one. | `minus80.parsers.tiff.lzw_valid_length` | imagecodecs-zarr: `Lzw.decode` passes the chunk's decoded size as `out=` to `lzw_decode`. | not filed; a search of imagecodecs issues for LZW found none about this |
 
 ## ngff-zarr
 

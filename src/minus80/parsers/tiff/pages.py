@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
+import imagecodecs
 import numpy as np
 import tifffile
 from imagecodecs.zarr import Jpeg, Lzw
@@ -32,6 +33,11 @@ from minus80.core.manifest import channel_last_transpose, manifest_array
 _JPEG = 7
 _LZW = 5
 _NONE = 1
+
+#: The most bytes ``lzw_valid_length`` will cut from a strip. A mis-width end
+#: code adds at most one code of padding, so a longer cut means the strip is
+#: damaged some other way.
+MAX_LZW_TRIM = 4
 
 #: tifffile's axis codes that mean the same as an OME-Zarr axis, with that
 #: axis's name and type. Any other code (``Q`` for "unknown", ``I`` for "image
@@ -72,6 +78,45 @@ def page_codecs(page: tifffile.TiffPage, *, leading: int = 0) -> list[dict]:
     if page.compression == _NONE:
         return [serializer]
     raise NotImplementedError(f"page {page.index}: compression {page.compression!r}")
+
+
+def lzw_valid_length(strip: bytes, nbytes: int) -> tuple[int | None, bytes]:
+    """The length a chunk reference to an LZW ``strip`` needs, and its decoded bytes.
+
+    Some writers emit the end-of-information code at the previous code width
+    when the code table has just crossed a width boundary. tifffile and libtiff
+    decode into the strip's known size and stop once it is full, so they never
+    read that code. The Zarr ``imagecodecs_lzw`` codec has no size to stop at: it
+    decodes until it meets an end code, so it reads the mis-width one as data and
+    returns a few bytes too many, or raises ``LzwError``.
+
+    The reference decode is therefore the bounded one, ``lzw_decode(strip,
+    out=nbytes)``. This returns the byte length at which the unbounded decode,
+    which is what the codec does, equals it: the whole strip when that already
+    decodes to ``nbytes``, else the strip cut by 1 to ``MAX_LZW_TRIM`` bytes.
+    A shorter length is accepted only when its unbounded decode is
+    byte-identical to the bounded one. The length is None when no such cut
+    exists, and the strip cannot be read through the codec as stored.
+
+    The decoded bytes come back too, so a caller that builds a derived level
+    from them decodes each strip once. Parsing never calls this; it is for
+    callers that decode anyway.
+    """
+
+    def unbounded(data: bytes) -> bytes | None:
+        try:
+            return imagecodecs.lzw_decode(data)
+        except imagecodecs.LzwError:
+            return None
+
+    decoded = unbounded(strip)
+    if decoded is not None and len(decoded) == nbytes:
+        return len(strip), decoded
+    expected = imagecodecs.lzw_decode(strip, out=nbytes)
+    for trim in range(1, MAX_LZW_TRIM + 1):
+        if unbounded(strip[:-trim]) == expected:
+            return len(strip) - trim, expected
+    return None, expected
 
 
 def _chunk_shape(page: tifffile.TiffPage, height: int) -> tuple[int, int]:
