@@ -1,0 +1,16 @@
+[project]
+name = "atera-ingest"
+version = "0.0.0"
+description = "Copy 10x Atera WTA samples (s3://10x.files/samples/atera) into native Icechunk repos on Arraylake, with Iceberg tables beside them."
+requires-python = ">=3.12"
+dependencies = [
+    "arraylake[iceberg]>=1.8.0",
+    "minus-80[tiff]",
+    "tifffile>=2025.1.1",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+notebook = ["ipykernel", "matplotlib", "pandas"]
