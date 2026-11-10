@@ -42,6 +42,18 @@ not images of the plate:
 
 Every URL comes from `load_data.csv`.
 
+Each plate lists what its image folder holds beyond `load_data.csv`, under
+`annotations.image_folder.beyond_load_data` (PLAN decision 9). A well that
+`load_data.csv` omits is listed with its file count and one example URL, not
+every URL: source_9's 5,760 such TIFFs per plate would add about 0.9 MB of
+URLs to each plate in the snapshot, and the example and the plate's folder
+locate the rest. Other unreferenced files are counted with a few names.
+
+The TIFF tags `TiffParser` reads are stated once on the plate, under
+`annotations.tiff`, where every TIFF of the plate states them alike; a tag
+group that differs between files would stay on each field. On one plate per
+source (2026-11-10) none differed.
+
 ## Sources
 
 One plate per source was probed on 2026-10-08 (the first plate of the first
@@ -116,6 +128,27 @@ from the stage position, with Y negated. The earlier ingest checked that sign
 by matching the edges of neighboring fields on Opera Phenix plates (the pilot's
 BR00117016 and source_1's UL000109) and on source_11's Operetta plate
 EC000001, whose fields overlap their neighbors by about 21 pixels.
+
+`verify.py --stage-axes` repeats that check on this store. On 2026-11-10 it
+found the stored direction of both axes better than its flip on every source
+with positions, each by a one-sided sign test at p < 0.01 over the edge
+comparisons of three channels:
+
+| source | plate | wells × sites | x | y |
+|---|---|---|---|---|
+| 1 | UL000109 | 8 × 4 | 47 of 48 | 39 of 48 |
+| 4 | BR00117035 | 2 × 9 | 34 of 36 | 33 of 36 |
+| 4 | BR00117036 | 4 × 9 | 64 of 72 | 67 of 72 |
+| 9 | GR00003381 | 4 × 4 | 16 of 16 | 16 of 16 |
+| 11 | EC000001 | 2 × 9 | 34 of 36 | 34 of 36 |
+| 15 | PEC00001783 | 2 × 9 | 34 of 36 | 27 of 36 |
+
+Source_1's y is the weakest: three wells near the plate's edge gave 12 of
+18, which does not reach p < 0.01, and eight wells across the plate gave the
+figure above. Source_9 has no brightfield channel, so it is compared on AGP
+and ER only; the others add `Brightfield`. A check needs fields that touch:
+sites 1 and 2 of source_4's and source_11's plates do not, so a trial of
+those two sites per well gives no verdict.
 
 Elsewhere `load_data.csv` has no position or time, and the fields declare them
 not recorded:

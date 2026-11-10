@@ -104,6 +104,10 @@ def well_annotations(tables: Mapping[str, pd.DataFrame], source: str,
     ``pert_type`` is ``trt``, ``control`` or ``empty``; ``control_type`` is
     ``negcon`` or ``poscon`` on controls only, and ``control_name`` is the
     control's name in ``perturbation_control.csv``.
+
+    The coverage counts the wells each table matched, the wells whose
+    identifier no table holds (``unresolved``, a ``trt`` with nothing to say
+    what was applied), and the wells with no identifier.
     """
     wells = unique_by(tables["well.csv.gz"], ["Metadata_Source", "Metadata_Plate", "Metadata_Well"],
                       "well.csv.gz")
@@ -119,7 +123,8 @@ def well_annotations(tables: Mapping[str, pd.DataFrame], source: str,
     control_rows = control.set_index("Metadata_JCP2022")
 
     out: dict[str, dict] = {}
-    counts = {"compound": 0, "orf": 0, "crispr": 0, "control": 0, "no_jcp2022": 0}
+    counts = {"compound": 0, "orf": 0, "crispr": 0, "control": 0, "unresolved": 0,
+              "no_jcp2022": 0}
     for label, jcp in zip(wells["Metadata_Well"], wells["Metadata_JCP2022"]):
         record = dict.fromkeys(WELL_FIELDS)
         if not jcp:
@@ -147,6 +152,9 @@ def well_annotations(tables: Mapping[str, pd.DataFrame], source: str,
         if jcp in crispr_symbol:
             record["gene_symbol"] = crispr_symbol[jcp] or None
             counts["crispr"] += 1
+        if not any(jcp in table for table in (control_rows.index, inchikey, orf_rows.index,
+                                              crispr_symbol)):
+            counts["unresolved"] += 1
         out[label] = record
     coverage = {"wells_in_well_table": len(out), "matched": counts}
     return out, coverage

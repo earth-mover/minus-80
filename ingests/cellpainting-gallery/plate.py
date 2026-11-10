@@ -17,7 +17,6 @@ from __future__ import annotations
 import io
 import re
 import sys
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -25,13 +24,11 @@ from datetime import datetime
 
 import numpy as np
 import numpy.lib.format as npy_format
-import obstore
 import pandas as pd
 from minus80.core.builders.flat_binary import flat_manifest_array
 from minus80.core.fetch import read_range
-from minus80.core.manifest import concatenate, manifest_array, stack
+from minus80.core.manifest import concatenate, stack, with_lengths
 from minus80.core.progress import Progress
-from minus80.core.registry import resolve
 from minus80.ome import channel_omero, image_attrs
 from minus80.ome.plate import FORMATS
 from minus80.parsers.tiff import TiffParser, lzw_valid_length
@@ -312,23 +309,10 @@ def index_and_reduce(url: str, registry, pixel_um: float) -> Indexed:
         strips.append(decoded)
     plane = np.frombuffer(b"".join(strips), dtype=array.dtype.newbyteorder(endian)).reshape(array.shape)
     if shortened:
-        array = with_lengths(array, codecs, np.array(lengths, dtype=np.uint64).reshape(grid))
+        array = with_lengths(array, np.array(lengths, dtype=np.uint64).reshape(grid))
     return Indexed(url=url, array=array, tiff=dict(group.metadata.attributes),
                    overview=block_mean(plane, OVERVIEW_FACTOR),
                    compression="LZW" if lzw else "none", shortened=shortened, unfixable=unfixable)
-
-
-def with_lengths(array: ManifestArray, codecs: list[dict], lengths: np.ndarray) -> ManifestArray:
-    """``array`` with each chunk's reference length replaced by ``lengths``, everything else kept."""
-    grid = array.manifest.shape_chunk_grid
-    keys = list(np.ndindex(*grid))
-    entries = [array.manifest.get_entry(k) for k in keys]
-    paths = np.array([e["path"] for e in entries], dtype=object).reshape(grid)
-    offsets = np.array([e["offset"] for e in entries], dtype=np.uint64).reshape(grid)
-    attributes = {k: v for k, v in (array.metadata.attributes or {}).items() if k != "source_url"}
-    return manifest_array(paths, offsets, lengths, shape=array.shape, chunk_shape=manifest_chunk_shape(array.metadata),
-                          dtype=array.dtype, codecs=codecs,
-                          dimension_names=array.metadata.dimension_names, attributes=attributes)
 
 
 def block_mean(plane: np.ndarray, factor: int) -> np.ndarray:
@@ -346,10 +330,15 @@ def block_mean(plane: np.ndarray, factor: int) -> np.ndarray:
     return np.rint(sums / counts).astype(plane.dtype.newbyteorder("="))
 
 
-def index_all(urls: Sequence[str], registry, pixel_um: float, workers: int) -> dict[str, Indexed]:
-    """:func:`index_and_reduce` on every URL, concurrently; raises after the run if any failed."""
+def index_all(urls: Sequence[str], registry, pixel_um: float, workers: int,
+              label: str = "") -> dict[str, Indexed]:
+    """:func:`index_and_reduce` on every URL, concurrently; raises after the run if any failed.
+
+    ``label`` names the plate in the progress lines, which several plates
+    written at once print to one terminal.
+    """
     done, failed = {}, {}
-    with Progress("indexing and reducing TIFFs", len(urls), unit="files") as progress, \
+    with Progress(f"{label}indexing and reducing TIFFs", len(urls), unit="files") as progress, \
             ThreadPoolExecutor(workers) as pool:
         futures = {pool.submit(index_and_reduce, u, registry, pixel_um): u for u in urls}
         for future in as_completed(futures):
@@ -365,6 +354,21 @@ def index_all(urls: Sequence[str], registry, pixel_um: float, workers: int) -> d
         raise RuntimeError(f"{len(failed)} of {len(urls)} TIFFs failed; first: "
                            f"{next(iter(sorted(failed.items())))}")
     return done
+
+
+def split_tiff(tags: Sequence[Mapping]) -> tuple[dict, list[dict]]:
+    """The TIFF tag groups every file states alike, and what each file states beyond them.
+
+    ``TiffParser`` returns each file's tags grouped by kind (``series``,
+    ``resolution`` and so on). A group identical on every TIFF of the plate
+    is stated once on the plate, and a group that differs on any file stays
+    on each field. On one plate of each source tried (2026-11-10) every group
+    was the same on every file, so no field carried a ``tiff`` block.
+    """
+    keys = {k for t in tags for k in t}
+    common = {k: tags[0][k] for k in sorted(keys)
+              if all(k in t and t[k] == tags[0][k] for t in tags)}
+    return common, [{k: v for k, v in t.items() if k not in common} for t in tags]
 
 
 def lzw_records(f: Field, parts: Sequence[Indexed], channels: Sequence[str]) -> tuple[list, list]:
@@ -396,10 +400,15 @@ def field_level0(indexed: Sequence[Indexed], channels: Sequence[str],
     ``minus80.core.manifest.stack`` names the new axis and keeps the
     channels' shared attributes, and raises if the channels' TIFFs disagree
     on shape, dtype, codec or pixel size.
+
+    ``source_url`` lists the TIFFs in channel order, beside ``channel_names``,
+    so the pair says which file each plane of ``c`` comes from. The field
+    group does not repeat the list.
     """
     array = stack([i.array for i in indexed], dim="c", axis={"type": "channel"}, position=0)
     attrs = array.metadata.attributes
     attrs["channel_names"] = list(channels)
+    attrs["source_url"] = [i.url for i in indexed]
     if translation_um is not None:
         attrs["translation"] = {"y": translation_um["y"], "x": translation_um["x"]}
     return array
@@ -421,16 +430,23 @@ def field_ome(*, name: str, level0: ManifestArray, overview_shape: tuple[int, ..
               translation_um: Mapping[str, float] | None) -> dict:
     """The field's ``ome`` document: level 0 referenced, level 1 the written overview.
 
-    ``minus80.ome.image_attrs`` derives level 1's pixel size from the ratio
-    of the two shapes. Where the field is not a multiple of 16 pixels the
-    last block averages fewer pixels, and the derived size differs from 16
-    pixels by up to 0.7% (about half an overview pixel at the far edge).
+    Level 1's factor is stated as exactly 16 rather than derived from the
+    ratio of the shapes, which a partial last block skews: a 1080-pixel field
+    gives 68 overview pixels, a ratio of 15.88. ``image_attrs`` then gives
+    level 1 a pixel of 16 level-0 pixels, and places its first pixel center
+    7.5 level-0 pixels after level 0's, the center of the first 16 x 16
+    block, so the two levels' outer edges coincide.
+
+    The ``omero`` block is the same on every field of a plate and is still
+    written on each: OME-Zarr defines ``omero`` on an image only, not on a
+    plate or well, so a viewer opening one field finds its channels there.
     """
     return image_attrs(
         name=name, dims=("c", "y", "x"), level_shapes=[level0.shape, overview_shape],
         scale={"c": 1.0, "y": pixel_um, "x": pixel_um},
         units={"y": "micrometer", "x": "micrometer"},
         dimensions=level0.metadata.attributes["dimensions"],
+        level_factors=[{}, {"y": OVERVIEW_FACTOR, "x": OVERVIEW_FACTOR}],
         downsampling="mean", translation=translation_um,
         description=(f"level 0 references the source TIFFs, one chunk per strip; level 1 is a "
                      f"{OVERVIEW_FACTOR}x{OVERVIEW_FACTOR} block mean of level 0, zstd-compressed"),
@@ -455,19 +471,6 @@ class NpyHeader:
     shape: tuple[int, ...]
     data_offset: int
     size: int
-
-
-def list_objects(registry, folder_url: str) -> dict[str, int]:
-    """Every object with bytes under ``folder_url``, by URL, with its size."""
-    store, key = resolve(registry, folder_url + "x")
-    prefix = key[:-1]
-    root = folder_url[: len(folder_url) - len(prefix)]
-    found = {}
-    for batch in obstore.list(store, prefix=prefix):
-        for obj in batch:
-            if obj["size"]:
-                found[root + obj["path"]] = int(obj["size"])
-    return found
 
 
 def read_npy_header(url: str, size: int, registry) -> NpyHeader:
@@ -522,8 +525,10 @@ def illum_array(headers: Sequence[NpyHeader], channels: Sequence[str],
 def illum_ome(*, name: str, array: ManifestArray, pixel_um: float) -> dict:
     """The illumination image's ``ome`` document.
 
-    No ``omero`` block: a display window for these floating-point gain maps
-    would need their values, and reading them is not needed to reference them.
+    No ``omero`` block: a display window for these gain maps would need their
+    values, and referencing them does not read them. Most sources store them
+    as float32 and sources 7 and 13 as uint16 (LAYOUTS.md), so no fixed
+    window fits either.
     """
     return image_attrs(name=name, dims=("c", "y", "x"), level_shapes=[array.shape],
                        scale={"c": 1.0, "y": pixel_um, "x": pixel_um},
@@ -555,12 +560,17 @@ def well_in_name(name: str) -> str | None:
 def folder_extras(listed: Sequence[str], referenced: set[str], wells: set[str]) -> dict:
     """What the image folders hold that ``load_data.csv`` does not reference (PLAN decision 9).
 
-    Files whose name states a well are counted per well when the well is not
-    in ``load_data.csv`` and in one count when it is (extra sites, source_8's
-    thumbnails). Files naming no well (instrument and calibration files) are
-    counted with a few examples.
+    Files whose name states a well are counted per well, with the first URL
+    as an example, when the well is not in ``load_data.csv``, and in one
+    count when it is (extra sites, source_8's thumbnails). Files naming no
+    well (instrument and calibration files) are counted with a few examples.
+
+    One URL per well rather than every URL: source_9's plates hold 5,760
+    such TIFFs each, whose URLs of about 150 bytes would add 0.9 MB per plate
+    to a snapshot every reader fetches, and the example shows where a well's
+    files lie.
     """
-    unlisted_wells: Counter = Counter()
+    unlisted_wells: dict[str, list[str]] = {}
     listed_wells = []
     other = []
     for url in listed:
@@ -573,9 +583,11 @@ def folder_extras(listed: Sequence[str], referenced: set[str], wells: set[str]) 
         elif well in wells:
             listed_wells.append(name)
         else:
-            unlisted_wells[well] += 1
+            unlisted_wells.setdefault(well, []).append(url)
     return {"objects_listed": len(listed),
-            "wells_not_in_load_data": dict(sorted(unlisted_wells.items())),
+            "wells_not_in_load_data": {
+                well: {"files": len(urls), "example": min(urls)}
+                for well, urls in sorted(unlisted_wells.items())},
             "unreferenced_files_of_listed_wells": {"count": len(listed_wells),
                                                    "examples": sorted(listed_wells)[:3]},
             "files_naming_no_well": {"count": len(other), "examples": sorted(other)[:5]}}
@@ -605,7 +617,7 @@ def well_fields(well: str, perturbations: dict, plate_listed: bool) -> dict:
 def plate_fields(*, source, batch, name, load_data_url, every_field, fields, subset,
                  wells_format, channels, plate_row, coverage, pixel_um, pixel_source,
                  positions, times, constant, varying, compression, shortened, unfixable,
-                 extras, illum_path) -> dict:
+                 extras, tiff_common, illum_path, illum_missing) -> dict:
     """The plate's annotations: what the plate is and every judgement the ingest made on it."""
     sites = sorted({f.site for f in every_field}, key=site_key)
     not_recorded = [
@@ -670,7 +682,15 @@ def plate_fields(*, source, batch, name, load_data_url, every_field, fields, sub
             "beyond_load_data": extras,
             "note": "the store follows load_data.csv (PLAN decision 9); these files are in the "
                     "folders and not in it"},
-        "illumination": illum_path or "not written: a channel has no illumination file",
+        "tiff": {
+            "tags": tiff_common,
+            "note": ("the tag groups TiffParser read alike from every TIFF of the plate; a "
+                     "group that differs between files is on each field's tiff block, by "
+                     "channel. The resolution tags are not the pixel size (pixel_size_source)."),
+        },
+        "illumination": illum_path or (
+            "not written: the plate's illumination folder has no "
+            + ", ".join(f"{name}_Illum{c}.npy" for c in illum_missing)),
     }
     if not_recorded:
         out["not_recorded"] = {
