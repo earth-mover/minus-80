@@ -142,6 +142,52 @@ def test_check_page_names_a_corrupted_tile(tmp_path):
         ]
 
 
+def test_check_page_decodes_only_the_named_tiles(tmp_path, monkeypatch):
+    with _one_page(
+        tmp_path, _picture((700, 1300)), tile=(256, 256), compression="adobe_deflate"
+    ) as tif:
+        page = tif.pages[0]
+        array = create_level(
+            _root(tmp_path),
+            "s0",
+            (1, 700, 1300),
+            "uint16",
+            dims=("c", "y", "x"),
+            chunk=(256, 256),
+        )
+        write_page(array, page, (0,))
+        decoded = []
+        real = page.decode
+        monkeypatch.setattr(
+            type(page),
+            "decode",
+            property(
+                lambda self: (
+                    lambda data, i, **kw: (decoded.append(i), real(data, i, **kw))[1]
+                )
+            ),
+        )
+        assert check_page(array, page, (0,), [(0, 0), (2, 5)]) == []
+        assert decoded == [0, 17]
+
+
+def test_a_striped_page_is_refused(tmp_path):
+    with _one_page(tmp_path, _picture((700, 1300))) as tif:
+        page = tif.pages[0]
+        array = create_level(
+            _root(tmp_path),
+            "s0",
+            (1, 700, 1300),
+            "uint16",
+            dims=("c", "y", "x"),
+            chunk=(256, 256),
+        )
+        with pytest.raises(NotImplementedError, match="striped"):
+            write_page(array, page, (0,))
+        with pytest.raises(NotImplementedError, match="striped"):
+            check_page(array, page, (0,), [(0, 0)])
+
+
 def test_a_page_of_another_shape_is_refused(tmp_path):
     _pyramid_tiff(tmp_path / "p.tif", planes=1)
     with tifffile.TiffFile(tmp_path / "p.tif") as tif:

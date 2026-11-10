@@ -35,13 +35,44 @@ def create_level(
     )
 
 
+def _crop(
+    page: tifffile.TiffPage, segment: np.ndarray, indices: tuple
+) -> tuple[int, int, int, np.ndarray]:
+    """Return `(channel0, y0, x0, tile)` with the tile cropped to the page, as `(s, h, w)`."""
+    sample, _, y0, x0, _ = indices
+    tile = segment[0, : page.imagelength - y0, : page.imagewidth - x0]
+    return sample, y0, x0, np.moveaxis(tile, -1, 0)
+
+
 def _tiles(page: tifffile.TiffPage) -> Iterator[tuple[int, int, int, np.ndarray]]:
-    """Yield `(channel0, y0, x0, tile)` for each decoded tile, cropped to the page, as `(s, h, w)`."""
-    for segment, (sample, _, y0, x0, _), _ in page.segments():
-        if segment is None:
+    """Yield each decoded tile of the page, once."""
+    for segment, indices, _ in page.segments():
+        if segment is not None:
+            yield _crop(page, segment, indices)
+
+
+def _decode_tile(
+    page: tifffile.TiffPage, row: int, col: int
+) -> Iterator[tuple[int, int, int, np.ndarray]]:
+    """Decode only tile `(row, col)`: one segment, or one per sample on a planar page."""
+    per_row = -(-page.imagewidth // page.tilewidth)
+    per_plane = per_row * -(-page.imagelength // page.tilelength)
+    planar = page.planarconfig == tifffile.PLANARCONFIG.SEPARATE
+    fh = page.parent.filehandle
+    for sample in range(page.samplesperpixel if planar else 1):
+        i = sample * per_plane + row * per_row + col
+        if not page.databytecounts[i]:
             continue
-        tile = segment[0, : page.imagelength - y0, : page.imagewidth - x0]
-        yield sample, y0, x0, np.moveaxis(tile, -1, 0)
+        with page.parent.filehandle.lock:
+            fh.seek(page.dataoffsets[i])
+            data = fh.read(page.databytecounts[i])
+        segment, indices, _ = page.decode(data, i)
+        yield _crop(page, segment, indices)
+
+
+def _require_tiled(page: tifffile.TiffPage) -> None:
+    if not page.is_tiled:
+        raise NotImplementedError(f"{page} is striped, not tiled")
 
 
 def _region(page: tifffile.TiffPage, index, channel0, y0, x0, tile):
@@ -63,6 +94,7 @@ def write_page(
     array: zarr.Array, page: tifffile.TiffPage, index: tuple[int, ...]
 ) -> int:
     """Decode each tile of `page` once and write it at `index`; return the tile count."""
+    _require_tiled(page)
     _check_shape(array, page)
     count = 0
     for channel0, y0, x0, tile in _tiles(page):
@@ -79,16 +111,16 @@ def check_page(
     tiles: Sequence[tuple[int, int]],
 ) -> list[str]:
     """Compare the `(row, col)` tiles of `page` with `array`; return one message per tile that differs."""
+    _require_tiled(page)
     _check_shape(array, page)
-    wanted = set(tiles)
     bad = set()
-    for channel0, y0, x0, tile in _tiles(page):
-        key = (y0 // page.tilelength, x0 // page.tilewidth)
-        if key not in wanted:
-            continue
-        stored = array[_region(page, index, channel0, y0, x0, tile)]
-        if not np.array_equal(stored, tile if page.samplesperpixel > 1 else tile[0]):
-            bad.add(key)
+    for row, col in tiles:
+        for channel0, y0, x0, tile in _decode_tile(page, row, col):
+            stored = array[_region(page, index, channel0, y0, x0, tile)]
+            if not np.array_equal(
+                stored, tile if page.samplesperpixel > 1 else tile[0]
+            ):
+                bad.add((row, col))
     return [f"tile {key} differs from the page" for key in sorted(bad)]
 
 
