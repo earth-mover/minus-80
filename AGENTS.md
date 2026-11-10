@@ -75,6 +75,12 @@ ingest, the work is not done. That rules out:
 - An ingest imports from `minus80`, never from another ingest. Code only one
   archive needs stays in that ingest. Anything a second archive could use moves
   into `minus80`.
+- A finished ingest records the code it ran with, so a change to `minus80`
+  does not have to update it. Only the ingest in progress moves with
+  `minus80`. Each batch that writes a store is a numbered script under
+  `ingests/<archive>/runs/`, and its header names the commit it ran from. To
+  run a finished ingest again, check out that commit, or upgrade the ingest to
+  the current `minus80` and record that as a new run.
 - OME-Zarr output is version 0.5 metadata; ingest an older source by upgrading
   it.
 - Tabular data without a Zarr convention (per-target annotations, edge lists,
