@@ -5,7 +5,9 @@ description = "Copy 10x Atera WTA samples (s3://10x.files/samples/atera) into na
 requires-python = ">=3.12"
 dependencies = [
     "arraylake[iceberg]>=1.8.0",
-    "minus-80[tiff]",
+    "minus-80[tables,tiff]",
+    "pyarrow",
+    "shapely>=2",
     "tifffile>=2025.1.1",
 ]
 
