@@ -250,10 +250,14 @@ expiration and no garbage collection for Iceberg tables (its catalog docs,
 never expires, compacts or rewrites these tables. Each table's properties name
 the repo that references its files.
 
-If Arraylake's catalog refuses `add_files`, the fallback has two parts. The
-tables take pyiceberg's own `append`, whose files lack the footer metadata.
-The `uint8` copies become real chunks, written from the ingest's own Parquet
-bytes, about 15 GB more per sample. The fixture settles which.
+The `uint8` copies are never real chunks. If Arraylake's catalog refuses
+`add_files`, the tables take pyiceberg's own `append`, whose files lack the
+footer metadata, and the copies reference those files. The shim then takes
+the `geo` metadata from the table property and the index column from the
+`iceberg_table` attribute, which is what zax reads already. If the repo
+cannot reference files in the R2 bucket at all (call 12), the copies are
+dropped, points and shapes are Iceberg-only, and the shim scans the table.
+The fixture settles which.
 
 Shapes tables carry an `instance` column that equals the mask label. It is the
 `index_column`. The source's `cell_index` stays as a column. The table element
@@ -363,9 +367,10 @@ copies on Icechunk; decode and write throughput on a Coiled VM.
     verify against the store.
 12. **Virtual references for the `uint8` copies.** They point into our own
     bucket, not a public one, so the repo's virtual chunk container needs
-    Arraylake's credentials. Recommended: test it in the fixture; if it fails,
-    write the copies as real chunks, about 15 GB more per sample, and record
-    the change.
+    Arraylake's credentials. The copies are never real chunks. Recommended:
+    test it in the fixture; if it fails, drop the copies, keep points and
+    shapes in Iceberg only, give the shim a table scan, and record the
+    change.
 
 ## Steps, scope and risk
 
@@ -423,7 +428,8 @@ over 1 to 5 billion rows. A run that is well past its expected time stops.
 Risks:
 
 - **Virtual references into R2** (call 12) may not get credentials through
-  Arraylake. The fallback is real chunks.
+  Arraylake. The fallback is Iceberg-only points and shapes, never real
+  chunks.
 - **zax on an S3-compatible endpoint.** zax's Iceberg storage is written for
   S3 and GCS. R2 speaks S3 with an endpoint URL. The fixture tells.
 - **The Python read path** rests on five unreleased spatialdata patches and
