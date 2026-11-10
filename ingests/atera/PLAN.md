@@ -74,10 +74,40 @@ set `atera_cell_segmentation_stains_v1`. The three fresh-frozen samples are
 three regions of one slide, S4, from one run. The brain sample assigns 45
 percent of its transcripts to cells; the others assign 84 to 88 percent.
 
-The datasets are licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
-which permits a re-hosted copy with attribution. The root attributes record
-the licence, the citation 10x asks for, and the source URL, size and ETag of
-every object.
+**Licence and attribution.** The datasets are licensed
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), which permits a
+re-hosted copy with attribution. 10x's citation page gives one format for a
+dataset, by example:
+
+> PBMCs from C57BL/6 mice (v1, 150x150), Single Cell Immune Profiling Dataset
+> by Cell Ranger v3.1.0, 10x Genomics, (2019, July 24).
+
+So a dataset citation names the dataset's title, the product, the software and
+its full version, 10x Genomics, and the publication date. Software is cited as
+"10x Genomics Atera Onboard Analysis v1.0.0", with the version stated. The
+page lists no publication for Atera, so there is no DOI to cite. No trademark
+symbol is needed in a citation.
+
+The root attributes follow the keys the `cellpainting-gallery` repo uses, so a
+reader finds them in the same place in every repo of the org:
+
+| Key | Value |
+|---|---|
+| `title` | the dataset's title as the 10x dataset page gives it |
+| `description` | what the store holds and how it is laid out |
+| `source` | the four objects: URL, size, ETag and last-modified date of each |
+| `documentation` | the dataset page URL and the Atera Onboard Analysis output documentation URL |
+| `license` | `"Creative Commons Attribution 4.0 International (CC BY 4.0)"` and its URL |
+| `citation` | `text`: the rendered citation in 10x's format; `dataset_title`; `product`: `"Atera In Situ"`; `software`: `"10x Genomics Atera Onboard Analysis v1.0.4.1"`, from `analysis_sw_version`; `instrument_software`: from `instrument_sw_version`; `publisher`: `"10x Genomics"`; `published`: the dataset page's date; `url`: the dataset page; `doi`: `null`, with a note that 10x lists none |
+| `reading` | which readers open which elements, and what the shim is for |
+| `sample`, `run`, `panel`, `metrics` | `experiment.spatial` and `metrics_summary.csv`, typed |
+| `missing` | what the store leaves out, and why |
+
+Every Iceberg table carries the same `license`, `citation` and `source` in
+its table properties, so a table read on its own still attributes. The
+dataset titles and the publication dates come from the dataset pages, which
+block automated reads; the ingest takes them from a hand-written record in
+`LAYOUTS.md`, checked against the page by a person.
 
 **The bundle.** Each `outs.zip` stores all 23 members with no compression, so
 every member is a byte range of the object. The members, with the kidney's
