@@ -22,8 +22,6 @@ DEPTH = 4
 
 def open_target(location: str):
     """The repo to write: an existing Arraylake repo, or a new local or S3 one."""
-    if location.startswith(ARRAYLAKE):
-        return arraylake_repository(location, source_prefixes=[PREFIX])
     return create_repo(location, [], prefixes=[PREFIX], open_existing=True)
 
 

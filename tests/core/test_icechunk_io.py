@@ -1,3 +1,5 @@
+import types
+
 import icechunk
 
 from minus80.core import icechunk_io
@@ -69,3 +71,41 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
     assert config.storage.retries.max_tries == REMOTE_READ_TRIES
     with pytest.raises(ValueError, match="no virtual chunk container covering"):
         icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
+
+
+def _record_arraylake(monkeypatch):
+    calls = []
+
+    def fake(location, *, source_prefixes=None):
+        calls.append((location, source_prefixes))
+        return "arraylake repo"
+
+    monkeypatch.setattr(icechunk_io, "arraylake_repository", fake)
+    return calls
+
+
+def test_arraylake_locations_open_through_arraylake(monkeypatch, tmp_path):
+    calls = _record_arraylake(monkeypatch)
+    location = "arraylake://org/repo"
+    assert create_repo(location, [], prefixes=["s3://b/"]) == "arraylake repo"
+    assert open_repository(location) == "arraylake repo"
+    assert open_repository(location, source_prefixes=["s3://c/"]) == "arraylake repo"
+    assert calls == [(location, ["s3://b/"]), (location, None), (location, ["s3://c/"])]
+    assert not (tmp_path / "arraylake:").exists()
+
+
+def test_open_repo_reads_an_arraylake_repo_through_arraylake(monkeypatch):
+    import zarr
+
+    store = zarr.storage.MemoryStore()
+    zarr.create_group(store)
+    repo = types.SimpleNamespace(readonly_session=lambda branch: types.SimpleNamespace(store=store))
+    monkeypatch.setattr(icechunk_io, "arraylake_repository", lambda location, **kw: repo)
+    assert isinstance(icechunk_io.open_repo("arraylake://org/repo"), zarr.Group)
+
+
+def test_storage_for_refuses_an_arraylake_location():
+    import pytest
+
+    with pytest.raises(ValueError, match="Arraylake"):
+        icechunk_io.storage_for("arraylake://x/y")

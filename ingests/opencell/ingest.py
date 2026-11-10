@@ -38,7 +38,7 @@ from pathlib import Path
 import obstore
 import zarr
 from minus80.core import registry_for
-from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, create_repo
+from minus80.core.icechunk_io import commit, create_repo
 from minus80.core.manifest import permute_dims
 from minus80.core.progress import Progress
 from minus80.core.registry import s3_region
@@ -200,8 +200,6 @@ def place(record: dict) -> Place:
 
 def open_target(location: str):
     """The repo to write: an existing Arraylake repo, or a new local or S3 one."""
-    if location.startswith(ARRAYLAKE):
-        return arraylake_repository(location, source_prefixes=[PREFIX])
     return create_repo(location, [], prefixes=[PREFIX])
 
 
@@ -209,8 +207,7 @@ def open_readonly(location: str):
     """A read-only session on the repo ``location`` names, its virtual chunks authorized."""
     from minus80.core.icechunk_io import open_repository
 
-    repo = (arraylake_repository(location) if location.startswith(ARRAYLAKE)
-            else open_repository(location))
+    repo = open_repository(location)
     return repo.readonly_session("main")
 
 

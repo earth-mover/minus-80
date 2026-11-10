@@ -155,6 +155,10 @@ def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
 def storage_for(location: str | Path):
     """Icechunk storage for a local directory or an ``s3://bucket/prefix`` URL.
 
+    An ``arraylake://`` location raises ``ValueError``: Arraylake owns the
+    repo's storage, so it is opened through :func:`arraylake_repository`, which
+    :func:`create_repo`, :func:`open_repository` and :func:`open_repo` do for it.
+
     An ingest run on a cloud worker has to leave its repo somewhere that outlives
     the worker, so the repo location may be an S3 prefix as well as a path. S3
     credentials come from the environment, the region as for
@@ -163,6 +167,10 @@ def storage_for(location: str | Path):
     import icechunk
 
     text = str(location)
+    if text.startswith(ARRAYLAKE):
+        raise ValueError(
+            f"{text} is an Arraylake repo, which has no storage location to build; "
+            "open it with arraylake_repository, create_repo or open_repository.")
     if not text.startswith("s3://"):
         return icechunk.Storage.new_local_filesystem(str(Path(text).resolve()))
     bucket, _, prefix = text[len("s3://") :].partition("/")
@@ -182,7 +190,10 @@ def create_repo(
     """Create an Icechunk repo authorized to read ``source_urls``' bytes.
 
     ``repo_path`` is a local directory or an ``s3://bucket/prefix`` URL
-    (:func:`storage_for`).
+    (:func:`storage_for`), or ``arraylake://<org>/<repo>``. An Arraylake repo
+    is never created here: it must exist, and :func:`arraylake_repository`
+    checks that its containers cover the prefixes, so ``ideal_request_size``
+    and ``open_existing`` do not apply to it.
 
     ``prefixes`` names the containers explicitly; by default one is derived per
     source directory. A repo that will hold many studies from one archive wants
@@ -207,6 +218,8 @@ def create_repo(
     import icechunk
 
     prefixes = sorted(set(prefixes)) if prefixes else sorted({_url_prefix(u) for u in source_urls})
+    if str(repo_path).startswith(ARRAYLAKE):
+        return arraylake_repository(str(repo_path), source_prefixes=prefixes)
     remote = any(
         urlparse(p).scheme in ("http", "https", "s3", "gs", "az") for p in prefixes
     )
@@ -289,7 +302,8 @@ def write_manifest_group(
 def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None = None):
     """Reopen a persisted Icechunk repo, authorized to follow its virtual chunks.
 
-    ``repo_path`` is a local directory or an ``s3://bucket/prefix`` URL. Returns
+    ``repo_path`` is a local directory, an ``s3://bucket/prefix`` URL or
+    ``arraylake://<org>/<repo>`` (:func:`arraylake_repository`). Returns
     the :class:`icechunk.Repository` itself, for a caller that writes to it or
     picks its own session; :func:`open_repo` is the read-only group on top.
     Unless ``source_prefixes`` is given, the prefixes to authorize are read
@@ -298,6 +312,8 @@ def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None 
     """
     import icechunk
 
+    if str(repo_path).startswith(ARRAYLAKE):
+        return arraylake_repository(str(repo_path), source_prefixes=source_prefixes)
     storage = storage_for(repo_path)
     if source_prefixes is None:
         containers = (
