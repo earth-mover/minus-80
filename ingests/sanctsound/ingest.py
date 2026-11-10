@@ -127,7 +127,7 @@ def scan_deployment(dep: str, window_args: list[str], cache: Path, out: Path) ->
     with Progress(f"scanning {len(todo)} recordings", sum(items[i][1] for i in todo),
                   unit="GB", scale=1e9, every=30) as progress, \
             ProcessPoolExecutor(mp_context=multiprocessing.get_context("spawn")) as pool:
-        scans = [pool.submit(scan_recording, items[i][0]) for i in todo]
+        scans = [pool.submit(scan_recording, *items[i]) for i in todo]
         for i, scan in zip(todo, scans):
             scan.result().save(cached[i])
             progress.advance(items[i][1])
