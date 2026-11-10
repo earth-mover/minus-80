@@ -41,14 +41,18 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
     """Polygon set ``set_index``; ``cell_ids`` holds one Xenium id per cell, indexed by ``cell_index``.
 
     ``vertices`` rows interleave x and y (x0, y0, x1, y1, ...); ``num_vertices`` counts the pairs.
+    A ring with under 3 vertices or a non-finite coordinate raises ``ValueError`` naming the row.
+    An invalid ring, such as a bow-tie, is kept as published: the source's errors are reproduced.
     """
     read = lambda name: read_v2_array(zf, f"polygon_sets/{set_index}/{name}")
     vertices, num_vertices = read("vertices"), read("num_vertices")
     cell_index, method = read("cell_index"), read("method")
-    polygons = [
-        shapely.Polygon(row[: 2 * count].reshape(count, 2).astype(np.float64))
-        for row, count in zip(vertices, num_vertices)
-    ]
+    polygons = []
+    for i, (row, count) in enumerate(zip(vertices, num_vertices)):
+        ring = row[: 2 * count].reshape(count, 2).astype(np.float64)
+        if count < 3 or not np.isfinite(ring).all():
+            raise ValueError(f"polygon row {i} has {count} vertices and cannot be a ring")
+        polygons.append(shapely.Polygon(ring))
     bounds = shapely.bounds(polygons) if polygons else np.empty((0, 4))
     return pa.table(
         {
