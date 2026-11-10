@@ -207,8 +207,25 @@ missing from the table is not known.
 ## Illumination functions
 
 Each `<plate>_Illum<channel>.npy` is a NumPy 1.0 file: a 128-byte header,
-then the array in C order. On source_4 the header reads `<f4`, shape
-`(1080, 1080)`, and 128 + 1080 × 1080 × 4 bytes is the file's size, so each
-file is one chunk from byte 128. Sources 7 and 13's files are 1080 × 1280 × 2 +
-128 bytes, which suggests 2 bytes per value; each plate's headers are read
-before its illumination image is written, and dtype and shape come from them.
+then the array in C order, so each file is one chunk from byte 128. Each
+plate's headers are read before its illumination image is written, and dtype
+and shape come from them. The headers of one plate per source, read
+2026-11-10:
+
+| source | dtype | shape |
+|---|---|---|
+| 1, 3, 4, 9, 11, 15 | `<f4` | 1080 × 1080 |
+| 2 | `<f4` | 996 × 996 |
+| 5 | `<f4` | 998 × 998 |
+| 7, 13 | `<u2` | 1080 × 1280 |
+| 8 | `<f4` | 1024 × 1024 |
+| 10 | `<f4` | 1000 × 1000 |
+
+Every header's data offset is 128, and 128 plus the array's bytes is each
+object's size. Sources 7 and 13 store their functions as uint16, not float32.
+
+Each plate's `load_data_with_illum.csv` names one `URL_Illum<channel>` per
+channel. On source_15's PEC00001783 it names `PEC00001783_IllumRNA.npy` for
+ER, and that file and `PEC00001783_IllumER.npy` are byte-identical (SHA-256
+`039363ccba89dc77…`). The store references `_IllumER.npy` for ER and lists
+`_IllumRNA.npy` as not referenced.
