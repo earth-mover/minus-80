@@ -5,7 +5,6 @@ import pytest
 from .stores import zip_v2_store
 from transcripts import (
     CATEGORY_COLUMNS,
-    GEO_POINTS,
     TRANSCRIPT_SCHEMA,
     codeword_table,
     tile_table,
@@ -21,7 +20,7 @@ def zf(tmp_path):
     tile = {
         "grid/0,0/location": (np.array([[1.5, 2.5, 3.5]] * 5, dtype="<f4") + np.arange(5)[:, None].astype("<f4") * [0, 0, 1], {"order": "F"}),
         "grid/0,0/codeword_identity": (np.array([[0], [1], [2], [3], [0]], dtype="<u4"), {}),
-        "grid/0,0/cell_id": (np.array([[1, 1], [26, 1], [0, 1], [0, 1], [5, 2]], dtype="<u4"), {"order": "F"}),
+        "grid/0,0/cell_id": (np.array([[1, 1], [0x1F, 1], [0, 1], [0, 1], [5, 2]], dtype="<u4"), {"order": "F"}),
         "grid/0,0/quality_score": (np.linspace(10, 40, 5, dtype="<f2")[:, None], {}),
         "grid/0,0/overlaps_nucleus": (np.array([[1], [0], [0], [1], [0]], dtype="u1"), {}),
         "grid/0,0/gene_offset": (np.zeros((2, 2), dtype="<u4"), {}),
@@ -31,8 +30,9 @@ def zf(tmp_path):
         "transcripts",
         {"codeword_category": (category, {"order": "C"}), **tile},
         attrs={
-            "feature_names": ["GENE1", "GENE2", "NegControl"],
-            "codeword_feature_index": [0, 1, 2, 0],
+            "gene_names": ["GENE1", "GENE2", "NegControl"],
+            "codeword_gene_names": ["GENE1", "GENE2", "NegControl", "GENE1"],
+            "codeword_gene_mapping": [0, 1, 2, 0],
         },
     )
 
@@ -58,7 +58,7 @@ def test_tile_table_has_the_schema_and_the_xenium_cell_ids(zf, codewords):
     assert t["instance"].to_pylist() == [100, 101, 102, 103, 104]
     assert t["grid_tile"].to_pylist() == ["0,0"] * 5
     assert t["cell_id"][0].as_py() == "aaaaaaab-1"  # prefix 1, suffix 1
-    assert t["cell_id"][1].as_py() == "aaaaaaba-1"  # prefix 26 is "ba" in base 26
+    assert t["cell_id"][1].as_py() == "aaaaaabp-1"  # prefix 0x1F
     assert t["bbox"][0].as_py() == {"xmin": 1.5, "ymin": 2.5, "xmax": 1.5, "ymax": 2.5}
     assert t["feature_name"][0].as_py() == "GENE1"
     assert t["feature_name"].to_pylist() == ["GENE1", "GENE2", "NegControl", "GENE1", "GENE1"]
@@ -68,11 +68,5 @@ def test_tile_table_has_the_schema_and_the_xenium_cell_ids(zf, codewords):
 
 
 def test_xenium_cell_id_orders_letters_most_significant_first():
-    got = xenium_cell_id(np.array([0, 1, 26, 2**32 - 1], dtype="uint32"), np.array([1, 1, 2, 3], dtype="uint32"))
-    assert got.tolist() == ["aaaaaaaa-1", "aaaaaaab-1", "aaaaaaba-2", "anxmrlxv-3"]
-
-
-def test_geo_points_declares_a_wkb_point_column():
-    assert GEO_POINTS["version"] == "1.1.0"
-    assert GEO_POINTS["columns"][GEO_POINTS["primary_column"]]["encoding"] == "WKB"
-    assert GEO_POINTS["columns"][GEO_POINTS["primary_column"]]["geometry_types"] == ["Point"]
+    got = xenium_cell_id(np.array([0, 1, 0x1F, 2**32 - 1], dtype="uint32"), np.array([1, 1, 2, 3], dtype="uint32"))
+    assert got.tolist() == ["aaaaaaaa-1", "aaaaaaab-1", "aaaaaabp-2", "pppppppp-3"]

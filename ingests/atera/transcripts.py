@@ -41,43 +41,24 @@ TRANSCRIPT_SCHEMA = pa.schema(
     ]
 )
 
-# The table has no geometry column: ``bbox`` is the point and the covering declares it.
-GEO_POINTS = {
-    "version": "1.1.0",
-    "primary_column": "geometry",
-    "columns": {
-        "geometry": {
-            "encoding": "WKB",
-            "geometry_types": ["Point"],
-            "covering": {
-                "bbox": {k: ["bbox", k] for k in ("xmin", "ymin", "xmax", "ymax")}
-            },
-        }
-    },
-}
-
-
 def xenium_cell_id(prefix: np.ndarray, suffix: np.ndarray) -> np.ndarray:
-    """Xenium cell ids: the prefix as 8 base-26 letters, a is 0, then ``-`` and the suffix."""
-    digits = np.empty((len(prefix), 8), dtype="U1")
-    rest = prefix.astype(np.uint64)
-    for place in range(7, -1, -1):
-        digits[:, place] = (rest % 26 + ord("a")).astype(np.uint8).view("S1").astype("U1")
-        rest //= 26
-    letters = digits.view("U8").ravel()
+    """Xenium cell ids: the prefix as 8 hex nibbles, 0 to 15 as a to p, most significant first, then ``-`` and the suffix."""
+    shifts = np.arange(28, -4, -4, dtype=np.uint32)
+    nibbles = ((prefix.astype(np.uint32)[:, None] >> shifts) & 0xF).astype(np.uint8) + ord("a")
+    letters = np.ascontiguousarray(nibbles).view("S8").ravel().astype("U8")
     return np.char.add(np.char.add(letters, "-"), suffix.astype(str))
 
 
 def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
-    """One row per codeword; ``feature_names`` and ``codeword_feature_index`` come from the root attributes."""
+    """One row per codeword; names and feature indices come from the root attributes."""
     attrs = json.loads(zf.read(".zattrs"))
-    feature_names = np.array(attrs["feature_names"], dtype=object)
-    feature_index = np.asarray(attrs["codeword_feature_index"], dtype=np.int32)
+    feature_names = pa.array(attrs["codeword_gene_names"], type=pa.string())
+    feature_index = np.asarray(attrs["codeword_gene_mapping"], dtype=np.int32)
     category = read_v2_array(zf, "codeword_category")
     columns = {
         "codeword_index": pa.array(np.arange(len(feature_index), dtype=np.uint32)),
         "feature_index": pa.array(feature_index),
-        "feature_name": pa.array(feature_names[feature_index], type=pa.string()),
+        "feature_name": feature_names,
     }
     columns.update({n: pa.array(category[:, i]) for i, n in enumerate(CATEGORY_COLUMNS)})
     return pa.table(columns)
