@@ -3,8 +3,10 @@
 ## Summary
 
 The plan brings the JUMP Cell Painting dataset, `cpg0016-jump` in the Cell
-Painting Gallery, into `earthmover-biology` as virtual OME-Zarr HCS plates in
-Icechunk, with tables that say what was done to every well.
+Painting Gallery, into the Icechunk repo `earthmover-biology/cellpainting-gallery`
+as virtual OME-Zarr HCS plates, with tables that say what was done to every
+well. The repo already holds the pilot dataset, `cpg0000-jump-pilot`, and
+`cpg0016-jump` goes beside it.
 
 - **Images.** Each plate becomes one OME-Zarr 0.5 HCS plate under the gallery's
   own path. Each field's full resolution references the gallery's TIFFs in
@@ -13,15 +15,16 @@ Icechunk, with tables that say what was done to every well.
 - **Scope.** 2,298 plates from 12 of the 13 imaging sources, about 7.7 million
   fields and 49 million TIFFs. Source_6 is left out because its strips do not
   divide the image (decision 3).
-- **Tables.** Three Iceberg tables beside the stores, at plate, well and field
+- **Tables.** Three Iceberg tables beside the repo, at plate, well and field
   grain, built from JUMP's own metadata and each plate's `load_data.csv`.
 
 **Asked of the reviewer:** approve the layout and steps below, and decide the
-judgement calls. Decision 1 is the one most likely to draw an objection.
+judgement calls. Decision 4, source_8's 955 million references, is the one
+most likely to draw an objection.
 
 | # | Decision | Recommended |
 |---|---|---|
-| 1 | Where one repo ends | **One repo per batch**, 136 repos; merge later once Icechunk serves large snapshots |
+| 1 | The 7 cpg0016 plates the repo already holds, in the earlier layout | Replace them with plates in this layout |
 | 2 | Which plates | Every plate in the bucket with a `load_data.csv`, source_6 excepted, including source_15's 21 plates JUMP's plate table omits |
 | 3 | Source_6, strips of 6 rows over 970 | Leave it out until zarr-python reads rectilinear chunk grids by default |
 | 4 | Source_8, 256 strips per TIFF | Keep one chunk per strip, 955 million references |
@@ -39,8 +42,8 @@ the 16× overview is built in the same decode pass; illumination functions are
 referenced in place as one standalone image per plate; the field table has one
 row per field.
 
-Nothing is written to a shared resource before approval. Creating repos, each
-Coiled run and each table write need approval in turn (see "Steps, scope and
+Nothing is written to a shared resource before approval. Each Coiled run and
+each table write need approval in turn (see "Steps, scope and
 risk").
 
 ## The archive
@@ -142,8 +145,8 @@ From OME-Zarr 0.5:
 
 ### The tree
 
-One repo per batch (decision 1). Every repo keeps the gallery's path from the
-dataset down, so a plate's path is the same whichever repo holds it:
+The repo keeps the gallery's path from the dataset down, beside the pilot's
+`cpg0000-jump-pilot/`:
 
 ```
 /                                         title, license (CC0 1.0), citations, source bucket, codecs a reader needs,
@@ -184,7 +187,7 @@ cpg0016-jump/<source>/                    microscope, pixel size and where it wa
 | level 1 of every field | written, from one decode of every TIFF |
 | illumination functions | referenced: one chunk per `.npy`, from byte 128, with `minus80.core.builders.flat_binary` |
 | plate, well and field documents; each well's perturbation; source URLs | written: JSON attributes |
-| plate, well and field tables | Iceberg tables beside the stores |
+| plate, well and field tables | Iceberg tables beside the repo |
 
 ### The tables
 
@@ -194,11 +197,10 @@ One Iceberg namespace, `cpg0016_jump`, in `earthmover-biology`'s catalog:
 |---|---|---|---|
 | `plates` | plate: (`source`, `batch`, `plate`) | `plate.csv.gz`, `microscope_config.csv`, `load_data.csv` | 2,298 |
 | `wells` | well: plate key + `well` | `well.csv.gz` and the perturbation tables | about 1 million |
-| `fields` | field: well key + `site` | `load_data.csv` and the stores | about 7.7 million |
+| `fields` | field: well key + `site` | `load_data.csv` and the repo | about 7.7 million |
 
 - **`plates`**: plate type, microscope, pixel size and its source, sites per
-  well, wells and fields in the store, the plate's repo, snapshot and store
-  path, and whether `plate.csv.gz` lists it.
+  well, wells and fields in the store, the snapshot and store path, and whether `plate.csv.gz` lists it.
 - **`wells`**: JCP2022 id, `pert_type`, `control_type`, `control_name`,
   InChIKey, gene symbol, `broad_sample`, a boolean `is_control`, and the well's
   store path.
@@ -263,29 +265,15 @@ which suggests uint16 rather than float32; their headers decide.
 
 ## Judgement calls
 
-1. **Where one repo ends.**
-   - *Evidence:* a reader fetches the whole snapshot on open. A 9-site,
-     384-well plate is about 10,800 nodes (3,456 fields, each a group and two
-     arrays, plus wells and rows) and added about 0.63 MB to the earlier
-     store's snapshot. Icechunk's snapshot cache holds 500,000 nodes by
-     default, about 45 such plates.
-   - *Options:*
-     - One repo for the dataset: about 25 million nodes and a snapshot of
-       about 1.4 GB. No reader can open it today.
-     - One repo per source (12): 55 to 303 plates, a snapshot of about 60 to
-       190 MB, and up to seven times the default cache.
-     - **One repo per batch (136)**: 1 to 70 plates, a median of 13; the
-       largest is source_15's `2021_12_03_Batch1`. A snapshot of about 8 MB at
-       the median and 45 MB at the largest.
-   - *Recommended:* one repo per batch, named
-     `cpg0016-jump-<source>-<batch>`. It is the only option every reader can
-     open at default settings. The `plates` table lists every plate's repo, so
-     a query across the dataset never needs a listing of repos.
-   - *Cost:* 136 repos in the organization, and a reader who wants two batches
-     opens two repos.
-   - *Reversible:* every repo keeps the gallery's paths, so once Icechunk
-     serves snapshots of this size, `minus80.core.repo_copy` merges the
-     batches into fewer repos without renaming a node.
+1. **The 7 cpg0016 plates already in the repo.**
+   - *Evidence:* the copy of `earthmover-public/cellpainting-gallery` brought
+     one plate each from sources 1, 2, 3, 4, 8, 10 and 11, in the earlier
+     layout: fields numbered 0, 1, … rather than by site, a 5-D `cube` and
+     `annotations` and `profiles` arrays inside each plate. They sit at the
+     paths this ingest writes.
+   - *Recommended:* delete each one and write it again in this layout, in the
+     same commit as the rest of its batch. `earthmover-public` keeps the
+     originals, and the repo's history keeps the copy.
 2. **Which plates.**
    - *Evidence:* 2,544 plates have a `load_data.csv`; 2,525 are in
      `plate.csv.gz`. The 21 bucket-only plates are all on source_15.
@@ -379,8 +367,8 @@ bounded-decode fix in `docs/upstream.md`.
 repo: parse, write, verify against tifffile, and open in a plate viewer. Read
 every source's illumination header.
 
-**Phase 2, one plate per source. Needs approval to create one repo per trial
-batch in `earthmover-biology` and to run Coiled.** One full plate from each
+**Phase 2, one plate per source. Needs approval to write to
+`earthmover-biology/cellpainting-gallery` and to run Coiled.** One full plate from each
 of the 12 sources on Coiled VMs in us-east-1, each on a `trial-<source>`
 branch: index, decode once for the overview and the LZW check, commit. Time
 each commit, and check Y's sign on the Operetta and source_9 plates. Run
@@ -393,7 +381,7 @@ launching terminal.
 
 **Phase 4, the tables. Each write is approved separately.** Build `plates`,
 `wells` and `fields`, check each row count against its source, and pin each
-row to the repo and snapshot it describes.
+row to the snapshot it describes.
 
 **`verify.py`**, in about a minute per batch:
 
@@ -411,7 +399,7 @@ whose nine plates are already in `earthmover-biology/cellpainting-gallery`.
 
 **Writes that need approval:**
 
-- creating the repos and the Iceberg namespace in `earthmover-biology`;
+- creating the Iceberg namespace in `earthmover-biology`;
 - the Phase 2 trial and the Phase 3 run;
 - each table write.
 
@@ -421,12 +409,19 @@ dataset is about 400 VM-hours, about $150 on demand. Reads stay in us-east-1.
 
 **Risks.**
 
-- **Commit cost.** About 6,900 arrays per 9-site plate and 90,000 for a
-  median batch. OpenCell committed 18,500 arrays in 115 s; a batch commit is
-  unmeasured until Phase 2.
+- **Snapshot size.** A reader fetches the whole snapshot on open. A 9-site,
+  384-well plate is about 10,800 nodes and added about 0.63 MB to the earlier
+  store's snapshot, so the finished repo is about 25 million nodes and a
+  snapshot of about 1.4 GB. Icechunk's snapshot cache holds 500,000 nodes by
+  default, about 45 such plates, so a reader raises the cache.
+- **Commit cost.** Each commit writes a new snapshot of the whole repo, so
+  commits slow as the repo grows. A batch adds about 6,900 arrays per 9-site
+  plate, 90,000 at the median of 13 plates. OpenCell committed 18,500 arrays
+  in 115 s; neither a batch commit nor its growth with snapshot size is
+  measured until Phase 2.
 - **Source_8's manifests.** 955 million references, about 4.4 million per
-  plate and 246 million in its largest batch, `J2`; neither the commit nor the manifest size of a source_8 batch has been
-  measured.
+  plate and 246 million in its largest batch, `J2`. Neither the commit nor
+  the manifest size of a source_8 batch has been measured.
 - **Readers need imagecodecs-zarr** for level 0 on LZW sources, since
   `imagecodecs_lzw` is outside the Zarr core. The root attributes say so;
   level 1 uses only zstd.
