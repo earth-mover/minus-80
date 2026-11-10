@@ -61,12 +61,16 @@ dataset pages are at
 [10xgenomics.com/datasets](https://www.10xgenomics.com/datasets?search=Atera&sort=publishedAt+DESC&tag%5Bchemistries%5D=v1).
 They block automated reads, so the facts below come from the objects.
 
-| Sample | Analysis | Tissue | Cells | Transcripts | Bundle | H&E | Published |
+| Sample | Dataset page title | Analysis | Cells | Transcripts | Bundle | H&E | Published |
 |---|---|---|---|---|---|---|---|
-| `Atera_v1_WTA_Kidney_non_diseased_FFPE` | 1.0.4 | kidney, non-diseased, FFPE | 399,120 | 1,185,931,621 | 45.7 GB | 2.8 GB | 2026-10-15 |
-| `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF` | 1.1.1 | brain hippocampus, non-diseased, fresh frozen | 91,431 | 1,638,575,672 | 48.9 GB | 6.5 GB | 2026-11-03 |
-| `Atera_v1_WTA_S4B_Colorectal_Cancer_FF` | 1.1.1 | colorectal cancer, fresh frozen | 446,777 | 3,851,673,795 | 75.3 GB | 5.1 GB | 2026-11-04 |
-| `Atera_v1_WTA_S4C_Breast_Cancer_FF` | 1.1.1 | breast cancer, fresh frozen | 485,985 | 4,560,507,369 | 89.3 GB | 7.3 GB | 2026-11-04 |
+| `Atera_v1_WTA_Kidney_non_diseased_FFPE` | Atera In Situ Gene Expression, FFPE Human Kidney | 1.0.4 | 399,120 | 1,185,931,621 | 45.7 GB | 2.8 GB | 2026-10-15 |
+| `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF` | Atera In Situ Gene Expression, Fresh Frozen Human Brain | 1.1.1 | 91,431 | 1,638,575,672 | 48.9 GB | 6.5 GB | 2026-11-03 |
+| `Atera_v1_WTA_S4B_Colorectal_Cancer_FF` | Atera In Situ Gene Expression, Fresh Frozen Human Colorectal Cancer | 1.1.1 | 446,777 | 3,851,673,795 | 75.3 GB | 5.1 GB | 2026-11-05 |
+| `Atera_v1_WTA_S4C_Breast_Cancer_FF` | Atera In Situ Gene Expression, Fresh Frozen Human Breast Cancer | 1.1.1 | 485,985 | 4,560,507,369 | 89.3 GB | 7.3 GB | 2026-11-05 |
+
+The page URLs, the biomaterials, the protocol document numbers and each
+object's size and ETag are in `LAYOUTS.md`, "Attribution". The published
+dates are the pages' dates.
 
 All four share the human whole-transcriptome panel `hWTA_v1` of 18,049 targets,
 a pixel size of 0.21249222 µm, a z step of 3 µm, and the segmentation stain
@@ -98,16 +102,19 @@ reader finds them in the same place in every repo of the org:
 | `source` | the four objects: URL, size, ETag and last-modified date of each |
 | `documentation` | the dataset page URL and the Atera Onboard Analysis output documentation URL |
 | `license` | `"Creative Commons Attribution 4.0 International (CC BY 4.0)"` and its URL |
-| `citation` | `text`: the rendered citation in 10x's format; `dataset_title`; `product`: `"Atera In Situ"`; `software`: `"10x Genomics Atera Onboard Analysis v1.0.4.1"`, from `analysis_sw_version`; `instrument_software`: from `instrument_sw_version`; `publisher`: `"10x Genomics"`; `published`: the dataset page's date; `url`: the dataset page; `doi`: `null`, with a note that 10x lists none |
+| `citation` | `text`: the rendered citation in 10x's format, as `LAYOUTS.md` gives it; `dataset_title`; `product`: `"Atera In Situ"`; `software`: `"10x Genomics Atera Onboard Analysis v1.0.4"`, the version as the page states it; `software_version_full`: `analysis_sw_version`, such as `atera-1.0.4.1`; `instrument_software`: `instrument_sw_version`; `publisher`: `"10x Genomics"`; `published`: the dataset page's date; `url`: the dataset page; `doi`: `null`, with a note that 10x lists none |
 | `reading` | which readers open which elements, and what the shim is for |
 | `sample`, `run`, `panel`, `metrics` | `experiment.spatial` and `metrics_summary.csv`, typed |
 | `missing` | what the store leaves out, and why |
 
 Every Iceberg table carries the same `license`, `citation` and `source` in
 its table properties, so a table read on its own still attributes. The
-dataset titles and the publication dates come from the dataset pages, which
-block automated reads; the ingest takes them from a hand-written record in
-`LAYOUTS.md`, checked against the page by a person.
+dataset titles, page URLs and publication dates come from the dataset pages,
+which block automated reads. The ingest takes them from the hand-written
+record in `LAYOUTS.md`, "Attribution", which a person checks against the
+page. The `sample` attribute also carries what the page states: species,
+anatomical entity, preservation method, disease state, the biomaterials and
+the protocol document numbers.
 
 **The bundle.** Each `outs.zip` stores all 23 members with no compression, so
 every member is a byte range of the object. The members, with the kidney's
