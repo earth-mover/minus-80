@@ -131,3 +131,48 @@ def test_label_axis_types_come_from_dimensions():
                            scale={"fov": 1, "y": 1, "x": 1},
                            dimensions={"fov": {"type": "fov"}})
     assert _axes(attrs, "0.5")[0] == ("fov", "fov")
+
+
+FIELD = dict(name="field", dims=("y", "x"), level_shapes=[(1080, 1280), (68, 80)],
+             units={"y": "micrometer", "x": "micrometer"}, downsampling="mean")
+FACTORS = [{"y": 1, "x": 1}, {"y": 16, "x": 16}]
+
+
+def test_shape_ratio_misstates_a_partial_block_level():
+    attrs = vo.image_attrs(**FIELD, scale={"y": 0.5, "x": 0.5})
+    y, x = _transforms(attrs, 1)[0]["scale"]
+    assert y == pytest.approx(0.5 * 1080 / 68) and y != x
+
+
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+@pytest.mark.parametrize("origin", [None, {"y": 3.0, "x": -2.0}])
+def test_level_factors_state_scale_and_mean_translation_exactly(version, origin):
+    attrs = vo.image_attrs(**FIELD, scale={"y": 0.5, "x": 0.5}, level_factors=FACTORS,
+                           translation=origin, version=version)
+    datasets = attrs["multiscales"][0]["datasets"]
+    if version == "0.6":
+        transforms = [d["coordinateTransformations"][0] for d in datasets]
+        scales = [t["transformations"][0] if t["type"] == "sequence" else t for t in transforms]
+        shifts = [t["transformations"][1]["translation"] if t["type"] == "sequence" else None
+                  for t in transforms]
+    else:
+        scales = [d["coordinateTransformations"][0] for d in datasets]
+        shifts = [d["coordinateTransformations"][1]["translation"]
+                  if len(d["coordinateTransformations"]) > 1 else None for d in datasets]
+    assert scales[1]["scale"] == [8.0, 8.0]
+    t0 = origin or {"y": 0.0, "x": 0.0}
+    assert shifts[1] == [t0["y"] + 3.75, t0["x"] + 3.75]
+    assert shifts[0] == (None if origin is None else [3.0, -2.0])
+
+
+def test_level_factors_without_a_mean_add_no_translation():
+    attrs = vo.image_attrs(**{**FIELD, "downsampling": "unknown"}, scale={"y": 0.5, "x": 0.5},
+                           level_factors=FACTORS)
+    assert [len(_transforms(attrs, i)) for i in (0, 1)] == [1, 1]
+
+
+def test_level_factors_must_match_levels_and_start_at_one():
+    with pytest.raises(ValueError, match="level_factors"):
+        vo.image_attrs(**FIELD, scale={"y": 1, "x": 1}, level_factors=FACTORS[:1])
+    with pytest.raises(ValueError, match="relative to level 0"):
+        vo.image_attrs(**FIELD, scale={"y": 1, "x": 1}, level_factors=[FACTORS[1], FACTORS[1]])

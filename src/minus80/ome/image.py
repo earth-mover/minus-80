@@ -192,6 +192,17 @@ def _level_scales(dims, level_shapes, scale):
         yield [scale[d] * r for d, r in zip(dims, ratio)]
 
 
+def _factor_scales(dims, level_factors, scale):
+    """The pixel size of each level, from the downsampling factor stated for it.
+
+    A block mean over a field whose size is not a multiple of the factor ends
+    in a partial block, so the shape ratio (1080 / 68 = 15.88 for a 16x mean)
+    understates the factor. The factor the caller used is the exact answer.
+    """
+    for factors in level_factors:
+        yield [scale[d] * factors.get(d, 1.0) for d in dims]
+
+
 def _level_translations(dims, scales, translation):
     """Where each level's first pixel centre sits, given level 0's.
 
@@ -278,14 +289,27 @@ _BUILDERS = {
 
 
 def _multiscale(*, name, dims, level_shapes, scale, units, downsampling,
-                description, version, translation=None, dimensions=None):
+                description, version, translation=None, dimensions=None,
+                level_factors=None):
     if version not in VERSIONS:
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, not {version!r}")
     missing = set(dims) - set(scale)
     if missing:
         raise ValueError(f"no scale given for axes {sorted(missing)}")
-    scales = list(_level_scales(dims, level_shapes, scale))
-    if translation is None:
+    if level_factors is None:
+        scales = list(_level_scales(dims, level_shapes, scale))
+    else:
+        if len(level_factors) != len(level_shapes):
+            raise ValueError(f"{len(level_factors)} level_factors for {len(level_shapes)} levels")
+        if any(f != 1.0 for f in level_factors[0].values()):
+            raise ValueError("level_factors are relative to level 0, whose factors must be 1")
+        scales = list(_factor_scales(dims, level_factors, scale))
+    if translation is None and level_factors is not None and downsampling == "mean":
+        # A mean pixel's centre is the centre of the block it averages, so
+        # every coarser level starts (f - 1) / 2 pixels in even when level 0
+        # states no origin; level 0 then sits at the origin it implies.
+        translations = [None, *list(_level_translations(dims, scales, dict.fromkeys(dims, 0.0)))[1:]]
+    elif translation is None:
         translations = [None] * len(scales)
     else:
         missing = set(dims) - set(translation)
@@ -313,6 +337,7 @@ def image_attrs(
     version: str = DEFAULT_VERSION,
     translation: Mapping[str, float] | None = None,
     dimensions: Mapping[str, Mapping] | None = None,
+    level_factors: Sequence[Mapping[str, float]] | None = None,
 ) -> dict:
     """Build the validated ``ome`` attributes for a multiscale image.
 
@@ -322,7 +347,16 @@ def image_attrs(
     ``translation`` is where the centre of level 0's first pixel sits, per axis,
     in ``units``: a CT slice's ``ImagePositionPatient``, say. Coarser levels are
     shifted so that every level's top-left corner coincides. Left out, no level
-    carries a translation.
+    carries a translation, unless ``level_factors`` is given and
+    ``downsampling`` is ``"mean"``: then every coarser level carries the shift
+    a block mean implies, ``(factor - 1) / 2`` pixels of level 0, measured from
+    level 0's translation, or from zero where none is given.
+
+    ``level_factors`` states each level's downsampling factor relative to level
+    0, one mapping per level from axis to factor (an axis left out has factor
+    1). Level k's scale is then ``factor * scale`` exactly. Left out, the
+    factor is the ratio of the level shapes, which is wrong when a block
+    reduction leaves a partial block at the edge.
 
     ``dimensions`` is level 0's ``dimensions`` attribute, which states each
     axis's type; :func:`axis_types` says how an axis it leaves out is typed.
@@ -340,7 +374,8 @@ def image_attrs(
     multiscale = _multiscale(name=name, dims=dims, level_shapes=level_shapes,
                              scale=scale, units=units, downsampling=downsampling,
                              description=description, version=version,
-                             translation=translation, dimensions=dimensions)
+                             translation=translation, dimensions=dimensions,
+                             level_factors=level_factors)
     if omero is not None:
         omero = Omero.model_validate(omero)
     attrs = _BUILDERS[version].image(version=VERSIONS[version], multiscales=[multiscale],

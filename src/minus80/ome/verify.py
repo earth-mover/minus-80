@@ -202,12 +202,50 @@ def _correlation(fine: np.ndarray, coarse: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
+def _placement(dataset: Mapping) -> tuple[list[float], list[float] | None]:
+    """A level's ``(scale, translation)`` from its ``coordinateTransformations``.
+
+    0.5 lists the transforms directly; 0.6 holds them in one transform that
+    is either a scale or a ``sequence`` of a scale and a translation. The
+    translation is ``None`` when the level states none.
+    """
+    scale = translation = None
+    stack = list(dataset["coordinateTransformations"])
+    while stack:
+        t = stack.pop(0)
+        if t["type"] == "sequence":
+            stack = list(t["transformations"]) + stack
+        elif t["type"] == "scale":
+            scale = list(t["scale"])
+        elif t["type"] == "translation":
+            translation = list(t["translation"])
+    return scale, translation
+
+
+def _spread(names: list[str], count: int) -> list[str]:
+    """``count`` of ``names``, evenly spaced from the first to the last."""
+    if count >= len(names):
+        return names
+    if count <= 1:
+        return names[:count]
+    return [names[i] for i in sorted({round(k * (len(names) - 1) / (count - 1)) for k in range(count)})]
+
+
 def levels_aligned(root, sample: int) -> list[str]:
     """Coarse levels describe the same object in the same place as finer ones.
 
-    Two checks. The declared scale of every level must match its shape: a
-    level half the size of level 0 has pixels twice as large, to within a
-    pixel of rounding. That is exact, cheap, and catches a mis-stated scale.
+    Three checks, on ``sample`` images spread evenly across the store. The
+    declared scale of every level must match its shape: a level half the size
+    of level 0 has pixels twice as large, to within a pixel of rounding. That
+    is exact, cheap, and catches a mis-stated scale.
+
+    Where any level of an image declares a translation, every level's outer
+    edge in physical coordinates (its first pixel centre, ``translation``,
+    less half a pixel) must coincide with level 0's, to within a hundredth of
+    the coarse pixel. A level shifted by half a block fails. A level that
+    states no translation sits at zero. An image with no translation on any
+    level makes no claim about where its levels sit, so it is not checked.
+
     And each level small enough to read whole must be what the next finer one
     averages down to. That catches a level whose *pixels* are not what its
     metadata says, such as the wrong page or directory, which no arithmetic on
@@ -215,21 +253,32 @@ def levels_aligned(root, sample: int) -> list[str]:
     scale is what the others are measured against.
     """
     problems = []
-    for name, image in list(images(root).items())[:sample]:
+    all_images = images(root)
+    for name in _spread(list(all_images), sample):
+        image = all_images[name]
         ms = dict(image.attrs)["ome"]["multiscales"][0]
-        by_path = {d["path"]: d["coordinateTransformations"][0]["scale"]
-                   for d in ms.get("datasets", [])}
+        placed = {d["path"]: _placement(d) for d in ms.get("datasets", [])}
         paths = levels(image)
         if len(paths) < 2:
             continue
-        base_shape, base_scale = image[paths[0]].shape, by_path[paths[0]]
+        base_shape = image[paths[0]].shape
+        base_scale, base_translation = placed[paths[0]]
+        stated = any(t is not None for _, t in placed.values())
         for p in paths[1:]:
+            scale, translation = placed[p]
             for axis in (-2, -1):
                 expected = base_scale[axis] * base_shape[axis] / image[p].shape[axis]
                 # One pixel of rounding at this level, in physical units.
-                if abs(by_path[p][axis] - expected) > expected / image[p].shape[axis]:
-                    problems.append(f"{name}/{p}: scale {by_path[p][axis]:.4g} on axis "
+                if abs(scale[axis] - expected) > expected / image[p].shape[axis]:
+                    problems.append(f"{name}/{p}: scale {scale[axis]:.4g} on axis "
                                     f"{axis} but shape implies {expected:.4g}")
+                if stated:
+                    edge = (translation[axis] if translation else 0.0) - scale[axis] / 2
+                    base_edge = ((base_translation[axis] if base_translation else 0.0)
+                                 - base_scale[axis] / 2)
+                    if abs(edge - base_edge) > scale[axis] / 100:
+                        problems.append(f"{name}/{p}: outer edge at {edge:.4g} on axis {axis} "
+                                        f"but {paths[0]} starts at {base_edge:.4g}")
         small = [p for p in paths if max(image[p].shape) <= 2048]
         planes = [_grey(image[p]) for p in small]
         for (pa, a), (pb, b) in zip(zip(small, planes), zip(small[1:], planes[1:])):
