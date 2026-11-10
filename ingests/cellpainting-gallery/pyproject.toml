@@ -1,0 +1,13 @@
+[project]
+name = "cellpainting-gallery-ingest"
+version = "0.0.0"
+description = "Ingest Cell Painting Gallery plates (s3://cellpainting-gallery) into a virtual Icechunk store."
+requires-python = ">=3.12"
+dependencies = [
+    "arraylake[iceberg]>=1.7.0",
+    "minus-80[tiff]",
+    "pyiceberg[pyarrow,sql-sqlite]",
+]
+
+[tool.uv]
+package = false

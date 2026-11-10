@@ -122,8 +122,10 @@ def _with_remote_retries(config):
 #: Icechunk fetches manifests one at a time while committing unless told otherwise,
 #: so a commit costs one round trip per array: 200 arrays at 50 ms latency took
 #: 11.45 s that way and 0.83 s with concurrent fetches. No caller wants the
-#: default of 1, so it is set here rather than offered as an argument.
-MANIFEST_FETCH_CONCURRENCY = 32
+#: default of 1, so it is set here rather than offered as an argument. It is
+#: Icechunk's own ceiling, ``max_concurrent_requests``, because a commit of
+#: thousands of arrays to a distant object store is bound by round trips.
+MANIFEST_FETCH_CONCURRENCY = 256
 
 
 #: How many times a commit may rebase onto whatever landed on the branch first.
