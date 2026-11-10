@@ -11,7 +11,7 @@ REPO=arraylake://earthmover-biology/sanctsound
 # The uploaded directory may land inside the working directory; work where the wheel is.
 cd "$(dirname "$(find . -name 'minus_80-*.whl' -print -quit)")"
 now() { date -u +%T; }
-echo "commit $(cat COMMIT), deployments $*"
+echo "commit $(cat COMMIT), run ${RUN:=$(cat RUN)}, deployments $*"
 echo "host $(hostname), $(nproc --all) cores, $(free -g | awk '/Mem/ {print $2}') GB memory, start $(date -u +%FT%TZ)"
 
 echo "$(now) install: start"
@@ -32,7 +32,8 @@ for DEP in "$@"; do
 
     echo "$(now) build $DEP: start"
     timeout 30m .venv/bin/python -X faulthandler -u ingest.py build "$DEP" \
-        --table "./$DEP.npz" --repo "$REPO"
+        --table "./$DEP.npz" --repo "$REPO" \
+        --git-commit "$(cat COMMIT)" ${RUN:+--run "$RUN"}
     echo "$(now) build $DEP: done"
 
     echo "$(now) verify $DEP: start"

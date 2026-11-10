@@ -160,11 +160,14 @@ def parse_start(name: str) -> datetime:
 
 
 def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str = "main",
-          measure: bool = True) -> None:
+          measure: bool = True, code: dict[str, str] | None = None) -> None:
     """Write one deployment into a repo and commit it.
 
     ``measure=False`` skips the calibration offset, which reads eight hours of
-    audio, and leaves the group without ``counts_to_upa_db``.
+    audio, and leaves the group without ``counts_to_upa_db``. ``code`` names
+    the code that wrote the commit, such as the minus-80 git commit and the
+    script under ``runs/``. It goes into the commit's message and metadata, so
+    the store's history leads back to the code.
     """
     # The waveform's chunk grid is rectilinear, and zarr refuses to read or write
     # one unless this is set.
@@ -199,8 +202,10 @@ def build(dep: str, table: DeploymentTable, repo_location: str, *, branch: str =
         # write_calibration reads the serial number write_provenance records
         write_provenance(root, dg, site, dep)
         write_calibration(dg, site, dep, measured)
-        snapshot = session.commit(f"{dep}: {len(table.chunks.n_samples)} recordings "
-                                  f"({hours:.1f} h)")
+        message = f"{dep}: {len(table.chunks.n_samples)} recordings ({hours:.1f} h)"
+        if code:
+            message += "\n\n" + "\n".join(f"{k}: {v}" for k, v in code.items())
+        snapshot = session.commit(message, metadata=code)
         print(f"committed {snapshot}", flush=True)
         check = zarr.open_group(repo.readonly_session(branch).store, mode="r")
         for row in selftest_from_store_only(check):
@@ -1053,12 +1058,16 @@ def main(argv=None) -> None:
                    help="a directory, or arraylake://<org>/<repo>")
     b.add_argument("--branch", default="main")
     b.add_argument("--skip-calibration-measure", action="store_true")
+    b.add_argument("--git-commit", help="the minus-80 commit this build runs from")
+    b.add_argument("--run", help="the script under runs/ that launched this build")
     args = ap.parse_args(argv)
     if args.command == "scan":
         scan_deployment(args.deployment, args.windows, args.cache, args.out)
     else:
         build(args.deployment, DeploymentTable.load(args.table), args.repo,
-              branch=args.branch, measure=not args.skip_calibration_measure)
+              branch=args.branch, measure=not args.skip_calibration_measure,
+              code={k: v for k, v in [("minus80_commit", args.git_commit),
+                                      ("run", args.run)] if v})
 
 
 if __name__ == "__main__":

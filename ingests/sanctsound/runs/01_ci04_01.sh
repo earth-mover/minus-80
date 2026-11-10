@@ -12,4 +12,4 @@
 # calibration offset came out at 85.391 dB, the published value, and verify
 # passed 12 of 12 checks.
 set -euo pipefail
-VM_TYPE=c6in.2xlarge bash "$(dirname "$0")/../coiled/launch.sh" CI04_01
+RUN=ingests/sanctsound/runs/01_ci04_01.sh VM_TYPE=c6in.2xlarge bash "$(dirname "$0")/../coiled/launch.sh" CI04_01

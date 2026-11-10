@@ -2,6 +2,8 @@
 # Scan, build and verify SanctSound deployments on one Coiled VM, committing
 # each to main of earthmover-biology/sanctsound.
 #   ARRAYLAKE_TOKEN=... bash launch.sh <deployment>...
+# A script under ../runs/ sets RUN to its own path, which each Icechunk commit
+# records beside the git commit.
 # VM_TYPE overrides the VM. A whole-file scan needs about 6.5 CPU-seconds per
 # GB, so the default is a c6in.4xlarge (docs/formats.md, "Budget CPU for the
 # download as well as the parse").
@@ -27,6 +29,7 @@ STAGE=$(mktemp -d)
 (cd "$ROOT" && uv build --wheel -q --out-dir "$STAGE")
 cp "$ROOT"/ingests/sanctsound/{ingest.py,storage.py,verify.py} "$HERE/run.sh" "$STAGE/"
 echo "$SHA" > "$STAGE/COMMIT"
+echo "${RUN:-}" > "$STAGE/RUN"
 echo "staged commit $SHA for $*: $(ls "$STAGE" | tr '\n' ' ')"
 
 cd "$STAGE"
