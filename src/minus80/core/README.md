@@ -22,7 +22,7 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 | `progress` | `Progress` prints a status line at a fixed time interval while a long job runs. |
 | `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |
 | `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's; `submit` starts one on the same loop and returns a cancellable future. |
-| `zarr_copy` | `copy_group` copies every Zarr v2 array in a zip into a v3 group, and `copy_chunks` writes one array's chunk members to their v3 keys, bytes unchanged. `create_copy` makes the v3 array from a `.zarray`: blosc, Fortran order and `vlen-utf8` translate; any other filter or compressor raises `NotImplementedError`. |
+| `zarr_copy` | `copy_group` copies every Zarr v2 array in a zip, and the attributes of every group, into a v3 group, and `copy_chunks` writes one array's chunk members to their v3 keys, bytes unchanged. `create_copy` makes the v3 array from a `.zarray`: blosc, Fortran order and `vlen-utf8` translate; any other filter or compressor raises `NotImplementedError`. |
 
 ## Usage
 

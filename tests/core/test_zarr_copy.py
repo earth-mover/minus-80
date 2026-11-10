@@ -15,10 +15,12 @@ from minus80.core.icechunk_io import create_repo
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, v2_spec
 
 
-def _v2_zip(tmp_path, **arrays):
+def _v2_zip(tmp_path, groups=None, **arrays):
     """Write each ``name -> dict(data=..., **create_array kwargs)`` as a v2 store, zipped STORED."""
     source = tmp_path / "source.zarr"
     src = zarr.open_group(source, mode="w", zarr_format=2)
+    for name, attrs in (groups or {}).items():
+        src.create_group(name).attrs.update(attrs)
     for name, kwargs in arrays.items():
         kwargs = dict(kwargs)
         data = kwargs.pop("data")
@@ -259,3 +261,38 @@ def test_copy_chunks_counts_members(tmp_path):
     root = _root(tmp_path)
     array = create_copy(root, "x", json.loads(zf.read("x/.zarray")))
     assert copy_chunks(zf, "x", array) == 2
+
+
+def test_group_attributes_are_copied(tmp_path):
+    lz4 = numcodecs.Blosc(cname="lz4")
+    zf = _v2_zip(
+        tmp_path,
+        groups={
+            "X": {"encoding-type": "csr_matrix", "shape": [4, 3]},
+            "X/inner": {"k": "v"},
+        },
+        **{
+            "X/data": dict(
+                data=np.array([1.0, 2.0, 3.0], dtype="<f4"),
+                chunks=(3,),
+                compressors=lz4,
+            ),
+            "X/indices": dict(
+                data=np.array([0, 2, 1], dtype="<i4"), chunks=(3,), compressors=lz4
+            ),
+            "X/indptr": dict(
+                data=np.array([0, 1, 2, 3, 3], dtype="<i4"),
+                chunks=(5,),
+                compressors=lz4,
+            ),
+        },
+    )
+    root = _root(tmp_path)
+    copied = copy_group(zf, "X", root.require_group("X"))
+    assert copied == {"data": 1, "indices": 1, "indptr": 1}
+    assert root["X"].attrs["encoding-type"] == "csr_matrix"
+    assert root["X"].attrs["shape"] == [4, 3]
+    assert root["X/inner"].attrs["k"] == "v"
+    np.testing.assert_array_equal(root["X/indptr"][:], [0, 1, 2, 3, 3])
+    np.testing.assert_array_equal(root["X/data"][:], [1.0, 2.0, 3.0])
+    np.testing.assert_array_equal(root["X/indices"][:], [0, 2, 1])

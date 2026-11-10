@@ -143,6 +143,19 @@ def copy_group(
     """Copy every v2 array under ``prefix`` into ``group``. Returns chunk counts by path."""
     stem = f"{prefix}/" if prefix else ""
     counts: dict[str, int] = {}
+    names = set(zf.namelist())
+    if attributes:
+        for member in sorted(names):
+            directory = member.removesuffix(".zattrs").removesuffix("/")
+            if (
+                not member.endswith(".zattrs")
+                or f"{directory}/.zarray".lstrip("/") in names
+            ):
+                continue
+            if directory == prefix or directory.startswith(stem):
+                path = directory.removeprefix(stem) if directory != prefix else ""
+                target = group.require_group(path) if path else group
+                target.attrs.update(jsonable(json.loads(zf.read(member))))
     for member in zf.namelist():
         if not member.startswith(stem) or not member.endswith(".zarray"):
             continue
