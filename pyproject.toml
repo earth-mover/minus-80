@@ -21,11 +21,15 @@ dicom = ["imagecodecs>=2026.8.16", "imagecodecs-zarr", "pydicom>=3.0"]
 flac = ["av", "flac-numcodecs", "soundfile"]
 nd2 = ["nd2>=0.10"]
 nwb = ["h5py>=3.16", "pynwb>=2.8", "virtualizarr[hdf]"]
+tables = ["pyarrow>=18", "pyiceberg[sql-sqlite]>=0.9"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
 zip = []
 
 [dependency-groups]
-dev = ["imagecodecs", "imagecodecs-zarr", "pytest>=8", "safetensors", "tifffile>=2025.1.1"]
+dev = [
+    "imagecodecs", "imagecodecs-zarr", "pyarrow>=18", "pyiceberg[sql-sqlite]>=0.9",
+    "pytest>=8", "safetensors", "tifffile>=2025.1.1",
+]
 
 [build-system]
 requires = ["hatchling"]
