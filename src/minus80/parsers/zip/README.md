@@ -16,6 +16,7 @@ belongs upstream beside `ZippedZarrParser`, which lists it as future work.
 | --- | --- |
 | `members` | `zip_index(url)` lists an archive's members; `member_array(...)` builds an array with one member per chunk; `read_member(url, entry)` fetches one member's bytes, inflating a Deflate member |
 | `buffers` | Reads zip structures from bytes already fetched, without the central directory: the end record from an archive's tail, the members in a window, and `walk_archive`, which walks a whole remote archive in order |
+| `nested` | `member_file(archive, name)` opens a STORED member as a seekable file; `member_zip(archive, name)` opens a zip stored inside a zip, from a local or a remote outer file |
 | `safetensors_ranges` | `tensor_ranges(data, file_offset)` gives each tensor's byte range in a safetensors file, including one stored inside a zip member |
 
 The parser needs nothing beyond the base dependencies, so the `zip` extra is
