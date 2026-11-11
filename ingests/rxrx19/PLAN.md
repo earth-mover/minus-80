@@ -262,10 +262,12 @@ levels (decision 8).
   fresh process's memory on its first attribute read, so all 57 RxRx19a
   plates come to about 840 MB, and both datasets to over a gigabyte. 87% of
   it is the site documents, 1.4 KB each and identical but for their names.
-  Moving what every site shares (the axes, scale and channel list) to the
-  plate would shrink it; the spec puts them on each image, so that needs
-  either an Icechunk feature that shares documents between nodes or a smaller
-  per-site document.
+  OME-Zarr has no inheritance: every image carries its own axes, scale and
+  channels, and readers look nowhere else, so the documents cannot move to
+  the plate. Within the spec, a site's document could only get smaller by
+  dropping optional display fields. Removing the cost while keeping every
+  document whole for readers needs Icechunk to store identical documents
+  once.
 - Reads cross clouds: the chunks are on Google Cloud, Arraylake readers are
   usually on AWS. The bucket is not requester-pays (it reads anonymously), so Recursion pays the egress of every chunk read.
 - ice-pack is new code that writes snapshots directly; a bug there could write

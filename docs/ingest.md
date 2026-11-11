@@ -130,9 +130,10 @@ and added 147 MB to the process's memory. 87% of the decompressed snapshot was
 the nodes' `zarr.json` documents. At 57 plates, one attribute read costs a
 reader about 840 MB.
 
-Measure the decompressed size of a plate's snapshot before choosing a layout,
-and keep per-node documents small: put what every image shares on the parent,
-not on each image.
+Measure the decompressed size of a plate's snapshot before choosing a layout.
+OME-Zarr has no inheritance, so what every image shares cannot move to a
+parent group: each image must carry its own axes, scale and channels. Keep
+each document to what the spec and the readers need.
 
 ## Verification
 
