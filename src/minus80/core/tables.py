@@ -104,12 +104,16 @@ def register_files(
 ) -> TableRef:
     """Add ``files`` to the table ``identifier``, creating it when absent.
 
-    A new table is partitioned by identity on ``partition_by``.
+    A new table is partitioned by identity on ``partition_by``. A file the current snapshot
+    already holds is not added again, so a rerun returns the same snapshot.
     """
     table = require_table(catalog, identifier, schema=schema, properties=properties,
                           partition_by=partition_by)
-    table.add_files(list(files))
-    table = catalog.load_table(identifier)
+    held = {task.file.file_path for task in table.scan().plan_files()}
+    new = [f for f in files if f not in held]
+    if new:
+        table.add_files(new)
+        table = catalog.load_table(identifier)
     sizes = [(f, len(table.io.new_input(f))) for f in files]
     return TableRef(
         str(table.metadata.table_uuid), table.current_snapshot().snapshot_id, sizes

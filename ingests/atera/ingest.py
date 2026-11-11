@@ -21,6 +21,7 @@ import zarr
 from anndata.io import write_elem
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, create_repo
 from minus80.core.progress import Progress
+from minus80.core.registry import file_path
 from minus80.core.pyramid import channel_names, create_level, write_page
 from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, require_table, write_parquet
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
@@ -182,13 +183,14 @@ def table_properties(sample, layouts: str, repo: str, **extra) -> dict[str, str]
 
 def local_catalog(directory: Path) -> SqlCatalog:
     """The SQLite catalog in ``directory``, whose warehouse is ``directory`` too."""
+    directory.mkdir(parents=True, exist_ok=True)
     directory = directory.resolve()
     return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=directory.as_uri())
 
 
 def write_local(io, url: str, table, *, geo) -> None:
     """Write ``table`` at the ``file://`` URL ``url``."""
-    path = Path(url.removeprefix("file://"))
+    path = file_path(url)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_parquet(table, str(path), index_column="instance", geo=geo)
 
@@ -211,44 +213,66 @@ class Tables:
         if (namespace,) not in self.catalog.list_namespaces():
             self.catalog.create_namespace(namespace)
 
+    def require(self, name: str, *, schema, properties, partition_by=None):
+        """The table ``name``, created when absent, with ``properties`` set."""
+        table = require_table(self.catalog, f"{self.namespace}.{name}", schema=schema,
+                              properties=properties, partition_by=partition_by)
+        if any(table.properties.get(k) != v for k, v in properties.items()):
+            with table.transaction() as transaction:
+                transaction.set_properties(dict(properties))
+            table = self.catalog.load_table(f"{self.namespace}.{name}")
+        return table
+
+    def data_prefix(self, name: str, **spec) -> str:
+        """The URL prefix that holds the table's Parquet files; it creates the table when absent."""
+        return f"{self.require(name, **spec).location()}/data/"
+
     def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None):
-        identifier = f"{self.namespace}.{name}"
-        # The table exists first, so its catalog-given location holds the file that add_files registers.
-        iceberg = require_table(self.catalog, identifier, schema=schema, properties=properties,
-                                partition_by=partition_by)
-        url = f"{iceberg.location()}/data/{name}-0.parquet"
-        self.write_file(iceberg.io, url, table, geo=geo)
-        ref = register_files(self.catalog, identifier, [url], schema=schema, properties=properties,
-                             partition_by=partition_by)
+        spec = {"schema": schema, "properties": properties, "partition_by": partition_by}
+        iceberg = self.require(name, **spec)
+        url = f"{self.data_prefix(name, **spec)}{name}-0.parquet"
+        # A rerun leaves a registered file as it is, so the table's statistics still describe it.
+        if url not in {task.file.file_path for task in iceberg.scan().plan_files()}:
+            self.write_file(iceberg.io, url, table, geo=geo)
+        ref = register_files(self.catalog, f"{self.namespace}.{name}", [url], **spec)
         attr = iceberg_table_attr(ref, catalog=self.kind, org=self.org, namespace=self.namespace, table=name,
                                   index_column="instance", geometry_column="geometry" if geo else None)
         return ref, attr
 
 
-def write_nucleus_boundaries(writer, bundle, tables: Tables, properties: dict) -> None:
+def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
+    """Each Iceberg table's schema, partitioning and properties, known before any element is written."""
+    return {
+        "nucleus_boundaries": {
+            "schema": POLYGON_SCHEMA,
+            "properties": {**properties, "geo": json.dumps(GEO_POLYGONS), "method_names": json.dumps(methods)},
+        },
+        "transcripts": {
+            "schema": TRANSCRIPT_SCHEMA,
+            "partition_by": "grid_tile",
+            "properties": {**properties, "quality_score": "Widened from the source's float16 to float32."},
+        },
+    }
+
+
+def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict) -> None:
     zf = bundle.member_zip(CELLS)
     path = f"polygon_sets/{NUCLEUS_SET}/"
     with writer.element("shapes/nucleus_boundaries", member_bytes(zf, path) + member_bytes(zf, "cell_id/")) as root:
         cell_id = read_v2_array(zf, "cell_id")
-        methods = json.loads(zf.read(".zattrs"))["segmentation_methods"]
         table = polygon_table(zf, NUCLEUS_SET, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        ref, attr = tables.write("nucleus_boundaries", table, schema=POLYGON_SCHEMA, geo=GEO_POLYGONS,
-                                 properties={**properties, "geo": json.dumps(GEO_POLYGONS),
-                                             "method_names": json.dumps(methods)})
+        ref, attr = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, **spec)
         group = root.require_group("shapes").create_group("nucleus_boundaries")
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_transcripts(writer, bundle, tables: Tables, properties: dict) -> None:
+def write_transcripts(writer, bundle, tables: Tables, spec: dict) -> None:
     zf = bundle.member_zip(TRANSCRIPTS)
     total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
     with writer.element("points/transcripts", total) as root:
         table = tile_table(zf, FIXTURE_TILE, codeword_table(zf), first_instance=0)
-        ref, attr = tables.write(
-            "transcripts", table, schema=TRANSCRIPT_SCHEMA, partition_by="grid_tile",
-            properties={**properties, "quality_score": "Widened from the source's float16 to float32."},
-        )
+        ref, attr = tables.write("transcripts", table, **spec)
         group = root.require_group("points").create_group("transcripts")
         transform = scale([1.0, 1.0, 1.0], ("x", "y", "z"), unit=UNIT)
         group.attrs.update({**points_attrs(("x", "y", "z"), transform, instance_key="cell_id",
@@ -301,25 +325,27 @@ def main() -> None:
         org = args.catalog.removeprefix("arraylake:")
         tables = Tables(Client().get_iceberg(org), args.namespace, kind="arraylake", org=org,
                         write_file=write_through_io)
-        # The repo must exist, with a virtual chunk container over the tables' bucket.
-        repo = arraylake_repository(args.repo)
     else:
-        directory = Path(args.catalog)
-        directory.mkdir(parents=True, exist_ok=True)
-        tables = Tables(local_catalog(directory), args.namespace, kind="local", org="local",
+        tables = Tables(local_catalog(Path(args.catalog)), args.namespace, kind="local", org="local",
                         write_file=write_local)
-        repo = create_repo(args.repo, [], prefixes=[f"{directory.resolve().as_uri()}/"])
+    methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
+    specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
+    # The tables exist before any element, so a repo without a container over their files fails here.
+    prefixes = [tables.data_prefix(name, **spec) for name, spec in specs.items()]
+    if on_arraylake:
+        repo = arraylake_repository(args.repo, source_prefixes=prefixes)
+    else:
+        repo = create_repo(args.repo, [], prefixes=prefixes)
     if args.branch not in repo.list_branches():
         repo.create_branch(args.branch, repo.lookup_branch("main"))
     writer = Writer(repo, args.branch, counter)
-    properties = table_properties(sample, layouts, sample.repo)
 
     started = time.monotonic()
     write_table(writer, bundle)
     write_labels(writer, bundle, pixel_size)
     write_morphology(writer, bundle, pixel_size)
-    write_nucleus_boundaries(writer, bundle, tables, properties)
-    write_transcripts(writer, bundle, tables, properties)
+    write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"])
+    write_transcripts(writer, bundle, tables, specs["transcripts"])
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
     print("fixture written: 1 image level, 2 labels, 1 shapes, 1 points, 1 table")

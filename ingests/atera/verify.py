@@ -19,7 +19,7 @@ import scipy.sparse
 import shapely
 import zarr
 from anndata.io import read_elem
-from minus80.core.icechunk_io import open_repo
+from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import check_page
 from zarr.core.buffer import default_buffer_prototype
@@ -212,8 +212,9 @@ def _sha(data: bytes) -> str:
 def gate_copies(root, catalog) -> list[str]:
     errors = []
     for path, attr in element_tables(root).items():
-        files = [task.file.file_path for task in load(catalog, attr).scan().plan_files()]
-        registered = Counter(_sha(Path(f.removeprefix("file://")).read_bytes()) for f in files)
+        table = load(catalog, attr)
+        files = [task.file.file_path for task in table.scan().plan_files()]
+        registered = Counter(_sha(table.io.new_input(f).open().read()) for f in files)
         arrays = [a for _, a in root[path].arrays() if "file:name" in a.attrs]
         copied = Counter(_sha(a[:].tobytes()) for a in arrays)
         print(f"  copies: {path}: {len(arrays)} uint8 arrays, {len(files)} registered files")
@@ -234,10 +235,25 @@ def gate_attrs(root, catalog) -> list[str]:
     return errors
 
 
+def open_root(location: str, branch: str) -> zarr.Group:
+    """The branch read-only; both openers authorize the repo's virtual chunk containers."""
+    if location.startswith(ARRAYLAKE):
+        return zarr.open_group(arraylake_repository(location).readonly_session(branch).store, mode="r")
+    return open_repo(location, branch=branch)
+
+
+def open_catalog(location: str):
+    if location.startswith("arraylake:"):
+        from arraylake import Client
+
+        return Client().get_iceberg(location.removeprefix("arraylake:"))
+    return local_catalog(Path(location))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", required=True)
-    parser.add_argument("--catalog", required=True)
+    parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
+    parser.add_argument("--catalog", required=True, help="a local catalog directory, or arraylake:<org>")
     parser.add_argument("--branch", default="fixture")
     parser.add_argument("--sample", choices=sorted(SAMPLES), default="kidney")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
@@ -247,8 +263,8 @@ def main() -> None:
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     zarr.config.set({"array.rectilinear_chunks": True})
-    root = open_repo(args.repo, branch=args.branch)
-    catalog = local_catalog(Path(args.catalog))
+    root = open_root(args.repo, args.branch)
+    catalog = open_catalog(args.catalog)
     bundle, counter = open_bundle(args.bundle or SAMPLES[args.sample].url("_outs.zip", S3))
     cells, matrix = bundle.member_zip(CELLS), bundle.member_zip(MATRIX)
     transcripts = bundle.member_zip("transcripts.zarr.zip")

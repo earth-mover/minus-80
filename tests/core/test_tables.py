@@ -81,6 +81,17 @@ def test_register_files_adds_the_files_and_returns_the_snapshot(tmp_path):
     assert ref.files == [(p1, os.path.getsize(p1)), (p2, os.path.getsize(p2))]
 
 
+def test_register_files_skips_a_file_the_table_already_holds(tmp_path):
+    table = _table()
+    path = str(tmp_path / "a.parquet")
+    write_parquet(table, path, index_column="instance")
+    catalog = _catalog(tmp_path)
+    first = register_files(catalog, "ns.t", [path], schema=table.schema, properties={})
+    again = register_files(catalog, "ns.t", [path], schema=table.schema, properties={})
+    assert again == first
+    assert catalog.load_table("ns.t").scan().to_arrow().num_rows == table.num_rows
+
+
 def test_iceberg_table_attr_has_the_contract_keys():
     ref = TableRef("u", 7, [])
     attr = iceberg_table_attr(
