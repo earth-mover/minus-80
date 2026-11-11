@@ -166,7 +166,7 @@ def table_properties(sample, layouts: str, repo: str, **extra) -> dict[str, str]
 def table_attr(tables: TableWriter, name: str, ref, *, geo=None) -> dict:
     """The ``iceberg_table`` attribute of the element that references table ``name`` at ``ref``."""
     return iceberg_table_attr(ref, catalog=tables.catalog_name, org=tables.org, namespace=tables.namespace,
-                              table=name, index_column="instance", geometry_column="geometry" if geo else None)
+                              table=name, index_column=tables.index_column, geometry_column="geometry" if geo else None)
 
 
 def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:

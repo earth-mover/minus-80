@@ -1,8 +1,9 @@
 import json
 import os
 import re
-from pathlib import Path
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 
 import icechunk
 import numpy as np
@@ -10,8 +11,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import zarr
-from pyiceberg.catalog.sql import SqlCatalog
 from pyarrow.fs import LocalFileSystem, SubTreeFileSystem
+from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.io.pyarrow import PyArrowFileIO
 from pyiceberg.schema import index_by_name
 
@@ -21,6 +22,7 @@ from minus80.core.tables import (
     DataFile,
     TableRef,
     TableWriter,
+    _write_local,
     data_file,
     declare_copy,
     declare_file,
@@ -348,6 +350,44 @@ class BucketFileIO(PyArrowFileIO):
         return output
 
 
+class _ShortOutput:
+    """An output file whose stream keeps all but the last byte of each block written to a data file."""
+
+    def __init__(self, output, short):
+        self._output, self._short = output, short
+
+    def create(self, overwrite=False):
+        stream = self._output.create(overwrite=overwrite)
+        if not self._short:
+            return stream
+        return _ShortStream(stream)
+
+    def __getattr__(self, name):
+        return getattr(self._output, name)
+
+
+class _ShortStream:
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, data):
+        return self._stream.write(data[:-1])
+
+    def __enter__(self):
+        self._stream.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._stream.__exit__(*exc)
+
+
+class ShortBucketFileIO(BucketFileIO):
+    """A bucket whose storage keeps fewer bytes than a data file writes to it."""
+
+    def new_output(self, location):
+        return _ShortOutput(super().new_output(location), "/data/" in location)
+
+
 def _rows(*instances):
     return pa.table({"instance": pa.array(instances, pa.int64()), "grid_tile": ["0,0"] * len(instances)},
                     schema=WRITER_SCHEMA)
@@ -359,11 +399,11 @@ def _writer(tmp_path, **spec):
     return writer
 
 
-def _remote_writer(tmp_path, **spec):
+def _remote_writer(tmp_path, io_class=BucketFileIO, **spec):
     root = tmp_path / "bucket"
     (root / "bucket").mkdir(parents=True)
     catalog = SqlCatalog("remote", uri=f"sqlite:///{tmp_path}/catalog.db", warehouse="s3://bucket/wh",
-                         **{"py-io-impl": f"{__name__}.BucketFileIO", "bucket-root": str(root)})
+                         **{"py-io-impl": f"{__name__}.{io_class.__name__}", "bucket-root": str(root)})
     writer = TableWriter(catalog, "ns", catalog_name="remote", org="remote")
     writer.require("t", **(WRITER_SPEC | spec))
     return writer, root / "bucket"
@@ -462,7 +502,7 @@ def test_a_leftover_part_file_does_not_break_the_next_write(tmp_path):
     assert not final.exists()
     writer.write("t", _rows(1, 2), replace=True)
     assert final.read_bytes() == expected
-    assert not part.exists()
+    assert sorted(p.name for p in final.parent.iterdir()) == [final.name, part.name]
 
 
 def test_a_data_file_is_never_visible_under_its_final_name_while_it_is_written(tmp_path):
@@ -566,11 +606,15 @@ def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
 
     with elements.unit("points/t", "Write points/t") as (root, _):
         again = writer.write("t", _rows(1, 2))
-        declare_copy(root.require_group("points").create_group("t"), "points.parquet", again.files)
+        group = root.require_group("points").create_group("t")
+        group.attrs["iceberg_table"] = iceberg_table_attr(again, catalog="local", org="local", namespace="ns",
+                                                          table="t", index_column="instance")
+        declare_copy(group, "points.parquet", again.files)
     assert elements.has("points/t")
     stored = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["points/t"]
     assert stored["points.parquet"][:].tobytes() == path.read_bytes()
     assert again == first and path.stat().st_mtime_ns == written_at
+    assert stored.attrs["iceberg_table"]["snapshot_id"] == first.snapshot_id
     assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2
 
 
@@ -597,7 +641,7 @@ def test_a_partial_remote_object_is_not_reused(tmp_path):
     path.write_bytes(whole[: len(whole) // 2])
     with pytest.raises(ValueError, match="size") as error:
         writer.write("t", _rows(1, 2), replace=True)
-    assert path.name in str(error.value)
+    assert ref.files[0].location in str(error.value)
     assert path.read_bytes() == whole[: len(whole) // 2]
 
 
@@ -610,10 +654,87 @@ def test_a_complete_remote_object_is_reused_without_a_rewrite(tmp_path):
     assert path.read_bytes() == whole and path.stat().st_mtime_ns == written_at
 
 
-def test_a_remote_object_that_a_write_left_partial_is_refused_after_the_write(tmp_path):
+def test_a_remote_object_that_storage_cut_short_is_refused_and_not_registered(tmp_path):
+    writer, bucket = _remote_writer(tmp_path, ShortBucketFileIO)
+    with pytest.raises(ValueError, match="size") as error:
+        writer.write("t", _rows(1, 2))
+    [stored] = (bucket / "wh/ns/t/data").iterdir()
+    assert f"s3://bucket/wh/ns/t/data/{stored.name}" in str(error.value)
+    iceberg = writer.catalog.load_table("ns.t")
+    assert iceberg.current_snapshot() is None
+    assert list(iceberg.scan().plan_files()) == []
+
+
+def _ready_parquet(writer, tmp_path, *instances):
+    """A Parquet file in the form ``write`` produces, and its name under the table's data directory."""
+    ids = index_by_name(writer.catalog.load_table("ns.t").schema())
+    path = tmp_path / "ready.parquet"
+    write_parquet(_rows(*instances), str(path), index_column="instance", field_ids=ids)
+    return path
+
+
+def test_a_local_object_at_the_final_name_is_reused_and_not_changed(tmp_path):
+    writer = _writer(tmp_path)
+    ready = _ready_parquet(writer, tmp_path, 1, 2)
+    final = file_path(writer.write("t", ready).files[0].location)
+    held, written_at = final.read_bytes(), final.stat().st_mtime_ns
+    writer.write("t", ready, replace=True)
+    assert final.read_bytes() == held and final.stat().st_mtime_ns == written_at
+
+
+def test_a_remote_object_at_the_final_name_with_the_right_size_is_reused_and_not_changed(tmp_path):
     writer, bucket = _remote_writer(tmp_path)
-    ref, path, whole = _remote_object(writer, bucket, _rows(1, 2))
-    path.unlink()
-    path.write_bytes(whole[:-1])
-    with pytest.raises(ValueError, match="size"):
-        writer.write("t", _rows(1, 2), replace=True)
+    ready = _ready_parquet(writer, tmp_path, 1, 2)
+    ref = writer.write("t", ready)
+    path = bucket / ref.files[0].location.removeprefix("s3://bucket/")
+    held, written_at = path.read_bytes(), path.stat().st_mtime_ns
+    writer.write("t", ready, replace=True)
+    assert path.read_bytes() == held and path.stat().st_mtime_ns == written_at
+
+
+def test_a_remote_object_of_the_same_size_with_other_bytes_is_reused(tmp_path):
+    writer, bucket = _remote_writer(tmp_path)
+    ready = _ready_parquet(writer, tmp_path, 1, 2)
+    ref = writer.write("t", ready)
+    path = bucket / ref.files[0].location.removeprefix("s3://bucket/")
+    altered = bytearray(path.read_bytes())
+    altered[4] ^= 0xFF
+    path.write_bytes(bytes(altered))
+    writer.write("t", ready, replace=True)
+    # Only the size is checked, so the altered object stays.
+    assert path.read_bytes() == bytes(altered)
+
+
+def test_a_failed_local_write_leaves_no_part_and_no_final_file(tmp_path):
+    final = tmp_path / "data" / "f.parquet"
+    with pytest.raises(FileNotFoundError):
+        _write_local(tmp_path / "missing.parquet", final.as_uri())
+    assert list(final.parent.iterdir()) == []
+
+
+def test_a_local_write_leaves_no_temporary_file(tmp_path):
+    source = tmp_path / "s.parquet"
+    source.write_bytes(b"abc")
+    final = tmp_path / "data" / "f.parquet"
+    _write_local(source, final.as_uri())
+    assert [p.name for p in final.parent.iterdir()] == ["f.parquet"] and final.read_bytes() == b"abc"
+
+
+def test_an_existing_table_with_another_partition_spec_is_refused(tmp_path):
+    writer = _writer(tmp_path, partition_by="grid_tile")
+    with pytest.raises(ValueError, match=r"ns\.t.*grid_tile.*no partition|ns\.t.*grid_tile") as error:
+        writer.require("t", **(WRITER_SPEC | {"partition_by": None}))
+    assert "[]" in str(error.value)
+    unpartitioned = _writer(tmp_path / "u")
+    with pytest.raises(ValueError, match=r"ns\.t.*grid_tile"):
+        unpartitioned.require("t", **(WRITER_SPEC | {"partition_by": "grid_tile"}))
+    assert unpartitioned.catalog.load_table("ns.t").spec().fields == ()
+
+
+def test_write_uses_the_index_column_of_the_writer(tmp_path):
+    schema = pa.schema([pa.field("row", pa.int64(), nullable=False), ("v", pa.string())])
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local", index_column="row")
+    writer.require("t", schema=schema, properties={})
+    ref = writer.write("t", pa.table({"row": [1], "v": ["a"]}, schema=schema))
+    pandas = json.loads(pq.read_schema(file_path(ref.files[0].location)).metadata[b"pandas"])
+    assert pandas["index_columns"] == ["row"]

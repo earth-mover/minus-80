@@ -22,15 +22,17 @@ def test_sampled_spreads_over_the_items_and_keeps_both_ends():
 def test_measure_plane_writes_each_tile_once_and_reads_no_chunk_back(tmp_path):
     data = np.arange(40 * 50, dtype=np.uint16).reshape(40, 50)
     tifffile.imwrite(tmp_path / "plane.tif", data, tile=(16, 16), compression="zlib")
-    page = tifffile.TiffFile(tmp_path / "plane.tif").pages.first
     repo = _repo(tmp_path)
 
-    result = measure_plane(repo, "measure", "measure/run", page, ReadCounter())
+    with tifffile.TiffFile(tmp_path / "plane.tif") as tif:
+        page = tif.pages.first
+        result = measure_plane(repo, "measure", "measure/run", page, ReadCounter())
+        plane_errors = check_plane(repo, result, page)
 
     # Tiles match chunks, so the edge tiles fill their chunks too and zarr never reads one back.
     assert (result["tiles"], result["store_sets"], result["store_gets"]) == (12, 12, 0)
     assert result["decoded_bytes"] == data.nbytes
-    assert check_plane(repo, result, page) == []
+    assert plane_errors == []
     assert repo.lookup_branch("measure") == result["snapshot"]
 
 

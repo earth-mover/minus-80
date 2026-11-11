@@ -1,6 +1,6 @@
 """Iceberg tables from Parquet files, and their ``uint8`` copies in an Icechunk repo.
 
-The ingest writes each Parquet file itself, so the footer carries GeoParquet
+A :class:`TableWriter` writes each Parquet file itself, so the footer carries GeoParquet
 ``geo`` and pandas index metadata, and registers the files with ``add_files``.
 Each column can carry the field id of the table's schema, so a reader needs no name mapping.
 :func:`declare_copy` then references the same files from the repo, so a Python
@@ -168,11 +168,16 @@ def require_table(
 ):
     """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``.
 
+    An existing table with another identity partition spec raises ``ValueError``; the spec is not evolved.
     A column that ``schema`` marks non-nullable becomes required in an existing table too,
     when every current data file states 0 nulls in it. Otherwise it raises ``ValueError``.
     """
     if catalog.table_exists(identifier):
         table = catalog.load_table(identifier)
+        present = [table.schema().find_column_name(f.source_id) for f in table.spec().fields]
+        wanted = [] if partition_by is None else [partition_by]
+        if present != wanted:
+            raise ValueError(f"{identifier} is partitioned by {present}, not {wanted}")
         names = {f.name for f in table.schema().fields}
         if lacking := [f.name for f in schema if not f.nullable and f.name not in names]:
             raise ValueError(f"{identifier} has no column {', '.join(lacking)}")
@@ -186,17 +191,12 @@ def require_table(
                     update.update_column(name, required=True)
             table = catalog.load_table(identifier)
         return table
-    from pyiceberg.catalog import Catalog
-    from pyiceberg.partitioning import PartitionField, PartitionSpec
-    from pyiceberg.transforms import IdentityTransform
-
-    # The spec needs the field id, so the schema is converted before the table is created.
-    iceberg_schema = Catalog._convert_schema_if_needed(schema)
-    spec = PartitionSpec()
-    if partition_by is not None:
-        field_id = iceberg_schema.find_field(partition_by).field_id
-        spec = PartitionSpec(PartitionField(field_id, 1000, IdentityTransform(), partition_by))
-    return catalog.create_table(identifier, schema=iceberg_schema, partition_spec=spec, properties=dict(properties))
+    # One transaction commits the table and its spec together.
+    with catalog.create_table_transaction(identifier, schema=schema, properties=dict(properties)) as transaction:
+        if partition_by is not None:
+            with transaction.update_spec() as spec:
+                spec.add_identity(partition_by)
+    return catalog.load_table(identifier)
 
 
 def register_files(
@@ -340,21 +340,24 @@ def _write_local(source: Path, url: str) -> None:
     """Copy ``source`` to the ``file://`` URL ``url``. The final name never holds a partial file."""
     path = file_path(url)
     if path.exists():
-        raise FileExistsError(path)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(f"{path.name}.part")
-    with source.open("rb") as data, part.open("wb") as target:
-        shutil.copyfileobj(data, target, 16 * MIB)
-    # A hard link fails when ``path`` exists, so the name is never replaced.
-    os.link(part, path)
-    part.unlink()
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, suffix=".part")
+    try:
+        with source.open("rb") as data, os.fdopen(descriptor, "wb") as target:
+            shutil.copyfileobj(data, target, 16 * MIB)
+        # The name holds the content hash, so a concurrent writer's replace puts equal bytes.
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def _check_size(io, source: Path, url: str) -> None:
-    """Raise ``ValueError`` when the object at ``url`` has not the size of ``source``."""
+    """Raise ``ValueError`` when the size of the object at ``url`` differs from the size of ``source``."""
     found, expected = len(io.new_input(url)), source.stat().st_size
     if found != expected:
-        raise ValueError(f"{url} has size {found}, not {expected}: it is partial, so it is not used")
+        raise ValueError(f"{url} has size {found}, which differs from the size of the source, {expected}: it is partial, so it is not used")
+
 
 def _put(io, source: Path, url: str) -> None:
     """Make the object at ``url`` hold ``source``'s bytes; a complete object stays as it is.
@@ -375,9 +378,9 @@ def _put(io, source: Path, url: str) -> None:
 class TableWriter:
     """Parquet files written into the Iceberg tables of one namespace, each under its table's location."""
 
-    def __init__(self, catalog, namespace: str, *, catalog_name: str, org: str):
+    def __init__(self, catalog, namespace: str, *, catalog_name: str, org: str, index_column: str = "instance"):
         self.catalog, self.namespace = catalog, namespace
-        self.catalog_name, self.org = catalog_name, org
+        self.catalog_name, self.org, self.index_column = catalog_name, org, index_column
         self._specs: dict[str, dict] = {}
         if (namespace,) not in self.catalog.list_namespaces():
             self.catalog.create_namespace(namespace)
@@ -406,7 +409,7 @@ class TableWriter:
     def write(self, name: str, table_or_path, *, geo=None, replace=False) -> TableRef:
         """Write a table, or a Parquet file at a path, as the one file of ``name``, and register it.
 
-        A table gets the field ids of the Iceberg schema, ``instance`` as the index and ``geo`` in the footer.
+        A table gets the field ids of the Iceberg schema, the writer's index column and ``geo`` in the footer.
         A file at a path is used as it is, and takes no ``geo``. See :meth:`write_parts` for the rest.
         """
         if isinstance(table_or_path, Path):
@@ -418,24 +421,25 @@ class TableWriter:
         iceberg = self.require(name, **self._spec(name))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "part.parquet"
-            write_parquet(table_or_path, str(path), index_column="instance", geo=geo,
+            write_parquet(table_or_path, str(path), index_column=self.index_column, geo=geo,
                           field_ids=index_by_name(iceberg.schema()))
-            return self.write_parts(name, [path], replace=replace)
+            return self._register(iceberg, name, [path], replace)
 
     def write_parts(self, name: str, paths: Sequence[Path], *, replace=False) -> TableRef:
         """Write each Parquet file of ``paths`` into the table ``name``, and register all in one snapshot.
 
         A file name holds a hash of the file's bytes, so other bytes never take an existing name.
         A complete object under that name is reused. A remote object of another size raises ``ValueError``.
-        A local file goes to ``<name>.part`` first, and a crash leaves that file, which the next write overwrites.
+        A local file goes to a unique ``.part`` name first, then replaces the final name; a crash leaves that file, which no later write uses.
         With ``replace``, the files replace every file the table holds. A failure after the table
         snapshot and before the repo commit leaves one extra snapshot; the next run converges.
         """
-        spec = self._spec(name)
-        iceberg = self.require(name, **spec)
+        return self._register(self.require(name, **self._spec(name)), name, paths, replace)
+
+    def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool) -> TableRef:
         urls = []
         for path in paths:
             url = f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet"
             _put(iceberg.io, path, url)
             urls.append(url)
-        return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace, **spec)
+        return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace, **self._spec(name))
