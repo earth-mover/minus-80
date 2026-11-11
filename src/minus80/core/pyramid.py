@@ -98,9 +98,10 @@ def _check_shape(array: zarr.Array, page: tifffile.TiffPage) -> None:
 
 def _tiles_match_chunks(array: zarr.Array, page: tifffile.TiffPage) -> bool:
     """True when each tile maps to its own chunks, so no two tiles write one chunk."""
-    return array.shards is None and tuple(array.chunks[-2:]) == (
-        page.tilelength,
-        page.tilewidth,
+    return (
+        array.shards is None
+        and all(length == 1 for length in array.chunks[:-2])
+        and tuple(array.chunks[-2:]) == (page.tilelength, page.tilewidth)
     )
 
 
@@ -115,6 +116,8 @@ def write_page(
 
     With `concurrency > 1` and tiles that match the chunk grid, up to `concurrency` writes run at once.
     """
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be at least 1, got {concurrency}")
     _require_tiled(page)
     _check_shape(array, page)
     writes = (
@@ -132,7 +135,8 @@ def write_page(
         return count
     # Decoding stays in this thread; the pending cap bounds the tiles held in memory.
     pending: deque = deque()
-    with ThreadPoolExecutor(concurrency) as pool:
+    pool = ThreadPoolExecutor(concurrency)
+    try:
         for region, data in writes:
             if len(pending) >= 2 * concurrency:
                 pending.popleft().result()
@@ -140,6 +144,9 @@ def write_page(
             count += 1
         for future in pending:
             future.result()
+    finally:
+        # On an error, queued writes are dropped and running ones finish before it propagates.
+        pool.shutdown(cancel_futures=True)
     return count
 
 

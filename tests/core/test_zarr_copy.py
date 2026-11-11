@@ -1,6 +1,8 @@
 """Zarr v2 arrays copied into a v3 group, chunk bytes unchanged."""
 
+import asyncio
 import json
+import time
 import zipfile
 
 import numcodecs
@@ -339,3 +341,47 @@ def test_a_failed_concurrent_write_raises(tmp_path):
     array = create_copy(root, "x", json.loads(zf.read("x/.zarray")))
     with pytest.raises(OSError, match="write failed"):
         copy_chunks(zf, "x", array, concurrency=4)
+
+
+def test_no_write_runs_after_a_failed_concurrent_copy(tmp_path):
+    finished = []
+
+    class SlowFailingStore(MemoryStore):
+        sets = 0
+
+        async def set(self, key, value, byte_range=None):
+            if key.endswith("zarr.json"):
+                return await super().set(key, value, byte_range)
+            self.sets += 1
+            if self.sets == 3:
+                raise OSError("write failed")
+            await asyncio.sleep(0.2)
+            finished.append(key)
+            await super().set(key, value, byte_range)
+
+    zf = _v2_zip(
+        tmp_path,
+        x=dict(
+            data=np.arange(10, dtype="<i4"),
+            chunks=(1,),
+            compressors=numcodecs.Blosc(cname="lz4"),
+        ),
+    )
+    root = zarr.group(SlowFailingStore())
+    array = create_copy(root, "x", json.loads(zf.read("x/.zarray")))
+    with pytest.raises(OSError, match="write failed"):
+        copy_chunks(zf, "x", array, concurrency=4)
+    settled = list(finished)
+    time.sleep(0.5)
+    assert finished == settled
+    assert root.store.sets < 10
+
+
+def test_copy_chunks_refuses_concurrency_below_one(tmp_path):
+    zf = _v2_zip(
+        tmp_path,
+        x=dict(data=np.arange(4, dtype="<i4"), chunks=(2,), compressors=None),
+    )
+    array = create_copy(_root(tmp_path), "x", json.loads(zf.read("x/.zarray")))
+    with pytest.raises(ValueError, match="concurrency"):
+        copy_chunks(zf, "x", array, concurrency=0)

@@ -126,6 +126,8 @@ def copy_chunks(
     Members are read one at a time; at most ``concurrency`` writes run at once.
     ``names`` is the member set of ``zf``, for a caller that listed the zip already.
     """
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be at least 1, got {concurrency}")
     stem = f"{prefix}/" if prefix else ""
     prototype = default_buffer_prototype()
     keys = {}
@@ -142,23 +144,37 @@ def copy_chunks(
 
     async def put_all() -> None:
         free = asyncio.Semaphore(concurrency)
-        tasks: list[asyncio.Task] = []
+        inflight: set[asyncio.Task] = set()
+        errors: list[BaseException] = []
 
         async def put(key: str, data: bytes) -> None:
-            try:
-                await array.store.set(key, prototype.buffer.from_bytes(data))
-            finally:
-                free.release()
+            await array.store.set(key, prototype.buffer.from_bytes(data))
+
+        def settled(task: asyncio.Task) -> None:
+            inflight.discard(task)
+            free.release()
+            if not task.cancelled() and task.exception() is not None:
+                errors.append(task.exception())
 
         try:
             for member, key in keys.items():
                 await free.acquire()
                 # A failed write ends the loop before it reads more members.
-                if any(t.done() and (t.cancelled() or t.exception()) for t in tasks):
+                if errors:
                     break
-                tasks.append(asyncio.create_task(put(key, zf.read(member))))
+                task = asyncio.create_task(put(key, zf.read(member)))
+                inflight.add(task)
+                task.add_done_callback(settled)
+            if inflight:
+                await asyncio.wait(set(inflight), return_when=asyncio.FIRST_EXCEPTION)
         finally:
-            await asyncio.gather(*tasks)
+            # Nothing may run on the background loop after this function returns.
+            rest = list(inflight)
+            for task in rest:
+                task.cancel()
+            await asyncio.gather(*rest, return_exceptions=True)
+        if errors:
+            raise errors[0]
 
     sync(put_all())
     return len(keys)

@@ -7,6 +7,8 @@ import pytest
 import tifffile
 import zarr
 
+from zarr.storage import MemoryStore
+
 from minus80.core import pyramid
 from minus80.core.pyramid import channel_names, check_page, create_level, write_page
 
@@ -351,6 +353,57 @@ def test_sharded_levels_are_written_serially(tmp_path, monkeypatch):
             dims=("z", "y", "x"),
             chunk=(256, 256),
             shard_planes=2,
+        )
+        write_page(array, page, (1,), concurrency=8)
+        assert submitted == []
+        np.testing.assert_array_equal(array[1], page.asarray())
+
+
+def test_a_failed_concurrent_write_page_raises_and_stops(tmp_path):
+    class FailingStore(MemoryStore):
+        sets = 0
+
+        async def set(self, key, value, byte_range=None):
+            if not key.endswith("zarr.json"):
+                self.sets += 1
+                if self.sets == 3:
+                    raise OSError("write failed")
+            await super().set(key, value, byte_range)
+
+    _pyramid_tiff(tmp_path / "p.tif", planes=1)
+    with tifffile.TiffFile(tmp_path / "p.tif") as tif:
+        page = tif.series[0].levels[0].pages[0]
+        store = FailingStore()
+        array = create_level(
+            zarr.group(store),
+            "s0",
+            (1, *page.shape),
+            page.dtype,
+            dims=("c", "y", "x"),
+            chunk=(256, 256),
+        )
+        with pytest.raises(OSError, match="write failed"):
+            write_page(array, page, (0,), concurrency=2)
+        assert store.sets < 18
+
+
+def test_write_page_refuses_concurrency_below_one(tmp_path):
+    with _one_page(tmp_path, _picture((256, 256)), tile=(256, 256)) as tif:
+        array = create_level(
+            _root(tmp_path), "s0", (1, 256, 256), "uint16", dims=("c", "y", "x")
+        )
+        with pytest.raises(ValueError, match="concurrency"):
+            write_page(array, tif.pages[0], (0,), concurrency=0)
+
+
+def test_planes_sharing_a_chunk_are_written_serially(tmp_path, monkeypatch):
+    submitted = _count_pool_submits(monkeypatch)
+    with _one_page(
+        tmp_path, _picture((512, 512)), tile=(256, 256), compression="adobe_deflate"
+    ) as tif:
+        page = tif.pages[0]
+        array = _root(tmp_path).create_array(
+            "z2", shape=(2, 512, 512), chunks=(2, 256, 256), dtype="uint16"
         )
         write_page(array, page, (1,), concurrency=8)
         assert submitted == []
