@@ -19,8 +19,8 @@ judgement calls below. Each has a recommended default.
 
 | # | Decision | Recommended |
 |---|---|---|
-| 1 | Which mask is the cell mask and which the nucleus mask | Follow `polygon_set_names` order: `masks/0` nucleus, `masks/1` cell. Confirm by area in the fixture step. |
-| 2 | The table's instance key | The integer label in the masks. Keep `barcode` and the `(prefix, suffix)` pair as columns. |
+| 1 | Which mask is the cell mask and which the nucleus mask | Decided: `masks/0` nucleus, `masks/1` cell, as `polygon_set_names` orders them. The fixture confirmed it by area. |
+| 2 | The table's instance key | Decided: the integer label in the masks, which is the row position plus one. `obs` keeps `barcode` and `cell_id`. |
 | 3 | Transcript `quality_score` is `float16` | Write `float32` in the Iceberg tables. Record the widening. |
 | 4 | The global coordinate system | Micrometres, as `spatialdata_io.xenium` does. Each image carries `Scale(pixel_size)`. |
 | 5 | The H&E image | Keep its pixels. Place it with the affine from the alignment CSV. Do not resample. |
@@ -296,7 +296,8 @@ the `geo` metadata from the table property and the index column from the
 `iceberg_table` attribute, which is what zax reads already. If the repo
 cannot reference files in the R2 bucket at all (call 12), the copies are
 dropped, points and shapes are Iceberg-only, and the shim scans the table.
-The fixture settles which.
+The fixture on Arraylake used neither fallback: the catalog accepted
+`add_files`, and the repo references the files through its container.
 
 Shapes tables carry an `instance` column that equals the mask label. It is the
 `index_column`. The source's `cell_index` stays as a column. The table element
@@ -356,25 +357,34 @@ All on 2026-11-10, from a laptop, with range requests only.
   namespace were listed. The org's three bio repos were walked for codecs
   and chunking; the cellpainting repo fails to open without `imagecodecs`.
 
-Not yet tested, and done in the fixture step: decoding a JPEG 2000 tile with
-`imagecodecs` against tifffile; writing a table through `add_files`;
-virtual references from an Arraylake repo into the R2 bucket; zax reading an
-Iceberg table on an S3-compatible endpoint; the shim reading the `uint8`
-copies on Icechunk; decode and write throughput on a Coiled VM.
+Tested in the fixture step, on 2026-11-10 and 2026-11-11, from a laptop:
+decoding a JPEG 2000 tile with `imagecodecs` against tifffile; writing a
+table through `add_files` on Arraylake's catalog; virtual references from an
+Arraylake repo into the R2 bucket; the shim reading the `uint8` copies on
+Icechunk. `LAYOUTS.md`, "Fixture findings", gives the results.
+
+Not tested: zax reading an Iceberg table on an S3-compatible endpoint, which
+the zax-spatialdata project checks; decode and write throughput on a Coiled
+VM, which step 2 measures.
 
 ## Judgement calls
 
 1. **Mask order.** The cells store names its polygon sets `["nucleus",
    "cell"]` and its masks `0` and `1`. The order is not stated to match.
-   Recommended: take `masks/0` as nucleus and `masks/1` as cell, and confirm
-   in the fixture by comparing each mask's label areas with `cell_summary`'s
-   nucleus and cell areas.
+   Decided: `masks/0` is nucleus and `masks/1` is cell. Evidence: the
+   fixture's `masks` gate sampled 50 nucleus centroids. `masks/0` label areas
+   match `cell_summary.nucleus_area`, and `masks/1` label areas match
+   `cell_area`, both with a median relative error of 0.000. The crossed pairs
+   differ by 0.502 and 1.009.
 2. **Instance key.** The masks hold integer labels; `cell_summary` holds one
    row per cell; the AnnData `obs` has `cell_id` as int64 and `barcode` as a
    string; the cells store has `cell_id` as a `(prefix, suffix)` pair.
-   Recommended: the mask label is the instance key, `obs` keeps all three
-   forms, and the fixture checks that the label equals the row position plus
-   one and that `obs.cell_id` matches it.
+   Decided: the mask label is the instance key. Evidence: the fixture's
+   `instances` gate found, on 50 of 50 sampled rows, that the cell mask at the
+   centroid is the row position plus one. `obs.cell_id` is not the label: it
+   packs the pair as `prefix + suffix * 2**32`. So the ingest adds
+   `obs/instance`, the row position plus one, and `obs/region`. `obs` keeps
+   `cell_id` and `barcode`.
 3. **`float16` quality scores.** Parquet's FLOAT16 type is young, and zax's
    Arrow support for it is unverified. Recommended: `float32` in the tables,
    recorded in the table properties and in `LAYOUTS.md`.
@@ -406,10 +416,15 @@ copies on Icechunk; decode and write throughput on a Coiled VM.
     verify against the store.
 12. **Virtual references for the `uint8` copies.** They point into our own
     bucket, not a public one, so the repo's virtual chunk container needs
-    Arraylake's credentials. The copies are never real chunks. Recommended:
-    test it in the fixture; if it fails, drop the copies, keep points and
-    shapes in Iceberg only, give the shim a table scan, and record the
-    change.
+    Arraylake's credentials. The copies are never real chunks. Decided: keep
+    the copies as virtual references. Evidence: an org admin added a private
+    Virtual Chunk Access Policy on `earthmover-managed` for the namespace's
+    location. The repo's container is that location, so it sits at or under
+    the policy's location. Without the policy, Arraylake refuses to open the
+    repo, with HTTP 400. With it, the fixture's `copies` gate passed: each
+    copy's bytes equal its Parquet file. The shim read both copies through
+    Arraylake with no credentials of its own. Each sample's repo needs the
+    same policy for its own namespace.
 
 ## Steps, scope and risk
 
@@ -423,20 +438,34 @@ Each step needs approval before it writes to a shared resource.
    project's `spatial` environment, and with stock SpatialData 0.8; send its
    coordinates to the zax-spatialdata project for its Iceberg source and
    tests; check the R2 virtual references; check `add_files` on the
-   catalog; decode one JPEG 2000 tile against tifffile; time the decode and
-   write per plane. Pass criteria: the shim opens every element; stock
-   SpatialData opens the images, the labels and the table, and reports the
-   points and shapes as absent, which is the expected limit. Approval
-   needed: creating one repo and one namespace in `earthmover-biology`.
+   catalog; decode one JPEG 2000 tile against tifffile. Pass criteria: the
+   shim opens every element; stock SpatialData opens the images, the labels
+   and the table, and reports the points and shapes as absent, which is the
+   expected limit. Approval needed: creating one repo and one namespace in
+   `earthmover-biology`.
 
    The ingest itself writes with zarr, icechunk, pyarrow and pyiceberg
    through `minus80`, and never imports spatialdata. It builds the
    SpatialData attributes from the spec, as `minus80.ome` builds OME-Zarr's.
-2. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
+
+   Where each part ran. All parts ran on a laptop outside us-west-2. The
+   fixture on a local repo and catalog ran on 2026-11-10. The fixture on
+   Arraylake ran on 2026-11-11. That was a mistake: the decision above says
+   the ingest runs on Coiled in us-west-2, and the step did not say where
+   the fixture runs. `verify.py` and the SpatialData checks against
+   Arraylake also ran on the laptop. The laptop's times do not predict the
+   ingest. `LAYOUTS.md`, "Fixture findings", gives the results. The stock
+   SpatialData criterion failed: SpatialData 0.8.0 cannot open an Icechunk
+   store at all.
+2. **Throughput on Coiled.** On a Coiled VM in us-west-2, decode and write
+   one full-resolution morphology plane, and copy one
+   label mask. Time each. These two numbers give the expected runtime for
+   step 4. Approval needed: the Coiled spend.
+3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
    `imagecodecs`; Booth cannot read the codec. Approval needed: the rules
    change.
-3. **Kidney, full.** On a Coiled VM in us-west-2 with 32 cores and 200 GB of
+4. **Kidney, full.** On a Coiled VM in us-west-2 with 32 cores and 200 GB of
    disk. Download the bundle and the H&E once, and verify their ETags. Read
    members in place. Write the tables, then the elements, with one commit per
    element. Verify per `docs/ingest.md`: every image level against tifffile
@@ -444,8 +473,8 @@ Each step needs approval before it writes to a shared resource.
    count against the source arrays, and the shim and zax reads. Write
    `REPORT.md`. Approval needed: the Coiled spend and about 100 GB of R2
    storage.
-4. **Brain, colorectal, breast,** each as step 3, smallest first.
-5. **Notebook** that opens one store cold, per `AGENTS.md`.
+5. **Brain, colorectal, breast,** each as step 4, smallest first.
+6. **Notebook** that opens one store cold, per `AGENTS.md`.
 
 **Shared-package work.** Code that a second archive could use goes into
 `minus80`, with tests, and reuses what is there first:
@@ -461,18 +490,22 @@ Each step needs approval before it writes to a shared resource.
 
 Expected runtime per sample has three parts. The download takes minutes at
 about 1 GB/s inside the region. The JPEG 2000 decode of 17 to 19 planes is
-the unknown that the fixture measures. The transcript table write is one pass
-over 1 to 5 billion rows. A run that is well past its expected time stops.
+not measured; step 2 measures it. The fixture's laptop times do not predict
+it. The transcript table write is one pass over 1 to 5 billion rows. A run
+that is well past its expected time stops.
 
 Risks:
 
-- **Virtual references into R2** (call 12) may not get credentials through
-  Arraylake. The fallback is Iceberg-only points and shapes, never real
-  chunks.
+- **Access policy per repo** (call 12). Each sample's repo opens only when
+  an org admin's Virtual Chunk Access Policy covers its container. Each
+  sample's step needs that policy before the ingest starts.
 - **zax on an S3-compatible endpoint.** zax's Iceberg storage is written for
-  S3 and GCS. R2 speaks S3 with an endpoint URL. The fixture tells.
-- **The Python read path** rests on five unreleased spatialdata patches and
-  the virtual_omics shim. Readers outside our notebooks need those until
+  S3 and GCS. R2 speaks S3 with an endpoint URL. The zax-spatialdata
+  project answers this from the fixture's coordinates.
+- **The Python read path** rests on unreleased spatialdata patches and the
+  virtual_omics shim. The fixture showed it: released SpatialData 0.8.0
+  cannot open an Icechunk store, and PR #1107 with its patches and the shim
+  opens every element. Readers outside our notebooks need those until
   spatialdata PR #1107 or the `parquet_fs_fallback` hook lands.
 - **Shared-package additions** this ingest needs from the unmerged
   `cellpainting-gallery` branch, `arraylake://` locations in

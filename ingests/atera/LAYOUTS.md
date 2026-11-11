@@ -196,3 +196,83 @@ SpatialData requires a `unit` on every space axis. Without one, it raises
 `ValueError: Each axis is either of type channel either MUST have a unit.`
 SpatialData reads the table keys from `uns/spatialdata_attrs`, so the ingest writes them there.
 Without them, the table opens with no region and no instance key.
+
+## Fixture findings
+
+The fixture on Arraylake: repo `earthmover-biology/atera-kidney`, branch `fixture`, snapshot
+`0F2FJWXQ847G2GSY3CB0`, written on 2026-11-11 in seven commits, one per element. The Iceberg
+tables are in the namespace `atera-kidney-tables` of the catalog `arraylake:earthmover-biology`.
+All of it ran on a laptop outside us-west-2.
+
+- **(a) `add_files` on Arraylake's catalog.** Accepted. `atera-kidney-tables.transcripts`: UUID
+  `9c8ad66e-9714-441a-a64c-47717a6df18e`, snapshot 2561315328136931592, 2,633,912 rows in 1 file.
+  `atera-kidney-tables.nucleus_boundaries`: UUID `92d035bd-24ee-43a6-aad6-e459230a552c`, snapshot
+  6473272151704216561, 398,197 rows in 1 file. The `attrs` gate PASS: both attributes pin the catalog's UUID and snapshot.
+- **(b) SpatialData.** In the virtual_omics `spatial` environment, `sd.read_zarr` on
+  `Client().get_repo("earthmover-biology/atera-kidney").readonly_session("fixture").store`.
+  Released 0.8.0 raises `TypeError: isinstance() arg 2 must be a type, a tuple of types, or a
+  union`, in `_resolve_zarr_store`, after 1.3 s. Released 0.8.0 with `parquet_in_store()` raises
+  `RuntimeError: this needs spatialdata's _store module, added in PR #1107; on 0.8.0 the geometry
+  writers derive a path from store.root and there is no filesystem to substitute`. PR #1107 with
+  the four patches, without the shim, raises `ValueError: Cannot derive a filesystem for store of
+  type IcechunkStore`, in the points reader. PR #1107 with the four patches and
+  `parquet_in_store()`, `array.rectilinear_chunks` set, opens all six elements in `global` in
+  503.0 s: images `morphology` `(4, 517, 885)` at scale 13.62 and 13.60; labels `cell_labels` and
+  `nucleus_labels` `(33139, 56644)` at 0.21249222; points `transcripts` 2,633,912 rows, 12
+  columns, 3D; shapes `nucleus_boundaries` 398,197 rows, index `instance`, first geometry a valid
+  Polygon; table `(399120, 24674)` with region `cell_labels`, region key `region`, instance key
+  `instance`. Arraylake authorizes the repo's container, so the shim needs no credentials.
+- **(c) Virtual references into the managed bucket.** A repo that references files in the org's
+  own bucket needs a Virtual Chunk Access Policy that an org admin adds. The policy must cover the
+  repo's virtual chunk container, and the container must sit at or under the policy's location.
+  Without the policy, Arraylake refuses to open the repo at all, with HTTP 400: `Virtual chunk
+  container prefix 's3://<bucket>/' is not covered by any Virtual Chunk
+  Access Policy on org 'earthmover-biology'.` The repo's container is the namespace's location,
+  `s3://<bucket>/<prefix>/`, under a private policy on
+  `earthmover-managed` with that subprefix.
+  With the policy, the repo opens. The `copies` gate PASS: each table has 1 `uint8` array and 1
+  registered file, and each copy's bytes equal its Parquet file.
+- **(d) zax on the S3-compatible endpoint.** Pending. The check is handed to the
+  zax-spatialdata project, which reads the tables from the coordinates in this section.
+- **(e) Throughput.** NOT MEASURED. The fixture ran from a laptop outside the source region, so the
+  times below are laptop times only. They do not predict the ingest. A separate step measures one
+  full-resolution plane and one label copy on a Coiled VM in us-west-2.
+- **Categorical columns.** pyiceberg warns `Iceberg does not have a dictionary type. <class
+  'pyarrow.lib.DictionaryType'> will be inferred as string on read.` So `feature_name` reads back
+  as a plain string, not a dictionary.
+
+The `iceberg_table` attributes on the branch:
+
+| Element | `iceberg_table` |
+|---|---|
+| `points/transcripts` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "transcripts", "table_uuid": "9c8ad66e-9714-441a-a64c-47717a6df18e", "snapshot_id": 2561315328136931592, "index_column": "instance"}` |
+| `shapes/nucleus_boundaries` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "nucleus_boundaries", "table_uuid": "92d035bd-24ee-43a6-aad6-e459230a552c", "snapshot_id": 6473272151704216561, "index_column": "instance", "geometry_column": "geometry"}` |
+
+Laptop times of the ingest, reading the bundle from 10x's bucket:
+
+| Element | Commit | Read from the bundle | Laptop wall time |
+|---|---|---|---|
+| `tables/table` | `MBTAEFQ7NKECAZD27V70` | 1,168.1 MiB | 4,365.0 s |
+| `labels/nucleus_labels` | `TBCE647742BYK65YTH7G` | 120.1 MiB | 2,153.0 s |
+| `labels/cell_labels` | `RQGYGFNECS8Y0ERWPCQ0` | 151.7 MiB | 2,121.2 s |
+| `images/morphology/s6` | `HZK9EVP8AFZRCX7E1YT0` | 3.3 MiB | 17.2 s |
+| `shapes/nucleus_boundaries` | `X4QMKMWWQKZ412R7YYF0` | 55.6 MiB | 118.3 s |
+| `points/transcripts` | `6RM8RAD7KNATEMAM1BKG` | 32.6 MiB | 122.0 s |
+| root attributes | `0F2FJWXQ847G2GSY3CB0` | 0.1 MiB | 4.5 s |
+| total | | 1,538.1 MiB | 8,929.4 s |
+
+`verify.py` against the Arraylake fixture, on the laptop: every gate PASS, 307.7 MiB read from
+the bundle, 3,153.7 s wall time. The times come from timestamps on the output lines. The first
+gate's time includes the bundle and repo open.
+
+| Gate | Result | Laptop wall time | Output |
+|---|---|---|---|
+| `images` | PASS | 37 s | 1 of 1 tiles checked on each of 4 channels |
+| `labels` | PASS | 2,967 s | 2,048 chunks of `masks/0` in 24m; 2,048 chunks of `masks/1` in 25m |
+| `matrix` | PASS | 55 s | `csr_matrix`, `(399120, 24674)`, 599,212,411 stored values; 20 sampled chunks of `X/data` and `X/indices` compared |
+| `tables` | PASS | 6 s | `points/transcripts` 2,633,912 rows, the source 2,633,912; `shapes/nucleus_boundaries` 398,197 rows, the source 398,197 |
+| `masks` | PASS | 56 s | 5,044 of 399,120 rows have no nucleus; median relative error 0.000 for `nucleus_labels` vs `nucleus_area` and `cell_labels` vs `cell_area`; 0.502 and 1.009 crossed |
+| `instances` | PASS | 13 s | 50 rows, 0 mismatches |
+| `polygons` | PASS | 6 s | FINDING: 1,180 of 398,197 nucleus polygons are not valid; the metrics CSV states no count |
+| `copies` | PASS | 13 s | each table: 1 `uint8` array, 1 registered file |
+| `attrs` | PASS | 1 s | 2 `iceberg_table` attributes |
