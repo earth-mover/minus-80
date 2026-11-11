@@ -8,8 +8,8 @@
     launch.py --attach <cluster id or name> --workspace earthmover-devs
 
 The VM builds its own environment from ``uv.lock`` inside a Linux container, never from the laptop's environment.
-The launcher stops the VM when the script ends, fails or passes the time limit, or when the launcher is interrupted.
-It exits with the script's exit code. The Arraylake token never appears in any output.
+The launcher stops the VM when the script ends, fails or passes the time limit. On an interrupt the script form
+stops the VM; the ingest form and an attach do not. It exits with the script's exit code. The Arraylake token never appears in any output.
 """
 
 from __future__ import annotations
@@ -55,9 +55,11 @@ MAX_FAILURES = 30
 RUNNING_TASK = ("assigned", "running")
 #: The longest the launcher waits for the cluster to report ``stopping`` or ``stopped`` after the stop request.
 STOP_SECONDS = 60
-#: The disk beyond the downloads, in GiB: 10 for the scratch Parquet file of the largest transcript tile (not yet
-#: measured), 10 for the uv environment and its cache, 10 for the image and the system, 10 of margin.
+#: The disk beyond the downloads, in GiB: 10 for the scratch Parquet file of the largest transcript tile (2,230,658,968
+#: bytes measured), 10 for the uv environment and its cache, 10 for the image and the system, 10 of margin.
 OVERHEAD_GIB = 40
+#: The part of the overhead that the data directory needs after the environment exists: the tile's scratch file.
+TILE_SCRATCH_GIB = 10
 #: The default disk of the ingest form is the requirement rounded up to a multiple of this.
 DISK_STEP_GIB = 25
 GIB = 1 << 30
@@ -89,6 +91,7 @@ class IngestPlan:
     concurrency: int
     elements: str | None
     gates: str | None
+    replace_tables: str | None
 
 
 @dataclass(frozen=True)
@@ -97,7 +100,8 @@ class Job:
 
     ``minutes`` is the launcher's time limit, ``None`` for none. ``status_failures`` is the number of failed status
     calls in a row, while the task runs, that end the run; ``None`` means never, so a lost network does not end the job.
-    ``stop_on_interrupt`` is False for a launcher that attached to a job that it did not start.
+    ``stops`` says when the launcher stops the VM: ``always`` on every exit path (a script), ``viewer`` only when the
+    start fails, at the time limit and when the job ends (the ingest), ``never`` (an attached launcher).
     """
 
     name: str
@@ -110,7 +114,7 @@ class Job:
     arguments: list[str]
     ingest: IngestPlan | None = None
     status_failures: int | None = MAX_FAILURES
-    stop_on_interrupt: bool = True
+    stops: str = "always"
 
 
 def unique_name(prefix: str) -> str:
@@ -138,7 +142,11 @@ def is_arm(vm_type: str) -> bool:
 
 def required_disk_gib(sample: str) -> int:
     """The disk, in GiB, that the ingest of ``sample`` needs: its downloads, rounded up, and ``OVERHEAD_GIB``."""
-    return -(-sum(o["size"] for o in fetch.wanted(SAMPLES[sample])) // GIB) + OVERHEAD_GIB
+    return -(-download_bytes(sample) // GIB) + OVERHEAD_GIB
+
+
+def download_bytes(sample: str) -> int:
+    return sum(o["size"] for o in fetch.wanted(SAMPLES[sample]))
 
 
 def default_disk_gib(sample: str) -> int:
@@ -166,7 +174,7 @@ exec {run}
 
 
 def ingest_script(plan: IngestPlan) -> str:
-    """The shell script of the ingest form: environment, download, check, ingest, verification.
+    """The shell script of the ingest form: environment, preflight, space, download, check, ingest, verification.
 
     Each step prints a start line and its wall time. The first failed step ends the script with its exit code and
     prints its last 40 lines again, so a failed check never reaches the ingest and a failed ingest never reaches the
@@ -178,12 +186,17 @@ def ingest_script(plan: IngestPlan) -> str:
     quote = shlex.quote
     python = "uv run --frozen --package atera-ingest python ingests/atera"
     common = f"--sample {quote(plan.sample)} --repo {quote(plan.repo)} --catalog {quote(plan.catalog)}"
-    ingest = (f'{python}/ingest.py {common} --namespace {quote(plan.namespace)} --mode full '
-              f'--branch {quote(plan.branch)} --concurrency {plan.concurrency} --bundle "{files["bundle"]}" '
-              f'--he-image "{files["image"]}" --he-alignment "{files["alignment"]}"'
-              + (f" --elements {quote(plan.elements)}" if plan.elements else ""))
+    # One argument list for the preflight and the ingest, so they cannot differ; the ingest adds the local files.
+    arguments = (f'{common} --namespace {quote(plan.namespace)} --mode full --branch {quote(plan.branch)} '
+                 f'--concurrency {plan.concurrency}'
+                 + (f" --elements {quote(plan.elements)}" if plan.elements else "")
+                 + (f" --replace-tables {quote(plan.replace_tables)}" if plan.replace_tables else ""))
+    preflight = f"{python}/ingest.py {arguments} --preflight"
+    ingest = (f'{python}/ingest.py {arguments} --bundle "{files["bundle"]}" '
+              f'--he-image "{files["image"]}" --he-alignment "{files["alignment"]}"')
     verify = (f'{python}/verify.py {common} --mode full --branch {quote(plan.branch)} --bundle "{files["bundle"]}" '
               f'--he-image "{files["image"]}" --head-source' + (f" --gates {quote(plan.gates)}" if plan.gates else ""))
+    need_kb = (download_bytes(plan.sample) + TILE_SCRATCH_GIB * GIB) // 1024
     return f"""#!/bin/bash
 set -uo pipefail
 {ENVIRONMENT}DATA="${{ATERA_DATA:-/tmp/atera-data}}"
@@ -207,13 +220,32 @@ step() {{
   echo "=== step $name: done in $((SECONDS - began)) s"
 }}
 
+# The data directory must hold the downloads and the largest tile's scratch file.
+check_space() {{
+  local free_kb
+  free_kb=$(df -Pk "$DATA" | awk 'NR==2 {{print $4}}')
+  echo "free space in $DATA: $free_kb KiB; needed: {need_kb} KiB"
+  if [ "$free_kb" -lt {need_kb} ]; then
+    echo "not enough free space in $DATA for the downloads and the largest tile's scratch file"
+    return 3
+  fi
+}}
+
 echo "machine: $(uname -m)"
 step environment "build the environment from uv.lock" uv sync --frozen --package atera-ingest
+step preflight "the arguments, the repo, the catalog and each table's state, with no write and no bundle" {preflight}
+echo "=== disk before the download: the data directory, /opt (the environment) and the working directory"
+df -h "$DATA" /opt . || true
+step space "free space of the data directory against the downloads and the tile's scratch file" check_space
 step download "one streaming GET for each object of the sample, anonymous, resumed up to 5 times" \
   uv run --frozen --package atera-ingest python ingests/atera/fetch.py download --sample {quote(plan.sample)} --directory "$DATA"
+echo "=== disk after the download"
+df -h "$DATA" || true
 step check "size of each file, and its ETag where the MD5 of the file or of its parts can be recomputed" \
   uv run --frozen --package atera-ingest python ingests/atera/fetch.py check --sample {quote(plan.sample)} --directory "$DATA"
 step ingest "the full ingest from the local files; the first write to Arraylake" {ingest}
+echo "=== disk after the ingest"
+df -h "$DATA" || true
 echo "=== note: the verification reads the local files; its source gate sends HEAD requests to the real objects"
 step verify "the full verification" {verify}
 echo "=== all steps passed"
@@ -327,11 +359,24 @@ class CoiledVm:
         except Exception as error:
             return f"unknown ({type(error).__name__})"
 
+    def find_by_name(self, name: str) -> int | None:
+        """The id of the cluster called ``name``, or ``None`` when the service knows none."""
+        import coiled
+
+        try:
+            jobs = coiled.batch.status(cluster=name, workspace=self.workspace)
+        except Exception:
+            return None
+        return jobs[0]["cluster_id"] if isinstance(jobs, list) and jobs else None
+
     def stop(self, name: str) -> None:
         """Stop the cluster by id, or by name when the start failed; print the name and the state after."""
         import coiled
         from coiled.errors import DoesNotExist
 
+        by_name = not self.cluster_id
+        if by_name:
+            self.cluster_id = self.find_by_name(name)
         failure, gone = None, False
         try:
             target = {"cluster_id": self.cluster_id} if self.cluster_id else {"name": name}
@@ -340,10 +385,22 @@ class CoiledVm:
             gone = True
         except Exception as error:
             failure = error
-        # The state read right after the request is the old one, so wait for it to change.
-        state = "stopped" if gone else self.state_after_stop()
+        if by_name and not self.cluster_id:
+            self.cluster_id = self.find_by_name(name)
+        if gone and not self.cluster_id:
+            state = "absent"
+        elif not self.cluster_id:
+            # Nothing found by name and the delete did not say it was absent: a person must look.
+            state = "unknown (no cluster found by name)"
+        else:
+            # The state read right after the request is the old one, so wait for it to change.
+            state = "stopped" if gone else self.state_after_stop()
         print(f"cluster {name}: {state}", flush=True)
-        if state not in ("stopping", "stopped"):
+        if failure is not None and by_name and not self.cluster_id:
+            print(f"could not stop the cluster {name}: {type(failure).__name__}: {failure}; stop it by hand: "
+                  f"coiled cluster list --workspace {self.workspace}, then coiled cluster stop {name} "
+                  f"--workspace {self.workspace}", flush=True)
+        elif state not in ("stopping", "stopped", "absent"):
             cause = f" ({type(failure).__name__}: {failure})" if failure is not None else ""
             print(f"warning: cluster {name} (id {self.cluster_id}) is {state} {STOP_SECONDS} s after the stop "
                   f"request{cause}; stop it by hand", flush=True)
@@ -383,12 +440,23 @@ class AttachedVm(CoiledVm):
         return lines
 
 
-def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock=time.monotonic, sleep=time.sleep,
-        interval: float = 10) -> int:
-    """Start ``job`` on ``vm``, forward its lines, and return its exit code; the VM stops whatever happens.
+def follow_lines(job: Job, vm) -> tuple[str, str]:
+    """How to follow the job again and how to stop it."""
+    ident = job.name if job.stops == "never" else (getattr(vm, "cluster_id", None) or job.name)
+    return (f"follow: launch.py --attach {ident} --workspace {job.workspace}",
+            f"stop: launch.py --stop {ident} --workspace {job.workspace}")
 
-    Nothing asks for the log before a task runs. A failed call is one line and the next poll tries again.
+
+def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock=None, sleep=None,
+        interval: float = 10) -> int:
+    """Start ``job`` on ``vm``, forward its lines, and return its exit code.
+
+    ``job.stops`` says on which paths the VM stops. Nothing asks for the log before a task runs, and a failed call
+    is one line and the next poll tries again.
     """
+
+    # Looked up at the call, so a test can replace ``time.sleep``.
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
 
     def say(text):
         out(text.replace(token, "***"))
@@ -415,9 +483,18 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
 
     started, status, shown = clock(), Status(None, None, None), {}
     poll_streak = log_streak = 0
-    interrupted = False
+    stop, job_known = job.stops == "always", False
     try:
-        vm.start(job, token)
+        try:
+            vm.start(job, token)
+        except BaseException:
+            # A failed start leaves what it created, and no job to follow.
+            stop = job.stops != "never"
+            raise
+        job_known = True
+        if job.stops == "viewer":
+            for line in follow_lines(job, vm):
+                say(line)
         while True:
             try:
                 status, poll_streak = vm.poll(), 0
@@ -432,6 +509,9 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
                 drain()
                 if status.code is None:
                     say(f"the cluster is {status.cluster} and the task has no exit code")
+                stop = job.stops != "never"
+                if not stop:
+                    say(follow_lines(job, vm)[1] + " (the cluster is not stopped)")
                 return 1 if status.code is None else status.code
             running = status.task in RUNNING_TASK
             if running:
@@ -448,16 +528,19 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
                 return 1
             if job.minutes is not None and clock() - started >= job.minutes * 60:
                 say(f"the time limit of {job.minutes} minutes passed; stopping the VM")
+                stop = job.stops != "never"
                 return TIME_LIMIT_CODE
             sleep(interval)
     except KeyboardInterrupt:
-        interrupted = True
+        if job.stops == "viewer" and job_known:
+            for line in follow_lines(job, vm):
+                say(line)
         raise
     except Exception as error:
         say(f"{type(error).__name__}: {error}")
         return 1
     finally:
-        if job.stop_on_interrupt or not interrupted:
+        if stop:
             vm.stop(job.name)
 
 
@@ -471,13 +554,55 @@ def plan_text(job: Job) -> str:
     return "\n".join(lines)
 
 
+ARRAYLAKE = "arraylake://"
+NOTE = (
+    "With --ingest the launcher is a viewer of the job. It never stops the VM on Ctrl-C, SIGTERM, SIGHUP, a closed "
+    "terminal or a status error, except at its own --max-minutes limit and when the start fails; it stops the VM "
+    "when the job ends. A dead launcher does not stop the job: the job ends by itself, at --max-minutes on the "
+    "server, or when a person runs launch.py --stop <cluster id> --workspace <ws>. Follow a job again with "
+    "launch.py --attach <cluster id> --workspace <ws>; an attached launcher never stops the cluster. A script "
+    "(after --) stops the VM on every exit path."
+)
+
+
+def split_names(flag: str, text: str, fail) -> None:
+    """Exit unless ``text`` is names with no empty one and no whitespace, comma-separated."""
+    if any(not name or re.search(r"\s", name) for name in text.split(",")):
+        fail(f"--{flag} is names separated by commas, each non-empty and with no whitespace: {text!r}")
+
+
+def check_ingest(args, fail) -> None:
+    """Exit unless the ingest form's arguments are consistent; nothing has been uploaded or launched yet."""
+    repo = re.fullmatch(rf"{ARRAYLAKE}([^/\s]+)/([^/\s]+)", args.repo)
+    catalog = re.fullmatch(rf"{ARRAYLAKE}([^/\s]+)", args.catalog)
+    if not repo:
+        fail(f"--repo is arraylake://<org>/<repo>, not {args.repo!r}")
+    if not catalog:
+        fail(f"--catalog is arraylake://<org>, not {args.catalog!r}")
+    if repo[1] != catalog[1]:
+        fail(f"--repo and --catalog must name the same org, not {repo[1]!r} and {catalog[1]!r}")
+    if args.namespace != f"{repo[2]}-tables":
+        fail(f"--namespace for the repo {repo[2]} is {repo[2]}-tables, not {args.namespace!r}")
+    if not (args.branch == "main" or (args.branch.startswith("trial-") and len(args.branch) > len("trial-"))):
+        fail(f"--branch is main or trial-<name>, not {args.branch!r}")
+    if args.sample not in SAMPLES:
+        fail(f"--sample is one of {', '.join(sorted(SAMPLES))}, not {args.sample!r}")
+    if SAMPLES[args.sample].repo != repo[2]:
+        fail(f"--sample {args.sample} is the repo {SAMPLES[args.sample].repo}, not {repo[2]}")
+    if args.concurrency < 1:
+        fail(f"--concurrency is at least 1, not {args.concurrency}")
+    for flag in ("elements", "gates", "replace_tables"):
+        if (text := getattr(args, flag)) is not None:
+            split_names(flag.replace("_", "-"), text, fail)
+
+
 def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     """The options and the command after ``--``; each form's missing or conflicting option exits."""
     own, command = (argv[: argv.index("--")], argv[argv.index("--") + 1:]) if "--" in argv else (argv, [])
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=NOTE)
     for flag in ("vm-type", "region", "workspace", "name", "sample", "repo", "catalog", "namespace", "branch",
-                 "elements", "gates", "attach"):
+                 "elements", "gates", "replace-tables", "attach", "stop"):
         parser.add_argument(f"--{flag}")
     parser.add_argument("--disk", type=int, help="GiB; the ingest form defaults to its requirement, rounded up")
     parser.add_argument("--max-minutes", type=int, help="the VM stops when the run passes this; 90 for a script")
@@ -499,47 +624,85 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
             if getattr(args, flag.replace("-", "_")) is None:
                 fail(f"--{flag} is needed" + (" for --ingest" if args.ingest else ""))
 
-    if args.attach:
+    if args.max_minutes is not None and args.max_minutes < 1:
+        fail(f"--max-minutes is at least 1, not {args.max_minutes}")
+    if args.replace_tables is not None and not args.ingest:
+        fail("--replace-tables belongs to --ingest")
+    if args.attach or args.stop:
         need("workspace")
     elif args.ingest:
         if command:
             fail("--ingest takes no script; the script form is: options -- script arguments")
         need("vm-type", "region", "workspace", "name", "max-minutes", "sample", "repo", "catalog", "namespace", "branch",
              "concurrency")
-        if args.sample not in SAMPLES:
-            fail(f"--sample is one of {', '.join(sorted(SAMPLES))}")
+        check_ingest(args, fail)
         if args.disk is not None and args.disk < required_disk_gib(args.sample):
             fail(f"--disk {args.disk} is below the {required_disk_gib(args.sample)} GiB that the ingest of "
-                         f"{args.sample} needs: its downloads and {OVERHEAD_GIB} GiB of overhead")
+                 f"{args.sample} needs: its downloads and {OVERHEAD_GIB} GiB of overhead")
     else:
         need("vm-type", "region", "workspace", "name", "disk")
         if not command or not (HERE / command[0]).is_file():
             fail(f"{command[0] if command else 'no script'} is not a script in {HERE.name}/; "
-                         "give the script and its arguments after --")
+                 "give the script and its arguments after --")
     return args, command
 
 
-NOTE = (
-    "With --ingest a dead launcher does not stop the job: the VM runs on and the job ends by itself, at "
-    "--max-minutes on the server, or when a person stops the cluster. Status errors never stop it either; "
-    "use --attach to follow a job again."
-)
+def stop_cluster(ref: str, workspace: str, vm=None, dry_run: bool = False) -> int:
+    """Print the name and the state of the cluster ``ref`` (id or name), delete it, and print the state after.
+
+    With ``dry_run`` it prints what it would delete and deletes nothing.
+    """
+    import coiled
+    import coiled.v2
+
+    vm = vm or CoiledVm()
+    vm.workspace = workspace
+    if ref.isdigit():
+        vm.cluster_id = int(ref)
+    else:
+        jobs = coiled.batch.status(cluster=ref, workspace=workspace)
+        if not isinstance(jobs, list) or not jobs:
+            raise SystemExit(f"launch.py: error: no cluster {ref!r} in {workspace}")
+        vm.cluster_id = jobs[0]["cluster_id"]
+    details = coiled.v2.cluster_details(vm.cluster_id, workspace=workspace)
+    state = details["current_state"]["state"]
+    if dry_run:
+        print(f"would stop cluster {details['name']} (id {vm.cluster_id}), now {state}; nothing was deleted", flush=True)
+        return 0
+    print(f"cluster {details['name']} (id {vm.cluster_id}): {state}", flush=True)
+    vm.stop(details["name"])
+    return 0
+
+
+def interruptible(call: Callable[[], int]) -> int:
+    """Run ``call``; an interrupt ends with the shell's code 130 and no traceback, after ``run`` has done its part."""
+    try:
+        return call()
+    except KeyboardInterrupt:
+        return 130
 
 
 def main(argv: list[str] | None = None) -> int:
     args, command = parse(sys.argv[1:] if argv is None else argv)
+    if args.stop:
+        return stop_cluster(args.stop, args.workspace, dry_run=args.dry_run)
+    if args.attach and args.dry_run:
+        print(f"would follow {args.attach} in {args.workspace}: the last {args.tail} lines, then the new ones; "
+              "it would stop nothing", flush=True)
+        return 0
     token = read_token(Path(args.token_file).expanduser())
     if args.attach:
-        job = Job(args.attach, "", "", args.workspace, 0, None, "", [], status_failures=None, stop_on_interrupt=False)
+        job = Job(args.attach, "", "", args.workspace, 0, None, "", [], status_failures=None, stops="never")
         install_stop_signals()
         print(f"attaching to {args.attach}; the last {args.tail} lines first", flush=True)
-        return run(AttachedVm(args.attach, args.tail), job, token, out=lambda line: print(line, flush=True))
+        return interruptible(lambda: run(AttachedVm(args.attach, args.tail), job, token,
+                                         out=lambda line: print(line, flush=True)))
     name = unique_name(args.name)
     if args.ingest:
         plan = IngestPlan(args.sample, args.repo, args.catalog, args.namespace, args.branch, args.concurrency,
-                          args.elements, args.gates)
+                          args.elements, args.gates, args.replace_tables)
         job = Job(name, args.vm_type, args.region, args.workspace, args.disk or default_disk_gib(args.sample),
-                  args.max_minutes, "ingest", [], plan, args.status_failures)
+                  args.max_minutes, "ingest", [], plan, args.status_failures, "viewer")
     else:
         job = Job(name, args.vm_type, args.region, args.workspace, args.disk, args.max_minutes or 90, command[0],
                   command[1:], None, MAX_FAILURES if args.status_failures is None else args.status_failures)
@@ -551,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     install_stop_signals()
     print(f"launching {job.name}: {job.vm_type} in {job.region}, at most {job.minutes} minutes", flush=True)
-    return run(CoiledVm(), job, token, out=lambda line: print(line, flush=True))
+    return interruptible(lambda: run(CoiledVm(), job, token, out=lambda line: print(line, flush=True)))
 
 
 if __name__ == "__main__":

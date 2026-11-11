@@ -67,5 +67,17 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
     config = icechunk_io.arraylake_repository(location, source_prefixes=[REMOTE]).config
     assert config.manifest.max_concurrent_manifest_fetches_during_commit == icechunk_io.MANIFEST_FETCH_CONCURRENCY
     assert config.storage.retries.max_tries == REMOTE_READ_TRIES
-    with pytest.raises(ValueError, match="no virtual chunk container covering"):
-        icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
+    with pytest.raises(ValueError, match="no virtual chunk container covers") as raised:
+        icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/", REMOTE])
+    # The text states the problem only; the prefixes and the container names are on the exception.
+    assert "other-bucket" not in str(raised.value) and "czb-opencell" not in str(raised.value)
+    assert "1 of the 2 source prefixes" in str(raised.value) and "1 virtual chunk container" in str(raised.value)
+    assert raised.value.uncovered == ["s3://other-bucket/"] and raised.value.containers == ["s3://czb-opencell"]
+
+
+def test_an_unsupported_scheme_is_named_without_its_path():
+    import pytest
+
+    with pytest.raises(ValueError, match="scheme 'gs'") as raised:
+        icechunk_io._store_for("gs://private-bucket/some/prefix/")
+    assert "private-bucket" not in str(raised.value) and "some/prefix" not in str(raised.value)

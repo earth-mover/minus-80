@@ -20,6 +20,9 @@ class Bucket:
 
     def __init__(self, objects: dict[str, tuple[bytes, str]]):
         self.objects, self.requests, self.cut_at, self.cut_requests = objects, [], 0, 0
+        # What the object becomes after the first request, the number of leading requests that fail with 503,
+        # whether the server ignores Range, and whether it leaves out Content-Length.
+        self.after_first, self.fail_requests, self.ignore_range, self.no_length = None, 0, False, False
         bucket = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -32,21 +35,33 @@ class Bucket:
                 if data is None:
                     self.send_error(404)
                     return
+                if len(bucket.requests) <= bucket.fail_requests:
+                    self.send_error(503)
+                    return
+                if "If-Match" in self.headers and self.headers["If-Match"].strip('"') != etag:
+                    self.send_error(412)
+                    return
+                if len(bucket.requests) == 1 and bucket.after_first:
+                    bucket.objects[self.path] = bucket.after_first
                 start = 0
-                if "Range" in self.headers:
+                if "Range" in self.headers and not bucket.ignore_range:
                     start = int(self.headers["Range"].removeprefix("bytes=").split("-")[0])
                     self.send_response(206)
                     self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
                 else:
                     self.send_response(200)
                 self.send_header("ETag", f'"{etag}"')
-                self.send_header("Content-Length", str(len(data) - start))
+                if not bucket.no_length:
+                    self.send_header("Content-Length", str(len(data) - start))
                 self.end_headers()
                 body = data[start:]
                 if len(bucket.requests) <= bucket.cut_requests:
                     body = body[:bucket.cut_at]
-                self.wfile.write(body)
-                self.wfile.flush()
+                try:
+                    self.wfile.write(body)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # The client stopped reading, as a test of an early stop makes it do.
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -138,7 +153,8 @@ def test_a_multipart_etag_is_recomputed_when_one_part_size_fits(tmp_path):
     assert fetch.check(obj, tmp_path, out=lines.append) == []
     assert any("recomputed" in line and "1 MiB" in line for line in lines)
     wrong = obj | {"etag": multipart_etag(data[:-1] + b"x", MIB)}
-    assert fetch.check(wrong, tmp_path)[0].startswith("file.bin: multipart ETag recomputed")
+    errors = fetch.check(wrong, tmp_path)
+    assert errors[0].startswith("file.bin: multipart ETag recomputed") and "the part size is inferred" in errors[0]
 
 
 def test_a_multipart_etag_with_no_unique_part_size_is_compared_by_size_only_and_says_so(tmp_path):
@@ -177,3 +193,132 @@ def test_the_command_line_downloads_then_checks_and_a_bad_file_exits_non_zero(tm
     (tmp_path / "n.bin").write_bytes(DATA[:-1])
     assert fetch.main(["check", "--sample", "kidney", "--directory", str(tmp_path)]) == 1
     assert "size" in capsys.readouterr().out
+
+
+def _fetched(tmp_path, obj, **changes):
+    record = {"object": obj["name"], "etag": obj["etag"], "size": obj["size"], "date": "2026-11-11T00:00:00+00:00"}
+    (tmp_path / f"{obj['name']}.fetched").write_text(__import__("json").dumps(record | changes))
+
+
+def _multipart_file(tmp_path):
+    data = DATA * 2 + DATA[: MIB // 2]
+    (tmp_path / "file.bin").write_bytes(data)
+    return {"name": "file.bin", "size": len(data), "etag": multipart_etag(data[:-1] + b"x", MIB)}
+
+
+def test_the_download_writes_a_record_of_what_the_response_said(tmp_path, bucket):
+    import json
+
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    fetch.download(obj, tmp_path, sleep=lambda s: None)
+    record = json.loads((tmp_path / "file.bin.fetched").read_text())
+    assert (record["object"], record["etag"], record["size"]) == ("file.bin", obj["etag"], len(DATA))
+    assert record["date"]
+
+
+def test_a_multipart_mismatch_of_a_downloaded_file_is_a_loud_warning_and_the_step_passes(tmp_path):
+    obj = _multipart_file(tmp_path)
+    _fetched(tmp_path, obj)
+    lines = []
+    assert fetch.check(obj, tmp_path, out=lines.append) == []
+    warning = next(line for line in lines if line.startswith("WARNING"))
+    assert "inferred" in warning and "1 MiB" in warning and obj["etag"] in warning and "-3" in warning
+
+
+def test_a_multipart_mismatch_of_a_file_with_no_record_stops_and_says_the_part_size_is_inferred(tmp_path):
+    obj = _multipart_file(tmp_path)
+    (error,) = fetch.check(obj, tmp_path)
+    assert "inferred" in error and obj["etag"] in error
+
+
+def test_a_record_of_another_etag_does_not_excuse_a_mismatch(tmp_path):
+    obj = _multipart_file(tmp_path)
+    _fetched(tmp_path, obj, etag="0" * 32)
+    assert len(fetch.check(obj, tmp_path)) == 1
+
+
+def test_a_size_mismatch_and_a_single_part_md5_mismatch_stop_even_with_a_record(tmp_path):
+    (tmp_path / "file.bin").write_bytes(DATA)
+    obj = {"name": "file.bin", "size": len(DATA), "etag": "0" * 32}
+    _fetched(tmp_path, obj)
+    assert len(fetch.check(obj, tmp_path)) == 1
+    assert len(fetch.check(obj | {"size": len(DATA) + 1}, tmp_path)) == 1
+
+
+def test_a_local_write_error_stops_at_once_with_the_file_name_and_is_not_retried(tmp_path, bucket, monkeypatch):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    real_open = type(tmp_path).open
+
+    def full_disk(self, mode="r", *args, **kwargs):
+        if self.name.endswith(".part"):
+            raise OSError(28, "No space left on device")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(type(tmp_path), "open", full_disk)
+    lines = []
+    with pytest.raises(fetch.FetchError, match=r"file\.bin.*No space left") as raised:
+        fetch.download(obj, tmp_path, sleep=lambda s: None, out=lines.append)
+    assert "retry" not in " ".join(lines) and len(server.requests) == 1
+    assert str(tmp_path) not in str(raised.value)
+
+
+def test_an_object_that_changed_during_the_download_is_a_412_with_that_message(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    server.cut_at, server.cut_requests = 300_000, 1
+    server.after_first = (DATA[::-1], "f" * 32)
+    with pytest.raises(fetch.FetchError, match="changed during the download"):
+        fetch.download(obj, tmp_path, sleep=lambda s: None)
+    assert len(server.requests) == 2
+
+
+def test_a_200_on_a_resume_stops_and_never_appends(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    server.cut_at, server.cut_requests = 300_000, 1
+    server.ignore_range = True
+    with pytest.raises(fetch.FetchError, match="ignored the Range"):
+        fetch.download(obj, tmp_path, sleep=lambda s: None)
+    assert (tmp_path / "file.bin.part").stat().st_size == 300_000
+
+
+def test_a_5xx_is_retried_and_the_download_then_succeeds(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    server.fail_requests = 2
+    lines = []
+    fetch.download(obj, tmp_path, sleep=lambda s: None, out=lines.append)
+    assert (tmp_path / "file.bin").read_bytes() == DATA and len(server.requests) == 3
+    assert any("HTTP 503; retry 2 of 5 from byte 0" in line for line in lines)
+
+
+def test_a_missing_content_length_is_a_clear_error(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    server.no_length = True
+    with pytest.raises(fetch.FetchError, match="Content-Length"):
+        fetch.download(obj, tmp_path, sleep=lambda s: None)
+
+
+def test_a_part_file_of_an_earlier_run_is_continued(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    (tmp_path / "file.bin.part").write_bytes(DATA[:300_000])
+    fetch.download(obj, tmp_path, sleep=lambda s: None)
+    assert (tmp_path / "file.bin").read_bytes() == DATA
+    assert server.requests[0][2]["Range"] == "bytes=300000-"
+
+
+def test_a_part_file_longer_than_the_object_is_started_again(tmp_path, bucket):
+    server, obj = _object(bucket, DATA, hashlib.md5(DATA).hexdigest())
+    (tmp_path / "file.bin.part").write_bytes(DATA + b"x")
+    fetch.download(obj, tmp_path, sleep=lambda s: None)
+    assert (tmp_path / "file.bin").read_bytes() == DATA and "Range" not in server.requests[0][2]
+
+
+def test_a_whole_part_file_is_renamed_with_no_request_and_no_record(tmp_path, bucket):
+    data = DATA * 2 + DATA[: MIB // 2]
+    server, obj = _object(bucket, data, multipart_etag(data[:-1] + b"x", MIB))
+    (tmp_path / "file.bin.part").write_bytes(data)
+    lines = []
+    fetch.download(obj, tmp_path, sleep=lambda s: None, out=lines.append)
+    assert (tmp_path / "file.bin").read_bytes() == data and not (tmp_path / "file.bin.part").exists()
+    assert server.requests == [] and not (tmp_path / "file.bin.fetched").exists()
+    assert any("no response seen" in line for line in lines)
+    # With no record, a multipart mismatch stops.
+    assert len(fetch.check(obj | {"name": "file.bin"}, tmp_path)) == 1

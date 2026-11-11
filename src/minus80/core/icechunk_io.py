@@ -79,7 +79,7 @@ def _store_for(prefix: str):
     if scheme in ("http", "https"):
         return icechunk.http_store({"allow_http": "true"})
     raise ValueError(
-        f"no built-in virtual-chunk store for scheme {scheme!r} ({prefix}); pass a "
+        f"no built-in virtual-chunk store for scheme {scheme!r}; pass a "
         "pre-configured registry/store for other cloud backends."
     )
 
@@ -343,6 +343,22 @@ def open_repo(
 ARRAYLAKE = "arraylake://"
 
 
+class UncoveredSourceError(ValueError):
+    """A source prefix falls under none of the repo's virtual chunk containers.
+
+    The text names neither the prefixes nor the containers, so a log does not show a storage location;
+    ``uncovered`` and ``containers`` hold them.
+    """
+
+    def __init__(self, repo: str, uncovered: list[str], containers: list[str], asked: int):
+        self.uncovered, self.containers = uncovered, containers
+        super().__init__(
+            f"{repo} has {len(containers)} virtual chunk container(s), and no virtual chunk container covers "
+            f"{len(uncovered)} of the {asked} source prefixes that the caller names. An org admin registers the "
+            f"source bucket as a bucket config and gives it a virtual chunk access policy; a repo writer then adds "
+            f"the container with Client.update_virtual_chunk_containers.")
+
+
 def arraylake_repository(location: str, *, source_prefixes: list[str] | None = None):
     """Open the Arraylake repo ``location`` names (``arraylake://<org>/<repo>``).
 
@@ -351,7 +367,7 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     beyond the name: a reader that adds containers of its own is refused.
     Each of ``source_prefixes`` must fall under one of the repo's containers,
     or the references written would not be readable; that raises
-    ``ValueError`` naming the setup the repo lacks. The session commits with
+    ``UncoveredSourceError`` (a ``ValueError``) naming the setup the repo lacks. The session commits with
     :data:`MANIFEST_FETCH_CONCURRENCY` and reads with at least
     :data:`REMOTE_READ_TRIES`, as a repo from :func:`create_repo` does. Needs the
     ``arraylake`` package and a login (``al auth login``) or ``ARRAYLAKE_TOKEN``.
@@ -367,11 +383,7 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     uncovered = [p for p in source_prefixes or []
                  if not any(under(p, c) for c in containers)]
     if uncovered:
-        raise ValueError(
-            f"{name} has no virtual chunk container covering {uncovered} (it has "
-            f"{sorted(containers)}). An org admin registers the source bucket as a bucket "
-            f"config and gives it a virtual chunk access policy; a repo writer then adds the "
-            f"container with Client.update_virtual_chunk_containers.")
+        raise UncoveredSourceError(name, uncovered, sorted(containers), len(source_prefixes))
     # The repo's stored config is Arraylake's, which leaves the commit's
     # manifest concurrency at icechunk's default of 1: a commit of thousands
     # of arrays then writes them one round trip at a time. get_repo merges

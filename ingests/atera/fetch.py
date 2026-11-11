@@ -10,9 +10,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import http.client
+import json
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from minus80.core.progress import MIB, Progress
@@ -47,13 +49,25 @@ def part_size(size: int, parts: int) -> int | None:
 
 def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.sleep, out=print,
              every: float = 10.0) -> None:
-    """Stream ``obj`` to ``directory`` / its name. A response that disagrees with the record raises ``FetchError``."""
+    """Stream ``obj`` to ``directory`` / its name. A response that disagrees with the record raises ``FetchError``.
+
+    Only a network error, a 5xx or a 429 is retried. A local write error stops at once. When the file is whole, a
+    ``.fetched`` file beside it records what the response said.
+    """
     target = directory / obj["name"]
     partial = target.with_name(target.name + ".part")
     if target.exists() and target.stat().st_size == obj["size"]:
         out(f"{obj['name']}: already here, skipped")
         return
     have, attempt = (partial.stat().st_size if partial.exists() else 0), 0
+    if have == obj["size"]:
+        # Whole, but no response was seen, so no record is written and the check treats the file as of unknown origin.
+        partial.rename(target)
+        out(f"{obj['name']}: a whole {partial.name} from an earlier run was renamed; no response seen, no record")
+        return
+    if have > obj["size"]:
+        out(f"{partial.name}: {have:,} bytes, more than the record; started again")
+        have = 0
     with Progress(f"download {obj['name']}", total=obj["size"], unit="MiB", scale=MIB, every=every) as progress:
         progress.done = have
         while have < obj["size"]:
@@ -61,12 +75,21 @@ def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.s
             try:
                 with urllib.request.urlopen(urllib.request.Request(obj["url"], headers=headers), timeout=60) as response:
                     _require_record(obj, response, have)
-                    with partial.open("ab" if have else "wb") as file:
+                    try:
+                        file = partial.open("ab" if have else "wb")
+                    except OSError as error:
+                        raise _write_error(obj, partial, error) from None
+                    with file:
                         while chunk := response.read(CHUNK):
-                            file.write(chunk)
+                            try:
+                                file.write(chunk)
+                            except OSError as error:
+                                raise _write_error(obj, partial, error) from None
                             have += len(chunk)
                             progress.advance(len(chunk))
             except urllib.error.HTTPError as error:
+                if error.code == 412:
+                    raise FetchError(f"{obj['name']}: HTTP 412, the object changed during the download") from None
                 if error.code < 500 and error.code != 429:
                     raise FetchError(f"{obj['name']}: HTTP {error.code} {error.reason}") from None
                 failure = f"HTTP {error.code}"
@@ -84,6 +107,14 @@ def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.s
     if have != obj["size"]:
         raise FetchError(f"{obj['name']}: {have} bytes written, the record has {obj['size']}")
     partial.rename(target)
+    record = {"object": obj["name"], "etag": obj["etag"], "size": obj["size"],
+              "date": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    target.with_name(target.name + ".fetched").write_text(json.dumps(record))
+
+
+def _write_error(obj: dict, partial: Path, error: OSError) -> FetchError:
+    """A local write error as a ``FetchError``, which no retry catches; it names the file, not its directory."""
+    return FetchError(f"{obj['name']}: cannot write {partial.name}: {error.strerror or error}")
 
 
 def _require_record(obj: dict, response, have: int) -> None:
@@ -93,9 +124,20 @@ def _require_record(obj: dict, response, have: int) -> None:
         raise FetchError(f"{obj['name']}: ETag {etag}, the record has {obj['etag']}")
     if have and response.status != 206:
         raise FetchError(f"{obj['name']}: the server ignored the Range request (HTTP {response.status})")
+    if response.headers.get("Content-Length") is None:
+        raise FetchError(f"{obj['name']}: the response has no Content-Length, so its size cannot be checked")
     length = int(response.headers["Content-Length"]) + have
     if length != obj["size"]:
         raise FetchError(f"{obj['name']}: size {length}, the record has {obj['size']}")
+
+
+def _fetched(obj: dict, directory: Path) -> bool:
+    """True when ``download`` recorded that the response's ETag and size equalled those of ``obj``."""
+    try:
+        record = json.loads((directory / f"{obj['name']}.fetched").read_text())
+    except (OSError, ValueError):
+        return False
+    return (record.get("object"), record.get("etag"), record.get("size")) == (obj["name"], obj["etag"], obj["size"])
 
 
 def check(obj: dict, directory: Path, *, out=print) -> list[str]:
@@ -126,7 +168,14 @@ def check(obj: dict, directory: Path, *, out=print) -> list[str]:
         return [] if whole.hexdigest() == etag else [f"{name}: MD5 {whole.hexdigest()}, the recorded ETag is {etag}"]
     computed = f"{hashlib.md5(b''.join(digests)).hexdigest()}-{len(digests)}"
     if computed != etag:
-        return [f"{name}: multipart ETag recomputed with {unit // MIB} MiB parts is {computed}, the record has {etag}"]
+        said = f"multipart ETag recomputed with {unit // MIB} MiB parts is {computed}, the record has {etag}"
+        if _fetched(obj, directory):
+            # The response said this ETag, so a different recomputation can come from the inferred part size.
+            out(f"WARNING {name}: {said}. The part size is inferred, and the download recorded that the "
+                f"response's ETag and size equalled the record, so this step passes.")
+            return []
+        return [f"{name}: {said} (the part size is inferred, and no record of the download shows that the "
+                f"response's ETag equalled the record)"]
     out(f"{name}: size {actual:,} matches; multipart ETag {etag} recomputed with {unit // MIB} MiB parts, "
         f"the only whole-MiB part size that fits")
     return []

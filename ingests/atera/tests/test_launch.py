@@ -36,6 +36,7 @@ class FakeVm:
         self.start_error, self.error = start_error, error
         self.started, self.stopped, self.events, self.read_in = [], [], [], []
         self.status = launch.Status(None, None, None)
+        self.cluster_id = 7
 
     def start(self, job, token):
         self.started.append((job, token))
@@ -515,11 +516,20 @@ def test_a_failed_stop_of_a_cluster_that_is_stopped_is_not_an_error(monkeypatch,
 KIDNEY = SAMPLES["kidney"].name
 
 
+@pytest.fixture(autouse=True)
+def restore_signal_handlers():
+    """``main`` installs handlers for SIGTERM and SIGHUP; the test process gets its own back."""
+    saved = {n: signal.getsignal(n) for n in (signal.SIGTERM, signal.SIGHUP)}
+    yield
+    for number, handler in saved.items():
+        signal.signal(number, handler)
+
+
 def _ingest_argv(token_file, *extra, drop=()):
     argv = {"--vm-type": "m7g.xlarge", "--region": "us-west-2", "--workspace": "earthmover-devs",
             "--name": "atera-ingest", "--token-file": str(token_file), "--max-minutes": "600",
             "--sample": "kidney", "--repo": "arraylake://org/atera-kidney", "--catalog": "arraylake://org",
-            "--namespace": "atera_kidney", "--branch": "main", "--concurrency": "8"}
+            "--namespace": "atera-kidney-tables", "--branch": "main", "--concurrency": "8"}
     flat = [x for k, v in argv.items() if k not in drop for x in (k, v)]
     return ["--ingest", *flat, *extra]
 
@@ -533,10 +543,10 @@ def test_the_ingest_dry_run_names_the_objects_the_local_files_and_the_full_mode_
                  "45,720,445,144", "8c1c07343dbe1b946f5f90a21130782f-5451",
                  f'--bundle "$DATA/{KIDNEY}_outs.zip"', f'--he-image "$DATA/{KIDNEY}_he_image.ome.tif"',
                  f'--he-alignment "$DATA/{KIDNEY}_he_imagealignment.csv"', "fetch.py download", "fetch.py check",
-                 "--head-source", "--namespace atera_kidney", "--branch main", "--concurrency 8",
-                 "'ARRAYLAKE_TOKEN': '***'", "'cluster_timeout': '600 minutes'", "disk_size='100'"):
+                 "--head-source", "--namespace atera-kidney-tables", "--branch main", "--concurrency 8",
+                 "'ARRAYLAKE_TOKEN': '***'", "'cluster_timeout': '600 minutes'", "job_timeout='600 minutes'", "disk_size='100'"):
         assert fact in out, fact
-    assert out.count("--mode full") == 2
+    assert out.count("--mode full") == 3
     assert "ingest.py" in out and "verify.py" in out
 
 
@@ -580,8 +590,10 @@ def test_the_help_says_that_a_dead_launcher_does_not_stop_the_ingest(capsys):
 
 
 def _ingest_job(**changes):
-    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "ns", "main", 8, None, None)
-    return _job(script="ingest", arguments=[], ingest=plan, minutes=600, status_failures=None, **changes)
+    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "atera-kidney-tables", "main",
+                             8, None, None, None)
+    return _job(**{"script": "ingest", "arguments": [], "ingest": plan, "minutes": 600, "status_failures": None,
+                   "stops": "viewer", **changes})
 
 
 STUB = """#!/bin/bash
@@ -590,6 +602,7 @@ fail() { for i in $(seq 1 50); do echo "$1 line $i"; done; echo "the last line o
 case "$*" in
   *"fetch.py download"*) [ "${STUB_FAIL:-}" = download ] && fail download 7 ;;
   *"fetch.py check"*) [ "${STUB_FAIL:-}" = check ] && fail check 1 ;;
+  *"--preflight"*) [ "${STUB_FAIL:-}" = preflight ] && fail preflight 5 ;;
   *"ingest.py"*) [ "${STUB_FAIL:-}" = ingest ] && fail ingest 3 ;;
   *"verify.py"*) [ "${STUB_FAIL:-}" = verify ] && fail verify 4 ;;
 esac
@@ -598,7 +611,18 @@ exit 0
 """
 
 
-def _run_script(tmp_path, fail=None, job=None):
+DF_STUB = """#!/bin/bash
+echo "df $*" >> "$STUB_DF"
+if [ "$1" = "-Pk" ]; then
+  echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+  echo "stub 100 1 ${STUB_FREE_KB:-999999999999} 1% /"
+else
+  echo "stub df output for $*"
+fi
+"""
+
+
+def _run_script(tmp_path, fail=None, job=None, free_kb=None):
     """Run the generated remote script for real with a stub ``uv`` that records each call."""
     work, bin_dir = tmp_path / "work", tmp_path / "bin"
     work.mkdir()
@@ -606,10 +630,13 @@ def _run_script(tmp_path, fail=None, job=None):
     (work / "uv.lock").write_text("")
     (bin_dir / "uv").write_text(STUB)
     (bin_dir / "uv").chmod(0o755)
+    (bin_dir / "df").write_text(DF_STUB)
+    (bin_dir / "df").chmod(0o755)
     script = work / "remote.sh"
     script.write_text(launch.remote_script(job or _ingest_job()))
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATERA_DATA": str(tmp_path / "data"),
-           "ATERA_LOGS": str(tmp_path / "logs"), "STUB_CALLS": str(tmp_path / "calls"), **({"STUB_FAIL": fail} if fail else {})}
+           "ATERA_LOGS": str(tmp_path / "logs"), "STUB_CALLS": str(tmp_path / "calls"), "STUB_DF": str(tmp_path / "df"),
+           **({"STUB_FAIL": fail} if fail else {}), **({"STUB_FREE_KB": str(free_kb)} if free_kb else {})}
     done = subprocess.run(["bash", str(script)], cwd=work, env=env, capture_output=True, text=True, timeout=60)
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     return done, calls
@@ -619,16 +646,17 @@ def test_the_script_runs_the_environment_the_download_the_check_the_ingest_and_t
     done, calls = _run_script(tmp_path)
     assert done.returncode == 0, done.stdout
     assert [c.split("python ")[-1].split(" --")[0] if "python" in c else c for c in calls] == [
-        "uv sync --frozen --package atera-ingest", "ingests/atera/fetch.py download", "ingests/atera/fetch.py check",
-        "ingests/atera/ingest.py", "ingests/atera/verify.py"]
-    assert f'--bundle {tmp_path}/data/{KIDNEY}_outs.zip' in calls[3] and "--mode full" in calls[3]
-    assert "--mode full" in calls[4] and "--head-source" in calls[4]
-    for step in ("environment", "download", "check", "ingest", "verify"):
+        "uv sync --frozen --package atera-ingest", "ingests/atera/ingest.py", "ingests/atera/fetch.py download",
+        "ingests/atera/fetch.py check", "ingests/atera/ingest.py", "ingests/atera/verify.py"]
+    assert "--preflight" in calls[1] and "--bundle" not in calls[1] and "--mode full" in calls[1]
+    assert f'--bundle {tmp_path}/data/{KIDNEY}_outs.zip' in calls[4] and "--mode full" in calls[4]
+    assert "--preflight" not in calls[4] and "--mode full" in calls[5] and "--head-source" in calls[5]
+    for step in ("environment", "preflight", "download", "check", "ingest", "verify"):
         assert f"=== step {step}" in done.stdout and f"=== step {step}: done in " in done.stdout
 
 
 @pytest.mark.parametrize("fail, code, ran", [
-    ("download", 7, 2), ("check", 1, 3), ("ingest", 3, 4), ("verify", 4, 5)])
+    ("preflight", 5, 2), ("download", 7, 3), ("check", 1, 4), ("ingest", 3, 5), ("verify", 4, 6)])
 def test_a_failed_step_stops_the_run_with_its_exit_code_and_the_later_steps_do_not_run(tmp_path, fail, code, ran):
     done, calls = _run_script(tmp_path, fail)
     assert done.returncode == code and len(calls) == ran
@@ -637,7 +665,7 @@ def test_a_failed_step_stops_the_run_with_its_exit_code_and_the_later_steps_do_n
 
 def test_a_failed_size_check_stops_before_the_ingest_and_the_last_forty_lines_print_again(tmp_path):
     done, calls = _run_script(tmp_path, "check")
-    assert not any("ingest.py" in c or "verify.py" in c for c in calls)
+    assert not any(("ingest.py" in c and "--preflight" not in c) or "verify.py" in c for c in calls)
     repeated = done.stdout.split("=== last 40 lines of step check\n")[1].splitlines()
     assert repeated[0] == "check line 12" and repeated[-1] == "the last line of check" and len(repeated) == 40
 
@@ -671,18 +699,6 @@ def test_a_job_with_no_launcher_limit_runs_until_the_task_ends():
     assert _run(vm, _job(minutes=None), step=60)[0] == 0
 
 
-def test_an_interrupt_stops_the_vm_of_a_launch_and_leaves_an_attached_job_running():
-    class Interrupted(FakeVm):
-        def poll(self):
-            raise KeyboardInterrupt
-
-    for stop_on_interrupt, stopped in ((True, ["atera-x"]), (False, [])):
-        vm = Interrupted()
-        with pytest.raises(KeyboardInterrupt):
-            _run(vm, _job(stop_on_interrupt=stop_on_interrupt))
-        assert vm.stopped == stopped
-
-
 def test_attach_needs_a_workspace(tmp_path):
     with pytest.raises(SystemExit, match="workspace"):
         launch.main(["--attach", "2364116", "--token-file", str(_token_file(tmp_path))])
@@ -696,7 +712,7 @@ def test_attach_forwards_the_log_with_the_token_replaced_and_ends_as_a_launch_en
     code = launch.main(["--attach", "atera-ingest-1", "--workspace", "earthmover-devs", "--tail", "7",
                         "--token-file", str(_token_file(tmp_path))])
     out = capsys.readouterr().out
-    assert code == 0 and made == [("atera-ingest-1", 7)] and vm.stopped == ["atera-ingest-1"]
+    assert code == 0 and made == [("atera-ingest-1", 7)] and vm.stopped == []
     assert "progress ***" in out and "line two" in out and TOKEN not in out
 
 
@@ -724,3 +740,340 @@ def test_verify_runs_the_source_gate_for_a_local_bundle_when_asked_to_head_the_o
     assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "source", "--head-source") == 0
     out = capsys.readouterr().out
     assert "source PASS" in out and "skipped" not in out
+
+
+def _df(tmp_path):
+    return (tmp_path / "df").read_text().splitlines() if (tmp_path / "df").exists() else []
+
+
+def test_the_script_shows_the_disk_before_the_download_and_after_the_download_and_the_ingest(tmp_path):
+    done, calls = _run_script(tmp_path)
+    data = f"{tmp_path}/data"
+    shown = [line for line in _df(tmp_path) if line.startswith("df -h")]
+    assert shown[0].split()[2:5] == [data, "/opt", "."] and shown[1:] == [f"df -h {data}", f"df -h {data}"]
+    out = done.stdout
+    assert out.index("=== disk before the download") < out.index("=== step download: start")
+    assert out.index("=== step download: done") < out.index("=== disk after the download") < out.index(
+        "=== step ingest: start") < out.index("=== disk after the ingest") < out.index("=== step verify: start")
+
+
+def test_the_script_stops_before_the_download_when_the_data_directory_has_too_little_space(tmp_path):
+    need_kb = launch.download_bytes("kidney") // 1024 + launch.TILE_SCRATCH_GIB * (1 << 20)
+    done, calls = _run_script(tmp_path, free_kb=need_kb - 1)
+    assert done.returncode != 0
+    assert not any("fetch.py" in c for c in calls)
+    assert "not enough free space" in done.stdout and str(need_kb) in done.stdout
+    (tmp_path / "again").mkdir()
+    ok, calls = _run_script(tmp_path / "again", free_kb=need_kb)
+    assert ok.returncode == 0
+
+
+@pytest.mark.parametrize("flag, value, message", [
+    ("--repo", "arraylake://org", "repo"),
+    ("--repo", "s3://org/atera-kidney", "repo"),
+    ("--repo", "arraylake://org/atera-kidney/x", "repo"),
+    ("--catalog", "arraylake://org/atera-kidney", "catalog"),
+    ("--catalog", "arraylake://other", "same org"),
+    ("--namespace", "atera_kidney", "atera-kidney-tables"),
+    ("--branch", "fixture", "branch"),
+    ("--branch", "scratch", "branch"),
+    ("--branch", "trial", "branch"),
+    ("--sample", "brain", "atera-brain"),
+    ("--sample", "kidny", "sample"),
+    ("--concurrency", "0", "concurrency"),
+    ("--max-minutes", "0", "max-minutes"),
+    ("--max-minutes", "-5", "max-minutes")])
+def test_the_ingest_form_refuses_a_wrong_argument_before_any_launch(tmp_path, monkeypatch, flag, value, message):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    argv = _ingest_argv(_token_file(tmp_path))
+    argv[argv.index(flag) + 1] = value
+    with pytest.raises(SystemExit, match=message):
+        launch.main(argv)
+
+
+@pytest.mark.parametrize("flag, value", [("--elements", "a, b"), ("--elements", "a,,b"), ("--elements", ""),
+                                         ("--gates", "tables,"), ("--gates", "x y"),
+                                         ("--replace-tables", "a b"), ("--replace-tables", ",a")])
+def test_a_name_list_with_an_empty_name_or_whitespace_is_refused(tmp_path, flag, value):
+    with pytest.raises(SystemExit, match=flag.removeprefix("--")):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", flag, value))
+
+
+@pytest.mark.parametrize("branch", ["main", "trial-1", "trial-kidney-2"])
+def test_the_ingest_form_accepts_main_and_trial_branches(tmp_path, capsys, branch):
+    argv = _ingest_argv(_token_file(tmp_path), "--dry-run")
+    argv[argv.index("--branch") + 1] = branch
+    assert launch.main(argv) == 0
+
+
+def test_the_script_form_refuses_a_time_limit_below_one_minute(tmp_path):
+    with pytest.raises(SystemExit, match="max-minutes"):
+        launch.main(_argv(_token_file(tmp_path), "--dry-run", "--max-minutes", "0"))
+
+
+def test_replace_tables_goes_to_the_ingest_and_to_nothing_else(tmp_path, capsys):
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--replace-tables", "transcripts,nucleus_boundaries"))
+    lines = capsys.readouterr().out.splitlines()
+    with_flag = [line for line in lines if "--replace-tables transcripts,nucleus_boundaries" in line]
+    assert len(with_flag) == 2 and all("ingest.py" in line for line in with_flag)
+    with pytest.raises(SystemExit, match="replace-tables"):
+        launch.main(_argv(_token_file(tmp_path), "--dry-run", "--replace-tables", "a"))
+
+
+def _start_hint(vm_id=7, workspace="earthmover-devs"):
+    return (f"follow: launch.py --attach {vm_id} --workspace {workspace}",
+            f"stop: launch.py --stop {vm_id} --workspace {workspace}")
+
+
+def test_an_attached_launcher_never_stops_the_cluster_on_any_path(coiled):
+    never = {"stops": "never", "status_failures": None}
+    boom = FakeVm(start_error=RuntimeError("status failed"))
+    assert _run(boom, _job(**never))[0] == 1 and boom.stopped == []
+    flaky = FakeVm(states=[RUNNING, coiled.errors.ServerError("x"), RUNNING, done(0)])
+    assert _run(flaky, _job(**never), step=1)[0] == 0 and flaky.stopped == []
+    broken = FakeVm(states=[None])
+    assert _run(broken, _job(**never), step=1)[0] == 1 and broken.stopped == []
+    slow = FakeVm(states=[RUNNING])
+    assert _run(slow, _job(minutes=5, **never))[0] == launch.TIME_LIMIT_CODE and slow.stopped == []
+
+    class Interrupted(FakeVm):
+        def poll(self):
+            raise KeyboardInterrupt
+
+    interrupted = Interrupted()
+    with pytest.raises(KeyboardInterrupt):
+        _run(interrupted, _job(**never))
+    assert interrupted.stopped == []
+
+
+def test_an_attached_launcher_says_how_to_stop_the_cluster_when_the_job_ends():
+    vm = FakeVm(states=[done(0)])
+    code, lines = _run(vm, _job(stops="never", name="2364116"), step=1)
+    assert code == 0 and vm.stopped == []
+    assert "stop: launch.py --stop 2364116 --workspace earthmover-devs" in " ".join(lines)
+
+
+def test_the_ingest_launcher_prints_how_to_follow_and_stop_the_job_once_after_the_start():
+    vm = FakeVm(states=[RUNNING, RUNNING, done(0)])
+    code, lines = _run(vm, _ingest_job(), step=1)
+    follow, stop = _start_hint()
+    assert code == 0 and lines.count(follow) == 1 and lines.count(stop) == 1
+    assert lines.index(follow) < lines.index("task: running")
+
+
+def test_an_interrupt_of_the_ingest_launcher_leaves_the_job_and_prints_the_two_lines_again():
+    class Interrupted(FakeVm):
+        def poll(self):
+            if len(self.events) > 3:
+                raise KeyboardInterrupt
+            return super().poll()
+
+    vm, lines = Interrupted(states=[RUNNING]), []
+    with pytest.raises(KeyboardInterrupt):
+        launch.run(vm, _ingest_job(), TOKEN, out=lines.append, clock=Ticks(1), sleep=lambda s: None)
+    assert vm.stopped == []
+    assert all(line in lines for line in _start_hint()) and lines.count(_start_hint()[0]) == 2
+
+
+def test_the_ingest_launcher_stops_the_vm_only_for_a_start_failure_the_time_limit_and_the_end_of_the_job():
+    failed_start = FakeVm(start_error=RuntimeError("no cluster"))
+    assert _run(failed_start, _ingest_job())[0] == 1 and failed_start.stopped == ["atera-x"]
+    late = FakeVm(states=[RUNNING])
+    assert _run(late, _ingest_job(minutes=5))[0] == launch.TIME_LIMIT_CODE and late.stopped == ["atera-x"]
+    ended = FakeVm(states=[RUNNING, done(0)])
+    assert _run(ended, _ingest_job(), step=1)[0] == 0 and ended.stopped == ["atera-x"]
+    broken = FakeVm(states=[None])
+    assert _run(broken, _ingest_job(), step=1)[0] == 1 and broken.stopped == []
+
+
+@pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT], ids=["sigterm", "sighup", "sigint"])
+def test_a_real_signal_does_not_stop_the_vm_of_an_ingest_launch(tmp_path, number):
+    script = tmp_path / "wait.py"
+    script.write_text(f"""
+import signal, sys, time
+sys.path.insert(0, {str(Path(launch.__file__).parent)!r})
+import launch
+
+class Vm:
+    cluster_id = 7
+    def start(self, job, token): print("started", flush=True)
+    def poll(self): return launch.Status("ready", "running", None)
+    def new_lines(self): time.sleep(0.05); return []
+    def stop(self, name): print("STOPPED", flush=True)
+
+launch.install_stop_signals()
+# A child of a background job starts with SIGINT ignored; Python's own handler is what a terminal run has.
+signal.signal(signal.SIGINT, signal.default_int_handler)
+plan = launch.IngestPlan("kidney", "r", "c", "n", "main", 1, None, None, None)
+job = launch.Job("n", "m7g.xlarge", "r", "ws", 1, 90, "ingest", [], plan, None, "viewer")
+try:
+    launch.run(Vm(), job, "tok-secret", out=lambda line: print(line, flush=True), interval=0.05)
+except KeyboardInterrupt:
+    print("interrupted", flush=True)
+""")
+    process = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
+    for line in process.stdout:
+        if line.startswith("follow:"):
+            break
+    process.send_signal(number)
+    out, _ = process.communicate(timeout=30)
+    assert "STOPPED" not in out and "interrupted" in out and "stop: launch.py --stop 7 --workspace ws" in out
+
+
+def test_stop_prints_the_name_and_the_state_deletes_the_cluster_and_needs_no_token(coiled, monkeypatch, capsys, tmp_path):
+    states, deleted = ["running", "stopping"], []
+    monkeypatch.setattr(coiled.v2, "cluster_details", lambda *a, **k: {"name": "atera-kidney-1",
+                                                                       "current_state": {"state": states.pop(0)}})
+    monkeypatch.setattr(coiled, "delete_cluster", lambda **k: deleted.append(k))
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    code = launch.main(["--stop", "2364116", "--workspace", "earthmover-devs", "--token-file", str(tmp_path / "none")])
+    out = capsys.readouterr().out
+    assert code == 0 and deleted == [{"cluster_id": 2364116, "workspace": "earthmover-devs"}]
+    assert "atera-kidney-1" in out and "running" in out and out.strip().endswith("cluster atera-kidney-1: stopping")
+
+
+def test_stop_by_name_finds_the_cluster_through_its_batch_job(coiled, monkeypatch, capsys):
+    asked, deleted = [], []
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: asked.append(k) or [{"cluster_id": 9, "id": 3}])
+    monkeypatch.setattr(coiled.v2, "cluster_details", lambda *a, **k: {"name": "n", "current_state": {"state": "stopped"}})
+    monkeypatch.setattr(coiled, "delete_cluster", lambda **k: deleted.append(k))
+    assert launch.main(["--stop", "atera-kidney-1", "--workspace", "w"]) == 0
+    assert asked == [{"cluster": "atera-kidney-1", "workspace": "w"}] and deleted[0]["cluster_id"] == 9
+
+
+def test_stop_needs_a_workspace():
+    with pytest.raises(SystemExit, match="workspace"):
+        launch.main(["--stop", "7"])
+
+
+def test_the_help_and_the_note_state_who_stops_the_job(capsys):
+    with pytest.raises(SystemExit):
+        launch.main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    for fact in ("--ingest", "never stops the VM", "except at its own --max-minutes limit", "--attach", "--stop"):
+        assert fact in text, fact
+
+
+def test_the_dry_run_has_a_preflight_step_after_the_environment_with_the_arguments_of_the_ingest(tmp_path, capsys):
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--elements", "labels/nucleus_labels",
+                             "--replace-tables", "transcripts"))
+    out = capsys.readouterr().out
+    assert out.index("step environment") < out.index("step preflight") < out.index("=== disk before")
+    assert out.index("step preflight") < out.index("step space") < out.index("step download")
+    line = lambda step: next(x for x in out.splitlines() if x.startswith(f"step {step}"))  # noqa: E731
+    preflight, ingest, verify = line("preflight"), line("ingest"), line("verify")
+    assert "the arguments, the repo, the catalog and each table's state, with no write and no bundle" in preflight
+    assert preflight.endswith("--preflight") and "--bundle" not in preflight and "--he-image" not in preflight
+    for text in ("--replace-tables transcripts", "--elements labels/nucleus_labels", "--concurrency 8",
+                 "--namespace atera-kidney-tables", "--mode full", "--branch main"):
+        assert text in preflight and text in ingest, text
+    assert "--replace-tables" not in verify
+
+
+def test_a_failed_preflight_reaches_neither_the_space_step_nor_the_download(tmp_path):
+    done, calls = _run_script(tmp_path, "preflight")
+    assert done.returncode == 5 and len(calls) == 2
+    assert "=== step space" not in done.stdout and not _df(tmp_path)
+    assert "=== last 40 lines of step preflight" in done.stdout
+
+
+def test_replace_tables_is_on_the_preflight_and_the_ingest_line_and_not_on_the_verify_line(tmp_path):
+    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "atera-kidney-tables", "main",
+                             8, None, None, "transcripts,nucleus_boundaries")
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
+    flagged = [c for c in calls if "--replace-tables transcripts,nucleus_boundaries" in c]
+    assert [("--preflight" in c) for c in flagged] == [True, False] and "verify.py" not in " ".join(flagged)
+
+
+def test_stop_with_dry_run_prints_what_it_would_delete_and_deletes_nothing(coiled, monkeypatch, capsys):
+    monkeypatch.setattr(coiled.v2, "cluster_details", lambda *a, **k: {"name": "atera-kidney-1",
+                                                                       "current_state": {"state": "running"}})
+    monkeypatch.setattr(coiled, "delete_cluster", lambda **k: pytest.fail("a cluster was deleted"))
+    assert launch.main(["--stop", "2364116", "--workspace", "earthmover-devs", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "would stop" in out and "atera-kidney-1" in out and "running" in out
+
+
+def test_attach_with_dry_run_prints_what_it_would_follow_and_does_nothing_else(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(launch, "AttachedVm", lambda *a: pytest.fail("an attach was made"))
+    code = launch.main(["--attach", "2364116", "--workspace", "earthmover-devs", "--tail", "5", "--dry-run",
+                        "--token-file", str(tmp_path / "none")])
+    out = capsys.readouterr().out
+    assert code == 0 and "would follow 2364116 in earthmover-devs" in out and "last 5 lines" in out
+
+
+def test_an_interrupt_ends_the_ingest_launcher_with_130_and_the_hint_lines_and_no_traceback(tmp_path, monkeypatch,
+                                                                                         capsys):
+    class Interrupted(FakeVm):
+        def poll(self):
+            raise KeyboardInterrupt
+
+    vm = Interrupted()
+    monkeypatch.setattr(launch, "CoiledVm", lambda: vm)
+    assert launch.main(_ingest_argv(_token_file(tmp_path))) == 130
+    out = capsys.readouterr().out
+    assert "follow: launch.py --attach 7" in out and "Traceback" not in out and vm.stopped == []
+
+
+def test_an_interrupt_ends_an_attached_launcher_with_130(tmp_path, monkeypatch, capsys):
+    class Interrupted(FakeVm):
+        def poll(self):
+            raise KeyboardInterrupt
+
+    vm = Interrupted()
+    monkeypatch.setattr(launch, "AttachedVm", lambda ref, tail: vm)
+    assert launch.main(["--attach", "9", "--workspace", "w", "--token-file", str(_token_file(tmp_path))]) == 130
+    assert vm.stopped == []
+
+
+def test_the_docstring_says_which_forms_stop_the_vm_on_an_interrupt():
+    doc = " ".join(launch.__doc__.split())
+    assert "the script form stops the VM" in doc and "the ingest form and an attach do not" in doc
+
+
+def _bare_vm(coiled, monkeypatch, statuses, details, delete):
+    """A ``CoiledVm`` that knows no cluster id, over a fake client; the sleep and the clock cost nothing."""
+    vm = launch.CoiledVm(clock=Ticks(10), sleep=lambda s: None)
+    vm.workspace = "earthmover-devs"
+    monkeypatch.setattr(coiled.batch, "status", statuses)
+    monkeypatch.setattr(coiled.v2, "cluster_details", details)
+    monkeypatch.setattr(coiled, "delete_cluster", delete)
+    return vm
+
+
+def test_a_stop_by_name_after_a_start_failure_prints_the_true_state_and_no_warning(coiled, monkeypatch, capsys):
+    deleted = []
+    vm = _bare_vm(coiled, monkeypatch, lambda **k: [{"cluster_id": 9, "id": 3}],
+                  lambda *a, **k: {"name": "atera-x", "current_state": {"state": "stopping"}},
+                  lambda **k: deleted.append(k))
+    vm.stop("atera-x")
+    out = capsys.readouterr().out
+    assert out.strip() == "cluster atera-x: stopping" and deleted == [{"cluster_id": 9, "workspace": "earthmover-devs"}]
+
+
+def test_a_stop_by_name_of_a_cluster_that_was_never_made_says_absent_and_does_not_warn(coiled, monkeypatch, capsys):
+    def none(**k):
+        raise RuntimeError("Unable to find cluster")
+
+    def gone(**k):
+        raise coiled.errors.DoesNotExist
+
+    vm = _bare_vm(coiled, monkeypatch, none, lambda *a, **k: {}, gone)
+    vm.stop("atera-x")
+    out = capsys.readouterr().out
+    assert out.strip() == "cluster atera-x: absent"
+
+
+def test_a_failed_stop_by_name_prints_one_line_with_the_job_name_and_the_cli_commands(coiled, monkeypatch, capsys):
+    def none(**k):
+        raise RuntimeError("Unable to find cluster")
+
+    def denied(**k):
+        raise RuntimeError("denied")
+
+    vm = _bare_vm(coiled, monkeypatch, none, lambda *a, **k: {}, denied)
+    vm.stop("atera-x")
+    lines = [x for x in capsys.readouterr().out.splitlines() if "stop it by hand" in x]
+    assert len(lines) == 1
+    assert "atera-x" in lines[0] and "coiled cluster list --workspace earthmover-devs" in lines[0]
+    assert "coiled cluster stop atera-x --workspace earthmover-devs" in lines[0]
