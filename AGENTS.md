@@ -59,6 +59,20 @@ ingest, the work is not done. That rules out:
   - Docstrings say why, including why not the library feature, with the
     evidence.
   - Names are plain words, with no leading underscore.
+- **Draw the ingest.** Each ingest commits SVG figures in
+  `ingests/<archive>/diagrams/`, written by its own `diagrams.py` from real
+  values in the source listing and the store:
+  - the source: its files, directories and arrays, with real names, sizes
+    and counts;
+  - the mapping: which source files or arrays become which store nodes and
+    arrays, with each array drawn as a cube labeled by shape and chunks;
+  - the store: every level of the hierarchy, with its attributes and node
+    counts.
+
+  `minus80.diagrams` provides the building blocks and the shared style; each
+  ingest composes its own figures from them. Use short labels and mark each
+  thing's source file. Put explanations in `LAYOUTS.md`, not in the figure.
+  `PLAN.md` links the proposed figures and `REPORT.md` the built ones.
 - **Long runs report progress.** A job that runs for more than a minute prints
   a line at a steady interval: how far it has got, what is left, the current
   rate. Remote jobs forward those lines to the launching terminal.
