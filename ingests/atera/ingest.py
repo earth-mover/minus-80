@@ -780,8 +780,22 @@ def main() -> None:
         run()
     except HeldFilesError as e:
         raise SystemExit(f"{e}; use --replace-tables {e.table}") from None
-    except ValueError as e:  # Every refusal of the ingest is a ValueError.
+    except ValueError as e:
+        # A ValueError from another library is a fault, not a refusal: it keeps its traceback.
+        if not _raised_here(e):
+            raise
         raise SystemExit(str(e)) from None
+
+
+def _raised_here(error: BaseException) -> bool:
+    """True when the innermost frame of ``error`` is in this ingest or in ``minus80``."""
+    import minus80
+
+    frame = error.__traceback__
+    while frame.tb_next is not None:
+        frame = frame.tb_next
+    source = Path(frame.tb_frame.f_code.co_filename).resolve()
+    return any(source.is_relative_to(Path(root).resolve().parent) for root in (__file__, minus80.__file__))
 
 
 def run() -> None:
