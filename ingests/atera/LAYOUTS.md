@@ -176,7 +176,8 @@ It also checks `nucleus_count` for every cell in the nucleus set.
 
 ### The fixture branch
 
-The branch `fixture` has several rows for one cell in `nucleus_boundaries`, with an int64 `method` column.
+The branch `fixture` on Arraylake has several rows for one cell in `nucleus_boundaries`.
+That table has an int64 `method` column.
 Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
 The gates `images`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
 The gates `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
