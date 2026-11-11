@@ -24,21 +24,24 @@ import scipy.sparse
 import shapely
 import zarr
 from anndata.io import read_elem
+from minus80.core.elements import COMPLETE
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import check_page
+from minus80.core.registry import as_url
+from minus80.core.remote import reader
 from minus80.core.tables import local_catalog, parquet_field_ids
 from minus80.core.zarr_copy import read_array
 from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D
+from bundle import CELLS, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, open_tiff
 from ingest import (
-    CELL_SET, DIFFEXP_TABLES, FIXTURE_LEVEL, ICEBERG_TABLES, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION,
+    CELL_SET, DIFFEXP_TABLES, ICEBERG_TABLES, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION,
     open_bundle,
 )
-from sources import S3, SAMPLES
+from sources import HE_IMAGE, S3, SAMPLES
 from transcripts import xenium_cell_id
 
 SAMPLED = 50
@@ -65,15 +68,60 @@ def chunk_key(array_path: str, member: str) -> str:
     return f"{array_path}/c/" + member.rsplit("/", 1)[1].replace(".", "/")
 
 
-def gate_images(root, bundle) -> list[str]:
-    array, errors = root[f"images/morphology/s{FIXTURE_LEVEL}"], []
-    for channel, name in enumerate(MORPHOLOGY_2D):
-        page = bundle.tiff(name).series[0].levels[FIXTURE_LEVEL].pages[0]
-        grid = [(r, c) for r in range(math.ceil(page.imagelength / page.tilelength))
-                for c in range(math.ceil(page.imagewidth / page.tilewidth))]
-        tiles = [grid[i] for i in np.linspace(0, len(grid) - 1, min(IMAGE_TILES, len(grid))).astype(int)]
-        print(f"  images: channel {channel}, {len(tiles)} of {len(grid)} tiles checked")
-        errors += [f"channel {channel}: {e}" for e in check_page(array, page, (channel,), tiles)]
+def sampled_tiles(page) -> list[tuple[int, int]]:
+    """``IMAGE_TILES`` tiles of the page's grid, spread over it; all of them when the grid is smaller."""
+    grid = [(r, c) for r in range(math.ceil(page.imagelength / page.tilelength))
+            for c in range(math.ceil(page.imagewidth / page.tilewidth))]
+    return [grid[i] for i in np.linspace(0, len(grid) - 1, min(IMAGE_TILES, len(grid))).astype(int)]
+
+
+def check_level(label: str, array, entries) -> list[str]:
+    """Compare the sampled tiles of each ``(name, page, index)`` of ``entries`` with ``array``; print one line."""
+    errors = []
+    for name, page, index in entries:
+        tiles = sampled_tiles(page)
+        errors += [f"{label} {name}".strip() + f": {e}" for e in check_page(array, page, index, tiles)]
+    print(f"  images: {label}: {len(entries)} pages, {len(tiles)} tiles each")
+    return errors
+
+
+def stored_levels(group) -> list[int]:
+    return sorted(int(name.removeprefix("s")) for name, _ in group.arrays())
+
+
+def level_errors(root, path: str, count: int) -> list[str]:
+    """A group marked complete holds every one of the source's ``count`` levels."""
+    group = root[path]
+    if group.attrs.get(COMPLETE) is True and stored_levels(group) != list(range(count)):
+        return [f"{path}: marked complete, holds levels {stored_levels(group)} of {count}"]
+    return []
+
+
+def gate_images(root, bundle, he_url: str) -> list[str]:
+    """Four sampled tiles of every stored level of each image element against tifffile's decode.
+
+    The 3D stack is compared on every plane. ``he_url`` is read only when the store has the H&E element.
+    """
+    errors = []
+    if "images/morphology" in root:
+        pyramids = [bundle.tiff(name).series[0].levels for name in MORPHOLOGY_2D]
+        errors += level_errors(root, "images/morphology", len(pyramids[0]))
+        for level in stored_levels(root["images/morphology"]):
+            entries = [(f"channel {c}", pyramid[level].pages[0], (c,)) for c, pyramid in enumerate(pyramids)]
+            errors += check_level(f"morphology s{level}", root[f"images/morphology/s{level}"], entries)
+    if "images/morphology_3d" in root:
+        # Each plane is a series of its own, with the whole pyramid as its levels.
+        planes = [series.levels for series in bundle.tiff(MORPHOLOGY_3D).series]
+        errors += level_errors(root, "images/morphology_3d", len(planes[0]))
+        for level in stored_levels(root["images/morphology_3d"]):
+            entries = [(f"plane {z}", plane[level].pages[0], (0, z)) for z, plane in enumerate(planes)]
+            errors += check_level(f"morphology_3d s{level}", root[f"images/morphology_3d/s{level}"], entries)
+    if "images/he_image" in root:
+        pyramid = open_tiff(reader(as_url(he_url))).series[0].levels
+        errors += level_errors(root, "images/he_image", len(pyramid))
+        for level in stored_levels(root["images/he_image"]):
+            errors += check_level(f"he_image s{level}", root[f"images/he_image/s{level}"],
+                                  [("", pyramid[level].pages[0], ())])
     return errors
 
 
@@ -499,7 +547,7 @@ def main() -> None:
     cell_id = read_array(cells, "cell_id", names=names)
 
     gates = {
-        "images": lambda: gate_images(root, bundle),
+        "images": lambda: gate_images(root, bundle, SAMPLES[args.sample].url(HE_IMAGE, S3)),
         "labels": lambda: gate_labels(root, cells),
         "matrix": lambda: gate_matrix(root, matrix),
         "tables": lambda: gate_tables(root, catalog, cells, transcripts),

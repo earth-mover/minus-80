@@ -25,6 +25,11 @@ DIFFEXP_AZIMUTH = "diffexp_genes/gene_expression_azimuth.csv"
 DIFFEXP_GRAPHCLUST = "diffexp_genes/gene_expression_graphclust.csv"
 
 
+def open_tiff(file) -> tifffile.TiffFile:
+    # The OME-XML does not describe the pyramid's levels, so read it as a plain TIFF.
+    return tifffile.TiffFile(file, is_ome=False)
+
+
 class Bundle:
     """The members of one ``outs.zip``, at a local path or a URL."""
 
@@ -44,6 +49,5 @@ class Bundle:
             return json.load(f)
 
     def tiff(self, name: str) -> tifffile.TiffFile:
-        # The OME-XML does not describe the pyramid's levels, so read it as a plain TIFF.
-        return tifffile.TiffFile(self.member_file(name), is_ome=False)
+        return open_tiff(self.member_file(name))
 

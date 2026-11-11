@@ -1,7 +1,12 @@
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
+
+# Helpers shared by test modules; importlib mode puts no test directory on the path.
+sys.path.insert(0, str(Path(__file__).parent / "support"))
 
 
 class RangeServer:

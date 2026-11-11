@@ -8,6 +8,9 @@ BASE = "https://s3-us-west-2.amazonaws.com/10x.files/samples/atera"
 #: The same objects as an S3 URL. obstore cannot parse the path-style HTTPS form, and
 #: refuses the CDN's answer to a range read of a bundle, so reads use this one.
 S3 = "s3://10x.files/samples/atera"
+#: The H&E image and its alignment matrix, objects beside the bundle; ``Sample.url`` takes each as its suffix.
+HE_IMAGE = "_he_image.ome.tif"
+HE_ALIGNMENT = "_he_imagealignment.csv"
 
 
 class Sample(NamedTuple):

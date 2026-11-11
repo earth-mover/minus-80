@@ -210,8 +210,9 @@ reader fetches the snapshot, and the snapshot holds them, on every open.
 - The coordinate system `global` is in micrometres. The morphology pixel grid
   maps into it by `Scale(0.21249222)` on y and x. Labels use the same scale.
   The 3D stack adds `Scale(3.0)` on z.
-- The H&E maps into `global` by the alignment CSV's affine composed with its
-  own pixel scale. The matrix stays in the element's attributes as published.
+- The alignment CSV's affine maps H&E pixels to morphology pixels. The H&E
+  maps into `global` by that affine, then `Scale(0.21249222)`, the morphology
+  pixel size. The matrix stays in the element's attributes as published.
 - The QC rasters map by `Scale(20.0)` and `Translation(-10.0, -10.0)` from
   the report's `origin_data`, `dimensions` and bin count: 603 bins over
   12,060 µm for the kidney.
@@ -443,6 +444,10 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
 5. **The H&E as a transform.** Resampling would decode and rewrite an
    estimated 3 to 7 GB per sample and lose the original grid. Recommended:
    keep the pixels, place with the affine, keep the matrix in attributes.
+   The ingest decodes the H&E tiles and writes them with the image codecs.
+   The kidney's Deflate tiles have no codec in the Zarr core.
+   One rule for all four samples is simpler than two.
+   This is the plan author's call. The owner checks it.
 6. **The overview scan.** Its FOV boxes are in scan pixels; the morphology FOV
    boxes are in micrometres; both JSONs list the same FOV ids. A least-squares
    affine over 78 boxes places the scan. Recommended: include it, and the ROI
@@ -451,6 +456,11 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
 7. **The 3D stack.** 19 to 23 GB per sample as JPEG 2000, about twice that as
    zstd. It is the only 3D data, and the virtual kidney store had it.
    Recommended: include it.
+   The stack keeps shards of `(z, 1024, 1024)`. The ingest writes one shard at a time.
+   It decodes one tile from every plane, then writes the shard once.
+   A plane by plane write rewrites each shard once for each plane.
+   This entry holds no measurement of the stack without shards.
+   This is the plan author's call. The owner checks it.
 8. **Transcript partitioning.** The source tiles are a spatial grid already.
    Recommended: one partition per tile, with the `bbox` struct so a window
    query prunes files by statistics.

@@ -205,6 +205,36 @@ Groups differ between samples, such as `AT1`, `Amacrine cell`, `Cone-OFF-bipolar
 So the Iceberg schema comes from each CSV. Column names keep their spaces and hyphens.
 Arrow infers the numeric types. The Iceberg index column is a string here, not an int64 `instance`.
 
+### The full image elements
+
+`images/morphology`, `images/morphology_3d` and `images/he_image` hold one array for each level of the source.
+Level `k` of the source is the array `s<k>`.
+Each array has one chunk for each source tile, so the chunk shape is the tile shape of that level.
+Each level is one commit. A rerun skips the levels that the branch holds.
+The group attributes list exactly the levels that the branch holds, so every commit is a valid store.
+After the last level, the group attribute `minus80:complete` is `true`.
+`--mode fixture` writes level 6 of `images/morphology` only and never sets that attribute.
+
+- **`images/morphology`.** The four files `morphology_2d/ch000{0..3}_*.ome.tif` are four one-channel pyramids.
+  Array `s<k>` is `(4, y, x)`. The channel names come from the OME-XML of the first file.
+- **`images/morphology_3d`.** The member `morphology_3d/ch0000_dapi_3d.ome.tif` has one TIFF series for each plane.
+  The levels of a series are the pyramid of that plane. Array `s<k>` is `(1, z, y, x)`.
+  Chunks are `(1, 1, tile, tile)` and shards are `(1, z, tile, tile)`.
+  The ingest decodes one tile from every plane and writes its shard once.
+  The planes are 3 micrometres apart, as PLAN.md, "Axes, units, levels", states.
+  The ingest gives the stack the pixel size of the 2D morphology on `y` and `x`.
+- **`images/he_image`.** The objects beside the bundle are `<name>_he_image.ome.tif` and
+  `<name>_he_imagealignment.csv`. The ingest decodes every level and stores it as `(3, y, x)` `uint8`.
+  The kidney file has interleaved samples and Deflate tiles. The brain file has separate planes and no compression.
+  The ingest reads the alignment as three rows of three numbers, separated by commas, with no header.
+  It stops on any other shape.
+  The matrix maps H&E pixels to morphology pixels, because its scale is the ratio of the two pixel sizes.
+  The transform of the element into `global` is a sequence: the affine of the matrix, then `Scale(pixel_size)`
+  with the morphology pixel size. The group attribute `alignment` holds the matrix as published.
+- **Gate.** The `images` gate compares 4 sampled tiles of every stored level of each image element with tifffile.
+  For the stack it compares every plane at those tiles.
+  It also checks that a group marked complete holds every level of the source.
+
 ### What the fixture showed
 
 - **Mask order.** `masks/0` is the nucleus mask and `masks/1` the cell mask, as `polygon_set_names` orders them.
