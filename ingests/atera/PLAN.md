@@ -178,12 +178,12 @@ images/morphology                   (c, y, x) uint16, 4 channels, 8 levels, 0.21
 images/morphology_3d                (c, z, y, x) uint16, 1 channel, 13 or 15 planes at 3 µm, 8 levels, sharded
 images/he_image                     (c, y, x) uint8 RGB, 7 or 9 levels, 0.2738 µm, Affine into global
 images/overview_scan                (c, y, x) uint8 RGB, low resolution, Affine into global (call 6)
-images/qc_transcript_density        (c, y, x) uint16, one channel, 20 µm bins, from the analysis summary's data bag
-images/qc_mean_q_score              same grid, float32
-images/qc_mean_q_score_80um         80 µm bins, float32
-images/qc_negative_control_codewords
-images/qc_negative_control_probes
-images/qc_genomic_controls
+images/qc_transcript_density        (c, y, x) uint16, one channel, 20 µm bins, Scale then Translation into global
+images/qc_mean_q_score              same grid, the dtype of the report (uint16 in the kidney)
+images/qc_mean_q_score_80um         80 µm bins, the dtype of the report (uint16 in the kidney)
+images/qc_negative_control_codewords  same grid as the density map, uint16 in the kidney
+images/qc_negative_control_probes   same grid as the density map, uint16 in the kidney
+images/qc_genomic_controls          same grid as the density map, uint16 in the kidney
 labels/cell_labels                  (y, x) uint32, chunks copied
 labels/nucleus_labels               (y, x) uint32, chunks copied
 shapes/cell_boundaries              iceberg_table + shapes.parquet as a uint8 array
@@ -390,10 +390,14 @@ All on 2026-11-10, from a laptop, with range requests only.
 - **Reports.** The kidney's two HTML reports were parsed. The analysis
   summary's data bag is 5.5 MB: about 100 kB of metrics and tables, 2.7 MB
   of JPEG thumbnails, 1.3 MB of QC rasters, 1 MB of plot data. The QC
-  rasters are numeric, not pictures: base64 zip streams typed `uint16` for
-  the density and control maps and `float32` for the quality maps, one
-  channel each, with their grid, origin, unit and the full-resolution image
-  size stated beside them.
+  rasters are numeric, not pictures. Each is a base64 zlib stream with the
+  dtype in its header. All six rasters of the kidney are `uint16`: the
+  density map and the control maps, and also the quality maps. The ingest
+  accepts `uint16` and `float32` and stores the dtype of the report.
+  The report states each grid, its origin and its unit beside the rasters.
+  The sum of the density map is 1,083,945,548. The report states
+  1,083,799,964 high quality transcripts. The transcript store holds
+  1,186,813,834 transcripts. The ingest does not claim what the map counts.
 - **Metadata files.** `experiment.spatial`, the alignment CSVs,
   `metrics_summary.csv`, `panel_config.json` and both FOV location JSONs
   were read. The alignment is a 3 by 3 affine with a scale of 1.289 and a

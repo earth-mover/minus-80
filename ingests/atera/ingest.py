@@ -34,13 +34,14 @@ from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, l
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
 from minus80.ome import channel_omero, image_attrs, label_attrs, rgb_omero
 from minus80.ome.spatialdata import (
-    affine, points_attrs, raster_attrs, scale, sequence, shapes_attrs, write_table_keys,
+    affine, points_attrs, raster_attrs, scale, sequence, shapes_attrs, translation, write_table_keys,
 )
 
 from bundle import (
     CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, Bundle, open_tiff,
 )
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
+from qc import QC_NAMES, QcRaster, bundle_rasters
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
 from sources import HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table, diffexp_table
@@ -66,6 +67,8 @@ TABLE_REGION = "cell_boundaries"
 UNIT = "micrometer"
 #: The coordinate system between the H&E alignment and the scale into ``global``.
 MORPHOLOGY_PIXEL = "morphology_pixel"
+#: The coordinate system between the scale and the translation of a QC raster.
+QC_SCALED = "qc_scaled"
 #: The branches that each mode refuses to write.
 PROTECTED = {"fixture": ("main",), "full": ("fixture",)}
 #: The elements each mode writes, in order. In full mode the catalog elements come first, so a fault shows
@@ -75,7 +78,7 @@ ELEMENTS = {
                 "shapes/cell_boundaries", "points/transcripts", "root"),
     "full": ("tables/table", *(f"labels/{n}" for n in MASKS), "shapes/nucleus_boundaries", "shapes/cell_boundaries",
              "points/transcripts", ICEBERG_TABLES, "images/morphology", "images/morphology_3d", "images/he_image",
-             "root"),
+             *(f"images/qc_{n}" for n in QC_NAMES), "root"),
 }
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
@@ -102,7 +105,6 @@ MISSING_FROM_FIXTURE = [
 
 MISSING_FROM_FULL = [
     {"what": "images/overview_scan", "why": "The ingest does not write it. PLAN.md, judgement call 6, says when it can be placed."},
-    {"what": "images/qc_*", "why": "The ingest does not write them."},
     *NOT_WRITTEN,
 ]
 
@@ -312,6 +314,38 @@ def write_he(writer: ElementWriter, he_url: str, alignment_url: str, pixel_size:
                               "from": "he_image pixels", "to": "morphology pixels"}}
 
     write_levels(writer, "images/he_image", len(shapes), None, write_level, attrs)
+
+
+def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
+    """Write ``raster`` as ``images/qc_<name>``, channel first, one chunk.
+
+    Pixel ``p`` of an axis starts at ``origin + p * bin_size`` in micrometres, as in the other image elements.
+    """
+    path, axes, shape = f"images/qc_{raster.name}", ("c", "y", "x"), (1, *raster.array.shape)
+    transform = sequence(
+        [scale([1.0, raster.bin_size, raster.bin_size], axes, system=QC_SCALED, unit=UNIT),
+         translation([0.0, raster.origin[1], raster.origin[0]], axes, input_system=QC_SCALED, input_unit=UNIT,
+                     unit=UNIT)],
+        axes, unit=UNIT)
+    # The display window spans the values: the dtype's range would show a map of small counts as black.
+    omero = channel_omero([{"label": raster.label}], max_value=float(raster.array.max()) or 1.0)
+
+    def write_level(group, level):
+        array = create_level(group, f"s{level}", shape, raster.array.dtype, dims=axes, chunk=shape[1:])
+        array[0] = raster.array
+
+    write_levels(writer, path, 1, None, write_level,
+                 lambda held: raster_attrs(level_ome(f"qc_{raster.name}", axes, [shape], held, omero), transform))
+
+
+def write_qc(writer: ElementWriter, bundle: Bundle, names: Sequence[str] | None = None) -> None:
+    """Write the QC rasters ``names`` of the analysis summary, all by default; skip a raster that the branch holds."""
+    found = bundle_rasters(bundle)
+    for name in names or found:
+        if name not in found:
+            raise ValueError(f"the analysis summary has no QC raster {name}; it has {', '.join(found)}")
+        if not skip_held(writer, f"images/qc_{name}"):
+            write_qc_raster(writer, found[name])
 
 
 def table_properties(sample, layouts: str, repo: str, *, element: bool = True, **extra) -> dict[str, str]:
@@ -577,6 +611,7 @@ def main() -> None:
                                                       concurrency=n),
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),
         "images/he_image": lambda: write_he(writer, he_image, he_alignment, pixel_size, concurrency=n),
+        **{f"images/qc_{name}": partial(write_qc, writer, bundle, [name]) for name in QC_NAMES},
         "root": lambda: write_root(writer, bundle, sample, layouts, experiment,
                                    missing=MISSING_FROM_FULL if full else MISSING_FROM_FIXTURE,
                                    fixture=None if full else FIXTURE),

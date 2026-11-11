@@ -41,6 +41,7 @@ from ingest import (
     CELL_SET, DIFFEXP_TABLES, ICEBERG_TABLES, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION,
     open_bundle,
 )
+from qc import bundle_rasters
 from sources import HE_IMAGE, S3, SAMPLES
 from transcripts import xenium_cell_id
 
@@ -122,6 +123,34 @@ def gate_images(root, bundle, he_url: str) -> list[str]:
         for level in stored_levels(root["images/he_image"]):
             errors += check_level(f"he_image s{level}", root[f"images/he_image/s{level}"],
                                   [("", pyramid[level].pages[0], ())])
+    return errors
+
+
+def _transform_errors(path: str, raster, transform: dict) -> list[str]:
+    scale_step, shift = transform["transformations"]
+    errors = []
+    if scale_step["scale"] != [1.0, raster.bin_size, raster.bin_size]:
+        errors.append(f"{path}: scale {scale_step['scale']}, the report gives bin size {raster.bin_size}")
+    if shift["translation"] != [0.0, raster.origin[1], raster.origin[0]]:
+        errors.append(f"{path}: translation {shift['translation']}, the report gives origin {raster.origin}")
+    return errors
+
+
+def gate_qc(root, bundle) -> list[str]:
+    """Each stored QC raster against the report's, decoded again: values, dtype, shape, scale and translation."""
+    errors = []
+    for name, raster in bundle_rasters(bundle).items():
+        path = f"images/qc_{name}"
+        if path not in root:
+            continue
+        stored = root[f"{path}/s0"]
+        if stored.shape != (1, *raster.array.shape) or stored.dtype != raster.array.dtype:
+            errors.append(f"{path}: stored {stored.shape} {stored.dtype}, the report has "
+                          f"{(1, *raster.array.shape)} {raster.array.dtype}")
+        elif not np.array_equal(stored[0], raster.array):
+            errors.append(f"{path}: {int((stored[0] != raster.array).sum())} values differ from the report")
+        transform = root[path].attrs["ome"]["multiscales"][0]["coordinateTransformations"][0]
+        errors += _transform_errors(path, raster, transform)
     return errors
 
 
@@ -548,6 +577,7 @@ def main() -> None:
 
     gates = {
         "images": lambda: gate_images(root, bundle, SAMPLES[args.sample].url(HE_IMAGE, S3)),
+        "qc": lambda: gate_qc(root, bundle),
         "labels": lambda: gate_labels(root, cells),
         "matrix": lambda: gate_matrix(root, matrix),
         "tables": lambda: gate_tables(root, catalog, cells, transcripts),

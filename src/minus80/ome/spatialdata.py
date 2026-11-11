@@ -58,6 +58,12 @@ def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "globa
     return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit, input_system, input_unit)
 
 
+def translation(offsets: Sequence[float], axes: Sequence[str], *, system: str = "global", unit: str,
+                input_system: str | None = None, input_unit: str = PLACEHOLDER_UNIT) -> dict:
+    """``unit`` is the unit of the output system's space axes; the arguments are those of :func:`scale`."""
+    return _transform("translation", {"translation": list(offsets)}, axes, axes, system, unit, input_system, input_unit)
+
+
 def affine(matrix: np.ndarray, input_axes: Sequence[str], output_axes: Sequence[str],
            *, system: str = "global", unit: str, input_system: str | None = None,
            input_unit: str = PLACEHOLDER_UNIT) -> dict:

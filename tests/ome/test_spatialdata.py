@@ -13,6 +13,7 @@ from minus80.ome.spatialdata import (
     sequence,
     shapes_attrs,
     table_attrs,
+    translation,
     write_table_keys,
 )
 
@@ -38,6 +39,15 @@ def test_a_transform_can_start_in_the_system_that_another_ends_in():
     second = scale([2.0, 2.0], ("x", "y"), input_system="morphology_pixel", input_unit="pixel", unit="micrometer")
     assert first["output"] == second["input"]
     assert [a["unit"] for a in first["output"]["axes"]] == ["pixel", "pixel"]
+    assert second["output"]["name"] == "global"
+
+
+def test_translation_follows_a_scale_in_a_sequence_and_leaves_the_channel_at_zero():
+    first = scale([1.0, 20.0, 20.0], ("c", "y", "x"), system="grid", unit="micrometer")
+    second = translation([0.0, -10.0, -10.0], ("c", "y", "x"), input_system="grid", input_unit="micrometer",
+                         unit="micrometer")
+    assert second["type"] == "translation" and second["translation"] == [0.0, -10.0, -10.0]
+    assert first["output"] == second["input"]
     assert second["output"]["name"] == "global"
 
 

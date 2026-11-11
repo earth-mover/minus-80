@@ -253,6 +253,53 @@ After the last level, the group attribute `minus80:complete` is `true`.
   For the stack it compares every plane at those tiles.
   It also checks that a group marked complete holds every level of the source.
 
+### The QC rasters
+
+`images/qc_<name>` holds one raster of the analysis summary, which is a member of the bundle.
+The member name differs for each sample. It starts with `analysis_summary` and ends with `.html`.
+The kidney's is `analysis_summary_RnD_S2_S2B_kidney_ND.html`, 9,114,279 bytes, analysis version atera-1.0.4.1.
+The ingest stops when the bundle has no such member or has more than one. It does not use `qc_images.html`.
+
+- **The data bag.** The bag is one JSON object. It starts after the last occurrence of
+  `<script id="ws-data" type="application/json">` and ends before `</script>`.
+  An earlier occurrence of that text is inside an HTML comment and is not JSON.
+  The ingest parses the bag with `json.JSONDecoder().raw_decode` from that position.
+- **The keys.** `bag["density_plot"]` holds `bins`, `mean_q_score_80um`, `dimensions`
+  (`height` 7060.0 and `width` 12060.0, in micrometres), `horizontal_bin_count` (603),
+  `origin_data` (`[-10.0, -10.0]`, as `x, y`) and `unit` (`µm`). The ingest does not use `image_sizes` or `large_image`.
+- **The resources.** A value such as `_resources_density_plot_genomic_controls` refers to
+  `bag["_resources"]["density_plot_genomic_controls"]`.
+  A resource is the string `data:<dtype>/zip;base64,<payload>`. The payload is one zlib stream.
+  It holds little-endian values of the dtype, row-major, with row 0 at the origin.
+  Rows run along y and columns run along x. All six rasters of the kidney are `uint16`.
+  The ingest accepts `uint16` and `float32`. It stops on any other dtype and prints the header.
+- **The grids.** The five maps of `bins` have 212,859 values each: 353 rows by 603 columns of 20 µm bins.
+  The bin size is `width / horizontal_bin_count`. The rows are `ceil(height / bin size)`.
+  The map `mean_q_score_80um` has 13,439 values: 89 rows by 151 columns, with the same origin.
+  The bag gives no bin count for it. The bin size 80 comes from the key. The shape is `ceil(7060 / 80)` by `ceil(12060 / 80)`.
+  The ingest stops when a value count does not fill its shape.
+- **The names.** A table in `qc.py` maps each label of `bins` to an element name.
+  A label that the table lacks stops the ingest, so a later software version does not pass silently.
+  The labels are `Transcript Density Map`, `Mean Q-Score`, `Negative Control Codewords`,
+  `Negative Control Probes` and `Genomic Controls`. The names are `qc_transcript_density`, `qc_mean_q_score`,
+  `qc_negative_control_codewords`, `qc_negative_control_probes` and `qc_genomic_controls`.
+  The bag gives no label for the 80 µm map. Its channel name is `Mean Q-Score 80 µm` and its element is `qc_mean_q_score_80um`.
+- **The element.** Array `s0` is `(1, y, x)` in the dtype of the report, in one chunk, with the image codecs.
+  The channel name is the report's label. The element is complete after its one commit.
+  The transform into `global` is a sequence. The first step is `Scale(1, bin size, bin size)` on `c, y, x`.
+  The second step is `Translation(0, y origin, x origin)` from the system `qc_scaled`.
+  Pixel `p` of an axis starts at `origin + p * bin size`, so bin `i` of a 20 µm map covers `[-10 + 20 i, 10 + 20 i)` micrometres.
+  This is the convention of the other image elements: a transform with a scale only places pixel 0 at 0.
+- **Ranges in the kidney.** Transcript density 0 to 35,802. Mean Q-score 0 to 40. Negative control codewords 0 to 11.
+  Negative control probes 0 to 3. Genomic controls 0 to 9. Mean Q-score at 80 µm 0 to 40.
+- **What the density map counts.** The sum of the density map is 1,083,945,548.
+  The report states 1,083,799,964 high quality transcripts. The transcript store holds 1,186,813,834 transcripts.
+  The ingest does not claim what the map counts.
+- **Orientation.** Each 2000 µm tile of the transcript store has a sum in the map of 0.90 to 0.92 of its transcript count,
+  with rows as y and no flip. The 80 µm map fits the density-weighted mean of the 20 µm quality map best with offset zero.
+- **Gate.** The `qc` gate decodes the rasters from the bundle again. It compares each stored array
+  (values, dtype and shape) and its scale and translation.
+
 ### What the fixture showed
 
 - **Mask order.** `masks/0` is the nucleus mask and `masks/1` the cell mask, as `polygon_set_names` orders them.
