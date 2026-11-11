@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 
 import icechunk
 import numpy as np
@@ -285,10 +286,32 @@ def test_a_copy_of_a_file_that_changed_afterwards_fails_to_read(tmp_path):
         root["s.parquet"][:]
 
 
+def test_data_file_refuses_a_file_io_that_states_no_time(tmp_path):
+    from pyiceberg.io.fsspec import FsspecFileIO
+
+    path = tmp_path / "s.parquet"
+    path.write_bytes(b"abc")
+    with pytest.raises(ValueError, match=f"no last-modified time for {path.as_uri()}"):
+        data_file(FsspecFileIO({}), path.as_uri())
+
+
+def test_declare_copy_refuses_a_file_without_a_time(tmp_path):
+    path = tmp_path / "s.parquet"
+    path.write_bytes(b"abc")
+    root = _group(tmp_path, path)
+    with pytest.raises(ValueError, match="no checksum"):
+        declare_copy(root, "s.parquet", [DataFile(path.as_uri(), 3, None)])
+
+
+def test_data_file_names_a_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="missing.parquet"):
+        data_file(PyArrowFileIO(), (tmp_path / "missing.parquet").as_uri())
+
+
 def test_a_file_outside_every_container_is_refused(tmp_path):
     root = _group(tmp_path, tmp_path / "f.parquet")
     with pytest.raises(ValueError, match="container"):
-        declare_copy(root, "x", [DataFile("file:///nowhere/f.parquet", 10, None)])
+        declare_copy(root, "x", [DataFile("file:///nowhere/f.parquet", 10, datetime.now(timezone.utc))])
 
 
 def test_declare_file_refuses_a_wrong_array(tmp_path):

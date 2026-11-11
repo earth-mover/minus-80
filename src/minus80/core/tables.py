@@ -113,24 +113,31 @@ def write_parquet(
 
 
 class DataFile(NamedTuple):
-    """A data file's location, size in bytes, and last-modified time when the store states one."""
+    """A data file's location, size in bytes, and last-modified time."""
 
     location: str
     size: int
-    last_modified: datetime | None
+    last_modified: datetime
 
 
 def data_file(io, location: str) -> DataFile:
     """The :class:`DataFile` at ``location``, read through the pyiceberg FileIO ``io``.
 
-    The time is rounded up to a whole second: Icechunk keeps whole seconds and
-    refuses a chunk whose object is newer than its checksum.
+    The time is the checksum of each copy's references, so it has one-second resolution:
+    Icechunk keeps whole seconds and refuses a chunk whose object is newer than its checksum.
+    So the time is rounded up, and a change within that second goes undetected.
+    Raises when ``io`` states no time for the file.
     """
     file = io.new_input(location)
     # pyiceberg's InputFile has no public modification time; PyArrowFile's _file_info has it.
-    info = file._file_info() if hasattr(file, "_file_info") else None
-    if info is None or info.mtime_ns is None:
-        return DataFile(location, len(file), None)
+    if not hasattr(file, "_file_info"):
+        raise ValueError(f"no last-modified time for {location}: {type(io).__name__} states none")
+    try:
+        info = file._file_info()
+    except OSError as e:
+        raise type(e)(f"{location}: {e}") from e
+    if info.mtime_ns is None:
+        raise ValueError(f"no last-modified time for {location}: the store states none")
     seconds = -(-info.mtime_ns // 1_000_000_000)
     return DataFile(location, info.size, datetime.fromtimestamp(seconds, timezone.utc))
 
@@ -247,6 +254,8 @@ def _copy_array(group: zarr.Group, path: str, file: DataFile, chunk: int) -> zar
     import icechunk
 
     location, size = file.location, file.size
+    if file.last_modified is None:
+        raise ValueError(f"{location} has no last-modified time, so its references would have no checksum")
     edges = [chunk] * (size // chunk) + ([size % chunk] if size % chunk else [])
     array = group.create_array(
         path, shape=(size,), chunks=[edges] if edges else (1,), dtype="uint8",
