@@ -256,6 +256,9 @@ STUDY = {
 }
 VERSION = "0.6"
 
+#: Where the zip's central directory is kept between runs, by default; verify.py reads the same copy.
+DIRECTORY_CACHE = Path(cache_dir()) / "zebrafish-3d-4i" / "central-directory.parquet"
+
 #: The name of the coordinate system that each well's scene defines.
 SCENE = "well"
 
@@ -1778,7 +1781,7 @@ def main() -> None:
     parser.add_argument(
         "--directory-cache",
         type=Path,
-        default=Path(cache_dir()) / "zebrafish-3d-4i" / "central-directory.parquet",
+        default=DIRECTORY_CACHE,
         help="the Parquet file that keeps the zip's central directory; keep a copy of it",
     )
     parser.add_argument(

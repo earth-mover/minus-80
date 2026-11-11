@@ -49,10 +49,12 @@ def store(plate, tmp_path_factory):
     return zarr.open_group(repo.readonly_session("main").store, mode="r")
 
 
-def test_every_gate_passes_on_every_plane(plate, store):
+def test_verify_passes(plate, store):
     url, _ = plate
-    gates = verify.gates(verify.Reference(url), SHARD_DEPTH, sample=None)
-    assert run_gates(store, gates, {"version": ingest.VERSION, "sample": 50}) == 0
+    directory, source = verify.open_source(url, None)
+    held = verify.held(directory)
+    assert verify.complete(store, held) == []
+    assert verify.pixels(store, source, held) == []
 
 
 def test_level_0_is_what_the_microscope_took(plate, store):
@@ -179,7 +181,8 @@ def test_verify_fails_a_store_missing_a_well(plate, tmp_path):
     repo = _repo(tmp_path / "repo")
     _convert(url, repo, wells=["B/02"])
     root = zarr.open_group(repo.readonly_session("main").store, mode="r")
-    problems = verify.wells(root, verify.Reference(url))
+    directory, _ = verify.open_source(url, None)
+    problems = verify.complete(root, verify.held(directory))
     assert problems and "C/03" in problems[0]
 
 
