@@ -142,6 +142,51 @@ The column `instance` has two meanings.
 | `nucleus_boundaries`, `cell_boundaries` | The cell mask label, 1-based: `cell_index + 1`. |
 | `obs` of `tables/table` | The cell mask label, 1-based: the row position plus one. |
 
+### The polygon sets
+
+Measured on 2026-11-11 in the kidney bundle. Each set is sorted by `cell_index`.
+
+| | `polygon_sets/0` (nucleus) | `polygon_sets/1` (cell) |
+|---|---|---|
+| Rows | 398,197 | 399,120 |
+| Unique cells | 394,076 | 399,120 |
+| Cells with no polygon | 5,044 | 0 |
+| Most parts of one cell | 4 | 1 |
+| Cells with more than one part | 3,926 | 0 |
+| Cells whose parts mix methods | 1,076 | 0 |
+| `method` values (rows) | 3 (377,544), 4 (20,653) | 0 (82,577), 1 (312,076), 2 (4,467) |
+
+Each polygon table has one row per cell that has a polygon. A cell with no polygon has no row.
+So `instance` never shifts.
+The source rows of one cell become one geometry, in source order.
+A cell with one part is a `Polygon`. A cell with several parts is a `MultiPolygon`.
+`part_count` (int32) is the number of parts. `methods` is a string of the parts' method numbers, joined by commas in part order.
+An invalid ring, such as a bow-tie, stays as published.
+`cell_summary` counts the parts of each cell in `nucleus_count`.
+The kidney's `cell_boundaries` set has a polygon for every cell. So the `table_region` gate passes on its cell set.
+The gate stays, because another sample can lack polygons.
+
+### The smaller tables
+
+Three tables annotate no SpatialData element.
+SpatialData has no element type for such a table.
+So the root attribute `iceberg_tables` pins each one.
+An entry has the keys of an `iceberg_table` attribute, and no `geometry_column`.
+The store has no group for them under `tables/`.
+
+| Table | Source | Index column |
+|---|---|---|
+| `codewords` | `transcripts.zarr.zip`: root attributes and `codeword_category` | `codeword_index` |
+| `diffexp_azimuth` | `diffexp_genes/gene_expression_azimuth.csv` | `Feature ID` |
+| `diffexp_graphclust` | `diffexp_genes/gene_expression_graphclust.csv` | `Feature ID` |
+
+Both CSV members are stored with no compression. The kidney's are 22.1 MB and 14.4 MB.
+Each CSV starts with `Feature ID,Feature Name`.
+Then it has three columns for each group: `<group> Mean Counts`, `<group> Log2 fold change` and `<group> Adjusted p value`.
+Groups differ between samples, such as `AT1`, `Amacrine cell`, `Cone-OFF-bipolar cell` and `Cluster 0`.
+So the Iceberg schema comes from each CSV. Column names keep their spaces and hyphens.
+Arrow infers the numeric types. The Iceberg index column is a string here, not an int64 `instance`.
+
 ### What the fixture showed
 
 - **Mask order.** `masks/0` is the nucleus mask and `masks/1` the cell mask, as `polygon_set_names` orders them.
@@ -156,9 +201,9 @@ The column `instance` has two meanings.
   lists `barcode` too. `var` does the same with `feature_id`. A reader then finds the field twice.
   The ingest removes the index from `column-order` and keeps the array. `obs` then lists 18 columns
   and `var` 385.
-- **Cells without a nucleus.** `polygon_sets/0` has 398,197 rows for 399,120 cells, so 923 cells have no
-  nucleus polygon. `instance = cell_index + 1` still applies to the rows that exist. `cell_summary` has NaN
-  nucleus columns on 5,044 rows.
+- **Cells without a nucleus.** 5,044 of 399,120 cells have no nucleus polygon.
+  `cell_summary` has NaN nucleus columns on the same 5,044 rows.
+  `instance = cell_index + 1` still applies to the cells that have a polygon.
 - **Invalid nucleus polygons.** 1,180 of the 398,197 nucleus polygons are not valid and not simple:
   802 ring self-intersections and 378 self-intersections. The metrics CSV leaves
   `number_of_nucleus_non_simple_polygons` empty, so the count cannot be checked against 10x's. The tables

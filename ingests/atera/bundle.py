@@ -21,6 +21,8 @@ MORPHOLOGY_3D = "morphology_3d/ch0000_dapi_3d.ome.tif"
 CELLS = "cells.zarr.zip"
 TRANSCRIPTS = "transcripts.zarr.zip"
 MATRIX = "cell_feature_matrix.zarr.zip"
+DIFFEXP_AZIMUTH = "diffexp_genes/gene_expression_azimuth.csv"
+DIFFEXP_GRAPHCLUST = "diffexp_genes/gene_expression_graphclust.csv"
 
 
 class Bundle:

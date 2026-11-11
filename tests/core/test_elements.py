@@ -127,3 +127,16 @@ def test_a_protected_branch_is_refused(repo):
     with pytest.raises(ValueError, match="fixture"):
         ElementWriter(repo, "fixture", protected=("fixture",))
     ElementWriter(repo, "fixture", protected=("main",))
+
+
+def test_has_attribute_holds_only_the_root_attributes_a_commit_wrote(repo, writer):
+    assert not writer.has_attribute("k")
+    with writer.unit("k", "Write k") as (root, _):
+        root.attrs["k"] = {"a": 1}
+    assert writer.has_attribute("k")
+    assert not writer.has_attribute("other")
+    with pytest.raises(RuntimeError):
+        with writer.unit("other", "Write other") as (root, _):
+            root.attrs["other"] = 1
+            raise RuntimeError
+    assert not writer.has_attribute("other")

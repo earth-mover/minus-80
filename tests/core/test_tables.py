@@ -842,3 +842,12 @@ def test_write_uses_the_index_column_of_the_writer(tmp_path):
     ref = writer.write("t", pa.table({"row": [1], "v": ["a"]}, schema=schema))
     pandas = json.loads(pq.read_schema(file_path(ref.files[0].location)).metadata[b"pandas"])
     assert pandas["index_columns"] == ["row"]
+
+
+def test_write_takes_the_index_column_of_the_call_over_the_writers(tmp_path):
+    schema = pa.schema([pa.field("row", pa.int64(), nullable=False), ("v", pa.string())])
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=schema, properties={})
+    ref = writer.write("t", pa.table({"row": [1], "v": ["a"]}, schema=schema), index_column="row")
+    pandas = json.loads(pq.read_schema(file_path(ref.files[0].location)).metadata[b"pandas"])
+    assert pandas["index_columns"] == ["row"]

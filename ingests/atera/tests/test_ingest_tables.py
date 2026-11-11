@@ -1,7 +1,12 @@
+import io
+
 import numpy as np
 import pyarrow as pa
 import pytest
+import zarr
 
+from .stores import cells_zip
+from bundle import DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST
 from ingest import table_attr
 from minus80.core.tables import TableWriter, local_catalog
 
@@ -24,8 +29,9 @@ def test_table_specs_partition_the_transcripts_and_describe_the_polygons():
 
     specs = table_specs({"license": "x"}, ["m"])
     assert specs["transcripts"]["partition_by"] == "grid_tile"
-    assert specs["nucleus_boundaries"]["properties"]["method_names"] == '["m"]'
-    assert "geo" in specs["nucleus_boundaries"]["properties"]
+    for name in ("nucleus_boundaries", "cell_boundaries"):
+        assert specs[name]["properties"]["method_names"] == '["m"]'
+        assert "geo" in specs[name]["properties"]
 
 
 def test_drop_index_column_leaves_the_index_array_and_reads_with_anndata(tmp_path):
@@ -188,11 +194,12 @@ def test_a_run_that_stopped_resumes_without_writing_a_held_tile_again(tmp_path, 
 def test_a_held_tile_with_another_row_count_is_refused(tmp_path):
     from ingest import write_transcripts
     from minus80.core.tables import write_parquet
-    from transcripts import codeword_table, tile_table
+    from tables_extra import codewords_table
+    from transcripts import tile_table
 
     bundle, tables, repo, writer = _transcripts_run(tmp_path)
     short = tmp_path / "short.parquet"
-    write_parquet(tile_table(bundle.zf, "0,0", codeword_table(bundle.zf), first_instance=0).slice(0, 2),
+    write_parquet(tile_table(bundle.zf, "0,0", codewords_table(bundle.zf), first_instance=0).slice(0, 2),
                   str(short), index_column="instance", field_ids=tables.field_ids("transcripts"))
     tables.write_parts("transcripts", [short])
     with pytest.raises(ValueError, match=r"tile 0,0: the table holds 2 rows, the source has 5"):
@@ -215,9 +222,10 @@ def test_a_given_tile_list_counts_instances_from_zero_and_leaves_no_scratch_file
 def _hold(tables, bundle, tmp_path, tile, *, first_instance, name=None, rows=None):
     """Register a real tile file in the table, optionally under another partition value or cut to ``rows``."""
     from minus80.core.tables import write_parquet
-    from transcripts import codeword_table, tile_table
+    from tables_extra import codewords_table
+    from transcripts import tile_table
 
-    table = tile_table(bundle.zf, tile, codeword_table(bundle.zf), first_instance=first_instance)
+    table = tile_table(bundle.zf, tile, codewords_table(bundle.zf), first_instance=first_instance)
     if rows is not None:
         table = table.slice(0, rows)
     if name is not None:
@@ -284,3 +292,117 @@ def test_the_rate_counts_written_rows_only(tmp_path, monkeypatch, capsys):
     ingest.write_transcripts(writer, bundle, tables)
     # One row written in 0.5 s; the five held rows are in the total only.
     assert "tile -1,0: 1 rows, 6 of 6, 2 rows/s" in capsys.readouterr().out
+
+
+def _boundaries_run(tmp_path):
+    from ingest import table_specs
+    from minus80.core.elements import ElementWriter
+    from minus80.core.icechunk_io import create_repo
+
+    bundle = _Bundle(cells_zip(tmp_path))
+    tables = TableWriter(local_catalog(tmp_path / "catalog"), "ns", catalog_name="local", org="local")
+    specs = table_specs({}, ["a", "b", "c", "d", "e"])
+    for name in ("nucleus_boundaries", "cell_boundaries"):
+        tables.require(name, **specs[name])
+    prefixes = [tables.data_prefix(n) for n in ("nucleus_boundaries", "cell_boundaries")]
+    repo = create_repo(tmp_path / "repo", [], prefixes=prefixes)
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    return bundle, tables, repo, ElementWriter(repo, "fixture")
+
+
+@pytest.mark.parametrize("name, set_index, instances, parts", [
+    ("nucleus_boundaries", 0, [1, 3], [1, 2]),
+    ("cell_boundaries", 1, [1, 2, 3], [1, 1, 1]),
+])
+def test_write_boundaries_writes_one_row_per_cell_of_the_set(tmp_path, name, set_index, instances, parts):
+    from ingest import write_boundaries
+
+    bundle, tables, repo, writer = _boundaries_run(tmp_path)
+    write_boundaries(writer, bundle, tables, name, set_index)
+    table = tables.catalog.load_table(f"ns.{name}").scan().to_arrow().sort_by("instance")
+    assert table["instance"].to_pylist() == instances
+    assert table["part_count"].to_pylist() == parts
+    assert table["cell_id"].to_pylist() == [f"aaaaaaa{'bcd'[i - 1]}-1" for i in instances]
+    assert writer.has(f"shapes/{name}")
+    group = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")[f"shapes/{name}"]
+    attr = group.attrs["iceberg_table"]
+    assert attr["table"] == name and attr["index_column"] == "instance" and attr["geometry_column"] == "geometry"
+    assert attr["snapshot_id"] == tables.catalog.load_table(f"ns.{name}").current_snapshot().snapshot_id
+
+
+def test_write_extra_tables_pins_each_table_in_one_root_attribute(tmp_path, capsys):
+    from ingest import ICEBERG_TABLES, write_extra_tables
+    from minus80.core.elements import ElementWriter
+    from minus80.core.icechunk_io import create_repo
+    from .stores import zip_v2_store
+
+    transcripts = zip_v2_store(
+        tmp_path, "transcripts", {"codeword_category": (np.zeros((2, 9), dtype=bool), {})},
+        attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1]},
+    )
+    diffexp = "Feature ID,Feature Name,Amacrine cell Mean Counts\nENSG1,A,0.5\n"
+
+    class Bundle:
+        names = [DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST]
+
+        def member_zip(self, name):
+            return transcripts
+
+        def member_file(self, name):
+            return io.BytesIO(diffexp.encode())
+
+    tables = TableWriter(local_catalog(tmp_path / "catalog"), "ns", catalog_name="local", org="local")
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    writer = ElementWriter(repo, "fixture")
+    write_extra_tables(writer, Bundle(), tables, {})
+    root = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")
+    pinned = root.attrs[ICEBERG_TABLES]
+    assert list(pinned) == ["codewords", "diffexp_azimuth", "diffexp_graphclust"]
+    assert pinned["codewords"]["index_column"] == "codeword_index"
+    assert pinned["diffexp_azimuth"]["index_column"] == "Feature ID"
+    assert all("geometry_column" not in entry for entry in pinned.values())
+    for name, entry in pinned.items():
+        table = tables.catalog.load_table(f"ns.{entry['table']}")
+        assert entry["snapshot_id"] == table.current_snapshot().snapshot_id
+        assert entry["table_uuid"] == str(table.metadata.table_uuid)
+    assert not any(group for group, _ in root.groups())
+    capsys.readouterr()
+    write_extra_tables(writer, Bundle(), tables, {})
+    assert "skipped" in capsys.readouterr().out
+    assert len(tables.catalog.load_table("ns.codewords").metadata.snapshots) == 1
+
+
+def _matrix_zip(tmp_path):
+    import pandas as pd
+    import scipy.sparse
+    import zipfile
+    from anndata.io import write_elem
+
+    source = tmp_path / "matrix.zarr"
+    root = zarr.open_group(source, mode="w", zarr_format=2)
+    write_elem(root, "X", scipy.sparse.csr_matrix(np.array([[1, 0], [0, 2], [3, 3]], dtype="int32")))
+    write_elem(root, "obs", pd.DataFrame({"cell_id": [10, 11, 12]}, index=pd.Index(["a", "b", "c"], name="barcode")))
+    write_elem(root, "var", pd.DataFrame({"n": [1, 2]}, index=pd.Index(["g1", "g2"], name="feature_id")))
+    path = tmp_path / "matrix.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        for file in sorted(source.rglob("*")):
+            if file.is_file():
+                zf.write(file, file.relative_to(source).as_posix())
+    return zipfile.ZipFile(path)
+
+
+def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path):
+    from anndata.io import read_elem
+    from ingest import write_table
+    from minus80.core.elements import ElementWriter
+    from minus80.core.icechunk_io import create_repo
+
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    write_table(ElementWriter(repo, "fixture"), _Bundle(_matrix_zip(tmp_path)))
+    group = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["tables/table"]
+    assert group.attrs["region"] == "cell_boundaries"
+    assert group["uns/spatialdata_attrs/region"][()] == "cell_boundaries"
+    assert group["obs/instance"][:].tolist() == [1, 2, 3]
+    assert set(read_elem(group["obs/region"])) == {"cell_boundaries"}

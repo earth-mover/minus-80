@@ -8,11 +8,10 @@ import pytest
 from minus80.core.tables import TableWriter, local_catalog, parquet_field_ids
 
 from .stores import zip_v2_store
+from tables_extra import codewords_table
 from transcripts import (
-    CATEGORY_COLUMNS,
     TRANSCRIPT_SCHEMA,
     cell_ids_arrow,
-    codeword_table,
     tile_order,
     tile_slices,
     tile_table,
@@ -48,17 +47,7 @@ def zf(tmp_path):
 
 @pytest.fixture
 def codewords(zf):
-    return codeword_table(zf)
-
-
-def test_codeword_table_maps_codewords_to_features(codewords):
-    assert codewords.column_names == ["codeword_index", "feature_index", "feature_name", *CATEGORY_COLUMNS]
-    assert codewords["codeword_index"].to_pylist() == [0, 1, 2, 3]
-    assert codewords["feature_name"].to_pylist() == ["GENE1", "GENE2", "NegControl", "GENE1"]
-    assert codewords["is_gene"].to_pylist() == [True, True, False, True]
-    assert codewords["is_negative_control_codeword"].to_pylist() == [False, False, True, False]
-    assert codewords.schema.field("codeword_index").type == pa.int64()
-    assert codewords.schema.field("feature_index").type == pa.int32()
+    return codewords_table(zf)
 
 
 def test_tile_table_has_the_schema_and_the_xenium_cell_ids(zf, codewords):

@@ -193,6 +193,11 @@ points/transcripts                  iceberg_table + points.parquet/part.<i>.parq
 tables/table                        AnnData: X CSR int32, obs, var, obsm; region cell_boundaries, instance key instance
 ```
 
+The root attribute `iceberg_tables` pins `codewords`, `diffexp_azimuth` and
+`diffexp_graphclust`. These tables annotate no element. Each entry has the keys
+of an `iceberg_table` attribute, without `geometry_column`. The store has no
+group for them. The `reading` attribute says where they are.
+
 Iceberg tables in `<repo>-tables`: `transcripts`, `cell_boundaries`,
 `nucleus_boundaries`, `codewords`, `diffexp_azimuth`, `diffexp_graphclust`.
 `codewords` has one row per codeword, 53,385 of them, with its feature index
@@ -252,16 +257,21 @@ Transcripts, one row per decoded transcript, from the source tile arrays:
 
 Every `uint32` source column is `int64` in both tables. Iceberg has no unsigned type. pyiceberg maps `uint32` to the signed `int`. 10x's sentinel 4294967295 overflows that type.
 
-Polygons, one row per cell or nucleus, from `polygon_sets/<i>`:
+Polygons, one row per cell that has a polygon in the set, from `polygon_sets/<i>`:
 
 | Column | Type | From |
 |---|---|---|
-| `instance` | int64 | the mask label, the index column |
+| `instance` | int64 | the mask label, `cell_index + 1`, unique, the index column |
 | `cell_index` | int64 | `cell_index`, as published, widened from uint32 |
 | `cell_id` | string | the Xenium form |
-| `method` | int64 | `method`, widened from uint32, with the method names in the table properties |
-| `geometry` | binary, WKB polygon | `vertices[:num_vertices]`, in micrometres |
-| `bbox` | struct of four float64 | the polygon's bounds |
+| `part_count` | int32 | the number of source rows of the cell |
+| `methods` | string | the parts' `method` numbers joined by commas in part order, with the method names in the table properties |
+| `geometry` | binary, WKB | `vertices[:num_vertices]` in micrometres: a `Polygon` for one part, a `MultiPolygon` for several, in source order |
+| `bbox` | struct of four float64 | the geometry's bounds |
+
+A cell with no polygon has no row. So `instance` never shifts.
+An invalid ring stays as published.
+`LAYOUTS.md`, "The polygon sets", gives the kidney's counts.
 
 The shapes tables carry the `geo` property with GeoParquet 1.1 metadata.
 Their Parquet files carry the same `geo` key in the footer. The transcripts
@@ -313,6 +323,10 @@ cannot reference files in the R2 bucket at all (call 12), the copies are
 dropped, points and shapes are Iceberg-only, and the shim scans the table.
 The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
+
+The table `nucleus_boundaries` on Arraylake has the earlier schema: `method` is int64 and there is no `part_count`.
+`require_table` raises on the missing column, and the ingest does not evolve a remote table.
+The kidney's existing `nucleus_boundaries` table needs the owner's decision before the full run.
 
 Shapes tables carry an `instance` column that equals the cell mask label. It
 is the `index_column`. The source's `cell_index` stays as a column.
@@ -460,6 +474,14 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
     copy's bytes equal its Parquet file. The shim read both copies through
     Arraylake with no credentials of its own. Each sample's repo needs the
     same policy for its own namespace.
+
+13. **Tables that annotate no element.** The plan's author made this call.
+    The owner checks it. The codewords and the two differential expression
+    tables sit in the namespace. The root attribute `iceberg_tables` pins
+    them, each as an `iceberg_table` attribute does. Reason: SpatialData has
+    no element type for a table that annotates no element. A root attribute
+    adds no node that a SpatialData reader must skip. The index column is
+    `codeword_index` for `codewords` and `Feature ID` for the other two.
 
 ## Steps, scope and risk
 

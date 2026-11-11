@@ -47,6 +47,11 @@ class ElementWriter:
         root = self._root()
         return root is not None and path in root
 
+    def has_attribute(self, key: str) -> bool:
+        """True when the branch's root group has attribute ``key``, so a rerun skips that unit."""
+        root = self._root()
+        return root is not None and key in root.attrs
+
     def complete(self, path: str) -> bool:
         """True when the group at ``path`` is on the branch and :meth:`finish` marked it."""
         root = self._root()

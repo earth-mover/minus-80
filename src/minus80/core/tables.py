@@ -422,10 +422,10 @@ class TableWriter:
         self._spec(name)
         return f"{self.catalog.load_table(f'{self.namespace}.{name}').location()}/data/"
 
-    def write(self, name: str, table_or_path, *, geo=None, replace=False) -> TableRef:
+    def write(self, name: str, table_or_path, *, geo=None, replace=False, index_column: str | None = None) -> TableRef:
         """Write a table, or a Parquet file at a path, as the one file of ``name``, and register it.
 
-        A table gets the field ids of the Iceberg schema, the writer's index column and ``geo`` in the footer.
+        A table gets the field ids of the Iceberg schema, ``index_column`` (default: the writer's) and ``geo`` in the footer.
         A file at a path is used as it is, and takes no ``geo``. See :meth:`write_parts` for the rest.
         """
         if isinstance(table_or_path, Path):
@@ -437,7 +437,7 @@ class TableWriter:
         iceberg = self.require(name, **self._spec(name))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "part.parquet"
-            write_parquet(table_or_path, str(path), index_column=self.index_column, geo=geo,
+            write_parquet(table_or_path, str(path), index_column=index_column or self.index_column, geo=geo,
                           field_ids=index_by_name(iceberg.schema()))
             return self._register(iceberg, name, [path], replace)
 

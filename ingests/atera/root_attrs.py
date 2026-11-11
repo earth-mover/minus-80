@@ -50,6 +50,10 @@ READING = {
     ),
     "rectilinear_chunks": "The uint8 arrays have a rectilinear chunk grid. Set zarr.config array.rectilinear_chunks to True.",
     "zax": "zax reads points and shapes from the Iceberg table that each group's iceberg_table attribute gives.",
+    "tables": (
+        "The root attribute iceberg_tables of a full store pins the codewords and differential expression tables, "
+        "which no element holds. Each entry has the keys of an iceberg_table attribute."
+    ),
 }
 
 

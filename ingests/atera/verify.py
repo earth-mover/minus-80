@@ -32,8 +32,9 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 from bundle import CELLS, MATRIX, MORPHOLOGY_2D
-from ingest import FIXTURE_LEVEL, INSTANCE_KEY, MASKS, MIB, open_bundle
+from ingest import CELL_SET, FIXTURE_LEVEL, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION, open_bundle
 from sources import S3, SAMPLES
+from transcripts import xenium_cell_id
 
 SAMPLED = 50
 MATRIX_CHUNKS = 20
@@ -41,6 +42,8 @@ IMAGE_TILES = 4
 #: Half the side of the window that holds a sampled label, in pixels: 32 micrometres.
 WINDOW = 150
 SEED = 0
+#: The polygon set that each shapes element holds.
+POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundaries": CELL_SET}
 
 
 def raw(store, key: str) -> bytes | None:
@@ -131,15 +134,16 @@ def pinned_files(catalog, attr) -> list:
 
 def gate_tables(root, catalog, cells, transcripts) -> list[str]:
     errors = []
-    expected = {
-        "points/transcripts": json.loads(transcripts.read("grid/0,0/location/.zarray"))["shape"][0],
-        "shapes/nucleus_boundaries": json.loads(cells.read("polygon_sets/0/num_vertices/.zarray"))["shape"][0],
-    }
     for path, attr in element_tables(root).items():
+        # A polygon table has one row per cell with a polygon.
+        if path in POLYGON_SETS:
+            expected = len(np.unique(read_array(cells, f"polygon_sets/{POLYGON_SETS[path]}/cell_index")))
+        else:
+            expected = json.loads(transcripts.read("grid/0,0/location/.zarray"))["shape"][0]
         rows = sum(f.record_count for f in pinned_files(catalog, attr))
-        print(f"  tables: {path} has {rows:,} rows, the source {expected[path]:,}")
-        if rows != expected[path]:
-            errors.append(f"{path}: {rows} rows, source {expected[path]}")
+        print(f"  tables: {path} has {rows:,} rows, the source {expected:,}")
+        if rows != expected:
+            errors.append(f"{path}: {rows} rows, source {expected}")
     return errors
 
 
@@ -256,17 +260,81 @@ def gate_instances(root, summary, columns, cell_id, pixel_size) -> list[str]:
     return errors
 
 
-def gate_polygons(root, catalog) -> list[str]:
-    attr = element_tables(root)["shapes/nucleus_boundaries"]
-    geometry = load(catalog, attr).scan(selected_fields=("geometry",)).to_arrow()["geometry"]
-    invalid = int((~shapely.is_valid(shapely.from_wkb(geometry.to_numpy(zero_copy_only=False)))).sum())
-    stated = root.attrs["metrics"]["number_of_nucleus_non_simple_polygons"]
-    print(f"  polygons: {invalid:,} of {len(geometry):,} nucleus polygons are not valid")
-    if stated is None:
-        # 10x leaves the metric empty, so there is nothing to disagree with.
-        print(f"  polygons: FINDING {invalid:,} invalid nucleus polygons; the metrics CSV states no count")
+def pinned_columns(catalog, attr, columns: tuple[str, ...]):
+    """The ``columns`` of the snapshot that ``attr`` pins, as an Arrow table."""
+    return load(catalog, attr).scan(snapshot_id=attr["snapshot_id"], selected_fields=columns).to_arrow()
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def gate_polygons(root, catalog, summary, columns) -> list[str]:
+    """Each polygon set: unique ``instance``, the invalid parts against the metrics, and, for the nucleus set, ``part_count``."""
+    errors = []
+    for path, attr in ((p, a) for p, a in element_tables(root).items() if p in POLYGON_SETS):
+        table = pinned_columns(catalog, attr, ("instance", "cell_index", "part_count", "geometry"))
+        values, counts = np.unique(table["instance"].to_numpy(), return_counts=True)
+        if len(repeated := values[counts > 1]):
+            errors.append(f"{path}: {_plural(len(repeated), 'instance')} repeat{'s' if len(repeated) == 1 else ''}, first {repeated[0]}")
+        parts = shapely.get_parts(shapely.from_wkb(table["geometry"].to_numpy(zero_copy_only=False)))
+        invalid = int((~shapely.is_valid(parts)).sum())
+        print(f"  polygons: {invalid:,} of {len(parts):,} {path} parts are not valid")
+        if path == "shapes/nucleus_boundaries":
+            errors += _gate_part_count(path, table, summary, columns)
+            stated = root.attrs["metrics"]["number_of_nucleus_non_simple_polygons"]
+            if stated is None:
+                # 10x leaves the metric empty, so there is nothing to disagree with.
+                print(f"  polygons: FINDING {invalid:,} invalid nucleus polygons; the metrics CSV states no count")
+            elif invalid != stated:
+                errors.append(f"{invalid} invalid nucleus polygons, the metrics CSV states {stated}")
+    return errors
+
+
+def _gate_part_count(path: str, table, summary, columns) -> list[str]:
+    """``part_count`` against ``nucleus_count`` of ``cell_summary`` on a sample of cells; a cell with no row has 0 parts."""
+    rows = np.random.default_rng(SEED + 2).choice(len(summary), min(SAMPLED, len(summary)), replace=False)
+    held = dict(zip(table["cell_index"].to_pylist(), table["part_count"].to_pylist()))
+    stated = summary[:, columns.index("nucleus_count")]
+    differ = sorted(int(r) for r in rows if held.get(int(r), 0) != stated[r])
+    print(f"  polygons: {path} part_count differs from nucleus_count on {len(differ)} of {len(rows)} sampled cells")
+    if not differ:
         return []
-    return [] if invalid == stated else [f"{invalid} invalid nucleus polygons, the metrics CSV states {stated}"]
+    return [f"{path}: part_count differs from nucleus_count on {len(differ)} of {len(rows)} sampled cells, "
+            f"first cell_index {differ[0]}"]
+
+
+def gate_table_region(root, catalog) -> list[str]:
+    """The table's ``instance`` set equals ``cell_boundaries``'; ``cell_id`` agrees on a sample; the region is ``cell_boundaries``."""
+    attrs = element_tables(root)
+    if "shapes/cell_boundaries" not in attrs:
+        return ["no shapes/cell_boundaries element"]
+    errors, table = [], root["tables/table"]
+    polygons = pinned_columns(catalog, attrs["shapes/cell_boundaries"], ("instance", "cell_id"))
+    shape_instance, instance = polygons["instance"].to_numpy(), table[f"obs/{INSTANCE_KEY}"][:]
+    for noun, only, other in (("obs.instance", np.setdiff1d(instance, shape_instance), "cell_boundaries"),
+                              ("cell_boundaries", np.setdiff1d(shape_instance, instance), "obs.instance")):
+        if len(only):
+            errors.append(f"{noun} has {_plural(len(only), 'instance')} that {other} lacks, first {only[0]}")
+    known = np.flatnonzero(np.isin(instance, shape_instance))
+    rows = np.random.default_rng(SEED + 3).choice(known, min(SAMPLED, len(known)), replace=False)
+    packed = table["obs/cell_id"][:][rows]
+    # obs.cell_id packs the pair as prefix + suffix * 2**32.
+    obs_ids = xenium_cell_id(packed & 0xFFFFFFFF, packed >> 32)
+    shape_ids = dict(zip(shape_instance.tolist(), polygons["cell_id"].to_pylist()))
+    differ = sorted(int(instance[r]) for r, a in zip(rows, obs_ids) if shape_ids[int(instance[r])] != a)
+    if differ:
+        errors.append(f"cell_id differs on {len(differ)} of {len(rows)} sampled instances, first instance {differ[0]}")
+    for label, found in (
+        ("region attribute", table.attrs.get("region")),
+        ("uns region", table["uns/spatialdata_attrs/region"][()]),
+    ):
+        if found != TABLE_REGION:
+            errors.append(f"tables/table: {label} is {found!r}")
+    regions = {str(r) for r in read_elem(table["obs/region"])}
+    if regions != {TABLE_REGION}:
+        errors.append(f"tables/table: obs.region holds {', '.join(repr(r) for r in sorted(regions))}")
+    return errors
 
 
 def _sha(data: bytes) -> str:
@@ -346,7 +414,8 @@ def main() -> None:
         "tables": lambda: gate_tables(root, catalog, cells, transcripts),
         "masks": lambda: gate_masks(root, summary, columns, pixel_size),
         "instances": lambda: gate_instances(root, summary, columns, cell_id, pixel_size),
-        "polygons": lambda: gate_polygons(root, catalog),
+        "polygons": lambda: gate_polygons(root, catalog, summary, columns),
+        "table_region": lambda: gate_table_region(root, catalog),
         "copies": lambda: gate_copies(root, catalog),
         "attrs": lambda: gate_attrs(root, catalog),
         "field_ids": lambda: gate_field_ids(root, catalog),

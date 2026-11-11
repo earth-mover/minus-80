@@ -31,20 +31,29 @@ from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_ar
 from minus80.ome import channel_omero, image_attrs, label_attrs
 from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, write_table_keys
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle
+from bundle import CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
 from sources import S3, SAMPLES
-from transcripts import TRANSCRIPT_SCHEMA, codeword_table, tile_order, write_tile, xenium_cell_id
+from tables_extra import codewords_table, diffexp_table
+from transcripts import TRANSCRIPT_SCHEMA, tile_order, write_tile, xenium_cell_id
 
 LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 
 #: Label element, then the cells store's mask array; PLAN.md, judgement call 1.
 MASKS = {"nucleus_labels": "masks/0", "cell_labels": "masks/1"}
-NUCLEUS_SET = 0
+NUCLEUS_SET, CELL_SET = 0, 1
+#: The root attribute that pins the tables that annotate no element, each as an ``iceberg_table`` attribute does.
+ICEBERG_TABLES = "iceberg_tables"
+#: The Iceberg tables the fixture writes; the others wait for the full ingest.
+FIXTURE_TABLES = ("nucleus_boundaries", "transcripts")
+#: Each differential expression table with its bundle member.
+DIFFEXP_TABLES = {"diffexp_azimuth": DIFFEXP_AZIMUTH, "diffexp_graphclust": DIFFEXP_GRAPHCLUST}
 FIXTURE_LEVEL = 6
 FIXTURE_TILE = "0,0"
 REGION_KEY, INSTANCE_KEY = "region", "instance"
+#: The one element that the table annotates; PLAN.md, "The tables".
+TABLE_REGION = "cell_boundaries"
 #: The unit of the global coordinate system; PLAN.md, judgement call 4.
 UNIT = "micrometer"
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
@@ -102,10 +111,10 @@ def write_table(writer: ElementWriter, bundle: Bundle) -> None:
         obs = group["obs"]
         n = group["X"].attrs["shape"][0]
         # SpatialData needs a region column and the mask label as the instance key; the source has neither.
-        write_elem(obs, REGION_KEY, pd.Categorical(["cell_labels"] * n))
+        write_elem(obs, REGION_KEY, pd.Categorical([TABLE_REGION] * n))
         write_elem(obs, INSTANCE_KEY, np.arange(1, n + 1, dtype=np.int64))
         obs.attrs["column-order"] = [*obs.attrs["column-order"], REGION_KEY, INSTANCE_KEY]
-        write_table_keys(group, "cell_labels", region_key=REGION_KEY, instance_key=INSTANCE_KEY)
+        write_table_keys(group, TABLE_REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
 
 
 def write_table_index(writer: ElementWriter) -> None:
@@ -166,19 +175,22 @@ def table_properties(sample, layouts: str, repo: str, **extra) -> dict[str, str]
     return properties | {k: v if isinstance(v, str) else json.dumps(v) for k, v in extra.items()}
 
 
-def table_attr(tables: TableWriter, name: str, ref, *, geo=None) -> dict:
-    """The ``iceberg_table`` attribute of the element that references table ``name`` at ``ref``."""
+def table_attr(tables: TableWriter, name: str, ref, *, geo=None, index_column: str | None = None) -> dict:
+    """The ``iceberg_table`` attribute that references table ``name`` at ``ref``, for an element or the root."""
     return iceberg_table_attr(ref, catalog=tables.catalog_name, org=tables.org, namespace=tables.namespace,
-                              table=name, index_column=tables.index_column, geometry_column="geometry" if geo else None)
+                              table=name, index_column=index_column or tables.index_column,
+                              geometry_column="geometry" if geo else None)
 
 
 def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     """Each Iceberg table's schema, partitioning and properties, known before any element is written."""
+    polygons = {
+        "schema": POLYGON_SCHEMA,
+        "properties": {**properties, "geo": json.dumps(GEO_POLYGONS), "method_names": json.dumps(methods)},
+    }
     return {
-        "nucleus_boundaries": {
-            "schema": POLYGON_SCHEMA,
-            "properties": {**properties, "geo": json.dumps(GEO_POLYGONS), "method_names": json.dumps(methods)},
-        },
+        "nucleus_boundaries": polygons,
+        "cell_boundaries": polygons,
         "transcripts": {
             "schema": TRANSCRIPT_SCHEMA,
             "partition_by": "grid_tile",
@@ -187,18 +199,40 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     }
 
 
-def write_nucleus_boundaries(writer, bundle, tables: TableWriter, *, replace=False) -> None:
+def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: int, *, replace=False) -> None:
+    """Write polygon set ``set_index`` as the table and the element ``name``."""
     zf = bundle.member_zip(CELLS)
-    path = f"polygon_sets/{NUCLEUS_SET}/"
+    path = f"polygon_sets/{set_index}/"
     total = member_bytes(zf, path) + member_bytes(zf, "cell_id/")
-    with writer.unit("shapes/nucleus_boundaries", "Write shapes/nucleus_boundaries", total=total) as (root, _):
+    with writer.unit(f"shapes/{name}", f"Write shapes/{name}", total=total) as (root, _):
         cell_id = read_array(zf, "cell_id")
-        table = polygon_table(zf, NUCLEUS_SET, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        ref = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, replace=replace)
-        attr = table_attr(tables, "nucleus_boundaries", ref, geo=GEO_POLYGONS)
-        group = root.require_group("shapes").create_group("nucleus_boundaries", overwrite=replace)
+        table = polygon_table(zf, set_index, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
+        ref = tables.write(name, table, geo=GEO_POLYGONS, replace=replace)
+        attr = table_attr(tables, name, ref, geo=GEO_POLYGONS)
+        group = root.require_group("shapes").create_group(name, overwrite=replace)
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
         declare_copy(group, "shapes.parquet", ref.files)
+
+
+def write_extra_tables(writer, bundle, tables: TableWriter, properties: dict) -> None:
+    """Write the codewords and the two differential expression tables, then pin them in the root attribute.
+
+    A branch that holds the attribute has every table, so a rerun skips the unit.
+    """
+    if writer.has_attribute(ICEBERG_TABLES):
+        print(f"{ICEBERG_TABLES}: on branch {writer.branch} already, skipped", flush=True)
+        return
+    built = {"codewords": (codewords_table(bundle.member_zip(TRANSCRIPTS)), "codeword_index")}
+    for name, member in DIFFEXP_TABLES.items():
+        with bundle.member_file(member) as f:
+            built[name] = (diffexp_table(f.read().decode()), "Feature ID")
+    with writer.unit(ICEBERG_TABLES, "Write the codewords and differential expression tables") as (root, _):
+        pins = {}
+        for name, (table, index_column) in built.items():
+            tables.require(name, schema=table.schema, properties=properties)
+            ref = tables.write(name, table, index_column=index_column)
+            pins[name] = table_attr(tables, name, ref, index_column=index_column)
+        root.attrs[ICEBERG_TABLES] = pins
 
 
 def write_transcripts(
@@ -221,7 +255,7 @@ def write_transcripts(
     with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _), \
             contextlib.ExitStack() as stack:
         directory = scratch or Path(stack.enter_context(tempfile.TemporaryDirectory()))
-        codewords, field_ids = codeword_table(zf), tables.field_ids("transcripts")
+        codewords, field_ids = codewords_table(zf), tables.field_ids("transcripts")
         held = {} if replace else tables.partitions("transcripts")
         if outside := sorted(set(held) - set(keys)):
             raise ValueError(f"the table holds tiles outside the plan: {', '.join(outside)}")
@@ -319,9 +353,9 @@ def main() -> None:
     methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
     # The tables exist before any element, so a repo without a container over their files fails here.
-    for name, spec in specs.items():
-        tables.require(name, **spec)
-    prefixes = [tables.data_prefix(name) for name in specs]
+    for name in FIXTURE_TABLES:
+        tables.require(name, **specs[name])
+    prefixes = [tables.data_prefix(name) for name in FIXTURE_TABLES]
     if on_arraylake:
         repo = arraylake_repository(args.repo, source_prefixes=prefixes)
     else:
@@ -336,7 +370,7 @@ def main() -> None:
         if "tables/table:attrs" in args.rewrite:
             write_table_index(writer)
         if "shapes/nucleus_boundaries" in args.rewrite:
-            write_nucleus_boundaries(writer, bundle, tables, replace=True)
+            write_boundaries(writer, bundle, tables, "nucleus_boundaries", NUCLEUS_SET, replace=True)
         if "points/transcripts" in args.rewrite:
             write_transcripts(writer, bundle, tables, tiles=[FIXTURE_TILE], replace=True)
         print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
@@ -348,7 +382,7 @@ def main() -> None:
     if not skip_held(writer, f"images/morphology/s{FIXTURE_LEVEL}"):
         write_morphology(writer, bundle, pixel_size)
     if not skip_held(writer, "shapes/nucleus_boundaries"):
-        write_nucleus_boundaries(writer, bundle, tables)
+        write_boundaries(writer, bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
     if not skip_held(writer, "points/transcripts"):
         write_transcripts(writer, bundle, tables, tiles=[FIXTURE_TILE])
     write_root(writer, bundle, sample, layouts, experiment)

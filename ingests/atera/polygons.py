@@ -6,6 +6,7 @@ import zipfile
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import shapely
 from minus80.core.zarr_copy import read_array
 
@@ -18,7 +19,8 @@ POLYGON_SCHEMA = pa.schema(
         pa.field("instance", pa.int64(), nullable=False),
         ("cell_index", pa.int64()),
         ("cell_id", pa.string()),
-        ("method", pa.int64()),
+        ("part_count", pa.int32()),
+        ("methods", pa.string()),
         ("geometry", pa.binary()),
         ("bbox", BBOX),
     ]
@@ -30,7 +32,7 @@ GEO_POLYGONS = {
     "columns": {
         "geometry": {
             "encoding": "WKB",
-            "geometry_types": ["Polygon"],
+            "geometry_types": ["Polygon", "MultiPolygon"],
             "covering": {
                 "bbox": {k: ["bbox", k] for k in ("xmin", "ymin", "xmax", "ymax")}
             },
@@ -40,30 +42,47 @@ GEO_POLYGONS = {
 
 
 def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> pa.Table:
-    """Polygon set ``set_index``; ``cell_ids`` holds one Xenium id per cell, indexed by ``cell_index``.
+    """Polygon set ``set_index`` as one row per cell; ``cell_ids`` holds one Xenium id per cell, indexed by ``cell_index``.
 
     ``vertices`` rows interleave x and y (x0, y0, x1, y1, ...); ``num_vertices`` counts the pairs.
+    A cell with one part is a ``Polygon``, a cell with several a ``MultiPolygon`` in source order.
     A ring with under 3 vertices or a non-finite coordinate raises ``ValueError`` naming the row.
     An invalid ring, such as a bow-tie, is kept as published: the source's errors are reproduced.
     """
     names = set(zf.namelist())
-    read = lambda name: read_array(zf, f"polygon_sets/{set_index}/{name}", names=names)
-    vertices, num_vertices = read("vertices"), read("num_vertices")
-    cell_index, method = read("cell_index"), read("method")
-    polygons = []
-    for i, (row, count) in enumerate(zip(vertices, num_vertices)):
-        ring = row[: 2 * count].reshape(count, 2).astype(np.float64)
-        if count < 3 or not np.isfinite(ring).all():
-            raise ValueError(f"polygon row {i} has {count} vertices and cannot be a ring")
-        polygons.append(shapely.Polygon(ring))
-    bounds = shapely.bounds(polygons) if polygons else np.empty((0, 4))
+
+    def read(name):
+        return read_array(zf, f"polygon_sets/{set_index}/{name}", names=names)
+
+    vertices, num_vertices = read("vertices"), read("num_vertices").astype(np.int64)
+    cell_index, method = read("cell_index").astype(np.int64), read("method")
+    used = np.arange(vertices.shape[1])[None, :] < 2 * num_vertices[:, None]
+    if len(bad := np.flatnonzero((num_vertices < 3) | (~np.isfinite(vertices) & used).any(axis=1))):
+        raise ValueError(f"polygon row {bad[0]} has {num_vertices[bad[0]]} vertices and cannot be a ring")
+    # Boolean indexing keeps the row-major order, so the rings follow one another in the flat array.
+    coordinates = vertices[used].reshape(-1, 2).astype(np.float64)
+    rings = shapely.linearrings(coordinates, indices=np.repeat(np.arange(len(num_vertices)), num_vertices))
+    order = np.argsort(cell_index, kind="stable")
+    parts = shapely.polygons(rings)[order]
+    cells, first, part_count = np.unique(cell_index[order], return_index=True, return_counts=True)
+    geometry = parts[first]
+    several = part_count > 1
+    if several.any():
+        in_several = np.repeat(several, part_count)
+        geometry[several] = shapely.multipolygons(
+            parts[in_several], indices=np.repeat(np.arange(several.sum()), part_count[several])
+        )
+    offsets = np.concatenate([[0], np.cumsum(part_count)])
+    methods = pc.binary_join(pa.ListArray.from_arrays(offsets, pa.array(method[order].astype(str))), ",")
+    bounds = shapely.bounds(geometry) if len(geometry) else np.empty((0, 4))
     return pa.table(
         {
-            "instance": pa.array(cell_index.astype(np.int64) + 1),
-            "cell_index": cell_index.astype(np.int64),
-            "cell_id": pa.array(cell_ids[cell_index], type=pa.string()),
-            "method": method.astype(np.int64),
-            "geometry": pa.array(shapely.to_wkb(polygons), type=pa.binary()),
+            "instance": pa.array(cells + 1),
+            "cell_index": pa.array(cells),
+            "cell_id": pa.array(cell_ids[cells], type=pa.string()),
+            "part_count": pa.array(part_count.astype(np.int32)),
+            "methods": methods,
+            "geometry": pa.array(shapely.to_wkb(geometry), type=pa.binary()),
             "bbox": pa.StructArray.from_arrays(
                 [pa.array(bounds[:, i]) for i in range(4)], fields=list(BBOX)
             ),

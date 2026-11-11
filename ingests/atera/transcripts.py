@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from minus80.core.tables import parquet_schema
-from minus80.core.zarr_copy import read_array, read_rows
+from minus80.core.zarr_copy import read_rows
 from polygons import BBOX
 
 #: Rows of a tile held in memory at once. A tile has up to tens of millions of rows.
@@ -70,21 +70,6 @@ def cell_ids_arrow(prefix: pa.Array, suffix: pa.Array) -> pa.Array:
     return pc.binary_join_element_wise(
         pc.binary_join_element_wise(*letters, ""), pc.cast(suffix, pa.string()), "-"
     )
-
-
-def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
-    """One row per codeword; names and feature indices come from the root attributes."""
-    attrs = json.loads(zf.read(".zattrs"))
-    feature_names = pa.array(attrs["codeword_gene_names"], type=pa.string())
-    feature_index = np.asarray(attrs["codeword_gene_mapping"], dtype=np.int32)
-    category = read_array(zf, "codeword_category")
-    columns = {
-        "codeword_index": pa.array(np.arange(len(feature_index), dtype=np.int64)),
-        "feature_index": pa.array(feature_index),
-        "feature_name": feature_names,
-    }
-    columns.update({n: pa.array(category[:, i]) for i, n in enumerate(CATEGORY_COLUMNS)})
-    return pa.table(columns)
 
 
 def tile_slices(
