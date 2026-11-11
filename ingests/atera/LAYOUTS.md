@@ -106,7 +106,7 @@ only the repo's first commit.
 
 | Element | Source member | Arrays and codecs |
 |---|---|---|
-| `tables/table` | `cell_feature_matrix.zarr.zip`, the whole store | `X` CSR (`data` int32, `indices` int64, 1,000,000 values per chunk, `indptr`), `obs`, `var`, `obsm`; blosc-blosclz chunks copied byte for byte. The ingest adds `obs/region`, `obs/instance` and `uns/spatialdata_attrs`. |
+| `tables/table` | `cell_feature_matrix.zarr.zip`, the whole store | `X` CSR (`data` int32, `indices` int64, 1,000,000 values per chunk, `indptr`), `obs`, `var`, `obsm`; blosc-blosclz chunks copied byte for byte. The ingest adds `obs/region`, `obs/instance` and `uns/spatialdata_attrs`, and removes the index from the `column-order` of `obs` and `var`. |
 | `labels/nucleus_labels/s0` | `cells.zarr.zip`, `masks/0` | `(33139, 56644)` uint32, chunks `(518, 1771)`, blosc-zstd level 1, 2,048 chunks copied byte for byte |
 | `labels/cell_labels/s0` | `cells.zarr.zip`, `masks/1` | as `nucleus_labels` |
 | `images/morphology/s6` | `morphology_2d/ch000{0..3}_*.ome.tif`, level 6 of each | `(4, 517, 885)` uint16, chunks `(1, 1024, 1024)`, blosc-zstd level 5 with shuffle, decoded from lossless JPEG 2000 |
@@ -129,6 +129,10 @@ The output axes of `global` carry the unit `micrometer`. The input axes carry `u
 - **`obs.cell_id`.** It packs the cells store's `cell_id` pair as `prefix + suffix * 2**32`. Row 0 holds
   4294992761, which is the pair (25465, 1). So it is not the mask label. The ingest adds `obs/instance`,
   row position plus one, as the instance key and `obs/region` as the region key.
+- **Index in `column-order`.** The source's `obs` has `_index: "barcode"`, and its `column-order`
+  lists `barcode` too. `var` does the same with `feature_id`. A reader then finds the field twice.
+  The ingest removes the index from `column-order` and keeps the array. `obs` then lists 18 columns
+  and `var` 385.
 - **Cells without a nucleus.** `polygon_sets/0` has 398,197 rows for 399,120 cells, so 923 cells have no
   nucleus polygon. `instance = cell_index + 1` still applies to the rows that exist. `cell_summary` has NaN
   nucleus columns on 5,044 rows.
@@ -201,14 +205,16 @@ Without them, the table opens with no region and no instance key.
 ## Fixture findings
 
 The fixture on Arraylake: repo `earthmover-biology/atera-kidney`, branch `fixture`, snapshot
-`0F2FJWXQ847G2GSY3CB0`, written on 2026-11-11 in seven commits, one per element. The Iceberg
+`BF52XEQ53GH7JRBE4F30`. The ingest wrote it on 2026-11-11 in seven commits, one per element.
+The rewrite on the same day added three commits; "The rewrite" gives them. The Iceberg
 tables are in the namespace `atera-kidney-tables` of the catalog `arraylake:earthmover-biology`.
 All of it ran on a laptop outside us-west-2.
 
 - **(a) `add_files` on Arraylake's catalog.** Accepted. `atera-kidney-tables.transcripts`: UUID
-  `9c8ad66e-9714-441a-a64c-47717a6df18e`, snapshot 2561315328136931592, 2,633,912 rows in 1 file.
-  `atera-kidney-tables.nucleus_boundaries`: UUID `92d035bd-24ee-43a6-aad6-e459230a552c`, snapshot
+  `9c8ad66e-9714-441a-a64c-47717a6df18e`, first snapshot 2561315328136931592, 2,633,912 rows in 1 file.
+  `atera-kidney-tables.nucleus_boundaries`: UUID `92d035bd-24ee-43a6-aad6-e459230a552c`, first snapshot
   6473272151704216561, 398,197 rows in 1 file. The `attrs` gate PASS: both attributes pin the catalog's UUID and snapshot.
+  The rewrite added one overwrite snapshot to each table.
 - **(b) SpatialData.** The check ran in the virtual_omics `spatial` environment, on the laptop.
   It calls `sd.read_zarr` on the store of the repo's `fixture` branch, from `Client().get_repo`.
   Released 0.8.0 raises after 1.3 s on the laptop, in `_resolve_zarr_store`:
@@ -252,8 +258,8 @@ The `iceberg_table` attributes on the branch:
 
 | Element | `iceberg_table` |
 |---|---|
-| `points/transcripts` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "transcripts", "table_uuid": "9c8ad66e-9714-441a-a64c-47717a6df18e", "snapshot_id": 2561315328136931592, "index_column": "instance"}` |
-| `shapes/nucleus_boundaries` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "nucleus_boundaries", "table_uuid": "92d035bd-24ee-43a6-aad6-e459230a552c", "snapshot_id": 6473272151704216561, "index_column": "instance", "geometry_column": "geometry"}` |
+| `points/transcripts` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "transcripts", "table_uuid": "9c8ad66e-9714-441a-a64c-47717a6df18e", "snapshot_id": 5371144533979842643, "index_column": "instance"}` |
+| `shapes/nucleus_boundaries` | `{"catalog": "arraylake", "org": "earthmover-biology", "namespace": "atera-kidney-tables", "table": "nucleus_boundaries", "table_uuid": "92d035bd-24ee-43a6-aad6-e459230a552c", "snapshot_id": 3733681804133973613, "index_column": "instance", "geometry_column": "geometry"}` |
 
 Laptop times of the ingest, reading the bundle from 10x's bucket:
 
@@ -284,3 +290,38 @@ gate's time includes the bundle and repo open.
 | `polygons` | PASS | 6 s | FINDING: 1,180 of 398,197 nucleus polygons are not valid; the metrics CSV states no count |
 | `copies` | PASS | 13 s | each table: 1 `uint8` array, 1 registered file |
 | `attrs` | PASS | 1 s | 2 `iceberg_table` attributes |
+
+### The rewrite
+
+On 2026-11-11 the zax-spatialdata project refused the fixture on three points.
+The data files had no Iceberg field ids. The index of `obs` and `var` was also in `column-order`.
+An `instance` column that may be null reads as float in zax.
+
+`ingest.py --rewrite points/transcripts,shapes/nucleus_boundaries,tables/table:attrs` wrote these
+elements again on the same branch, from the laptop. It read 92.2 MiB of the bundle in 117.3 s.
+
+- Each table kept its UUID. pyiceberg refuses optional to required by default:
+  `ValueError: Cannot change column nullability: instance: optional -> required`.
+  With `allow_incompatible_changes`, Arraylake's catalog accepted the change, so `instance` is
+  required in schema 1 of both tables.
+- One overwrite snapshot in each table removes `<table>-0.parquet` and adds `<table>-1.parquet`.
+  The new file carries the field id of each column, struct fields included, and a non-null `instance`.
+  The old files stay in the bucket. The tables keep `schema.name-mapping.default`.
+- `obs` and `var` lost the index from `column-order`; "What the fixture showed" gives the source's form.
+
+| Commit | Element |
+|---|---|
+| `N8PFW9E92B57G4E722YG` | `tables/table` `obs` and `var` attributes |
+| `JG1J6WZA68NE0JWKC4Y0` | `shapes/nucleus_boundaries` |
+| `BF52XEQ53GH7JRBE4F30` | `points/transcripts` |
+
+| Table | UUID | Snapshot | Data file |
+|---|---|---|---|
+| `transcripts` | `9c8ad66e-9714-441a-a64c-47717a6df18e` | 5371144533979842643 | `s3://<bucket>/<prefix>/transcripts/data/transcripts-1.parquet` |
+| `nucleus_boundaries` | `92d035bd-24ee-43a6-aad6-e459230a552c` | 3733681804133973613 | `s3://<bucket>/<prefix>/nucleus_boundaries/data/nucleus_boundaries-1.parquet` |
+
+`verify.py` against Arraylake after the rewrite, on the laptop: gates `tables`, `polygons`,
+`copies`, `attrs`, `field_ids`, `table_index` and `instances` PASS. It read 14.2 MiB of the
+bundle in 258 s. `field_ids` found 17 field ids in the transcripts file and 10 in the polygons
+file, each equal to the table schema's. `table_index` read `obs` as 399,120 rows and 18 columns,
+and `var` as 24,674 rows and 385 columns.

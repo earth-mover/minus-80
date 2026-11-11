@@ -94,6 +94,7 @@ retired in favour of virtual-tiff.
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
 | pyiceberg maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295. The ingest declares such columns as `int64`. | `ingests/atera/transcripts.py` | Map unsigned integers to a type that holds their range. | not filed |
+| pyiceberg `add_files` leaves files without field ids. It registers each file as written and sets the table's `schema.name-mapping.default`. zax does not read name-mapped files. `write_parquet` gives each column the field id of the table schema, and pyiceberg 0.12.0 `add_files` accepts such a file. | `minus80.core.tables` | zax: read a file without field ids through the table's name mapping, as the Iceberg spec allows. | Found 2026-11-11, not filed |
 
 ## Python standard library
 

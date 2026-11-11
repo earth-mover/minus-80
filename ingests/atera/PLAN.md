@@ -286,8 +286,12 @@ The ingest writes those attributes itself. It does not depend on the
 table's data files in the namespace's bucket. Arraylake runs no snapshot
 expiration and no garbage collection for Iceberg tables (its catalog docs,
 "Snapshot expiration"). So only a caller can delete a data file. The ingest
-never expires, compacts or rewrites these tables. Each table's properties name
-the repo that references its files.
+never expires or compacts these tables. A rewrite replaces a table's files in
+one overwrite snapshot, and the old files stay in the bucket. Each table's
+properties name the repo that references its files.
+
+Each data file carries the Iceberg field ids of the table schema, so a reader
+needs no name mapping. The `instance` column is required in each table.
 
 The `uint8` copies are never real chunks. If Arraylake's catalog refuses
 `add_files`, the tables take pyiceberg's own `append`, whose files lack the
@@ -458,6 +462,12 @@ Each step needs approval before it writes to a shared resource.
 
    Criterion failed: stock SpatialData 0.8.0 cannot open an Icechunk store
    at all.
+
+   The zax-spatialdata project refused the fixture on three points: data
+   files without field ids, the index of `obs` and `var` also in
+   `column-order`, and an `instance` column that may be null. The rewrite on
+   2026-11-11 fixed all three on branch `fixture`. `LAYOUTS.md`, "The
+   rewrite", gives the new coordinates.
 2. **Throughput on Coiled.** On a Coiled VM in us-west-2, decode and write
    one full-resolution morphology plane, and copy one label mask. Write to
    a scratch branch, not `fixture` or `main`. Time each. These two numbers give the expected runtime for
