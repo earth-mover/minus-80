@@ -1247,3 +1247,10 @@ def test_copies_fail_two_files_of_equal_size_in_the_wrong_order_and_pass_in_the_
     errors = gate_copies(_root(repo), tables.catalog, {"points/two": ["b", "a"]})
     assert len(errors) == 2 and all("1 of 1 sampled blocks differ, first block 0" in e for e in errors)
     assert all(str(tmp_path) not in e for e in errors)
+
+
+def test_row_groups_fail_when_they_are_out_of_file_order(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    attr = _hold_instances(tables, bundle, tmp_path, [2, 3, 0, 1, 4])
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE)
+    assert any("row group 0 has instances 2..3, expected from 0" in e for e in errors)

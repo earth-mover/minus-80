@@ -53,8 +53,6 @@ from transcripts import tile_order, xenium_cell_id
 
 SAMPLED = 50
 MATRIX_CHUNKS = 20
-#: Rows of ``X`` read to check that it reads as a CSR matrix.
-MATRIX_ROWS = 1000
 #: Blocks between the first and the last that each copy compares with its data file.
 COPY_SAMPLES = 3
 IMAGE_TILES = 4
@@ -326,7 +324,7 @@ def _row_group_errors(path: str, table, held: list, counts: dict, first: dict) -
         if tile not in counts or not counts[tile]:
             continue
         expected = first[tile]
-        for low, high, rows, n, name in sorted(found):
+        for low, high, rows, n, name in found:
             if low != expected:
                 errors.append(f"{path}: tile {tile}, {name} row group {n} has instances {low}..{high}, expected from {expected}")
             elif high - low + 1 != rows:
