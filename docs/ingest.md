@@ -116,6 +116,24 @@ and did not finish in 25 minutes with them copied into each stack. Time a
 commit against the real object store, because a local build hides the
 per-object cost.
 
+### Count what a reader holds in memory, not only what it downloads
+
+An Icechunk snapshot keeps a full copy of every node's attributes and array
+metadata. zstd compresses the repeats away on disk, but the first read of any
+node loads the whole snapshot and decompresses it. Opening the repo and
+starting a session cost nothing; the first attribute read pays for all of it.
+
+In RxRx19a, each site's 1.4 KB image document differs from the next only in
+its name. A 10-plate repo of 120,912 nodes has a 7.2 MB snapshot file, and
+reading one site's attributes from it in a fresh process took 0.08 s locally
+and added 147 MB to the process's memory. 87% of the decompressed snapshot was
+the nodes' `zarr.json` documents. At 57 plates, one attribute read costs a
+reader about 840 MB.
+
+Measure the decompressed size of a plate's snapshot before choosing a layout,
+and keep per-node documents small: put what every image shares on the parent,
+not on each image.
+
 ## Verification
 
 ### Make the store right by design, then spot-check it

@@ -145,6 +145,15 @@ All on 2026-11-11, from a laptop, with icechunk 2.3.0.
   local repo, a commit each. A node costs 62.2 bytes of snapshot in RxRx19a
   and 66.2 in RxRx19b, so the whole store's snapshot is about 57 MB for
   901,990 nodes. Unpacked, the manifests were 298 and 313 bytes per array.
+- **Build speed.** Encoding each kind of `zarr.json` once and writing the
+  bytes straight into the session built 10 RxRx19a plates (120,912 nodes) and
+  committed them in one commit in 13.2 s, 8.3 s of it the commit's 53,600
+  unpacked manifests. One node at a time through zarr's API had taken 19 s
+  for a single plate.
+- **Opening.** On that 10-plate repo, `Repository.open` and a session took
+  no time and no memory; the first read of one site's attributes took 0.08 s
+  and added 147 MB, the decompressed snapshot (see Risks). Listing every key,
+  388,912 of them, took 20 s.
 - **ice-pack** packed 24 arrays of 5 references into 2 manifests in a local
   repo; a fresh Icechunk 2.3.0 Python reader read back all 120 chunks
   correctly, and a run whose branch moved before its commit stopped without
@@ -247,8 +256,16 @@ levels (decision 8).
 
 **Risks.**
 
-- The snapshot, about 57 MB and 902,000 nodes, makes opening the repo slow;
-  the trial measures how slow.
+- The snapshot costs every reader about a gigabyte of memory. Its file is
+  about 57 MB, but the first read of any node loads and decompresses the
+  whole snapshot: a 10-plate RxRx19a repo (7.2 MB file) added 147 MB to a
+  fresh process's memory on its first attribute read, so all 57 RxRx19a
+  plates come to about 840 MB, and both datasets to over a gigabyte. 87% of
+  it is the site documents, 1.4 KB each and identical but for their names.
+  Moving what every site shares (the axes, scale and channel list) to the
+  plate would shrink it; the spec puts them on each image, so that needs
+  either an Icechunk feature that shares documents between nodes or a smaller
+  per-site document.
 - Reads cross clouds: the chunks are on Google Cloud, Arraylake readers are
   usually on AWS. The bucket is not requester-pays (it reads anonymously), so Recursion pays the egress of every chunk read.
 - ice-pack is new code that writes snapshots directly; a bug there could write
