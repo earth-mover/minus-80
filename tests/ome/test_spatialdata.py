@@ -16,7 +16,17 @@ from minus80.ome.spatialdata import (
 def test_scale_names_input_and_output_axes():
     t = scale([1.0, 0.2125, 0.2125], ("c", "y", "x"))
     assert t["input"]["axes"][0] == {"name": "c", "type": "channel"}
-    assert t["output"] == {"name": "global", "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}
+    assert t["output"] == {"name": "global", "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space", "unit": "unit"}, {"name": "x", "type": "space", "unit": "unit"}]}
+
+
+def test_every_space_axis_has_a_unit_because_spatialdata_refuses_one_without():
+    t = scale([0.2125, 0.2125], ("y", "x"), unit="micrometer")
+    assert [a["unit"] for a in t["input"]["axes"]] == ["unit", "unit"]
+    assert [a["unit"] for a in t["output"]["axes"]] == ["micrometer", "micrometer"]
+    a = affine(np.eye(3), ("y", "x"), ("y", "x"), unit="micrometer")
+    assert [ax["unit"] for ax in a["output"]["axes"]] == ["micrometer", "micrometer"]
+    q = sequence([t], ("y", "x"), unit="micrometer")
+    assert [ax["unit"] for ax in q["output"]["axes"]] == ["micrometer", "micrometer"]
 
 
 def test_raster_attrs_sets_the_spatialdata_version_and_element_transform():

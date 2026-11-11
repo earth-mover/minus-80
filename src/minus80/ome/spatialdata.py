@@ -22,38 +22,47 @@ RASTER_OME_VERSION = "0.5-dev-spatialdata"
 _GEOMETRY_TYPES = {"POINT": 0, "POLYGON": 3}
 
 
-def _axes(names: Sequence[str]) -> list[dict]:
-    return [{"name": n, "type": "channel" if n == "c" else "space"} for n in names]
+#: SpatialData's placeholder unit, which it writes for an element's own pixel or input axes.
+PLACEHOLDER_UNIT = "unit"
 
 
-def _system(name: str, axes: Sequence[str]) -> dict:
-    return {"name": name, "axes": _axes(axes)}
+def _axes(names: Sequence[str], unit: str) -> list[dict]:
+    # SpatialData's reader raises on a space axis without a unit.
+    return [{"name": n, "type": "channel"} if n == "c" else {"name": n, "type": "space", "unit": unit}
+            for n in names]
+
+
+def _system(name: str, axes: Sequence[str], unit: str) -> dict:
+    return {"name": name, "axes": _axes(axes, unit)}
 
 
 def _transform(kind: str, body: dict, input_axes: Sequence[str],
-               output_axes: Sequence[str], system: str) -> dict:
+               output_axes: Sequence[str], system: str, unit: str) -> dict:
     return {"type": kind, **body,
-            "input": _system("".join(input_axes), input_axes),
-            "output": _system(system, output_axes)}
+            "input": _system("".join(input_axes), input_axes, PLACEHOLDER_UNIT),
+            "output": _system(system, output_axes, unit)}
 
 
 def container_attrs() -> dict:
     return {"spatialdata_attrs": {"version": CONTAINER_VERSION}}
 
 
-def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "global") -> dict:
-    return _transform("scale", {"scale": list(factors)}, axes, axes, system)
+def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "global",
+          unit: str = PLACEHOLDER_UNIT) -> dict:
+    """``unit`` is the unit of the output system's space axes."""
+    return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit)
 
 
 def affine(matrix: np.ndarray, input_axes: Sequence[str], output_axes: Sequence[str],
-           *, system: str = "global") -> dict:
+           *, system: str = "global", unit: str = PLACEHOLDER_UNIT) -> dict:
     # The spec omits the homogeneous last row.
     return _transform("affine", {"affine": np.asarray(matrix)[:-1].tolist()},
-                      input_axes, output_axes, system)
+                      input_axes, output_axes, system, unit)
 
 
-def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str = "global") -> dict:
-    return _transform("sequence", {"transformations": list(transforms)}, axes, axes, system)
+def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str = "global",
+             unit: str = PLACEHOLDER_UNIT) -> dict:
+    return _transform("sequence", {"transformations": list(transforms)}, axes, axes, system, unit)
 
 
 def raster_attrs(ome: Mapping, transform: Mapping) -> dict:
