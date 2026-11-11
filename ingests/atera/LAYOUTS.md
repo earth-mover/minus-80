@@ -154,6 +154,7 @@ the commit message is `Write <element>`.
 | `shapes/nucleus_boundaries` | 55.6 MiB | 99.7 s |
 | `points/transcripts` | 32.6 MiB | 84.2 s |
 | root attributes | 0.1 MiB | 0.7 s |
+| outside the elements; cause not recorded | 5.7 MiB | 14.2 s |
 | total | 1,537.2 MiB | 2,272.7 s |
 
 The `X` copy and the masks read at 0.3 to 1 MiB/s, because each chunk is a separate request
@@ -208,30 +209,36 @@ All of it ran on a laptop outside us-west-2.
   `9c8ad66e-9714-441a-a64c-47717a6df18e`, snapshot 2561315328136931592, 2,633,912 rows in 1 file.
   `atera-kidney-tables.nucleus_boundaries`: UUID `92d035bd-24ee-43a6-aad6-e459230a552c`, snapshot
   6473272151704216561, 398,197 rows in 1 file. The `attrs` gate PASS: both attributes pin the catalog's UUID and snapshot.
-- **(b) SpatialData.** In the virtual_omics `spatial` environment, `sd.read_zarr` on
-  `Client().get_repo("earthmover-biology/atera-kidney").readonly_session("fixture").store`.
-  Released 0.8.0 raises `TypeError: isinstance() arg 2 must be a type, a tuple of types, or a
-  union`, in `_resolve_zarr_store`, after 1.3 s. Released 0.8.0 with `parquet_in_store()` raises
-  `RuntimeError: this needs spatialdata's _store module, added in PR #1107; on 0.8.0 the geometry
-  writers derive a path from store.root and there is no filesystem to substitute`. PR #1107 with
-  the four patches, without the shim, raises `ValueError: Cannot derive a filesystem for store of
-  type IcechunkStore`, in the points reader. PR #1107 with the four patches and
-  `parquet_in_store()`, `array.rectilinear_chunks` set, opens all six elements in `global` in
-  503.0 s: images `morphology` `(4, 517, 885)` at scale 13.62 and 13.60; labels `cell_labels` and
-  `nucleus_labels` `(33139, 56644)` at 0.21249222; points `transcripts` 2,633,912 rows, 12
-  columns, 3D; shapes `nucleus_boundaries` 398,197 rows, index `instance`, first geometry a valid
-  Polygon; table `(399120, 24674)` with region `cell_labels`, region key `region`, instance key
-  `instance`. Arraylake authorizes the repo's container, so the shim needs no credentials.
-- **(c) Virtual references into the managed bucket.** A repo that references files in the org's
-  own bucket needs a Virtual Chunk Access Policy that an org admin adds. The policy must cover the
-  repo's virtual chunk container, and the container must sit at or under the policy's location.
-  Without the policy, Arraylake refuses to open the repo at all, with HTTP 400: `Virtual chunk
-  container prefix 's3://<bucket>/' is not covered by any Virtual Chunk
-  Access Policy on org 'earthmover-biology'.` The repo's container is the namespace's location,
-  `s3://<bucket>/<prefix>/`, under a private policy on
-  `earthmover-managed` with that subprefix.
+- **(b) SpatialData.** The check ran in the virtual_omics `spatial` environment, on the laptop.
+  It calls `sd.read_zarr` on the store of the repo's `fixture` branch, from `Client().get_repo`.
+  Released 0.8.0 raises after 1.3 s on the laptop, in `_resolve_zarr_store`:
+  `TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union`.
+  Released 0.8.0 with `parquet_in_store()` raises `RuntimeError: this needs spatialdata's _store
+  module, added in PR #1107; on 0.8.0 the geometry writers derive a path from store.root and there
+  is no filesystem to substitute`.
+  PR #1107 with the four patches, without the shim, raises in the points reader:
+  `ValueError: Cannot derive a filesystem for store of type IcechunkStore`.
+  PR #1107 with the four patches, `parquet_in_store()` and `array.rectilinear_chunks` opens all
+  six elements in `global`. It takes 503.0 s on the laptop.
+  - images: `morphology` `(4, 517, 885)` at scale 13.62 and 13.60.
+  - labels: `cell_labels` and `nucleus_labels` `(33139, 56644)` at 0.21249222.
+  - points: `transcripts`, 2,633,912 rows, 12 columns, 3D.
+  - shapes: `nucleus_boundaries`, 398,197 rows, index `instance`; the first geometry is a valid Polygon.
+  - table: `(399120, 24674)`, region `cell_labels`, region key `region`, instance key `instance`.
+
+  Arraylake authorizes the repo's container, so the shim needs no credentials.
+- **(c) Virtual references into the managed bucket.** A repo can reference files in the org's own
+  bucket only under a Virtual Chunk Access Policy. Only an org admin can add the policy.
+  The policy must cover the repo's virtual chunk container.
+  The container must sit at or under the policy's location.
+  Without the policy, Arraylake refuses to open the repo at all, with HTTP 400:
+  `Virtual chunk container prefix 's3://<bucket>/' is not covered by any
+  Virtual Chunk Access Policy on org 'earthmover-biology'.`
+  The repo's container is the namespace's location,
+  `s3://<bucket>/<prefix>/`.
+  A private policy on `earthmover-managed` has that location as its subprefix.
   With the policy, the repo opens. The `copies` gate PASS: each table has 1 `uint8` array and 1
-  registered file, and each copy's bytes equal its Parquet file.
+  registered file. Each copy's bytes equal its Parquet file.
 - **(d) zax on the S3-compatible endpoint.** Pending. The check is handed to the
   zax-spatialdata project, which reads the tables from the coordinates in this section.
 - **(e) Throughput.** NOT MEASURED. The fixture ran from a laptop outside the source region, so the
@@ -259,6 +266,7 @@ Laptop times of the ingest, reading the bundle from 10x's bucket:
 | `shapes/nucleus_boundaries` | `X4QMKMWWQKZ412R7YYF0` | 55.6 MiB | 118.3 s |
 | `points/transcripts` | `6RM8RAD7KNATEMAM1BKG` | 32.6 MiB | 122.0 s |
 | root attributes | `0F2FJWXQ847G2GSY3CB0` | 0.1 MiB | 4.5 s |
+| outside the elements; cause not recorded | | 6.6 MiB | 28.2 s |
 | total | | 1,538.1 MiB | 8,929.4 s |
 
 `verify.py` against the Arraylake fixture, on the laptop: every gate PASS, 307.7 MiB read from

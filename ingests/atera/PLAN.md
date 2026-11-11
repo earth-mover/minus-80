@@ -376,24 +376,24 @@ VM, which step 2 measures.
    match `cell_summary.nucleus_area`, and `masks/1` label areas match
    `cell_area`, both with a median relative error of 0.000. The crossed pairs
    differ by 0.502 and 1.009.
-2. **Instance key.** The masks hold integer labels; `cell_summary` holds one
-   row per cell; the AnnData `obs` has `cell_id` as int64 and `barcode` as a
-   string; the cells store has `cell_id` as a `(prefix, suffix)` pair.
+2. **Instance key.** The masks hold integer labels. `cell_summary` holds one
+   row per cell. The AnnData `obs` has `cell_id` as int64 and `barcode` as a
+   string. The cells store has `cell_id` as a `(prefix, suffix)` pair.
    Decided: the mask label is the instance key. Evidence: the fixture's
-   `instances` gate found, on 50 of 50 sampled rows, that the cell mask at the
-   centroid is the row position plus one. `obs.cell_id` is not the label: it
-   packs the pair as `prefix + suffix * 2**32`. So the ingest adds
-   `obs/instance`, the row position plus one, and `obs/region`. `obs` keeps
-   `cell_id` and `barcode`.
+   `instances` gate sampled 50 rows. On all 50, the cell mask at the centroid
+   is the row position plus one. `obs.cell_id` is not the label. It packs the
+   pair as `prefix + suffix * 2**32`. So the ingest adds `obs/instance`, the
+   row position plus one, and `obs/region`. `obs` keeps `cell_id` and
+   `barcode`.
 3. **`float16` quality scores.** Parquet's FLOAT16 type is young, and zax's
    Arrow support for it is unverified. Recommended: `float32` in the tables,
    recorded in the table properties and in `LAYOUTS.md`.
 4. **Micrometres as the global frame.** `spatialdata_io.xenium` puts images
    under `Scale(pixel_size)` and leaves points and shapes in micrometres.
    Recommended: the same, so the store reads like a Xenium one.
-5. **The H&E as a transform.** Resampling would decode and rewrite 3 to 7 GB
-   per sample and lose the original grid. Recommended: keep the pixels, place
-   with the affine, keep the matrix in attributes.
+5. **The H&E as a transform.** Resampling would decode and rewrite an
+   estimated 3 to 7 GB per sample and lose the original grid. Recommended:
+   keep the pixels, place with the affine, keep the matrix in attributes.
 6. **The overview scan.** Its FOV boxes are in scan pixels; the morphology FOV
    boxes are in micrometres; both JSONs list the same FOV ids. A least-squares
    affine over 78 boxes places the scan. Recommended: include it, and the ROI
@@ -450,16 +450,17 @@ Each step needs approval before it writes to a shared resource.
 
    Where each part ran. All parts ran on a laptop outside us-west-2. The
    fixture on a local repo and catalog ran on 2026-11-10. The fixture on
-   Arraylake ran on 2026-11-11. That was a mistake: the decision above says
-   the ingest runs on Coiled in us-west-2, and the step did not say where
-   the fixture runs. `verify.py` and the SpatialData checks against
-   Arraylake also ran on the laptop. The laptop's times do not predict the
-   ingest. `LAYOUTS.md`, "Fixture findings", gives the results. The stock
-   SpatialData criterion failed: SpatialData 0.8.0 cannot open an Icechunk
-   store at all.
+   Arraylake ran on 2026-11-11. The decision is that the ingest runs on
+   Coiled in us-west-2. The fixture ran on a laptop. `verify.py` and the
+   SpatialData checks against Arraylake also ran on the laptop. The laptop's
+   times do not predict the ingest. `LAYOUTS.md`, "Fixture findings", gives
+   the results.
+
+   Criterion failed: stock SpatialData 0.8.0 cannot open an Icechunk store
+   at all.
 2. **Throughput on Coiled.** On a Coiled VM in us-west-2, decode and write
-   one full-resolution morphology plane, and copy one
-   label mask. Time each. These two numbers give the expected runtime for
+   one full-resolution morphology plane, and copy one label mask. Write to
+   a scratch branch, not `fixture` or `main`. Time each. These two numbers give the expected runtime for
    step 4. Approval needed: the Coiled spend.
 3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
@@ -489,10 +490,10 @@ Each step needs approval before it writes to a shared resource.
 | Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
 
 Expected runtime per sample has three parts. The download takes minutes at
-about 1 GB/s inside the region. The JPEG 2000 decode of 17 to 19 planes is
-not measured; step 2 measures it. The fixture's laptop times do not predict
-it. The transcript table write is one pass over 1 to 5 billion rows. A run
-that is well past its expected time stops.
+an estimated 1 GB/s inside the region. The JPEG 2000 decode of 17 to 19
+planes is not measured; step 2 measures it. The fixture's laptop times do
+not predict it. The transcript table write is one pass over 1 to 5 billion
+rows. A run that is well past its expected time stops.
 
 Risks:
 
