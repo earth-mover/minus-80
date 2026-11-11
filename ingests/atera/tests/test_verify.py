@@ -1258,3 +1258,87 @@ def test_row_groups_fail_when_they_are_out_of_file_order(tmp_path):
     attr = _hold_instances(tables, bundle, tmp_path, [2, 3, 0, 1, 4])
     errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE)
     assert any("row group 0 has instances 2..3, expected from 0" in e for e in errors)
+
+
+# A second ingest on a finished store, and the stops that end a run with one line.
+
+def _ingest(monkeypatch, store, *extra):
+    argv = ["ingest.py", "--sample", "kidney", "--repo", str(store.repo), "--catalog", str(store.catalog),
+            "--namespace", "ns", "--mode", "full", "--branch", "main", "--bundle", str(store.bundle),
+            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--concurrency", "2", *extra]
+    monkeypatch.chdir(store.directory)
+    monkeypatch.setattr(sys, "argv", argv)
+    ingest.main()
+
+
+def _store_state(store):
+    """The repo's commits on the branch and each table's snapshots."""
+    from minus80.core.icechunk_io import open_repository
+
+    catalog = store.tables()
+    return ([s.id for s in open_repository(store.repo).ancestry(branch=store.branch)],
+            {str(t): [s.snapshot_id for s in catalog.load_table(t).metadata.snapshots] for t in catalog.list_tables("ns")})
+
+
+@pytest.mark.parametrize("flag", [(), ("--replace-tables", ",".join(ingest.REPLACEABLE))])
+def test_a_second_full_run_on_a_finished_store_changes_nothing(monkeypatch, capsys, full_store, flag):
+    before = _store_state(full_store)
+    capsys.readouterr()
+    _ingest(monkeypatch, full_store, *flag)
+    out = capsys.readouterr().out
+    assert _store_state(full_store) == before
+    assert "root attributes: on branch main already, equal, skipped" in out
+    for name in (flag and ingest.REPLACEABLE) or ():
+        element = ingest.REPLACE_ELEMENTS[name]
+        assert f"--replace-tables {name}: {element} is on branch main already; held, not replaced" in out
+
+
+def test_a_root_attribute_that_differs_is_written_again(monkeypatch, capsys, full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root.attrs.update({"title": "other"}))
+    before = _store_state(copy)
+    _ingest(monkeypatch, copy)
+    after = _store_state(copy)
+    assert copy.root().attrs["title"] != "other"
+    assert len(after[0]) == len(before[0]) + 1 and after[1] == before[1]
+
+
+def _without(store, path):
+    """Remove the element ``path`` from the branch, so a rerun writes it."""
+    parent, name = path.split("/")
+    store.edit(lambda root: root[parent].__delitem__(name))
+
+
+def test_a_refused_write_ends_the_run_with_one_line_that_names_the_flag(monkeypatch, full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    _without(copy, "shapes/nucleus_boundaries")
+    real = ingest.polygon_table
+    monkeypatch.setattr(ingest, "polygon_table", lambda *a, **k: real(*a, **k).slice(0, 1))
+    with pytest.raises(SystemExit) as stop:
+        _ingest(monkeypatch, copy)
+    assert stop.value.code == "ns.nucleus_boundaries holds 1 data file of other content; use --replace-tables nucleus_boundaries"
+
+
+def test_a_schema_difference_without_the_flag_ends_the_run_with_one_line(monkeypatch, full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    wide = pa.schema([*ingest.POLYGON_SCHEMA, ("extra", pa.int64())])
+    TableWriter(copy.tables(), "ns", catalog_name="local", org="local").require(
+        "nucleus_boundaries", schema=wide, properties={}, evolve=True)
+    with pytest.raises(SystemExit) as stop:
+        _ingest(monkeypatch, copy)
+    assert str(stop.value.code).startswith("ns.nucleus_boundaries differs from the wanted schema")
+    assert "\n" not in str(stop.value.code)
+
+
+def test_a_held_tile_fault_without_the_flag_ends_the_run_with_the_list_of_faults(monkeypatch, full_store, tmp_path):
+    from types import SimpleNamespace
+
+    copy = full_store.copy(tmp_path)
+    _without(copy, "points/transcripts")
+    tables = TableWriter(copy.tables(), "ns", catalog_name="local", org="local")
+    tables.require("transcripts", **table_specs({}, [])["transcripts"])
+    zf = copy.bundle_zip("transcripts.zarr.zip")
+    _hold(tables, SimpleNamespace(zf=zf), tmp_path, "0,0", first_instance=0, name="9,9")
+    with pytest.raises(SystemExit) as stop:
+        _ingest(monkeypatch, copy)
+    assert "tiles outside the plan: 9,9" in str(stop.value.code)

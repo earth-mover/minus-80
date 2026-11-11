@@ -163,7 +163,11 @@ def data_file(io, location: str) -> DataFile:
 
 
 class HeldFilesError(ValueError):
-    """A write without ``replace`` met a live data file of other content in its table."""
+    """A write without ``replace`` met a live data file of other content in the table ``table``."""
+
+    def __init__(self, message: str, table: str):
+        super().__init__(message)
+        self.table = table
 
 
 class TableRef(NamedTuple):
@@ -172,6 +176,16 @@ class TableRef(NamedTuple):
     table_uuid: str
     snapshot_id: int
     files: list[DataFile]
+
+
+def _plain(field: pa.Field) -> pa.Field:
+    """``field`` with each dictionary type as its value type, the type that Iceberg has; pyiceberg logs a warning otherwise."""
+    type_ = field.type
+    if pa.types.is_dictionary(type_):
+        type_ = type_.value_type
+    elif pa.types.is_struct(type_):
+        type_ = pa.struct([_plain(child) for child in type_])
+    return pa.field(field.name, type_, field.nullable)
 
 
 def _same_type(held, wanted) -> bool:
@@ -213,7 +227,7 @@ def schema_changes(table, schema: pa.Schema) -> tuple[list[str], list[str]]:
         held = present.find_field(field.name).field_type
         try:
             # The table's ids go to the wanted column by name; an unmapped nested name is a type difference.
-            found = pyarrow_to_schema(pa.schema([field]), name_mapping=mapping).fields[0].field_type
+            found = pyarrow_to_schema(pa.schema([_plain(field)]), name_mapping=mapping).fields[0].field_type
         except ValueError:
             found = None
         if found is None or not _same_type(held, found):
@@ -259,7 +273,7 @@ def require_table(
                 for name in deleted:
                     update.delete_column(name)
                 # Only the missing columns go in, so no kept column changes type or required flag.
-                update.union_by_name(pa.schema([f for f in schema if f.name in added]))
+                update.union_by_name(pa.schema([_plain(f) for f in schema if f.name in added]))
             table = catalog.load_table(identifier)
         loose = [f.name for f in schema if not f.nullable and not table.schema().find_field(f.name).required]
         for name in loose:
@@ -272,7 +286,7 @@ def require_table(
             table = catalog.load_table(identifier)
         return table
     # One transaction commits the table and its spec together.
-    with catalog.create_table_transaction(identifier, schema=schema, properties=dict(properties)) as transaction:
+    with catalog.create_table_transaction(identifier, schema=pa.schema([_plain(f) for f in schema]), properties=dict(properties)) as transaction:
         if partition_by is not None:
             with transaction.update_spec() as spec:
                 spec.add_identity(partition_by)
@@ -657,7 +671,7 @@ class TableWriter:
             other = [t.file.file_path for t in iceberg.scan().plan_files() if t.file.file_path not in urls]
             if other:
                 raise HeldFilesError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "
-                                     "that this write does not replace; write with replace=True to replace them")
+                                     "of other content", name)
         for path, url in zip(paths, urls):
             _put(iceberg.io, path, url)
         return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace,

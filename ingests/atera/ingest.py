@@ -435,15 +435,6 @@ def require_tables(tables: TableWriter, specs: dict[str, dict], replace: set[str
         require_table_listing(tables, name, specs[name], name in replace)
 
 
-@contextlib.contextmanager
-def replace_hint(name: str):
-    """Add the flag that replaces the rows of table ``name`` to a refusal of a write that would mix rows."""
-    try:
-        yield
-    except HeldFilesError as e:
-        raise ValueError(f"{e}; use --replace-tables {name}") from None
-
-
 def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: int, *, replace=False) -> None:
     """Write polygon set ``set_index`` as the table and the element ``name``."""
     zf = bundle.member_zip(CELLS)
@@ -452,8 +443,7 @@ def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: 
     with writer.unit(f"shapes/{name}", f"Write shapes/{name}", total=total) as (root, _):
         cell_id = read_array(zf, "cell_id")
         table = polygon_table(zf, set_index, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        with replace_hint(name):
-            ref = tables.write(name, table, geo=GEO_POLYGONS, replace=replace)
+        ref = tables.write(name, table, geo=GEO_POLYGONS, replace=replace)
         attr = table_attr(tables, name, ref, geo=GEO_POLYGONS)
         group = root.require_group("shapes").create_group(name, overwrite=replace)
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
@@ -477,8 +467,7 @@ def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str
         pins = {}
         for name, (table, index_column) in built.items():
             require_table_listing(tables, name, {"schema": table.schema, "properties": properties}, name in replace)
-            with replace_hint(name):
-                ref = tables.write(name, table, index_column=index_column, replace=name in replace)
+            ref = tables.write(name, table, index_column=index_column, replace=name in replace)
             pins[name] = table_attr(tables, name, ref, index_column=index_column)
         root.attrs[ICEBERG_TABLES] = pins
 
@@ -685,6 +674,14 @@ def _open_existing_repo(repo: str, prefixes: list[str]):
     return open_repository(repo) if Path(repo).exists() else None
 
 
+def report_held_replacements(writer, replace: set[str]) -> None:
+    """Print one line for each table of ``replace`` whose element the branch holds: the run skips the element, so the rows stay."""
+    for name in (n for n in REPLACEABLE if n in replace):
+        element = REPLACE_ELEMENTS[name]
+        if writer.has_attribute(element) if element == ICEBERG_TABLES else writer.has(element):
+            print(f"--replace-tables {name}: {element} is on branch {writer.branch} already; held, not replaced", flush=True)
+
+
 def held_element_conflicts(catalog, namespace: str, specs: dict, replace: set[str], handle, branch: str) -> list[str]:
     """One line for each table of ``replace`` with another schema whose element ``branch`` holds.
 
@@ -778,6 +775,16 @@ def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str
 
 
 def main() -> None:
+    """Run the ingest. A refusal ends the run with its message on one line, with no traceback."""
+    try:
+        run()
+    except HeldFilesError as e:
+        raise SystemExit(f"{e}; use --replace-tables {e.table}") from None
+    except ValueError as e:  # Every refusal of the ingest is a ValueError.
+        raise SystemExit(str(e)) from None
+
+
+def run() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
@@ -859,6 +866,7 @@ def main() -> None:
         repo.create_branch(args.branch, repo.lookup_branch("main"))
     writer = ElementWriter(repo, args.branch, counter=counter, protected=PROTECTED[args.mode])
 
+    report_held_replacements(writer, replace)
     started = time.monotonic()
     if args.rewrite:
         # A rewrite touches only the named elements; the tables keep their UUIDs.

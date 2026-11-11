@@ -59,7 +59,10 @@ class ElementWriter:
 
     @contextmanager
     def unit(self, path: str, message: str, *, total: int | None = None):
-        """Yield a writable root and a progress line; commit with ``message`` only if the body raises nothing."""
+        """Yield a writable root and a progress line; commit with ``message`` only if the body raises nothing.
+
+        A body that changes nothing makes no commit and prints one line.
+        """
         session = self.repo.writable_session(self.branch)
         root = zarr.open_group(session.store, mode="a")
         start, before = time.monotonic(), self.counter.bytes if self.counter else 0
@@ -71,6 +74,10 @@ class ElementWriter:
             finally:
                 if self.counter:
                     self.counter.progress = None
+        if not session.has_uncommitted_changes:
+            # Icechunk refuses an empty commit; a rerun of a held unit changes nothing.
+            print(f"{path}: on branch {self.branch} already, equal, skipped", flush=True)
+            return
         snapshot = commit(session, message)
         read = f"{(self.counter.bytes - before) / MIB:,.1f} MiB read, " if self.counter else ""
         print(f"{path}: {read}{time.monotonic() - start:,.1f} s, commit {snapshot}", flush=True)

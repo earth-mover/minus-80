@@ -19,6 +19,7 @@ from minus80.core.icechunk_io import create_repo
 from minus80.core.registry import file_path
 from minus80.core.tables import (
     DataFile,
+    HeldFilesError,
     TableRef,
     TableWriter,
     _write_local,
@@ -1043,8 +1044,9 @@ def test_remove_partitions_without_a_match_commits_nothing(tmp_path):
 def test_write_without_replace_refuses_a_table_that_holds_a_file_of_other_content(tmp_path):
     writer = _writer(tmp_path)
     first = writer.write("t", _rows(1, 2))
-    with pytest.raises(ValueError, match=r"ns\.t holds 1 data file.*replace=True"):
+    with pytest.raises(HeldFilesError, match=r"^ns\.t holds 1 data file of other content$") as held:
         writer.write("t", _rows(3))
+    assert held.value.table == "t"
     table = writer.catalog.load_table("ns.t")
     assert len(table.metadata.snapshots) == 1
     assert [t.file.file_path for t in table.scan().plan_files()] == [first.files[0].location]
@@ -1091,3 +1093,15 @@ def test_evolving_adds_a_struct_column_with_fresh_field_ids(tmp_path):
     table = writer.require("t", schema=wider, properties={}, evolve=True)
     ids = list(index_by_name(table.schema()).values())
     assert len(ids) == len(set(ids)) and all(i > 0 for i in ids)
+
+
+def test_a_dictionary_column_makes_pyiceberg_log_no_warning(tmp_path, caplog):
+    schema = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("name", pa.dictionary(pa.int32(), pa.string()))])
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    with caplog.at_level("WARNING", logger="pyiceberg"):
+        writer.require("t", schema=schema, properties={})
+        table = writer.require("t", schema=schema, properties={}, evolve=True)
+        writer.require("t", schema=pa.schema([*schema, ("extra", pa.dictionary(pa.int32(), pa.string()))]),
+                       properties={}, evolve=True)
+    assert [r.getMessage() for r in caplog.records] == []
+    assert str(table.schema().find_field("name").field_type) == "string"

@@ -12,7 +12,7 @@ import verify
 from minus80.core.elements import ElementWriter
 from minus80.core.icechunk_io import create_repo
 from minus80.core.registry import file_path
-from minus80.core.tables import TableWriter, declare_copy, local_catalog
+from minus80.core.tables import HeldFilesError, TableWriter, declare_copy, local_catalog
 from bundle import CELLS, TRANSCRIPTS
 from ingest import (
     NUCLEUS_SET, REPLACEABLE, preflight, replace_table_names, require_tables, table_attr, table_specs, write_boundaries,
@@ -349,7 +349,7 @@ def test_a_rerun_without_the_flag_after_the_schema_commit_raises_and_adds_no_sna
     bundle, catalog, repo, refs = _window(tmp_path)
     tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
     require_tables(tables, table_specs({}, METHODS), set())
-    with pytest.raises(ValueError, match=r"ns\.nucleus_boundaries holds 1 data file.*--replace-tables nucleus_boundaries"):
+    with pytest.raises(HeldFilesError, match=r"ns\.nucleus_boundaries holds 1 data file of other content$"):
         write_boundaries(ElementWriter(repo, "full"), bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
     assert _snapshots(catalog, "nucleus_boundaries") == 1
 
@@ -539,7 +539,7 @@ def test_a_table_of_another_content_is_replaced_by_the_flag_the_message_names(tm
     require_tables(tables, table_specs({}, METHODS), {"nucleus_boundaries"})
     write_boundaries(ElementWriter(repo, "one"), bundle, tables, "cell_boundaries", CELL_SET)
     # The nucleus set has other rows than the cell set.
-    with pytest.raises(ValueError, match=r"ns\.cell_boundaries holds 1 data file.*use --replace-tables cell_boundaries"):
+    with pytest.raises(HeldFilesError, match=r"ns\.cell_boundaries holds 1 data file of other content$"):
         write_boundaries(ElementWriter(repo, "two"), bundle, tables, "cell_boundaries", NUCLEUS_SET)
     write_boundaries(ElementWriter(repo, "three"), bundle, tables, "cell_boundaries", NUCLEUS_SET, replace=True)
     assert catalog.load_table("ns.cell_boundaries").scan().to_arrow()["instance"].to_pylist() == [1, 3]
@@ -557,7 +557,7 @@ def test_a_small_table_of_another_content_is_replaced_by_the_flag_the_message_na
     write_extra_tables(writer, bundle, tables, sample, layouts, "r")
     repo.create_branch("again", repo.lookup_branch("main"))
     other, again = _OtherExtraBundle(tmp_path), ElementWriter(repo, "again")
-    with pytest.raises(ValueError, match=r"ns\.diffexp_azimuth holds 1 data file.*use --replace-tables diffexp_azimuth"):
+    with pytest.raises(HeldFilesError, match=r"ns\.diffexp_azimuth holds 1 data file of other content$"):
         write_extra_tables(again, other, tables, sample, layouts, "r")
     write_extra_tables(again, other, tables, sample, layouts, "r", {"diffexp_azimuth", "diffexp_graphclust"})
     assert tables.catalog.load_table("ns.diffexp_azimuth").scan().to_arrow().num_rows == 2

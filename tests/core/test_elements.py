@@ -140,3 +140,16 @@ def test_has_attribute_holds_only_the_root_attributes_a_commit_wrote(repo, write
             root.attrs["other"] = 1
             raise RuntimeError
     assert not writer.has_attribute("other")
+
+
+def test_a_unit_that_changes_nothing_makes_no_commit_and_prints_one_line(repo, writer, capsys):
+    before = [s.id for s in repo.ancestry(branch="fixture")]
+    with writer.unit("root attributes", "Write root attributes") as (root, _):
+        root.attrs["a"] = 1
+    capsys.readouterr()
+    held = [s.id for s in repo.ancestry(branch="fixture")]
+    with writer.unit("root attributes", "Write root attributes") as (root, _):
+        root.attrs["a"] = 1
+    assert [s.id for s in repo.ancestry(branch="fixture")] == held and len(held) == len(before) + 1
+    out = capsys.readouterr().out
+    assert "root attributes: on branch fixture already, equal, skipped\n" in out and "commit" not in out
