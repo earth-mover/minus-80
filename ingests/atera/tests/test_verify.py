@@ -29,7 +29,7 @@ from minus80.core.zarr_copy import copy_group
 from minus80.core.icechunk_io import commit, create_repo
 from minus80.ome.spatialdata import write_table_keys
 from minus80.core.tables import (
-    COPY_CHUNK, TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files,
+    COPY_CHUNK, TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files, write_parquet,
 )
 from tests.stores import cells_zip, zip_directory, zip_v2_store
 from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, image_members, write_bundle
@@ -52,10 +52,10 @@ LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
 SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
 
 
-def _write(tables, name, table):
+def _write(tables, name, table, replace=False):
     """``table`` written into table ``name``, required with ``SCHEMA``; the reference and the element attribute."""
     tables.require(name, schema=SCHEMA, properties={})
-    ref = tables.write(name, table)
+    ref = tables.write(name, table, replace=replace)
     return ref, table_attr(tables, name, ref)
 
 
@@ -160,7 +160,11 @@ def test_field_ids_fails_a_file_column_the_table_lacks(tmp_path, with_ids):
     with catalog.load_table("ns.t").update_schema() as update:
         update.delete_column("extra")
     tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
-    _, attr = _write(tables, "t", pa.table({"instance": [2], "grid_tile": ["0,0"]}, schema=SCHEMA))
+    tables.require("t", schema=SCHEMA, properties={})
+    added = tmp_path / "added.parquet"
+    write_parquet(pa.table({"instance": [2], "grid_tile": ["0,0"]}, schema=SCHEMA), str(added),
+                  index_column="instance", field_ids=tables.field_ids("t"))
+    attr = table_attr(tables, "t", tables.write_parts("t", [added]))
     errors = gate_field_ids(_points_root(tmp_path, attr), catalog)
     assert "points/t: wide.parquet has columns the table lacks: extra" in errors
     assert all("wide.parquet" in e and str(tmp_path) not in e for e in errors)
@@ -180,7 +184,7 @@ def _pinned_fixture(tmp_path):
     with zarr.config.set({"array.rectilinear_chunks": True}):
         declare_copy(group, "points.parquet", ref.files)
     session.commit("pin")
-    tables.write("transcripts", pa.table({"instance": [3], "grid_tile": ["0,1"]}, schema=SCHEMA))
+    tables.write("transcripts", pa.table({"instance": [3], "grid_tile": ["0,1"]}, schema=SCHEMA), replace=True)
     return tables.catalog, zarr.open_group(repo.readonly_session("main").store, mode="r"), attr
 
 
@@ -284,7 +288,7 @@ def test_polygons_fails_a_cell_table_that_lacks_a_part(tmp_path):
 def test_polygons_reads_the_pinned_snapshot(tmp_path):
     root, tables, zf = _polygon_root(tmp_path)
     # A later snapshot repeats an instance; the pinned one does not.
-    tables.write("nucleus_boundaries", polygon_table(zf, 1, CELL_IDS))
+    tables.write("nucleus_boundaries", polygon_table(zf, 1, CELL_IDS), replace=True)
     assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == []
 
 

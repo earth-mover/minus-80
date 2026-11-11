@@ -326,7 +326,12 @@ The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
 
 The full ingest replaces the rows of `transcripts` and `nucleus_boundaries` in place.
-It needs the flag `--replace-tables transcripts,nucleus_boundaries`. Without it, the ingest stops on a held table that differs.
+It needs the flag `--replace-tables transcripts,nucleus_boundaries`.
+Without it, the ingest stops before any write on a held table that differs.
+It also stops on a held `transcripts` tile that fails its checks, and the message lists every fault.
+A write to a table that holds a file of other content raises. So no stop mixes the rows of two writes.
+The flag needs the element of each named table in the run. A schema change with no row write is refused.
+`ingest.py --mode full --preflight` checks the arguments, the repo, the catalog and each table. It needs no bundle and writes nothing.
 Both tables keep their names, their namespace and their UUIDs.
 The fixture's `nucleus_boundaries` has a `method` column and several rows for one cell.
 The full table has `part_count` and `methods` instead of `method`, and one row per cell.
@@ -808,8 +813,7 @@ Each item gives the problem, the fix and the check.
     - `--repo` and `--catalog` both use `arraylake://<org>` for the org.
     - State which virtual chunk container the full ingest uses: the table's
       `data/` prefix, or the namespace's storage location.
-    - `require_table` adds the partition spec in a second commit. Pass
-      `partition_spec` to `create_table` instead.
+    - `require_table` creates a partitioned table and its partition spec in one staged create.
     - Run the full ingest with a service token, or a token limited to the
       repo, not a personal token. `REPORT.md` records which.
     - `check_bundle_size` takes the first source object as the bundle. Match

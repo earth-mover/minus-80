@@ -15,7 +15,7 @@ from minus80.core.registry import file_path
 from minus80.core.tables import TableWriter, declare_copy, local_catalog
 from bundle import CELLS, TRANSCRIPTS
 from ingest import (
-    NUCLEUS_SET, REPLACEABLE, replace_table_names, require_tables, table_attr, table_specs, write_boundaries,
+    NUCLEUS_SET, REPLACEABLE, preflight, replace_table_names, require_tables, table_attr, table_specs, write_boundaries,
     write_transcripts,
 )
 from polygons import BBOX, GEO_POLYGONS
@@ -137,15 +137,17 @@ def test_without_the_opt_in_a_table_with_other_columns_is_refused_and_unchanged(
     assert _snapshots(catalog, "nucleus_boundaries") == 1
 
 
-def test_without_the_opt_in_a_held_tile_from_another_origin_is_refused_and_stays(tmp_path):
+def test_without_the_opt_in_every_fault_is_refused_before_the_first_write(tmp_path):
     bundle, catalog, repo, refs = _stage_one(tmp_path)
     tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
     tables.require("transcripts", **table_specs({}, METHODS)["transcripts"])
-    with pytest.raises(ValueError, match=r"tile 0,0: .*0\.\.4.*1\.\.5"):
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0, name="9,9")
+    with pytest.raises(ValueError, match=r"tile 0,0: the table holds 5 rows, instances 0\.\.4; expected 5 rows, instances 1\.\.5.*"
+                                         r"tiles outside the plan: 9,9") as e:
         write_transcripts(ElementWriter(repo, "full"), bundle, tables, tiles=PLAN_TILES)
-    # The tile before it in the plan is written; the held tile is not touched.
-    assert tables.partition_ranges("transcripts", "instance")["0,0"] == (0, 4)
-    assert tables.partitions("transcripts") == {"0,0": 5, "-1,0": 1}
+    assert "-1,0" not in str(e.value)
+    assert tables.partitions("transcripts") == {"0,0": 5, "9,9": 5}
+    assert _snapshots(catalog, "transcripts") == 2
 
 
 def test_the_opt_in_evolves_the_columns_and_prints_one_line(tmp_path, capsys):
@@ -323,3 +325,204 @@ def test_a_stop_after_the_removal_leaves_the_tile_absent_so_the_rerun_writes_it(
     monkeypatch.undo()
     write_transcripts(writer, bundle, tables, replace_held=True)
     assert tables.partitions("transcripts") == {"-1,0": 1, "0,0": 5}
+
+
+def _window(tmp_path):
+    """The two fixture tables with the schema commit of ``nucleus_boundaries`` done and its rows not replaced."""
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    require_tables(tables, table_specs({}, METHODS), {"nucleus_boundaries"})
+    return bundle, catalog, repo, refs
+
+
+def test_a_rerun_with_the_flag_after_the_schema_commit_replaces_the_rows(tmp_path):
+    bundle, catalog, repo, refs = _window(tmp_path)
+    _replace(catalog, repo, bundle)
+    now = catalog.load_table("ns.nucleus_boundaries").scan().to_arrow().sort_by("instance")
+    assert now["instance"].to_pylist() == [1, 3] and now["part_count"].to_pylist() == [1, 2]
+
+
+def test_a_rerun_without_the_flag_after_the_schema_commit_raises_and_adds_no_snapshot(tmp_path):
+    bundle, catalog, repo, refs = _window(tmp_path)
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    require_tables(tables, table_specs({}, METHODS), set())
+    with pytest.raises(ValueError, match=r"ns\.nucleus_boundaries holds 1 data file.*replace flag"):
+        write_boundaries(ElementWriter(repo, "full"), bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
+    assert _snapshots(catalog, "nucleus_boundaries") == 1
+
+
+def test_an_equal_rerun_without_the_flag_is_a_no_op(tmp_path):
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    _replace(catalog, repo, bundle)
+    repo.create_branch("again", repo.lookup_branch("main"))
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    require_tables(tables, table_specs({}, METHODS), set())
+    write_boundaries(ElementWriter(repo, "again"), bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
+    assert _snapshots(catalog, "nucleus_boundaries") == 2
+
+
+def test_the_flag_needs_the_element_of_each_table_in_the_run(monkeypatch, tmp_path):
+    from ingest import check_replace_elements
+
+    with pytest.raises(ValueError, match=r"nucleus_boundaries.*shapes/nucleus_boundaries"):
+        check_replace_elements({"nucleus_boundaries"}, ["points/transcripts"])
+    check_replace_elements({"nucleus_boundaries"}, ["shapes/nucleus_boundaries", "root"])
+
+    def no_bundle(location):
+        raise AssertionError("main() opened the bundle")
+
+    monkeypatch.setattr(ingest, "open_bundle", no_bundle)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["ingest.py", "--sample", "kidney", "--repo", "r", "--catalog", "c", "--namespace", "n",
+                                      "--mode", "full", "--branch", "main", "--replace-tables", "nucleus_boundaries",
+                                      "--elements", "points/transcripts"])
+    with pytest.raises(SystemExit, match="shapes/nucleus_boundaries"):
+        ingest.main()
+    assert not (tmp_path / "c").exists()
+
+
+def test_a_stop_inside_the_overwrite_of_nucleus_boundaries_leaves_the_table_and_the_rerun_ends_right(tmp_path, monkeypatch):
+    import pyiceberg.io.pyarrow as pyarrow_io
+
+    bundle, catalog, repo, refs = _window(tmp_path)
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    require_tables(tables, table_specs({}, METHODS), {"nucleus_boundaries"})
+    real = pyarrow_io.parquet_file_to_data_file
+
+    def stops(*args, **kwargs):
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(pyarrow_io, "parquet_file_to_data_file", stops)
+    with pytest.raises(RuntimeError, match="stop"):
+        write_boundaries(ElementWriter(repo, "full"), bundle, tables, "nucleus_boundaries", NUCLEUS_SET, replace=True)
+    table = catalog.load_table("ns.nucleus_boundaries")
+    assert len(table.metadata.snapshots) == 1 and table.current_snapshot().snapshot_id == refs["nucleus_boundaries"].snapshot_id
+    monkeypatch.setattr(pyarrow_io, "parquet_file_to_data_file", real)
+    _replace(catalog, repo, bundle)
+    assert catalog.load_table("ns.nucleus_boundaries").scan().to_arrow().sort_by("instance")["instance"].to_pylist() == [1, 3]
+
+
+def test_a_stop_inside_the_overwrite_of_a_transcripts_tile_leaves_the_table_and_the_rerun_ends_right(tmp_path, monkeypatch):
+    import pyiceberg.io.pyarrow as pyarrow_io
+
+    whole = tmp_path / "whole"
+    whole.mkdir()
+    bundle, tables, repo, writer = _transcripts_run(whole)
+    _hold(tables, bundle, whole, "0,0", first_instance=10)
+    stopped = tmp_path / "stopped"
+    stopped.mkdir()
+    bundle2, tables2, repo2, writer2 = _transcripts_run(stopped)
+    _hold(tables2, bundle2, stopped, "0,0", first_instance=10)
+    write_transcripts(writer, bundle, tables, replace_held=True)
+
+    real = pyarrow_io.parquet_file_to_data_file
+
+    def stops(*args, **kwargs):
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(pyarrow_io, "parquet_file_to_data_file", stops)
+    with pytest.raises(RuntimeError, match="stop"):
+        write_transcripts(writer2, bundle2, tables2, replace_held=True)
+    assert tables2.partition_ranges("transcripts", "instance") == {"0,0": (10, 14)}
+    assert _snapshots(tables2.catalog, "transcripts") == 1
+    monkeypatch.setattr(pyarrow_io, "parquet_file_to_data_file", real)
+    write_transcripts(writer2, bundle2, tables2, replace_held=True)
+    assert _rows(tables2).equals(_rows(tables))
+
+
+def test_the_transcripts_gate_reads_the_pinned_snapshot_after_the_replace(tmp_path):
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    attr = dict(_fixture_root(repo)["points/transcripts"].attrs["iceberg_table"])
+    grid = {"grid_keys": ["0,0"], "grid_number_objects": [5]}
+    assert verify._transcript_errors("points/transcripts", catalog, attr, grid) == []
+    _replace(catalog, repo, bundle)
+    assert verify._transcript_errors("points/transcripts", catalog, attr, grid) == []
+
+
+def test_the_transcripts_gate_looks_up_the_index_column_in_the_schema_of_the_pinned_snapshot(tmp_path):
+    from minus80.core.tables import write_parquet
+
+    old = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()), ("old", pa.int64())])
+    new = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()), ("new", pa.int64())])
+    tables = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    tables.require("t", schema=old, properties={}, partition_by="grid_tile")
+    path = tmp_path / "a.parquet"
+    write_parquet(pa.table({"instance": [0, 1], "grid_tile": ["a", "a"], "old": [0, 1]}, schema=old), str(path),
+                  index_column="instance", field_ids=tables.field_ids("t"))
+    ref = tables.write_parts("t", [path])
+    attr = table_attr(tables, "t", ref)
+    attr["index_column"] = "old"
+    tables.require("t", schema=new, properties={}, partition_by="grid_tile", evolve=True)
+    grid = {"grid_keys": ["a"], "grid_number_objects": [2]}
+    assert verify._transcript_errors("t", tables.catalog, attr, grid) == []
+
+
+def _preflight(tmp_path, **kwargs):
+    arguments = {"mode": "full", "branch": "main", "repo": str(tmp_path / "repo"), "catalog": str(tmp_path / "catalog"),
+                 "namespace": "ns", "elements": None, "replace_tables": ""}
+    return preflight(**{**arguments, **kwargs})
+
+
+def _state(tmp_path):
+    """What a preflight must not change: the tables with their metadata files, and the repo's branches."""
+    from minus80.core.icechunk_io import open_repository
+
+    catalog = local_catalog(tmp_path / "catalog")
+    tables = {str(t): catalog.load_table(t).metadata_location for t in catalog.list_tables("ns")}
+    return tables, sorted(open_repository(tmp_path / "repo").list_branches())
+
+
+def test_a_preflight_of_a_clean_start_has_no_problem_and_creates_nothing(tmp_path, capsys):
+    assert _preflight(tmp_path, branch="newbranch") == []
+    out = capsys.readouterr().out
+    assert "repo: absent" in out and "catalog: absent" in out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_preflight_of_the_held_tables_with_the_flag_plans_the_changes_and_changes_nothing(tmp_path, capsys):
+    _stage_one(tmp_path)
+    before = _state(tmp_path)
+    capsys.readouterr()
+    assert _preflight(tmp_path, replace_tables="transcripts,nucleus_boundaries", branch="new") == []
+    out = capsys.readouterr().out
+    assert "nucleus_boundaries: add part_count, methods; delete method; replace rows" in out
+    assert "transcripts: 1 files held; held tiles are checked against the source at the transcripts step" in out
+    assert "branch new: created from main by the ingest" in out
+    assert "cell_boundaries: matches" in out
+    assert _state(tmp_path) == before
+
+
+def test_a_preflight_of_the_held_tables_without_the_flag_reports_the_difference_nothing_covers(tmp_path):
+    _stage_one(tmp_path)
+    before = _state(tmp_path)
+    problems = _preflight(tmp_path)
+    assert len(problems) == 1
+    assert "nucleus_boundaries" in problems[0] and "adds part_count, methods" in problems[0] and "deletes method" in problems[0]
+    assert _state(tmp_path) == before
+
+
+def test_a_preflight_reports_each_argument_problem_in_one_line(tmp_path):
+    problems = _preflight(tmp_path, branch="fixture", elements="images/nothing", replace_tables="cell_labels")
+    assert len(problems) == 3
+    assert any("fixture" in p for p in problems) and any("images/nothing" in p for p in problems)
+    assert any("cell_labels" in p for p in problems)
+    assert any("--preflight is an option of --mode full" in p for p in _preflight(tmp_path, mode="fixture"))
+    rule = _preflight(tmp_path, elements="points/transcripts", replace_tables="nucleus_boundaries")
+    assert len(rule) == 1 and "shapes/nucleus_boundaries" in rule[0]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_preflight_on_the_command_line_exits_with_the_number_of_the_result(monkeypatch, tmp_path):
+    def no_bundle(location):
+        raise AssertionError("main() opened the bundle")
+
+    monkeypatch.setattr(ingest, "open_bundle", no_bundle)
+    base = ["ingest.py", "--sample", "kidney", "--repo", str(tmp_path / "repo"), "--catalog", str(tmp_path / "catalog"),
+            "--namespace", "ns", "--mode", "full", "--branch", "main", "--preflight"]
+    monkeypatch.setattr(sys, "argv", base)
+    with pytest.raises(SystemExit) as clean:
+        ingest.main()
+    monkeypatch.setattr(sys, "argv", [*base, "--elements", "images/nothing"])
+    with pytest.raises(SystemExit) as wrong:
+        ingest.main()
+    assert (clean.value.code, wrong.value.code) == (0, 1)

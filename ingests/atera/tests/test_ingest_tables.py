@@ -203,7 +203,7 @@ def test_a_held_tile_with_another_row_count_is_refused(tmp_path):
     write_parquet(tile_table(bundle.zf, "0,0", codewords_table(bundle.zf), first_instance=0).slice(0, 2),
                   str(short), index_column="instance", field_ids=tables.field_ids("transcripts"))
     tables.write_parts("transcripts", [short])
-    with pytest.raises(ValueError, match=r"tile 0,0: the table holds 2 rows, the source has 5"):
+    with pytest.raises(ValueError, match=r"tile 0,0: the table holds 2 rows.*expected 5 rows"):
         write_transcripts(writer, bundle, tables)
     assert len(tables.catalog.load_table("ns.transcripts").metadata.snapshots) == 1
 

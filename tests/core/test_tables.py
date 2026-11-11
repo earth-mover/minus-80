@@ -494,10 +494,10 @@ def test_write_with_other_rows_adds_an_object_and_leaves_the_first(tmp_path):
     writer = _writer(tmp_path)
     first = writer.write("t", _rows(1, 2))
     held = file_path(first.files[0].location).read_bytes()
-    second = writer.write("t", _rows(3))
+    second = writer.write("t", _rows(3), replace=True)
     assert second.files[0].location != first.files[0].location
     assert file_path(first.files[0].location).read_bytes() == held
-    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 3
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 1
 
 
 def test_a_write_after_a_replace_reuses_the_earlier_object_unchanged(tmp_path):
@@ -507,7 +507,7 @@ def test_a_write_after_a_replace_reuses_the_earlier_object_unchanged(tmp_path):
     held, written_at = path.read_bytes(), path.stat().st_mtime_ns
     writer.write("t", _rows(2), replace=True)
     # The current snapshot no longer holds the first file, but its name still states its bytes.
-    again = writer.write("t", _rows(1, 2))
+    again = writer.write("t", _rows(1, 2), replace=True)
     assert again.files[0].location == first.files[0].location
     assert path.read_bytes() == held and path.stat().st_mtime_ns == written_at
 
@@ -1038,3 +1038,56 @@ def test_remove_partitions_without_a_match_commits_nothing(tmp_path):
     writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0)])
     writer.remove_partitions("t", ["z"])
     assert len(writer.catalog.load_table("ns.t").metadata.snapshots) == 1
+
+
+def test_write_without_replace_refuses_a_table_that_holds_a_file_of_other_content(tmp_path):
+    writer = _writer(tmp_path)
+    first = writer.write("t", _rows(1, 2))
+    with pytest.raises(ValueError, match=r"ns\.t holds 1 data file.*replace"):
+        writer.write("t", _rows(3))
+    table = writer.catalog.load_table("ns.t")
+    assert len(table.metadata.snapshots) == 1
+    assert [t.file.file_path for t in table.scan().plan_files()] == [first.files[0].location]
+    # The same content has the same name, so it is a no-op.
+    assert writer.write("t", _rows(1, 2)).snapshot_id == first.snapshot_id
+
+
+def test_write_parts_adds_a_file_to_a_table_that_holds_others(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 1)])
+    assert writer.partitions("t") == {"a": 1, "b": 1}
+
+
+def test_a_type_mismatch_prints_types_without_field_ids(tmp_path):
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=_NESTED, properties={})
+    other = pa.schema([pa.field("instance", pa.int64(), nullable=False),
+                       ("bbox", pa.struct([("xmin", pa.float64()), ("xmax", pa.string())]))])
+    with pytest.raises(ValueError, match=r"column bbox is struct<xmin: double, xmax: double>, the wanted schema has") as e:
+        writer.require("t", schema=other, properties={}, evolve=True)
+    assert "-1" not in str(e.value) and not any(ch.isdigit() for ch in str(e.value).split("column bbox")[1])
+
+
+def test_a_struct_child_that_differs_only_in_nullability_is_the_same_type(tmp_path):
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=_NESTED, properties={})
+    strict = pa.schema([pa.field("instance", pa.int64(), nullable=False),
+                        ("bbox", pa.struct([pa.field("xmin", pa.float64(), nullable=False), ("xmax", pa.float64())]))])
+    assert writer.require("t", schema=strict, properties={}, evolve=True).schema().find_field("bbox")
+
+
+def test_evolving_leaves_the_type_and_required_flag_of_a_kept_column(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    loose = pa.schema([("instance", pa.int64()), ("grid_tile", pa.string()), ("new", pa.int32())])
+    table = writer.require("t", schema=loose, properties={}, evolve=True)
+    assert str(table.schema().find_field("instance").field_type) == "long"
+    assert table.schema().find_field("instance").required
+
+
+def test_evolving_adds_a_struct_column_with_fresh_field_ids(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    wider = pa.schema([*EVOLVE_FROM, ("box", pa.struct([("a", pa.float64()), ("b", pa.float64())]))])
+    table = writer.require("t", schema=wider, properties={}, evolve=True)
+    ids = list(index_by_name(table.schema()).values())
+    assert len(ids) == len(set(ids)) and all(i > 0 for i in ids)

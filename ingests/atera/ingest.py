@@ -25,7 +25,7 @@ import pandas as pd
 import zarr
 from anndata.io import write_elem
 from minus80.core.elements import COMPLETE, ElementWriter
-from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
+from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo, open_repository
 from minus80.core.progress import MIB
 from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, counting_reader, reader
@@ -85,6 +85,8 @@ ELEMENTS = {
 }
 #: The tables ``--replace-tables`` can replace in place; the other tables of the full mode are new.
 REPLACEABLE = ("transcripts", "nucleus_boundaries")
+#: The element whose step writes each replaceable table's rows.
+REPLACE_ELEMENTS = {"transcripts": "points/transcripts", "nucleus_boundaries": "shapes/nucleus_boundaries"}
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
 
@@ -468,11 +470,10 @@ def held_tile_faults(plan: Sequence[tuple[str, int]], counts: dict, held: dict, 
     faults = {}
     for tile, first_instance in plan:
         rows = counts[tile]
-        if tile in held and held[tile] != rows:
-            faults[tile] = f"the table holds {held[tile]} rows, the source has {rows}"
-        elif tile in held and held_ranges[tile] != (first_instance, first_instance + rows - 1):
-            faults[tile] = (f"the table holds instances {held_ranges[tile][0]}..{held_ranges[tile][1]}, "
-                            f"expected {first_instance}..{first_instance + rows - 1}")
+        expected = (first_instance, first_instance + rows - 1)
+        if tile in held and (held[tile] != rows or held_ranges[tile] != expected):
+            faults[tile] = (f"the table holds {held[tile]} rows, instances {held_ranges[tile][0]}..{held_ranges[tile][1]}; "
+                            f"expected {rows} rows, instances {expected[0]}..{expected[1]}")
     return faults
 
 
@@ -484,6 +485,7 @@ def write_transcripts(
 
     ``instance`` counts the rows of ``tiles`` in the order given. A tile that the table holds is skipped;
     a held tile with another row count or ``instance`` range raises, and so does a held tile outside the plan.
+    That check covers every held tile and runs before the first write, so a raise leaves the table as it was.
     With ``replace`` the first tile replaces the table's files.
     With ``replace_held`` a failing held tile is replaced in the one snapshot that adds its file,
     and one snapshot first removes the tiles outside the plan. The files stay in storage.
@@ -502,10 +504,11 @@ def write_transcripts(
         codewords, field_ids = codewords_table(zf), tables.field_ids("transcripts")
         held = {} if replace else tables.partitions("transcripts")
         outside = sorted(set(held) - set(keys))
-        if outside and not replace_held:
-            raise ValueError(f"the table holds tiles outside the plan: {', '.join(outside)}")
         held_ranges = {} if replace or not held else tables.partition_ranges("transcripts", "instance")
         faults = held_tile_faults(plan, counts, held, held_ranges)
+        if (outside or faults) and not replace_held:
+            raise ValueError("; ".join([*(f"tile {t}: {m}" for t, m in faults.items()),
+                                        *([f"the table holds tiles outside the plan: {', '.join(outside)}"] if outside else [])]))
         # A failing tile with no rows has nothing to write, so it only goes.
         if replace_held and (dropped := [*outside, *(t for t in faults if not counts[t])]):
             tables.remove_partitions("transcripts", dropped)
@@ -515,8 +518,6 @@ def write_transcripts(
         replacing = replace
         for index, (tile, first_instance) in enumerate(plan):
             rows = counts[tile]
-            if tile in faults and not replace_held:
-                raise ValueError(f"tile {tile}: {faults[tile]}")
             if (tile in held and tile not in faults) or rows == 0:
                 print(f"tile {tile}: {'in the table already' if rows else 'no rows'}, skipped", flush=True)
                 done += rows
@@ -574,6 +575,16 @@ def replace_table_names(text: str) -> set[str]:
     return names
 
 
+def check_replace_elements(replace: set[str], selected: Sequence[str]) -> None:
+    """Raise ``ValueError`` when a table of ``replace`` has no element in ``selected``.
+
+    A schema change with no row write would leave the table with the schema and the earlier rows.
+    """
+    if lacking := sorted(t for t in replace if REPLACE_ELEMENTS[t] not in selected):
+        raise ValueError(f"--replace-tables {', '.join(lacking)} needs the element "
+                         f"{', '.join(REPLACE_ELEMENTS[t] for t in lacking)} in the run")
+
+
 def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
     """The comma-separated elements of ``--elements`` in the order of ``available``, or all of them without ``text``."""
     if not text:
@@ -582,6 +593,119 @@ def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
     if unknown := wanted - set(available):
         raise ValueError(f"unknown elements: {', '.join(sorted(unknown))}; known: {', '.join(available)}")
     return [e for e in available if e in wanted]
+
+
+def _preflight_tables(catalog, namespace: str, replace: set[str], problems: list[str]) -> list[str]:
+    """Print the plan for each table of the full mode and add one problem for each difference that nothing covers.
+
+    Returns the data prefixes of the tables that exist.
+    """
+    specs, prefixes = table_specs({}, []), []
+    for name in (*FIXTURE_TABLES, *EXTRA_TABLES):
+        identifier = f"{namespace}.{name}"
+        if (namespace,) not in catalog.list_namespaces() or not catalog.table_exists(identifier):
+            print(f"{name}: absent; the ingest creates it", flush=True)
+            continue
+        table = catalog.load_table(identifier)
+        prefixes.append(f"{table.location()}/data/")
+        files = len(list(table.scan().plan_files()))
+        if name not in specs:
+            print(f"{name}: {files} files held; its schema is checked at its step", flush=True)
+            continue
+        wanted = [] if "partition_by" not in specs[name] else [specs[name]["partition_by"]]
+        present = [table.schema().find_column_name(f.source_id) for f in table.spec().fields]
+        if present != wanted:
+            problems.append(f"{name}: partitioned by {present}, not {wanted}")
+            continue
+        schema = specs[name]["schema"]
+        names = {f.name for f in table.schema().fields}
+        if lacking := [f.name for f in schema if not f.nullable and f.name not in names]:
+            problems.append(f"{name}: has no column {', '.join(lacking)}")
+            continue
+        try:
+            added, deleted = schema_changes(table, schema)
+        except ValueError as e:
+            problems.append(str(e))
+            continue
+        difference = f"add {', '.join(added) or 'nothing'}; delete {', '.join(deleted) or 'nothing'}"
+        if (added or deleted) and name not in replace:
+            problems.append(f"{name}: differs from the wanted schema, which adds {', '.join(added) or 'no column'} and "
+                            f"deletes {', '.join(deleted) or 'no column'}; nothing covers it without --replace-tables")
+            continue
+        plan = [difference if added or deleted else "matches", *(["replace rows"] if name in replace else [])]
+        print(f"{name}: {'; '.join(plan)}", flush=True)
+        if name == "transcripts":
+            print(f"{name}: partitioned by {', '.join(present)}", flush=True)
+            print(f"{name}: {files} files held; held tiles are checked against the source at the transcripts step", flush=True)
+    return prefixes
+
+
+def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[str]) -> None:
+    """Print whether the repo opens and whether ``branch`` exists or can start from ``main``."""
+    if not repo.startswith(ARRAYLAKE) and not Path(repo).exists():
+        print("repo: absent; the ingest creates it", flush=True)
+        return
+    try:
+        branches = (arraylake_repository(repo, source_prefixes=prefixes) if repo.startswith(ARRAYLAKE)
+                    else open_repository(repo)).list_branches()
+    except Exception as e:  # Any failure to open is a problem to report; the text has no location.
+        problems.append(f"repo: does not open ({type(e).__name__})")
+        return
+    if branch in branches:
+        print(f"branch {branch}: exists", flush=True)
+    elif "main" in branches:
+        print(f"branch {branch}: created from main by the ingest", flush=True)
+    else:
+        problems.append(f"branch {branch}: absent, and the repo has no branch main to start it from")
+
+
+def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str, elements: str | None = None,
+              replace_tables: str = "") -> list[str]:
+    """Check what needs no bundle and no write, print the plan, and return one line for each problem.
+
+    The check makes no commit and creates no table, namespace, branch or directory.
+    """
+    problems = []
+    if mode != "full":
+        problems.append("--preflight is an option of --mode full")
+    if replace_tables and mode != "full":
+        problems.append("--replace-tables is an option of --mode full")
+    if branch in PROTECTED[mode]:
+        problems.append(f"--mode {mode} never writes to the branch {branch}")
+    selected = replace = None
+    try:
+        selected = select_elements(elements, ELEMENTS[mode])
+    except ValueError as e:
+        problems.append(str(e))
+    try:
+        replace = replace_table_names(replace_tables) if replace_tables else set()
+    except ValueError as e:
+        problems.append(str(e))
+    if selected is not None and replace:
+        try:
+            check_replace_elements(replace, selected)
+        except ValueError as e:
+            problems.append(str(e))
+    try:
+        require_same_place(repo, catalog)
+    except SystemExit as e:
+        return [*problems, str(e)]
+    org = catalog_org(catalog)
+    if org is None and not (Path(catalog) / "catalog.db").exists():
+        print("catalog: absent; the ingest creates it", flush=True)
+        _preflight_repo(repo, branch, [], problems)
+        return problems
+    try:
+        from arraylake import Client
+
+        opened = Client().get_iceberg(org) if org is not None else local_catalog(Path(catalog))
+        if (namespace,) not in opened.list_namespaces():
+            print(f"namespace {namespace}: absent; the ingest creates it", flush=True)
+    except Exception as e:  # Any failure to open is a problem to report; the text has no location.
+        problems.append(f"catalog: does not open ({type(e).__name__})")
+        return problems
+    _preflight_repo(repo, branch, _preflight_tables(opened, namespace, replace or set(), problems), problems)
+    return problems
 
 
 def main() -> None:
@@ -602,9 +726,19 @@ def main() -> None:
     parser.add_argument("--replace-tables", default="",
                         help=f"--mode full: replace the rows of these held tables in place, comma-separated, of "
                              f"{', '.join(REPLACEABLE)}; the earlier snapshots and their files stay")
+    parser.add_argument("--preflight", action="store_true",
+                        help="--mode full: check the arguments, the repo, the catalog and each table with no bundle and no "
+                             "write, print the plan, and exit 1 on a problem")
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
                         help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")
     args = parser.parse_args()
+    if args.preflight:
+        problems = preflight(mode=args.mode, branch=args.branch, repo=args.repo, catalog=args.catalog,
+                             namespace=args.namespace, elements=args.elements, replace_tables=args.replace_tables)
+        for problem in problems:
+            print(f"PROBLEM: {problem}")
+        print(f"preflight: {len(problems)} problem{'s' * (len(problems) != 1)}" if problems else "preflight: no problem")
+        raise SystemExit(1 if problems else 0)
     if args.rewrite and args.branch == "main":
         raise SystemExit("--rewrite never writes to main")
     if args.branch in PROTECTED[args.mode]:
@@ -618,6 +752,7 @@ def main() -> None:
     try:
         replace = replace_table_names(args.replace_tables) if args.replace_tables else set()
         selected = select_elements(args.elements, ELEMENTS[args.mode])
+        check_replace_elements(replace, selected)
     except ValueError as e:
         raise SystemExit(str(e))
     require_same_place(args.repo, args.catalog)

@@ -170,30 +170,53 @@ class TableRef(NamedTuple):
     files: list[DataFile]
 
 
-def _iceberg_schema(schema: pa.Schema):
-    """``schema`` as Iceberg types, as ``create_table`` converts it; the field ids are placeholders."""
-    from pyiceberg.catalog import Catalog
+def _same_type(held, wanted) -> bool:
+    """True when two Iceberg types are equal at every level, ignoring field ids and nullability."""
+    from pyiceberg.types import ListType, MapType, StructType
 
-    return Catalog._convert_schema_if_needed(schema)
+    if isinstance(held, StructType) and isinstance(wanted, StructType):
+        return [f.name for f in held.fields] == [f.name for f in wanted.fields] and all(
+            _same_type(a.field_type, b.field_type) for a, b in zip(held.fields, wanted.fields))
+    if isinstance(held, ListType) and isinstance(wanted, ListType):
+        return _same_type(held.element_type, wanted.element_type)
+    if isinstance(held, MapType) and isinstance(wanted, MapType):
+        return _same_type(held.key_type, wanted.key_type) and _same_type(held.value_type, wanted.value_type)
+    return held == wanted
+
+
+def _type_text(type_) -> str:
+    """An Iceberg type as text, without field ids."""
+    from pyiceberg.types import StructType
+
+    if isinstance(type_, StructType):
+        return f"struct<{', '.join(f'{f.name}: {_type_text(f.field_type)}' for f in type_.fields)}>"
+    return str(type_)
 
 
 def schema_changes(table, schema: pa.Schema) -> tuple[list[str], list[str]]:
     """The columns that ``schema`` adds to ``table`` and the columns it deletes, each in schema order.
 
     A kept column of another type raises ``ValueError`` with both types.
+    Types compare without field ids and without nullability, at every level.
     """
-    from pyiceberg.io.pyarrow import schema_to_pyarrow
+    from pyiceberg.io.pyarrow import pyarrow_to_schema
+    from pyiceberg.table.name_mapping import create_mapping_from_schema
 
-    wanted, present = _iceberg_schema(schema), table.schema()
-    names = {f.name for f in present.fields}
-    for field in wanted.fields:
-        if field.name in names:
-            held = present.find_field(field.name)
-            if schema_to_pyarrow(wanted).field(field.name).type != schema_to_pyarrow(present).field(field.name).type:
-                raise ValueError(f"{'.'.join(table.name())}: column {field.name} is {held.field_type}, "
-                                 f"the wanted schema has {field.field_type}")
-    return ([f.name for f in wanted.fields if f.name not in names],
-            [f.name for f in present.fields if f.name not in {w.name for w in wanted.fields}])
+    present = table.schema()
+    names, wanted_names = {f.name for f in present.fields}, {f.name for f in schema}
+    mapping = create_mapping_from_schema(present)
+    for field in (f for f in schema if f.name in names):
+        held = present.find_field(field.name).field_type
+        try:
+            # The table's ids go to the wanted column by name; an unmapped nested name is a type difference.
+            found = pyarrow_to_schema(pa.schema([field]), name_mapping=mapping).fields[0].field_type
+        except ValueError:
+            found = None
+        if found is None or not _same_type(held, found):
+            raise ValueError(f"{'.'.join(table.name())}: column {field.name} is {_type_text(held)}, "
+                             f"the wanted schema has {field.type if found is None else _type_text(found)}")
+    return ([f.name for f in schema if f.name not in names],
+            [f.name for f in present.fields if f.name not in wanted_names])
 
 
 def require_table(
@@ -228,13 +251,11 @@ def require_table(
             raise ValueError(f"{identifier} differs from the wanted schema, which adds {', '.join(added) or 'no column'} "
                              f"and deletes {', '.join(deleted) or 'no column'}")
         if added or deleted:
-            # The placeholder ids are all equal, so the types are read by position, not by id.
-            types = {f.name: f.field_type for f in _iceberg_schema(schema).fields}
             with table.update_schema() as update:
                 for name in deleted:
                     update.delete_column(name)
-                for name in added:
-                    update.add_column(name, types[name])
+                # Only the missing columns go in, so no kept column changes type or required flag.
+                update.union_by_name(pa.schema([f for f in schema if f.name in added]))
             table = catalog.load_table(identifier)
         loose = [f.name for f in schema if not f.nullable and not table.schema().find_field(f.name).required]
         for name in loose:
@@ -551,11 +572,12 @@ class TableWriter:
 
         A table gets the field ids of the Iceberg schema, ``index_column`` (default: the writer's) and ``geo`` in the footer.
         A file at a path is used as it is, and takes no ``geo``. See :meth:`write_parts` for the rest.
+        Without ``replace``, a table that holds a live file of other content raises ``ValueError``; an equal write is a no-op.
         """
         if isinstance(table_or_path, Path):
             if geo is not None:
                 raise ValueError("geo applies to a table; a Parquet file carries its own footer")
-            return self.write_parts(name, [table_or_path], replace=replace)
+            return self._register(self.require(name, **self._spec(name)), name, [table_or_path], replace, exclusive=True)
         from pyiceberg.schema import index_by_name
 
         iceberg = self.require(name, **self._spec(name))
@@ -563,7 +585,7 @@ class TableWriter:
             path = Path(directory) / "part.parquet"
             write_parquet(table_or_path, str(path), index_column=index_column or self.index_column, geo=geo,
                           field_ids=index_by_name(iceberg.schema()))
-            return self._register(iceberg, name, [path], replace)
+            return self._register(iceberg, name, [path], replace, exclusive=True)
 
     def _partition_files(self, name: str) -> tuple:
         """The table ``name`` and its current data files, each with its identity partition value."""
@@ -619,14 +641,20 @@ class TableWriter:
         With ``replace``, the files replace every file the table holds. A failure after the table
         snapshot and before the repo commit leaves one extra snapshot; the next run converges.
         ``replace_partitions`` replaces the files of those partition values, in the same snapshot.
+        A table of several files is the caller's to keep right: :meth:`write` refuses a second file, this does not.
         """
         return self._register(self.require(name, **self._spec(name)), name, paths, replace, replace_partitions)
 
-    def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool, replace_partitions: Sequence = ()) -> TableRef:
-        urls = []
-        for path in paths:
-            url = f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet"
+    def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool, replace_partitions: Sequence = (),
+                  *, exclusive: bool = False) -> TableRef:
+        urls = [f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet" for path in paths]
+        if exclusive and not replace:
+            # One write is the whole table, so another live file would mix two writes' rows.
+            other = [t.file.file_path for t in iceberg.scan().plan_files() if t.file.file_path not in urls]
+            if other:
+                raise ValueError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "
+                                 "that this write does not replace; replace the rows with the replace flag")
+        for path, url in zip(paths, urls):
             _put(iceberg.io, path, url)
-            urls.append(url)
         return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace,
                               replace_partitions=replace_partitions, **self._spec(name))
