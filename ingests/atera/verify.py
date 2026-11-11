@@ -1,6 +1,8 @@
-"""Check an Atera fixture repo and its local catalog against the bundle, gate by gate.
+"""Check an Atera fixture repo and its Iceberg catalog, local or on Arraylake, against the bundle, gate by gate.
 
 Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on any failure.
+The ``matrix`` and ``tables`` gates hold the kidney's shape and the fixture's tile ``0,0``,
+so they check the kidney fixture only.
 """
 
 from __future__ import annotations
@@ -121,6 +123,11 @@ def load(catalog, attr):
     return catalog.load_table(f"{attr['namespace']}.{attr['table']}")
 
 
+def pinned_files(catalog, attr) -> list:
+    """The data files of the snapshot that ``attr`` pins, not of the current snapshot."""
+    return [task.file for task in load(catalog, attr).scan(snapshot_id=attr["snapshot_id"]).plan_files()]
+
+
 def gate_tables(root, catalog, cells, transcripts) -> list[str]:
     errors = []
     expected = {
@@ -128,7 +135,7 @@ def gate_tables(root, catalog, cells, transcripts) -> list[str]:
         "shapes/nucleus_boundaries": json.loads(cells.read("polygon_sets/0/num_vertices/.zarray"))["shape"][0],
     }
     for path, attr in element_tables(root).items():
-        rows = sum(task.file.record_count for task in load(catalog, attr).scan().plan_files())
+        rows = sum(f.record_count for f in pinned_files(catalog, attr))
         print(f"  tables: {path} has {rows:,} rows, the source {expected[path]:,}")
         if rows != expected[path]:
             errors.append(f"{path}: {rows} rows, source {expected[path]}")
@@ -159,7 +166,9 @@ def gate_field_ids(root, catalog) -> list[str]:
             with table.io.new_input(f).open() as stream:
                 footer = pq.read_schema(stream)
             found = parquet_field_ids(footer)
-            if wrong := [n for n, i in found.items() if i != expected.get(n)]:
+            if extra := [n for n in found if n not in expected]:
+                errors.append(f"{path}: {f} has columns the table lacks: {', '.join(extra)}")
+            if wrong := [n for n, i in found.items() if n in expected and i != expected[n]]:
                 errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
             if lacking := [n for n in expected if n not in found]:
                 errors.append(f"{path}: {f} lacks fields {', '.join(lacking)}")
@@ -267,7 +276,7 @@ def gate_copies(root, catalog) -> list[str]:
     errors = []
     for path, attr in element_tables(root).items():
         table = load(catalog, attr)
-        files = [task.file.file_path for task in table.scan().plan_files()]
+        files = [f.file_path for f in pinned_files(catalog, attr)]
         registered = Counter(_sha(table.io.new_input(f).open().read()) for f in files)
         arrays = [a for _, a in root[path].arrays() if "file:name" in a.attrs]
         copied = Counter(_sha(a[:].tobytes()) for a in arrays)
@@ -283,9 +292,10 @@ def gate_attrs(root, catalog) -> list[str]:
     errors = [] if attrs else ["no element has an iceberg_table attribute"]
     for path, attr in attrs.items():
         table = load(catalog, attr)
-        found = (str(table.metadata.table_uuid), table.current_snapshot().snapshot_id)
-        if found != (attr["table_uuid"], attr["snapshot_id"]):
-            errors.append(f"{path}: attribute pins {attr['table_uuid']} {attr['snapshot_id']}, catalog has {found}")
+        if str(table.metadata.table_uuid) != attr["table_uuid"]:
+            errors.append(f"{path}: attribute pins table {attr['table_uuid']}, catalog has {table.metadata.table_uuid}")
+        elif table.snapshot_by_id(attr["snapshot_id"]) is None:
+            errors.append(f"{path}: the table has no snapshot {attr['snapshot_id']}")
     return errors
 
 
