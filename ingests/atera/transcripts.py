@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import json
 import zipfile
+from collections.abc import Iterator, Mapping
+from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
-from minus80.core.zarr_copy import read_array
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
+from minus80.core.tables import parquet_schema
+from minus80.core.zarr_copy import read_array, read_rows
 from polygons import BBOX
+
+#: Rows of a tile held in memory at once. A tile has up to tens of millions of rows.
+SLICE_ROWS = 4_000_000
+
+_NIBBLE_LETTERS = pa.array([chr(ord("a") + i) for i in range(16)])
 
 CATEGORY_COLUMNS = (
     "is_gene",
@@ -49,6 +59,17 @@ def xenium_cell_id(prefix: np.ndarray, suffix: np.ndarray) -> np.ndarray:
     return np.char.add(np.char.add(letters, "-"), suffix.astype(str))
 
 
+def cell_ids_arrow(prefix: pa.Array, suffix: pa.Array) -> pa.Array:
+    """The same ids as :func:`xenium_cell_id`, from integer arrays, with Arrow compute only."""
+    letters = [
+        pc.take(_NIBBLE_LETTERS, pc.bit_wise_and(pc.shift_right(prefix, shift), 15))
+        for shift in range(28, -4, -4)
+    ]
+    return pc.binary_join_element_wise(
+        pc.binary_join_element_wise(*letters, ""), pc.cast(suffix, pa.string()), "-"
+    )
+
+
 def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
     """One row per codeword; names and feature indices come from the root attributes."""
     attrs = json.loads(zf.read(".zattrs"))
@@ -64,36 +85,90 @@ def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
     return pa.table(columns)
 
 
+def tile_slices(
+    zf: zipfile.ZipFile,
+    tile: str,
+    codewords: pa.Table,
+    *,
+    first_instance: int,
+    rows: int = SLICE_ROWS,
+) -> Iterator[pa.Table]:
+    """The transcripts of ``grid/<tile>`` in tables of at most ``rows`` rows, numbered from ``first_instance``.
+
+    Each slice reads only the source chunks that its rows touch.
+    """
+    members = set(zf.namelist())
+    total = json.loads(zf.read(f"grid/{tile}/location/.zarray"))["shape"][0]
+    # One dictionary for every slice, so the files and the table agree on the codes.
+    features = codewords["feature_name"].combine_chunks().dictionary_encode()
+    for start in range(0, total, rows):
+        stop = min(start + rows, total)
+
+        def read(name):
+            return read_rows(zf, f"grid/{tile}/{name}", start, stop, names=members)
+
+        location = read("location")
+        codeword = read("codeword_identity")[:, 0]
+        cell = read("cell_id")
+        n = stop - start
+        x, y, z = location.T
+        prefix, suffix = pa.array(cell[:, 0].astype(np.int64)), pa.array(cell[:, 1].astype(np.int64))
+        yield pa.table(
+            {
+                "instance": pa.array(np.arange(first_instance + start, first_instance + stop, dtype=np.int64)),
+                "grid_tile": pa.repeat(tile, n),
+                "x": x,
+                "y": y,
+                "z": z,
+                "codeword_index": codeword.astype(np.int64),
+                "feature_name": pa.DictionaryArray.from_arrays(
+                    features.indices.take(pa.array(codeword)), features.dictionary
+                ),
+                "cell_prefix": prefix,
+                "dataset_suffix": suffix,
+                "cell_id": cell_ids_arrow(prefix, suffix),
+                "quality_score": read("quality_score")[:, 0].astype(np.float32),
+                "overlaps_nucleus": read("overlaps_nucleus")[:, 0].astype(bool),
+                "bbox": pa.StructArray.from_arrays(
+                    [pa.array(v.astype(np.float64)) for v in (x, y, x, y)],
+                    fields=list(BBOX),
+                ),
+            },
+            schema=TRANSCRIPT_SCHEMA,
+        )
+
+
 def tile_table(
     zf: zipfile.ZipFile, tile: str, codewords: pa.Table, *, first_instance: int
 ) -> pa.Table:
-    """The transcripts of ``grid/<tile>``, numbered from ``first_instance``."""
-    members = set(zf.namelist())
-    read = lambda name: read_array(zf, f"grid/{tile}/{name}", names=members)
-    location = read("location")
-    codeword = read("codeword_identity")[:, 0]
-    cell = read("cell_id")
-    n = len(location)
-    x, y, z = location.T
-    names = codewords["feature_name"].take(pa.array(codeword)).dictionary_encode()
-    return pa.table(
-        {
-            "instance": pa.array(np.arange(first_instance, first_instance + n, dtype=np.int64)),
-            "grid_tile": pa.array([tile] * n, type=pa.string()),
-            "x": x,
-            "y": y,
-            "z": z,
-            "codeword_index": codeword.astype(np.int64),
-            "feature_name": names,
-            "cell_prefix": cell[:, 0].astype(np.int64),
-            "dataset_suffix": cell[:, 1].astype(np.int64),
-            "cell_id": pa.array(xenium_cell_id(cell[:, 0], cell[:, 1]), type=pa.string()),
-            "quality_score": read("quality_score")[:, 0].astype(np.float32),
-            "overlaps_nucleus": read("overlaps_nucleus")[:, 0].astype(bool),
-            "bbox": pa.StructArray.from_arrays(
-                [pa.array(v.astype(np.float64)) for v in (x, y, x, y)],
-                fields=list(BBOX),
-            ),
-        },
-        schema=TRANSCRIPT_SCHEMA,
-    ).combine_chunks()
+    """The transcripts of ``grid/<tile>`` as one table; the whole tile is in memory."""
+    return pa.concat_tables(tile_slices(zf, tile, codewords, first_instance=first_instance)).combine_chunks()
+
+
+def write_tile(
+    zf: zipfile.ZipFile,
+    tile: str,
+    codewords: pa.Table,
+    path: Path,
+    *,
+    first_instance: int,
+    field_ids: Mapping[str, int],
+    rows: int = SLICE_ROWS,
+) -> int:
+    """Write ``grid/<tile>`` to the Parquet file ``path``, one row group per slice. Returns the row count."""
+    schema = parquet_schema(TRANSCRIPT_SCHEMA, index_column="instance", field_ids=field_ids)
+    count = 0
+    with pq.ParquetWriter(path, schema) as writer:
+        for piece in tile_slices(zf, tile, codewords, first_instance=first_instance, rows=rows):
+            writer.write_table(piece.cast(schema), row_group_size=len(piece))
+            count += len(piece)
+    return count
+
+
+def tile_order(grid_attrs: Mapping) -> list[tuple[str, int]]:
+    """Each tile key with its first ``instance``, in the source's order: the rows of the tiles before it."""
+    first, out = 0, []
+    for key, count in zip(grid_attrs["grid_keys"], grid_attrs["grid_number_objects"]):
+        out.append((key, first))
+        first += count
+    return out

@@ -232,21 +232,25 @@ def copy_group(
     return counts
 
 
-def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None = None) -> np.ndarray:
-    """Decode a whole Zarr v2 array of numeric dtype from ``zf``; a missing chunk is the fill value.
-
-    ``zf`` is an open zip, because ``ZipStore`` cannot use one and would parse the central directory again.
-    ``names`` is the member set; pass it when reading several arrays, so ``namelist()`` runs once.
-    """
+def _read_block(
+    zf: zipfile.ZipFile, path: str, names: Collection[str] | None, rows: tuple[int, int] | None
+) -> np.ndarray:
+    """Decode the chunks of the v2 array at ``path`` that touch ``rows`` on axis 0, or all of them."""
     zarray = json.loads(zf.read(f"{path}/.zarray"))
     spec = v2_spec(zarray)
     separator = zarray.get("dimension_separator", ".")
     dtype = np.dtype(spec.dtype)
     codecs = [spec.compressor, *reversed(spec.filters)]
-    out = np.full(spec.shape, spec.fill_value or 0, dtype=dtype, order=spec.order)
-    grid = [math.ceil(n / c) for n, c in zip(spec.shape, spec.chunks)]
+    bounds = [(0, n) for n in spec.shape]
+    if rows is not None:
+        if not 0 <= rows[0] <= rows[1] <= spec.shape[0]:
+            raise ValueError(f"rows {rows[0]}:{rows[1]} are outside {path}, which has {spec.shape[0]}")
+        bounds[0] = rows
+    out = np.full([hi - lo for lo, hi in bounds], spec.fill_value or 0, dtype=dtype, order=spec.order)
+    # An empty range touches no chunk.
+    grid = [range(lo // c, math.ceil(hi / c) if hi > lo else 0) for (lo, hi), c in zip(bounds, spec.chunks)]
     members = set(zf.namelist()) if names is None else names
-    for index in itertools.product(*map(range, grid)):
+    for index in itertools.product(*grid):
         member = f"{path}/{separator.join(map(str, index))}"
         if member not in members:
             continue
@@ -256,7 +260,29 @@ def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None 
                 raw = numcodecs.get_codec(dict(codec)).decode(raw)
         chunk = np.frombuffer(raw, dtype=dtype).reshape(spec.chunks, order=spec.order)
         # Edge chunks are stored padded to the full chunk shape.
-        start = [i * c for i, c in zip(index, spec.chunks)]
-        window = tuple(slice(s, min(s + c, n)) for s, c, n in zip(start, spec.chunks, spec.shape))
-        out[window] = chunk[tuple(slice(0, w.stop - w.start) for w in window)]
+        origin = [i * c for i, c in zip(index, spec.chunks)]
+        first = [max(o, lo) for o, (lo, _) in zip(origin, bounds)]
+        last = [min(o + c, hi) for o, c, (_, hi) in zip(origin, spec.chunks, bounds)]
+        into = tuple(slice(a - lo, b - lo) for a, b, (lo, _) in zip(first, last, bounds))
+        source = tuple(slice(a - o, b - o) for a, b, o in zip(first, last, origin))
+        out[into] = chunk[source]
     return out
+
+
+def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None = None) -> np.ndarray:
+    """Decode a whole Zarr v2 array of numeric dtype from ``zf``; a missing chunk is the fill value.
+
+    ``zf`` is an open zip, because ``ZipStore`` cannot use one and would parse the central directory again.
+    ``names`` is the member set; pass it when reading several arrays, so ``namelist()`` runs once.
+    """
+    return _read_block(zf, path, names, None)
+
+
+def read_rows(
+    zf: zipfile.ZipFile, path: str, start: int, stop: int, *, names: Collection[str] | None = None
+) -> np.ndarray:
+    """Decode rows ``start:stop`` of a Zarr v2 array of numeric dtype; only the chunks they touch are read.
+
+    The result is ``array[start:stop]``, with ``read_array``'s rules for fill and ``names``.
+    """
+    return _read_block(zf, path, names, (start, stop))

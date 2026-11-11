@@ -28,6 +28,7 @@ from minus80.core.tables import (
     iceberg_table_attr,
     local_catalog,
     parquet_field_ids,
+    parquet_schema,
     register_files,
     require_table,
     write_parquet,
@@ -146,6 +147,17 @@ def test_write_parquet_gives_every_column_the_table_field_id(tmp_path):
     assert json.loads(pq.read_schema(path).metadata[b"pandas"])["index_columns"] == ["instance"]
     register_files(catalog, "ns.t", [path], schema=_NESTED, properties={})
     assert catalog.load_table("ns.t").scan().to_arrow()["instance"].to_pylist() == [1, 2]
+
+
+def test_parquet_schema_carries_the_field_ids_and_the_footer_metadata(tmp_path):
+    ids = {"instance": 1, "bbox": 2, "bbox.xmin": 3, "bbox.xmax": 4}
+    schema = parquet_schema(_NESTED, index_column="instance", geo=GEO, field_ids=ids)
+    assert parquet_field_ids(schema) == ids
+    assert json.loads(schema.metadata[b"pandas"])["index_columns"] == ["instance"]
+    assert json.loads(schema.metadata[b"geo"])["primary_column"] == "geometry"
+    path = str(tmp_path / "a.parquet")
+    pq.write_table(_nested().cast(schema), path)
+    assert pq.read_schema(path).equals(schema, check_metadata=True)
 
 
 def test_write_parquet_refuses_a_column_without_a_field_id(tmp_path):
@@ -423,6 +435,12 @@ def test_write_gives_the_file_the_table_field_ids_and_a_required_instance(tmp_pa
     assert {f.name: int(f.metadata[b"PARQUET:field_id"]) for f in footer} == index_by_name(iceberg.schema())
     assert not footer.field("instance").nullable
     assert iceberg.schema().find_field("instance").required
+
+
+def test_field_ids_gives_the_table_field_id_of_each_column(tmp_path):
+    writer = _writer(tmp_path)
+    assert writer.field_ids("t") == index_by_name(writer.catalog.load_table("ns.t").schema())
+    assert set(writer.field_ids("t")) == {"instance", "grid_tile"}
 
 
 def test_write_puts_geo_in_the_footer(tmp_path):

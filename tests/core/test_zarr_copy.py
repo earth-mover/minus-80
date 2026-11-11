@@ -15,7 +15,7 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 from minus80.core.icechunk_io import create_repo
-from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array, v2_spec
+from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array, read_rows, v2_spec
 
 
 def _v2_zip(tmp_path, groups=None, **arrays):
@@ -430,3 +430,54 @@ def test_read_array_lists_the_members_once_for_a_given_set(tmp_path):
     assert _ListingCounter.listings == 0
     read_array(counted, "a")
     assert _ListingCounter.listings == 1
+
+
+def _without_members(tmp_path, zf, *dropped):
+    with zipfile.ZipFile(tmp_path / "gap.zip", "w", zipfile.ZIP_STORED) as out:
+        for name in zf.namelist():
+            if name not in dropped:
+                out.writestr(name, zf.read(name))
+    return zipfile.ZipFile(tmp_path / "gap.zip")
+
+
+@pytest.mark.parametrize("start, stop", [(1, 3), (0, 4), (2, 7), (4, 10), (8, 10), (9, 10), (5, 5), (0, 10)])
+def test_read_rows_equals_the_slice_of_the_whole_array(tmp_path, start, stop):
+    data = np.arange(10, dtype="<i4")
+    zf = _v2_zip(tmp_path, x=dict(data=data, chunks=(4,), compressors=numcodecs.Blosc(cname="lz4")))
+    assert np.array_equal(read_rows(zf, "x", start, stop), data[start:stop])
+
+
+def test_read_rows_reads_only_the_chunks_the_range_touches(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.arange(12, dtype="<i4"), chunks=(4,), compressors=None))
+    # Chunks 0 and 2 are gone; a range inside chunk 1 needs neither.
+    gap = _without_members(tmp_path, zf, "x/0", "x/2")
+    assert read_rows(gap, "x", 5, 7).tolist() == [5, 6]
+
+
+def test_read_rows_fills_a_missing_chunk(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.full(10, 7, dtype="<i4"), chunks=(4,), compressors=None, fill_value=-1))
+    gap = _without_members(tmp_path, zf, "x/1")
+    assert read_rows(gap, "x", 2, 10).tolist() == [7, 7, -1, -1, -1, -1, 7, 7]
+
+
+@pytest.mark.parametrize("order", ["C", "F"])
+def test_read_rows_of_a_2d_array_keeps_every_column(tmp_path, order):
+    data = np.arange(7 * 5, dtype="<f4").reshape(7, 5)
+    zf = _v2_zip(tmp_path, x=dict(data=data, order=order, chunks=(3, 2), compressors=None))
+    assert np.array_equal(read_rows(zf, "x", 2, 6), data[2:6])
+
+
+def test_read_rows_lists_the_members_once_for_a_given_set(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.arange(6, dtype="<i4"), chunks=(2,), compressors=None))
+    counted = _ListingCounter(zf.filename)
+    names = set(counted.namelist())
+    _ListingCounter.listings = 0
+    read_rows(counted, "x", 1, 5, names=names)
+    assert _ListingCounter.listings == 0
+
+
+@pytest.mark.parametrize("start, stop", [(-1, 3), (3, 2), (0, 11)])
+def test_read_rows_refuses_a_range_outside_the_array(tmp_path, start, stop):
+    zf = _v2_zip(tmp_path, x=dict(data=np.arange(10, dtype="<i4"), chunks=(4,), compressors=None))
+    with pytest.raises(ValueError, match="rows"):
+        read_rows(zf, "x", start, stop)

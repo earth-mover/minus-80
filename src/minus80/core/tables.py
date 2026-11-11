@@ -88,6 +88,31 @@ def _check_no_nulls(table, identifier: str, name: str) -> None:
             raise ValueError(f"{identifier}: column {name} has {count} null values in {task.file.file_path}")
 
 
+def parquet_schema(
+    schema: pa.Schema,
+    *,
+    index_column: str,
+    geo: Mapping | None = None,
+    field_ids: Mapping[str, int] | None = None,
+) -> pa.Schema:
+    """``schema`` with the field ids and the pandas index and optional ``geo`` footer metadata of a data file.
+
+    ``field_ids`` maps each dotted column name to its Iceberg field id, as
+    ``pyiceberg.schema.index_by_name`` gives it.
+    """
+    if field_ids is not None:
+        schema = pa.schema([_with_field_id(f, field_ids) for f in schema], schema.metadata)
+    # pyarrow describes the columns from an empty frame, so no data is copied.
+    frame = schema.empty_table().to_pandas()
+    pandas_meta = json.loads(pa.Schema.from_pandas(frame, preserve_index=False).metadata[b"pandas"])
+    pandas_meta["index_columns"] = [index_column]
+    metadata = dict(schema.metadata or {})
+    metadata[b"pandas"] = json.dumps(pandas_meta).encode()
+    if geo is not None:
+        metadata[b"geo"] = json.dumps(geo).encode()
+    return schema.with_metadata(metadata)
+
+
 def write_parquet(
     table: pa.Table,
     path: str,
@@ -97,25 +122,9 @@ def write_parquet(
     field_ids: Mapping[str, int] | None = None,
     row_group_size: int = 1_000_000,
 ) -> int:
-    """Write ``table`` to ``path`` with pandas index and optional ``geo`` footer metadata.
-
-    ``field_ids`` maps each dotted column name to its Iceberg field id, as
-    ``pyiceberg.schema.index_by_name`` gives it. Returns the file size in bytes.
-    """
-    if field_ids is not None:
-        schema = pa.schema([_with_field_id(f, field_ids) for f in table.schema], table.schema.metadata)
-        table = table.cast(schema)
-    # pyarrow describes the columns from an empty frame, so no data is copied.
-    frame = table.schema.empty_table().to_pandas()
-    pandas_meta = json.loads(pa.Schema.from_pandas(frame, preserve_index=False).metadata[b"pandas"])
-    pandas_meta["index_columns"] = [index_column]
-    metadata = dict(table.schema.metadata or {})
-    metadata[b"pandas"] = json.dumps(pandas_meta).encode()
-    if geo is not None:
-        metadata[b"geo"] = json.dumps(geo).encode()
-    pq.write_table(
-        table.replace_schema_metadata(metadata), path, row_group_size=row_group_size
-    )
+    """Write ``table`` to ``path`` with the footer of :func:`parquet_schema`. Returns the file size in bytes."""
+    schema = parquet_schema(table.schema, index_column=index_column, geo=geo, field_ids=field_ids)
+    pq.write_table(table.cast(schema), path, row_group_size=row_group_size)
     with open(path, "rb") as f:
         return f.seek(0, 2)
 
@@ -400,6 +409,13 @@ class TableWriter:
                 transaction.set_properties(dict(properties))
             table = self.catalog.load_table(f"{self.namespace}.{name}")
         return table
+
+    def field_ids(self, name: str) -> dict[str, int]:
+        """The Iceberg field id of each dotted column name of the required table ``name``."""
+        from pyiceberg.schema import index_by_name
+
+        self._spec(name)
+        return index_by_name(self.catalog.load_table(f"{self.namespace}.{name}").schema())
 
     def data_prefix(self, name: str) -> str:
         """The URL prefix that holds the Parquet files of the required table ``name``."""

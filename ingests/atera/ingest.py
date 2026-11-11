@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
 from sources import S3, SAMPLES
-from transcripts import TRANSCRIPT_SCHEMA, codeword_table, tile_table, xenium_cell_id
+from transcripts import TRANSCRIPT_SCHEMA, codeword_table, write_tile, xenium_cell_id
 
 LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 
@@ -202,8 +203,12 @@ def write_transcripts(writer, bundle, tables: TableWriter, *, replace=False) -> 
     zf = bundle.member_zip(TRANSCRIPTS)
     total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
     with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _):
-        table = tile_table(zf, FIXTURE_TILE, codeword_table(zf), first_instance=0)
-        ref = tables.write("transcripts", table, replace=replace)
+        # The tile goes to a local file slice by slice, so memory holds one slice.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tile.parquet"
+            write_tile(zf, FIXTURE_TILE, codeword_table(zf), path, first_instance=0,
+                       field_ids=tables.field_ids("transcripts"))
+            ref = tables.write_parts("transcripts", [path], replace=replace)
         attr = table_attr(tables, "transcripts", ref)
         group = root.require_group("points").create_group("transcripts", overwrite=replace)
         transform = scale([1.0, 1.0, 1.0], ("x", "y", "z"), unit=UNIT)
