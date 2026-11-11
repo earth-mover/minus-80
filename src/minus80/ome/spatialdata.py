@@ -38,9 +38,10 @@ def _system(name: str, axes: Sequence[str], unit: str) -> dict:
 
 
 def _transform(kind: str, body: dict, input_axes: Sequence[str],
-               output_axes: Sequence[str], system: str, unit: str) -> dict:
+               output_axes: Sequence[str], system: str, unit: str,
+               input_system: str | None = None, input_unit: str = PLACEHOLDER_UNIT) -> dict:
     return {"type": kind, **body,
-            "input": _system("".join(input_axes), input_axes, PLACEHOLDER_UNIT),
+            "input": _system(input_system or "".join(input_axes), input_axes, input_unit),
             "output": _system(system, output_axes, unit)}
 
 
@@ -49,16 +50,20 @@ def container_attrs() -> dict:
 
 
 def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "global",
-          unit: str) -> dict:
-    """``unit`` is the unit of the output system's space axes."""
-    return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit)
+          unit: str, input_system: str | None = None, input_unit: str = PLACEHOLDER_UNIT) -> dict:
+    """``unit`` is the unit of the output system's space axes.
+
+    ``input_system`` and ``input_unit`` name the input system, for a transform that follows another in a sequence.
+    """
+    return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit, input_system, input_unit)
 
 
 def affine(matrix: np.ndarray, input_axes: Sequence[str], output_axes: Sequence[str],
-           *, system: str = "global", unit: str) -> dict:
+           *, system: str = "global", unit: str, input_system: str | None = None,
+           input_unit: str = PLACEHOLDER_UNIT) -> dict:
     # The spec omits the homogeneous last row.
     return _transform("affine", {"affine": np.asarray(matrix)[:-1].tolist()},
-                      input_axes, output_axes, system, unit)
+                      input_axes, output_axes, system, unit, input_system, input_unit)
 
 
 def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str = "global",

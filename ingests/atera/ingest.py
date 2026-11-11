@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import io
 import json
+import math
 import os
 import tempfile
 import time
@@ -28,12 +29,12 @@ from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_rep
 from minus80.core.progress import MIB
 from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, counting_reader, reader
-from minus80.core.pyramid import channel_names, create_level, write_page, write_stack
+from minus80.core.pyramid import channel_names, create_level, physical_sizes, write_page, write_stack
 from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
 from minus80.ome import channel_omero, image_attrs, label_attrs, rgb_omero
 from minus80.ome.spatialdata import (
-    PLACEHOLDER_UNIT, affine, points_attrs, raster_attrs, scale, sequence, shapes_attrs, write_table_keys,
+    affine, points_attrs, raster_attrs, scale, sequence, shapes_attrs, write_table_keys,
 )
 
 from bundle import (
@@ -63,8 +64,8 @@ REGION_KEY, INSTANCE_KEY = "region", "instance"
 TABLE_REGION = "cell_boundaries"
 #: The unit of the global coordinate system; PLAN.md, judgement call 4.
 UNIT = "micrometer"
-#: The distance between the 3D stack's planes, in micrometres; PLAN.md, "Axes, units, levels".
-Z_STEP = 3.0
+#: The coordinate system between the H&E alignment and the scale into ``global``.
+MORPHOLOGY_PIXEL = "morphology_pixel"
 #: The branches that each mode refuses to write.
 PROTECTED = {"fixture": ("main",), "full": ("fixture",)}
 #: The elements each mode writes, in order. In full mode the catalog elements come first, so a fault shows
@@ -101,7 +102,7 @@ MISSING_FROM_FIXTURE = [
 
 MISSING_FROM_FULL = [
     {"what": "images/overview_scan", "why": "The ingest does not write it. PLAN.md, judgement call 6, says when it can be placed."},
-    {"what": "images/qc_*", "why": "The ingest does not write them yet."},
+    {"what": "images/qc_*", "why": "The ingest does not write them."},
     *NOT_WRITTEN,
 ]
 
@@ -217,10 +218,21 @@ def level_scale(dims: Sequence[str], shapes: Sequence[Sequence[int]], held: Sequ
     return scale([pixel[d] * (full[i] / first[i]) for i, d in enumerate(dims)], dims, unit=UNIT)
 
 
+def file_pixel_sizes(tif, pixel_size: float, label: str) -> dict[str, float]:
+    """The micrometre sizes in the OME-XML of ``tif``; the sizes on ``x`` and ``y`` must equal ``pixel_size``."""
+    sizes = physical_sizes(tif.pages.first.description)
+    for axis in "xy":
+        if axis not in sizes or not math.isclose(sizes[axis], pixel_size, rel_tol=1e-6):
+            raise ValueError(f"{label}: pixel size {sizes.get(axis)} on {axis} differs from the experiment's {pixel_size}")
+    return sizes
+
+
 def write_morphology(
     writer: ElementWriter, bundle: Bundle, pixel_size: float, *, levels: Sequence[int] | None = None, concurrency: int,
 ) -> None:
     tiffs = [bundle.tiff(name) for name in MORPHOLOGY_2D]
+    for name, tif in zip(MORPHOLOGY_2D, tiffs, strict=True):
+        file_pixel_sizes(tif, pixel_size, name)
     pyramids = [tif.series[0].levels for tif in tiffs]
     shapes = [(len(tiffs), *level.shape) for level in pyramids[0]]
     names = channel_names(tiffs[0].pages.first.description)
@@ -243,14 +255,17 @@ def write_morphology_3d(
     writer: ElementWriter, bundle: Bundle, pixel_size: float, *, levels: Sequence[int] | None = None, concurrency: int,
 ) -> None:
     tif = bundle.tiff(MORPHOLOGY_3D)
-    # Each plane is a series of its own, with the whole pyramid as its levels.
-    planes = [series.levels for series in tif.series]
-    shapes = [(1, len(planes), *level.shape) for level in planes[0]]
+    z_step = file_pixel_sizes(tif, pixel_size, MORPHOLOGY_3D).get("z")
+    if z_step is None:
+        raise ValueError(f"{MORPHOLOGY_3D}: the OME-XML has no PhysicalSizeZ")
+    # One series holds every plane: its level k is a ``(z, y, x)`` array with one page for each plane.
+    pyramid = tif.series[0].levels
+    shapes = [(1, len(level.pages), *level.shape[1:]) for level in pyramid]
     names = channel_names(tif.pages.first.description)
-    omero = channel_omero([{"label": n} for n in names], max_value=np.iinfo(planes[0][0].dtype).max)
+    omero = channel_omero([{"label": n} for n in names], max_value=np.iinfo(pyramid[0].dtype).max)
 
     def write_level(group, level):
-        pages = [plane[level].pages[0] for plane in planes]
+        pages = list(pyramid[level].pages)
         array = create_level(group, f"s{level}", shapes[level], pages[0].dtype, dims=("c", "z", "y", "x"),
                              chunk=(pages[0].tilelength, pages[0].tilewidth), shard_planes=len(pages))
         write_stack(array, pages, (0,), concurrency=concurrency)
@@ -258,7 +273,7 @@ def write_morphology_3d(
     write_levels(writer, "images/morphology_3d", len(shapes), levels, write_level,
                  lambda held: raster_attrs(level_ome("morphology_3d", ("c", "z", "y", "x"), shapes, held, omero),
                                            level_scale(("c", "z", "y", "x"), shapes, held,
-                                                       {"c": 1.0, "z": Z_STEP, "y": pixel_size, "x": pixel_size})))
+                                                       {"c": 1.0, "z": z_step, "y": pixel_size, "x": pixel_size})))
 
 
 def read_alignment(text: str) -> np.ndarray:
@@ -278,8 +293,10 @@ def write_he(writer: ElementWriter, he_url: str, alignment_url: str, pixel_size:
     alignment = read_alignment(reader(as_url(alignment_url), wrap=wrap).read().decode())
     pyramid = open_tiff(reader(as_url(he_url), wrap=wrap)).series[0].levels
     shapes = [(page.samplesperpixel, page.imagelength, page.imagewidth) for page in (level.pages[0] for level in pyramid)]
+    # The two steps chain through the system of morphology pixels.
     transform = sequence(
-        [affine(alignment, ("x", "y"), ("x", "y"), unit=PLACEHOLDER_UNIT), scale([pixel_size] * 2, ("x", "y"), unit=UNIT)],
+        [affine(alignment, ("x", "y"), ("x", "y"), system=MORPHOLOGY_PIXEL, unit="pixel"),
+         scale([pixel_size] * 2, ("x", "y"), input_system=MORPHOLOGY_PIXEL, input_unit="pixel", unit=UNIT)],
         ("c", "y", "x"), unit=UNIT)
 
     def write_level(group, level):
@@ -291,7 +308,8 @@ def write_he(writer: ElementWriter, he_url: str, alignment_url: str, pixel_size:
     def attrs(held):
         # The matrix as published stays beside the transform that applies it.
         return {**raster_attrs(level_ome("he_image", ("c", "y", "x"), shapes, held, rgb_omero()), transform),
-                "alignment": alignment.tolist()}
+                "alignment": {"matrix": alignment.tolist(), "axes": ["x", "y"],
+                              "from": "he_image pixels", "to": "morphology pixels"}}
 
     write_levels(writer, "images/he_image", len(shapes), None, write_level, attrs)
 
@@ -475,6 +493,8 @@ def main() -> None:
                         help="fixture writes one level, one tile and the polygons; full writes every element")
     parser.add_argument("--branch", default="fixture")
     parser.add_argument("--concurrency", type=int, default=1, help="chunk writes that run at once inside an image or mask")
+    parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
+    parser.add_argument("--he-alignment", help="the H&E alignment CSV, a URL or a local path; by default 10x's object")
     parser.add_argument("--elements", help="write only these elements, comma-separated, of the mode's elements")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
@@ -484,6 +504,8 @@ def main() -> None:
         raise SystemExit("--rewrite never writes to main")
     if args.branch in PROTECTED[args.mode]:
         raise SystemExit(f"--mode {args.mode} never writes to the branch {args.branch}")
+    if args.rewrite and args.elements:
+        raise SystemExit("--elements does not apply to --rewrite; --rewrite names its own elements")
     if args.rewrite and args.mode == "full":
         raise SystemExit("--rewrite is an option of --mode fixture")
     try:
@@ -498,7 +520,8 @@ def main() -> None:
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     sample, layouts = SAMPLES[args.sample], LAYOUTS.read_text()
     bundle, counter = open_bundle(args.bundle or sample.url("_outs.zip", S3))
-    check_bundle_size(bundle, sample, layouts)
+    if not args.bundle:
+        check_bundle_size(bundle, sample, layouts)
     experiment = bundle.experiment()
     pixel_size = experiment["pixel_size"]
 
@@ -536,7 +559,8 @@ def main() -> None:
         print(f"rewritten: {', '.join(sorted(args.rewrite))}")
         return
     n = args.concurrency
-    he_image, he_alignment = (sample.url(suffix, S3) for suffix in (HE_IMAGE, HE_ALIGNMENT))
+    he_image = args.he_image or sample.url(HE_IMAGE, S3)
+    he_alignment = args.he_alignment or sample.url(HE_ALIGNMENT, S3)
     full = args.mode == "full"
     steps = {
         "tables/table": unless_held(writer, "tables/table", lambda: write_table(writer, bundle)),

@@ -14,17 +14,18 @@ from tiff_pyramids import picture, pyramid_tiff
 
 import ingest
 from bundle import MORPHOLOGY_2D, MORPHOLOGY_3D, Bundle
-from ingest import write_he, write_morphology, write_morphology_3d
+from ingest import read_alignment, write_he, write_morphology, write_morphology_3d
 from minus80.core import pyramid
 from minus80.core.elements import ElementWriter
 from minus80.core.icechunk_io import create_repo
 from minus80.core.remote import ReadCounter
 
 PIXEL = 0.2125
+Z_STEP = 2.5
 SHAPE, TILE, LEVELS, PLANES = (1300, 2100), (1024, 1024), 3, 3
 XML = """<?xml version="1.0"?>
 <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
-  <Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYZCT" Type="uint16">
+  <Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYZCT" Type="uint16" PhysicalSizeX="0.2125" PhysicalSizeY="0.2125">
 {channels}
   </Pixels></Image>
 </OME>"""
@@ -61,7 +62,8 @@ def bundle(tmp_path):
         path = tmp_path / f"c{channel}.tif"
         pyramid_tiff(path, 1, SHAPE, LEVELS, TILE, _xml(STAINS))
         members[name] = path.read_bytes()
-    pyramid_tiff(tmp_path / "3d.tif", PLANES, SHAPE, LEVELS, TILE, _xml(["DAPI"]))
+    stack = {"PhysicalSizeX": PIXEL, "PhysicalSizeY": PIXEL, "PhysicalSizeZ": Z_STEP, "Channel": {"Name": ["DAPI"]}}
+    pyramid_tiff(tmp_path / "3d.tif", PLANES, SHAPE, LEVELS, TILE, metadata=stack)
     members[MORPHOLOGY_3D] = (tmp_path / "3d.tif").read_bytes()
     members["experiment.spatial"] = json.dumps({"pixel_size": PIXEL}).encode()
     cells = io.BytesIO()
@@ -110,10 +112,6 @@ class CheckedWriter(ElementWriter):
 @pytest.fixture
 def writer(tmp_path):
     return CheckedWriter(_repo(tmp_path / "repo"), "work", counter=ReadCounter())
-
-
-def _plane_levels(bundle, name):
-    return [s.levels for s in bundle.tiff(name).series]
 
 
 def test_full_morphology_writes_every_level_and_marks_it_complete(bundle, writer):
@@ -187,11 +185,13 @@ def test_the_stack_is_written_one_shard_per_tile_and_every_plane_matches(bundle,
         array = root[f"images/morphology_3d/s{k}"]
         assert array.shape == (1, PLANES, *shape)
         assert array.shards == (1, PLANES, *TILE) and array.chunks == (1, 1, *TILE)
-        for z, levels in enumerate(_plane_levels(bundle, MORPHOLOGY_3D)):
-            np.testing.assert_array_equal(array[0, z], levels[k].pages[0].asarray())
+        pages = bundle.tiff(MORPHOLOGY_3D).series[0].levels[k].pages
+        assert len(pages) == PLANES
+        for z, page in enumerate(pages):
+            np.testing.assert_array_equal(array[0, z], page.asarray())
     ome = root["images/morphology_3d"].attrs["ome"]
     assert [a["name"] for a in ome["multiscales"][0]["axes"]] == ["c", "z", "y", "x"]
-    assert ome["multiscales"][0]["coordinateTransformations"][0]["scale"] == [1.0, 3.0, PIXEL, PIXEL]
+    assert ome["multiscales"][0]["coordinateTransformations"][0]["scale"] == [1.0, Z_STEP, PIXEL, PIXEL]
 
 
 def test_a_rerun_of_the_stack_decodes_no_held_level(bundle, writer, monkeypatch):
@@ -227,7 +227,9 @@ def test_he_is_channel_first_with_the_alignment_transform(tmp_path, writer, plan
     assert t["transformations"][0]["affine"] == ALIGNMENT[:-1].tolist()
     assert t["transformations"][0]["input"]["axes"][0]["name"] == "x"
     assert t["transformations"][1]["scale"] == [PIXEL, PIXEL]
-    assert group.attrs["alignment"] == ALIGNMENT.tolist()
+    assert t["transformations"][0]["output"] == t["transformations"][1]["input"]
+    assert group.attrs["alignment"] == {
+        "matrix": ALIGNMENT.tolist(), "axes": ["x", "y"], "from": "he_image pixels", "to": "morphology pixels"}
 
 
 def test_he_counts_its_bytes_in_the_writers_counter(tmp_path, writer):
@@ -274,22 +276,74 @@ def test_full_mode_refuses_the_fixture_branch_and_fixture_mode_refuses_main(monk
         _main(monkeypatch, tmp_path, "--mode", "fixture", "--branch", "main")
 
 
-def test_full_mode_writes_the_image_elements_named_by_elements(monkeypatch, tmp_path, bundle):
-    sample = ingest.SAMPLES["kidney"]
-    objects = tmp_path / "objects"
-    directory = objects / sample.version / sample.name
-    directory.mkdir(parents=True)
-    _rgb_pyramid(directory / f"{sample.name}{ingest.HE_IMAGE}", planar=False)
-    np.savetxt(directory / f"{sample.name}{ingest.HE_ALIGNMENT}", ALIGNMENT, delimiter=",")
-    monkeypatch.setattr(ingest, "S3", objects.as_uri())
-    monkeypatch.setattr(ingest, "check_bundle_size", lambda *a: None)
+def test_full_mode_writes_the_image_elements_named_by_elements_from_local_objects(monkeypatch, tmp_path, bundle):
+    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
+    _rgb_pyramid(he, planar=False)
+    np.savetxt(alignment, ALIGNMENT, delimiter=",")
     monkeypatch.chdir(tmp_path)
     _main(monkeypatch, tmp_path, "--mode", "full", "--branch", "full", "--bundle", str(tmp_path / "outs.zip"),
-          "--concurrency", "2", "--elements", "images/morphology,images/morphology_3d,images/he_image")
+          "--he-image", str(he), "--he-alignment", str(alignment), "--concurrency", "2",
+          "--elements", "images/morphology,images/morphology_3d,images/he_image")
     session = create_repo(tmp_path / "repo", [], open_existing=True).readonly_session(branch="full")
     root = zarr.open_group(session.store, mode="r")
     assert sorted(root["images"].group_keys()) == ["he_image", "morphology", "morphology_3d"]
     assert all(root[f"images/{n}"].attrs["minus80:complete"] for n in root["images"].group_keys())
+
+
+def test_elements_with_rewrite_is_refused(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="--elements"):
+        _main(monkeypatch, tmp_path, "--branch", "work", "--rewrite", "points/transcripts", "--elements", "root")
+
+
+def test_a_pixel_size_that_differs_from_the_files_is_refused(bundle, writer):
+    with pytest.raises(ValueError, match="pixel size"):
+        write_morphology(writer, bundle, 0.3, concurrency=1)
+    with pytest.raises(ValueError, match="pixel size"):
+        write_morphology_3d(writer, bundle, 0.3, concurrency=1)
+    assert not writer.has("images/morphology") and not writer.has("images/morphology_3d")
+
+
+# The kidney's alignment file: CRLF line ends, no header, no final newline.
+KIDNEY_ALIGNMENT = (
+    b"0.008566778149855193,1.288853807979006,914.1373717471324\r\n"
+    b"-1.288853807979006,0.008566778149855193,32040.595506861275\r\n0,0,1"
+)
+KIDNEY_PIXEL = 0.21249222
+
+
+def _apply(transform, point, steps=None):
+    """Apply the stored steps to ``point``, a dict by axis name; each step reads its input axes by name."""
+    for step in transform["transformations"][:steps]:
+        names = [a["name"] for a in step["input"]["axes"]]
+        vector = np.array([point[n] for n in names], dtype=float)
+        if step["type"] == "affine":
+            vector = np.array(step["affine"]) @ np.append(vector, 1.0)
+        else:
+            vector = vector * np.array(step["scale"])
+        point = dict(zip((a["name"] for a in step["output"]["axes"]), vector, strict=True))
+    return point
+
+
+def test_the_stored_transform_places_the_kidney_he_pixels(tmp_path, writer):
+    assert len(KIDNEY_ALIGNMENT) == 123
+    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
+    _rgb_pyramid(he, planar=False)
+    alignment.write_bytes(KIDNEY_ALIGNMENT)
+    write_he(writer, str(he), str(alignment), KIDNEY_PIXEL, concurrency=1)
+    root = zarr.open_group(writer.repo.readonly_session(branch="work").store, mode="r")
+    transform = root["images/he_image"].attrs["ome"]["multiscales"][0]["coordinateTransformations"][0]
+    assert [a["name"] for a in transform["input"]["axes"]] == ["c", "y", "x"]
+    for (x, y), morphology, micrometres in (
+        ((0, 0), (914.137, 32040.596), (194.247, 6808.377)),
+        ((23628, 0), (1116.553, 1587.558), (237.259, 337.344)),
+    ):
+        point = {"c": 0, "x": x, "y": y}
+        got = _apply(transform, point, steps=1)
+        assert (got["x"], got["y"]) == pytest.approx(morphology, abs=1e-3)
+        got = _apply(transform, point)
+        assert (got["x"], got["y"]) == pytest.approx(micrometres, abs=1e-3)
+    assert read_alignment(KIDNEY_ALIGNMENT.decode())[0, 2] == 914.1373717471324
 
 
 @pytest.fixture

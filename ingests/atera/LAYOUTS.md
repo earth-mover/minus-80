@@ -217,20 +217,38 @@ After the last level, the group attribute `minus80:complete` is `true`.
 
 - **`images/morphology`.** The four files `morphology_2d/ch000{0..3}_*.ome.tif` are four one-channel pyramids.
   Array `s<k>` is `(4, y, x)`. The channel names come from the OME-XML of the first file.
-- **`images/morphology_3d`.** The member `morphology_3d/ch0000_dapi_3d.ome.tif` has one TIFF series for each plane.
-  The levels of a series are the pyramid of that plane. Array `s<k>` is `(1, z, y, x)`.
+- **`images/morphology_3d`.** The member `morphology_3d/ch0000_dapi_3d.ome.tif` is one OME series.
+  Measured on 2026-11-11 for the kidney: axes ZYX, shape `(13, 33139, 56644)`, `uint16`.
+  It has 13 pages, and each page has 7 SubIFDs. tifffile gives 8 levels of the series. Each level is `(13, y, x)`.
+  The levels are `(13, 16569, 28322)`, `(13, 8284, 14161)`, `(13, 4142, 7080)`, `(13, 2071, 3540)`,
+  `(13, 1035, 1770)`, `(13, 517, 885)` and `(13, 258, 442)` after level 0. The tiles are 1024 pixels and the compression is 34712.
+  The OME `PhysicalSizeX` and `PhysicalSizeY` are 0.21249222 micrometres and `PhysicalSizeZ` is 3.0 micrometres.
+  The pages of level `k` are the planes of array `s<k>`, which is `(1, z, y, x)`.
   Chunks are `(1, 1, tile, tile)` and shards are `(1, z, tile, tile)`.
   The ingest decodes one tile from every plane and writes its shard once.
-  The planes are 3 micrometres apart, as PLAN.md, "Axes, units, levels", states.
-  The ingest gives the stack the pixel size of the 2D morphology on `y` and `x`.
+  The z step of the transform is the file's `PhysicalSizeZ`.
+- **Pixel sizes.** The ingest reads `PhysicalSizeX` and `PhysicalSizeY` of each 2D and 3D morphology file.
+  It stops when one differs from the pixel size of `experiment.spatial` by more than a relative 1e-6.
 - **`images/he_image`.** The objects beside the bundle are `<name>_he_image.ome.tif` and
   `<name>_he_imagealignment.csv`. The ingest decodes every level and stores it as `(3, y, x)` `uint8`.
-  The kidney file has interleaved samples and Deflate tiles. The brain file has separate planes and no compression.
-  The ingest reads the alignment as three rows of three numbers, separated by commas, with no header.
-  It stops on any other shape.
-  The matrix maps H&E pixels to morphology pixels, because its scale is the ratio of the two pixel sizes.
-  The transform of the element into `global` is a sequence: the affine of the matrix, then `Scale(pixel_size)`
-  with the morphology pixel size. The group attribute `alignment` holds the matrix as published.
+  The kidney file, measured on 2026-11-11, is one page of axes YXS, `(42169, 23628, 3)` `uint8`, with 6 SubIFDs.
+  Its levels after level 0 are `(21085, 11814)`, `(10543, 5907)`, `(5272, 2954)`, `(2636, 1477)`, `(1318, 739)` and `(659, 370)`.
+  The tiles are 1024 pixels, the samples are interleaved, and the compression is 8 (Adobe Deflate).
+  Its OME `PhysicalSizeX` is 0.27377097485986257 micrometres and `PhysicalSizeY` is 0.27377514651833773 micrometres.
+  The brain file has separate planes and no compression.
+- **The H&E alignment.** The kidney file has these 123 bytes, with CRLF line ends, no header and no final newline:
+  `0.008566778149855193,1.288853807979006,914.1373717471324`, then
+  `-1.288853807979006,0.008566778149855193,32040.595506861275`, then `0,0,1`.
+  It is a 3 by 3 homogeneous matrix in `(x, y)` order. It maps H&E pixel coordinates to morphology pixel coordinates.
+  The ingest reads it as three rows of three numbers, separated by commas, and stops on any other shape.
+  The transform of the element into `global` is a sequence. The first step is the affine of the matrix, from `x, y`
+  in H&E pixels to `x, y` in the system `morphology_pixel`. The second step is `Scale(pixel_size)` from that
+  system to `global`, with the morphology pixel size.
+  The matrix scale is 1.288854. Times 0.21249222 this gives 0.27387 micrometres for one H&E pixel.
+  The OME pixel size of the H&E file is 0.27377 micrometres. The two differ by 0.04 percent.
+  The element stores the transform only, and not the OME pixel size.
+  The group attribute `alignment` holds `matrix` as published, its `axes` (`["x", "y"]`),
+  and `from` and `to`: `he_image pixels` and `morphology pixels`.
 - **Gate.** The `images` gate compares 4 sampled tiles of every stored level of each image element with tifffile.
   For the stack it compares every plane at those tiles.
   It also checks that a group marked complete holds every level of the source.

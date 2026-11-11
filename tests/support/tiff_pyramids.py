@@ -17,17 +17,28 @@ def picture(shape, dtype=np.uint16, seed=0):
     return np.clip(out, 0, 255).astype(dtype)
 
 
-def pyramid_tiff(path, planes: int, shape=(700, 1300), levels=3, tile=(256, 256), description=None):
-    """Write `planes` planes of lossless JPEG 2000 tiles, each with `levels` pyramid levels.
+def pyramid_tiff(
+    path, planes: int, shape=(700, 1300), levels=3, tile=(256, 256), description=None, metadata=None
+):
+    """Write lossless JPEG 2000 tiles with `levels` pyramid levels.
 
-    `description` is the first page's ImageDescription, as OME-XML is in an OME-TIFF.
+    One plane is a 2D page whose first `description` is the ImageDescription, as OME-XML is in an
+    OME-TIFF. With `metadata` (OME keys, such as `PhysicalSizeZ`) the planes are one ZYX OME series,
+    each page with one SubIFD per level.
     """
     jp2 = dict(tile=tile, compression="jpeg2000", compressionargs={"reversible": True})
-    with tifffile.TiffWriter(path, ome=False) as tw:
-        for z in range(planes):
-            data = picture(shape, seed=z)
-            extra = {"description": description} if description and z == 0 else {}
-            tw.write(data, subifds=levels - 1, **jp2, **extra)
+    data = np.stack([picture(shape, seed=z) for z in range(planes)])
+    if metadata is None and planes == 1:
+        with tifffile.TiffWriter(path, ome=False) as tw:
+            extra = {"description": description} if description else {}
+            level = data[0]
+            tw.write(level, subifds=levels - 1, **jp2, **extra)
             for _ in range(levels - 1):
-                data = data[::2, ::2]
-                tw.write(data, subfiletype=1, **jp2)
+                level = level[::2, ::2]
+                tw.write(level, subfiletype=1, **jp2)
+        return
+    with tifffile.TiffWriter(path, ome=True) as tw:
+        tw.write(data, subifds=levels - 1, metadata={"axes": "ZYX", **(metadata or {})}, **jp2)
+        for _ in range(levels - 1):
+            data = data[:, ::2, ::2]
+            tw.write(data, subfiletype=1, **jp2)

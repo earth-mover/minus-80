@@ -273,3 +273,24 @@ def channel_names(ome_xml: str) -> list[str]:
         for el in image.iter()
         if el.tag.endswith("}Channel") or el.tag == "Channel"
     ]
+
+
+_MICROMETRE = {"µm", "μm", "um", "micrometer"}
+
+
+def physical_sizes(ome_xml: str) -> dict[str, float]:
+    """Return the micrometre `PhysicalSize` of each axis that the first `Image` states, keyed `x`, `y`, `z`."""
+    image = next(
+        el
+        for el in ET.fromstring(ome_xml).iter()
+        if el.tag.endswith("}Image") or el.tag == "Image"
+    )
+    pixels = next(el for el in image.iter() if el.tag.endswith("}Pixels") or el.tag == "Pixels")
+    sizes = {}
+    for axis in "XYZ":
+        if (value := pixels.get(f"PhysicalSize{axis}")) is None:
+            continue
+        if (unit := pixels.get(f"PhysicalSize{axis}Unit", "µm")) not in _MICROMETRE:
+            raise ValueError(f"PhysicalSize{axis} is in {unit}, not micrometres")
+        sizes[axis.lower()] = float(value)
+    return sizes

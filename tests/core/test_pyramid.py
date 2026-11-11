@@ -16,6 +16,7 @@ from minus80.core.pyramid import (
     channel_names,
     check_page,
     create_level,
+    physical_sizes,
     write_page,
     write_stack,
 )
@@ -247,6 +248,22 @@ def test_a_tile_smaller_than_the_chunk_still_writes_the_level(tmp_path):
         )
         write_page(array, page, (0,))
         np.testing.assert_array_equal(array[0], page.asarray())
+
+
+def test_physical_sizes_come_from_the_first_images_pixels():
+    xml = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        '<Image><Pixels PhysicalSizeX="0.5" PhysicalSizeY="0.25" PhysicalSizeZ="3.0"/></Image>'
+        '<Image><Pixels PhysicalSizeX="9"/></Image></OME>'
+    )
+    assert physical_sizes(xml) == {"x": 0.5, "y": 0.25, "z": 3.0}
+    assert physical_sizes(xml.replace(' PhysicalSizeZ="3.0"', "")) == {"x": 0.5, "y": 0.25}
+
+
+def test_a_physical_size_in_another_unit_is_refused():
+    xml = '<OME><Image><Pixels PhysicalSizeX="1" PhysicalSizeXUnit="mm"/></Image></OME>'
+    with pytest.raises(ValueError, match="mm"):
+        physical_sizes(xml)
 
 
 def test_channel_names_from_ome_xml():

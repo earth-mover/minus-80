@@ -130,7 +130,7 @@ sizes:
 | `cells.zarr.zip` | Zarr v2 "CellSegmentationDataset 6.3": two `uint32` masks, two polygon sets, a gridded polygon copy, a cell summary | 0.5 GB | `labels/*`, `shapes/*`, chunks copied |
 | `cell_feature_matrix.zarr.zip` | Zarr v2 AnnData: CSR `X` of `int32`, `obs`, `var`, `obsm` | 1.3 GB | `tables/table`, chunks copied |
 | `csc_cell_feature_matrix.zarr.zip` | the same matrix by column | 1.1 GB | out: a copy of `X` |
-| `transcripts.zarr.zip` | Zarr v2 grid of 28 to 32 tiles, six column arrays each | 12.8 GB | `points/transcripts`, as an Iceberg table and a `uint8` copy |
+| `transcripts.zarr.zip` | Zarr v2 grid of 30 to 32 tiles, six column arrays each | 12.8 GB | `points/transcripts`, as an Iceberg table and a `uint8` copy |
 | `binned_transcripts.zarr.zip` | per-gene 2D bins for the viewer | 2.2 GB | out: derived from the transcripts |
 | `diffexp_genes/*.csv` | two tables, Azimuth and graph clustering | 36 MB | Iceberg tables |
 | `experiment.spatial`, `metrics_summary_*.csv`, `*_fov_locations.json` | JSON and CSV | 25 kB | root attributes |
@@ -379,7 +379,7 @@ All on 2026-11-10, from a laptop, with range requests only.
   members, all stored, in all four bundles.
 - **Inner stores.** The kidney and brain bundles' five Zarr zips were
   indexed in full: every member stored, every array's metadata read. The
-  transcripts store has 28 tiles (kidney) and 32 (brain) of six arrays each.
+  transcripts store has 30 tiles (kidney) and 32 (brain) of six arrays each.
   The counts store's `X` is CSR with one-million-element chunks. The masks
   are `(33139, 56644)` and `(42548, 61369)` `uint32` in blosc-zstd.
 - **Images.** The ten morphology TIFFs were parsed: 8 levels, 1024 tiles,
@@ -623,7 +623,7 @@ Risks:
   element as tiles is untested. It does not change the store. The elements declare
   `ome.version` `0.5-dev-spatialdata`. "Stage two", item 6, tests one element.
 - **Node count.** About 15 images with 8 levels, 2 labels, 2 shapes and one
-  table. The points have one part per source tile, 28 to 32 parts. That is a
+  table. The points have one part per source tile, 30 to 32 parts. That is a
   few hundred nodes per repo, far under the 500,000-node snapshot cache.
 
 ## Stage two
@@ -692,16 +692,16 @@ Each item gives the problem, the fix and the check.
      the full ingest. Record both results.
 7. **The H&E image.**
    - Problem: the kidney H&E has Deflate tiles. The brain H&E has
-     uncompressed planar tiles. Every Zarr reader has a codec for both. The
+     uncompressed planar tiles. The Zarr core has no codec for the zlib
+     stream of a Deflate tile. It has one for uncompressed planar tiles. The
      "Native ingests" rule says to copy a chunk's bytes unchanged when one
      can.
      `write_page` always decodes. Its default chunk is `(1024, 1024)`,
      whatever the H&E tile size is.
-   - Fix: copy the tiles unchanged or decode them. The "Native ingests" rule
-     decides, and judgement call 5 records the reason. The ingest passes the
+   - Fix: the ingest decodes the H&E of every sample, one rule for all four
+     samples. Judgement call 5 records the reason. The ingest passes the
      page's tile size as the chunk, as `measure.py` does.
-   - Check: the `images` gate on every H&E level, against tifffile. A copy
-     is also compared byte for byte with the source tiles.
+   - Check: the `images` gate on every H&E level, against tifffile.
 8. **Concurrent chunk writes and a second measurement.**
    - Problem: each written chunk took 0.55 s on the VM. The cause is not
      measured. Step 2 measured no concurrent chunk writes.

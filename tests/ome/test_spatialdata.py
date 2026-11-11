@@ -33,6 +33,14 @@ def test_every_space_axis_has_a_unit_because_spatialdata_refuses_one_without():
     assert [ax["unit"] for ax in q["output"]["axes"]] == ["micrometer", "micrometer"]
 
 
+def test_a_transform_can_start_in_the_system_that_another_ends_in():
+    first = affine(np.eye(3), ("x", "y"), ("x", "y"), system="morphology_pixel", unit="pixel")
+    second = scale([2.0, 2.0], ("x", "y"), input_system="morphology_pixel", input_unit="pixel", unit="micrometer")
+    assert first["output"] == second["input"]
+    assert [a["unit"] for a in first["output"]["axes"]] == ["pixel", "pixel"]
+    assert second["output"]["name"] == "global"
+
+
 def test_raster_attrs_sets_the_spatialdata_version_and_element_transform():
     ome = image_attrs(name="m", dims=("c", "y", "x"), level_shapes=[(4, 100, 200), (4, 50, 100)], scale={"c": 1, "y": 1, "x": 1})
     attrs = raster_attrs(ome, scale([1, 0.2, 0.2], ("c", "y", "x"), unit="micrometer"))

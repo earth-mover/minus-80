@@ -110,11 +110,11 @@ def gate_images(root, bundle, he_url: str) -> list[str]:
             entries = [(f"channel {c}", pyramid[level].pages[0], (c,)) for c, pyramid in enumerate(pyramids)]
             errors += check_level(f"morphology s{level}", root[f"images/morphology/s{level}"], entries)
     if "images/morphology_3d" in root:
-        # Each plane is a series of its own, with the whole pyramid as its levels.
-        planes = [series.levels for series in bundle.tiff(MORPHOLOGY_3D).series]
-        errors += level_errors(root, "images/morphology_3d", len(planes[0]))
+        # One series holds every plane: its level k has one page for each plane.
+        pyramid = bundle.tiff(MORPHOLOGY_3D).series[0].levels
+        errors += level_errors(root, "images/morphology_3d", len(pyramid))
         for level in stored_levels(root["images/morphology_3d"]):
-            entries = [(f"plane {z}", plane[level].pages[0], (0, z)) for z, plane in enumerate(planes)]
+            entries = [(f"plane {z}", page, (0, z)) for z, page in enumerate(pyramid[level].pages)]
             errors += check_level(f"morphology_3d s{level}", root[f"images/morphology_3d/s{level}"], entries)
     if "images/he_image" in root:
         pyramid = open_tiff(reader(as_url(he_url))).series[0].levels
