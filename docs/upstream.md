@@ -81,6 +81,7 @@ retired in favour of virtual-tiff.
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
 | A zipped Zarr store is copied by streaming its members in file order, so each chunk has to be decoded from bytes as it arrives. zarr reads chunks only by asking a store for keys, and has no public call that decodes a chunk's bytes given an array's metadata, so `zarr_v2` decodes them with numcodecs, from the array's `.zarray`. | `minus80.parsers.zip.zarr_v2` | Expose decoding a chunk's bytes with an array's codec pipeline. | no issue found |
+| `write_nodes` writes each node's `zarr.json` as bytes, each kind encoded once, rather than through `zarr.create_hierarchy`, which encodes every node's metadata separately (`to_buffer_dict` and `json.dumps` per node, about half its time): 1.57 s against 0.34 s for one RxRx19a plate of 12,093 nodes. It skips zarr's node checks, so the caller writes every group. | `minus80.core.nodes` | Encode each distinct metadata object once in `create_hierarchy`. | no issue found |
 | `submit` starts a coroutine on zarr's IO loop through the private `zarr.core.sync._get_loop`, so range GETs can be cancelled and the loop's daemon thread does not hold the interpreter open. `zarr.core.sync.sync` runs a coroutine to completion but returns no handle to cancel it. | `minus80.core.aio` | Expose a public way to submit a coroutine to zarr's IO loop and get a cancellable future. | no issue found |
 
 ## Python standard library
