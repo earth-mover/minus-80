@@ -14,13 +14,11 @@ from contextlib import contextmanager
 import zarr
 
 from .icechunk_io import commit
-from .progress import Progress
+from .progress import MIB, Progress
 from .remote import ReadCounter
 
 #: The group attribute that is true once every unit of the element is committed.
 COMPLETE = "minus80:complete"
-
-MIB = 1 << 20
 
 
 class ElementWriter:

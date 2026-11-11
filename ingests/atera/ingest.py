@@ -22,6 +22,7 @@ import zarr
 from anndata.io import write_elem
 from minus80.core.elements import ElementWriter
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
+from minus80.core.progress import MIB
 from minus80.core.registry import as_url, file_path
 from minus80.core.remote import ReadCounter, counting_reader
 from minus80.core.pyramid import channel_names, create_level, write_page
@@ -48,7 +49,6 @@ FIXTURE_TILE = "0,0"
 REGION_KEY, INSTANCE_KEY = "region", "instance"
 #: The unit of the global coordinate system; PLAN.md, judgement call 4.
 UNIT = "micrometer"
-MIB = 1 << 20
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
 

@@ -80,3 +80,4 @@ def range_server():
     yield server
     server.released.set()
     httpd.shutdown()
+    httpd.server_close()

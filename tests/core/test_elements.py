@@ -56,6 +56,15 @@ def test_a_unit_that_raises_is_not_committed(repo, writer):
     assert not writer.has("images/m/s0")
 
 
+def test_a_unit_written_again_after_a_failed_one_commits(writer):
+    with pytest.raises(RuntimeError), writer.unit("images/m/s0", "level 0") as (root, _):
+        _write_level(root, 0)
+        raise RuntimeError
+    with writer.unit("images/m/s0", "level 0") as (root, _):
+        _write_level(root, 0)
+    assert writer.has("images/m/s0")
+
+
 def test_a_unit_commits_with_its_message(repo, writer):
     with writer.unit("images/m/s0", "level 0") as (root, _):
         _write_level(root, 0)

@@ -23,6 +23,9 @@ import sys
 import time
 from typing import Self
 
+#: The scale that shows a byte count in MiB.
+MIB = 1 << 20
+
 
 class Progress:
     """Report on an interval while a long job runs, and once when it finishes.

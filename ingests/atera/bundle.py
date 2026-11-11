@@ -32,7 +32,7 @@ class Bundle:
     """The members of one ``outs.zip``, at a local path or a URL."""
 
     def __init__(self, location: str | Path, file=None):
-        self.file = file or reader(as_url(location))
+        self.file = file if file is not None else reader(as_url(location))
         self.names = zipfile.ZipFile(self.file).namelist()
 
     def member_file(self, name: str):

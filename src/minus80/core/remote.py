@@ -55,7 +55,10 @@ def reader(url: str, *, registry: ObjectStoreRegistry | None = None, block: int 
 
 
 class ReadCounter:
-    """The bytes and requests a reader's store served, and the progress line those bytes advance."""
+    """The bytes the store served, its call count and the progress line those bytes advance.
+
+    ``requests`` counts store calls, not HTTP requests: one ``get_ranges`` call can send several.
+    """
 
     def __init__(self):
         self.bytes, self.requests, self.progress = 0, 0, None
@@ -64,6 +67,7 @@ class ReadCounter:
         return _CountedStore(store, self)
 
     def _count(self, size: int) -> None:
+        # One store call; ``head`` is a call of 0 bytes.
         self.requests += 1
         self.bytes += size
         if size and self.progress is not None:

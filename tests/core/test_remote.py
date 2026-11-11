@@ -5,12 +5,13 @@ from minus80.core.remote import counting_reader
 DATA = bytes(range(256)) * 64
 
 
-def test_counting_reader_counts_ranges_and_heads(range_server):
+def test_counting_reader_counts_one_call_per_request_for_a_single_block_read(range_server):
     range_server.files["/f.bin"] = DATA
     reader, counter = counting_reader(f"{range_server.url}/f.bin")
     reader.seek(10)
     assert reader.read(100) == DATA[10:110]
     assert counter.bytes >= 100
+    # Calls equal HTTP requests only because this read is one HEAD and one single-range GET.
     assert counter.requests == len(range_server.requests)
 
 

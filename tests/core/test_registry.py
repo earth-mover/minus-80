@@ -136,6 +136,7 @@ def region_server():
     yield f"http://127.0.0.1:{httpd.server_address[1]}", answers, hits
     bucket_region.cache_clear()
     httpd.shutdown()
+    httpd.server_close()
 
 
 @pytest.mark.parametrize("status", [200, 301, 403])
