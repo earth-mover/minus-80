@@ -26,6 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 HERE = Path(__file__).parent
 #: The container that builds the environment: uv and git on Debian, for x86 and ARM.
@@ -40,12 +41,27 @@ UPLOAD = "<git archive of HEAD>"
 LOG_WINDOW_MS = 120_000
 #: The longest the launcher reads the log after the task ends, and the empty reads in a row that end it earlier.
 DRAIN_SECONDS, DRAIN_EMPTY_READS = 60, 2
+#: Consecutive failed status or log calls, while the task runs, that end the run. 30 polls of 10 s are five minutes,
+#: longer than the log service lags behind a new VM; before the task runs no failure counts.
+MAX_FAILURES = 30
+#: Task states of a batch job, as ``coiled batch wait`` counts them: ``assigned`` and ``running`` both mean the VM works.
+RUNNING_TASK = ("assigned", "running")
+#: The longest the launcher waits for the cluster to report ``stopping`` or ``stopped`` after the stop request.
+STOP_SECONDS = 60
 #: Coiled prefixes each line of a batch task's output with this marker.
 BATCH_MARKER = re.compile(r"^__BATCH \d+\.\d+__ ?")
 
 
-class ClusterStopped(Exception):
-    """The cluster ended and the task has no exit code."""
+class StatusError(Exception):
+    """The service refused a status request; the client returns the error body instead of raising."""
+
+
+class Status(NamedTuple):
+    """The cluster's state, the task's state and the task's exit code; each is ``None`` until it is known."""
+
+    cluster: str | None
+    task: str | None
+    code: int | None
 
 
 @dataclass(frozen=True)
@@ -147,7 +163,8 @@ def code_export():
 class CoiledVm:
     """One Coiled batch job on one VM: the task runs on the scheduler's VM, so no second VM starts."""
 
-    def __init__(self):
+    def __init__(self, clock=time.monotonic, sleep=time.sleep):
+        self.clock, self.sleep = clock, sleep
         self.workspace = self.cluster_id = self.job_id = self.latest = None
         self.seen: set = set()
 
@@ -183,22 +200,20 @@ class CoiledVm:
             self.seen = {key for key in self.seen if key[0] >= floor}
         return lines
 
-    def exit_code(self) -> int | None:
-        """The task's exit code, or ``None`` while it runs; ``ClusterStopped`` when the cluster ended without one."""
+    def poll(self) -> Status:
+        """The cluster state, the task state and the task's exit code."""
         import coiled
 
         jobs = coiled.batch.status(cluster=self.cluster_id, workspace=self.workspace)
+        if not isinstance(jobs, list):
+            raise StatusError(f"unexpected status reply: {str(jobs)[:200]}")
         if not jobs:
-            return None
+            return Status(None, None, None)
         task = jobs[0]["tasks"][0] if jobs[0]["tasks"] else {"exit_code": None, "state": None}
-        if task["exit_code"] is not None:
-            return task["exit_code"]
-        if task["state"] in ("error", "done"):
-            return {"error": 1, "done": 0}[task["state"]]
-        state = jobs[0].get("cluster_state")
-        if state in ("stopped", "error"):
-            raise ClusterStopped(f"the cluster is {state} and the task has no exit code")
-        return None
+        code = task["exit_code"]
+        if code is None:
+            code = {"error": 1, "done": 0}.get(task["state"])
+        return Status(jobs[0].get("cluster_state"), task["state"], code)
 
     def state(self) -> str:
         import coiled.v2
@@ -213,59 +228,99 @@ class CoiledVm:
         import coiled
         from coiled.errors import DoesNotExist
 
-        failure = None
+        failure, gone = None, False
         try:
             target = {"cluster_id": self.cluster_id} if self.cluster_id else {"name": name}
             coiled.delete_cluster(**target, workspace=self.workspace)
         except DoesNotExist:
-            pass
+            gone = True
         except Exception as error:
             failure = error
-        state = self.state() if self.cluster_id else "unknown (no cluster id)"
-        if failure is not None and state != "stopped":
-            print(f"could not stop the cluster {name}: {type(failure).__name__}: {failure}; stop it by hand",
-                  flush=True)
+        # The state read right after the request is the old one, so wait for it to change.
+        state = "stopped" if gone else self.state_after_stop()
         print(f"cluster {name}: {state}", flush=True)
+        if state not in ("stopping", "stopped"):
+            cause = f" ({type(failure).__name__}: {failure})" if failure is not None else ""
+            print(f"warning: cluster {name} (id {self.cluster_id}) is {state} {STOP_SECONDS} s after the stop "
+                  f"request{cause}; stop it by hand", flush=True)
+
+    def state_after_stop(self) -> str:
+        if not self.cluster_id:
+            return "unknown (no cluster id)"
+        began = self.clock()
+        while True:
+            state = self.state()
+            if state in ("stopping", "stopped") or self.clock() - began >= STOP_SECONDS:
+                return state
+            self.sleep(2)
 
 
 def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock=time.monotonic, sleep=time.sleep,
         interval: float = 10) -> int:
-    """Start ``job`` on ``vm``, forward its lines, and return its exit code; the VM stops whatever happens."""
+    """Start ``job`` on ``vm``, forward its lines, and return its exit code; the VM stops whatever happens.
 
-    def forward(lines):
-        for line in lines:
-            out(line.replace(token, "***"))
+    Nothing asks for the log before a task runs. A failed call is one line and the next poll tries again.
+    """
+
+    def say(text):
+        out(text.replace(token, "***"))
+
+    def failed(what, error, streak):
+        if streak == 1 or streak % 10 == 0:
+            say(f"{what}: {type(error).__name__}: {error}")
 
     def drain():
         # The log lags the task, so read until it stays empty before the VM, and its log, go.
-        began, empty = clock(), 0
+        began, empty, streak = clock(), 0, 0
         while empty < DRAIN_EMPTY_READS and clock() - began < DRAIN_SECONDS:
-            lines = vm.new_lines()
-            forward(lines)
+            try:
+                lines, streak = vm.new_lines(), 0
+            except Exception as error:
+                lines, streak = [], streak + 1
+                failed("logs", error, streak)
+            for line in lines:
+                say(line)
             empty = 0 if lines else empty + 1
             if empty < DRAIN_EMPTY_READS:
                 sleep(interval)
 
-    started = clock()
+    started, status, shown = clock(), Status(None, None, None), {}
+    poll_streak = log_streak = 0
     try:
         vm.start(job, token)
         while True:
-            forward(vm.new_lines())
             try:
-                code, note = vm.exit_code(), None
-            except ClusterStopped as stopped:
-                code, note = 1, str(stopped)
-            if code is not None:
+                status, poll_streak = vm.poll(), 0
+            except Exception as error:
+                poll_streak += 1
+                failed("status", error, poll_streak)
+            for label, value in (("cluster", status.cluster), ("task", status.task)):
+                if value is not None and shown.get(label) != value:
+                    shown[label] = value
+                    say(f"{label}: {value}")
+            if status.code is not None or status.cluster in ("stopped", "error"):
                 drain()
-                if note:
-                    out(note)
-                return code
+                if status.code is None:
+                    say(f"the cluster is {status.cluster} and the task has no exit code")
+                return 1 if status.code is None else status.code
+            running = status.task in RUNNING_TASK
+            if running:
+                try:
+                    for line in vm.new_lines():
+                        say(line)
+                    log_streak = 0
+                except Exception as error:
+                    log_streak += 1
+                    failed("logs", error, log_streak)
+            if running and max(poll_streak, log_streak) >= MAX_FAILURES:
+                say(f"giving up: {max(poll_streak, log_streak)} calls in a row failed while the task runs")
+                return 1
             if clock() - started >= job.minutes * 60:
-                out(f"the time limit of {job.minutes} minutes passed; stopping the VM")
+                say(f"the time limit of {job.minutes} minutes passed; stopping the VM")
                 return TIME_LIMIT_CODE
             sleep(interval)
     except Exception as error:
-        out(f"{type(error).__name__}: {error}".replace(token, "***"))
+        say(f"{type(error).__name__}: {error}")
         return 1
     finally:
         vm.stop(job.name)

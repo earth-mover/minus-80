@@ -11,35 +11,51 @@ import launch
 TOKEN = "fake-token-0123456789"
 
 
+STARTING = launch.Status("starting", None, None)
+PENDING = launch.Status("starting", "pending", None)
+RUNNING = launch.Status("ready", "running", None)
+
+
+def done(code):
+    return launch.Status("ready", "done", code)
+
+
 class FakeVm:
     """The thing that starts and stops a VM, scripted: the launcher's own logic runs for real.
 
-    ``reads`` are the results of the successive ``new_lines`` calls; later calls return nothing.
-    ``events`` records the order of the calls.
+    ``states`` are the results of the successive ``poll`` calls and ``reads`` those of ``new_lines``; the last state
+    repeats, a read list that runs out gives nothing, and an exception in either list is raised.
+    A log read in a state with no running task raises ``error``, as the log service does.
     """
 
-    def __init__(self, reads=(), code=0, start_error=None, running_polls=0, ended=None):
-        self.reads, self.code, self.start_error, self.running_polls = list(reads), code, start_error, running_polls
-        self.ended, self.started, self.stopped, self.events = ended, [], [], []
+    def __init__(self, reads=(), states=None, code=0, start_error=None, error=None):
+        self.reads, self.states = list(reads), list(states or [done(code)])
+        self.start_error, self.error = start_error, error
+        self.started, self.stopped, self.events, self.read_in = [], [], [], []
+        self.status = launch.Status(None, None, None)
 
     def start(self, job, token):
         self.started.append((job, token))
         if self.start_error:
             raise self.start_error
 
+    def poll(self):
+        self.events.append("poll")
+        item = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        if isinstance(item, Exception):
+            raise item
+        self.status = item
+        return item
+
     def new_lines(self):
         self.events.append("read")
-        return self.reads.pop(0) if self.reads else []
-
-    def exit_code(self):
-        if self.ended:
-            raise self.ended
-        if self.running_polls is None:
-            return None
-        if self.running_polls:
-            self.running_polls -= 1
-            return None
-        return self.code
+        self.read_in.append(self.status)
+        if self.error and self.status.task not in ("assigned", "running", "done", "error"):
+            raise self.error
+        item = self.reads.pop(0) if self.reads else []
+        if isinstance(item, Exception):
+            raise item
+        return item
 
     def stop(self, name):
         self.events.append("stop")
@@ -67,6 +83,11 @@ def _run(vm, job=None, step=60, **kwargs):
     lines = []
     code = launch.run(vm, job or _job(), TOKEN, out=lines.append, clock=Ticks(step), sleep=lambda s: None, **kwargs)
     return code, lines
+
+
+def _remote(lines):
+    """The lines of ``lines`` that are not the launcher's state lines."""
+    return [line for line in lines if not line.startswith(("cluster:", "task:"))]
 
 
 def _token_file(tmp_path, text=TOKEN + "\n"):
@@ -127,29 +148,35 @@ def test_two_dry_runs_print_two_names(tmp_path, capsys):
 
 
 def test_every_forwarded_line_has_the_token_replaced(tmp_path):
-    code, lines = _run(FakeVm([[f"token is {TOKEN}", "plain", f"{TOKEN} and {TOKEN}"]]))
+    code, lines = _run(FakeVm([[f"token is {TOKEN}", "plain", f"{TOKEN} and {TOKEN}"]]), step=1)
     assert code == 0
-    assert lines == ["token is ***", "plain", "*** and ***"]
+    assert _remote(lines) == ["token is ***", "plain", "*** and ***"]
 
 
 def test_the_exit_code_is_the_scripts_and_the_vm_stops_when_the_script_fails():
     vm = FakeVm([["boom"]], code=3)
-    code, lines = _run(vm)
-    assert (code, lines, vm.stopped) == (3, ["boom"], ["atera-x"])
+    code, lines = _run(vm, step=1)
+    assert (code, vm.stopped) == (3, ["atera-x"]) and "boom" in lines
 
 
 def test_the_vm_stops_when_the_script_passes():
-    vm = FakeVm(code=0, running_polls=2)
+    vm = FakeVm(states=[RUNNING, RUNNING, done(0)])
     assert _run(vm)[0] == 0
     assert vm.stopped == ["atera-x"]
 
 
 def test_the_vm_stops_and_the_exit_is_non_zero_when_the_time_limit_passes():
-    vm = FakeVm(running_polls=None)
+    vm = FakeVm(states=[RUNNING])
     code, lines = _run(vm, _job(minutes=5))
     assert code == launch.TIME_LIMIT_CODE != 0
     assert vm.stopped == ["atera-x"]
     assert any("5 minutes" in line for line in lines)
+
+
+def test_the_time_limit_applies_while_the_cluster_starts_and_no_log_is_requested():
+    vm = FakeVm(states=[STARTING])
+    code, lines = _run(vm, _job(minutes=5))
+    assert code == launch.TIME_LIMIT_CODE and vm.stopped == ["atera-x"] and vm.read_in == []
 
 
 def test_the_vm_stops_when_the_launcher_is_interrupted():
@@ -157,7 +184,7 @@ def test_the_vm_stops_when_the_launcher_is_interrupted():
         def new_lines(self):
             raise KeyboardInterrupt
 
-    vm = Interrupted()
+    vm = Interrupted(states=[RUNNING])
     with pytest.raises(KeyboardInterrupt):
         _run(vm)
     assert vm.stopped == ["atera-x"]
@@ -197,25 +224,80 @@ def test_the_call_text_shows_the_call_with_stars_for_the_secret():
 
 
 def test_the_drain_reads_until_two_reads_in_a_row_are_empty_and_then_stops_the_vm():
-    vm = FakeVm([[], ["last"], [], ["late"], [], [], ["never"]], code=0)
+    vm = FakeVm([["last"], [], ["late"], [], [], ["never"]], code=0)
     code, lines = _run(vm, step=1)
-    assert (code, lines) == (0, ["last", "late"])
-    assert vm.events[-1] == "stop" and vm.events.count("read") == 6
+    assert (code, _remote(lines)) == (0, ["last", "late"])
+    assert vm.events[-1] == "stop" and vm.events.count("read") == 5
 
 
 def test_the_drain_ends_at_sixty_seconds_when_lines_never_stop():
     vm = FakeVm([["x"]] * 1000)
     code, lines = _run(vm, step=10)
     assert code == 0 and vm.stopped == ["atera-x"]
-    assert 5 <= len(lines) <= 8
+    assert 5 <= lines.count("x") <= 8
 
 
 def test_a_stopped_cluster_without_an_exit_code_ends_the_run_with_one_after_the_drain():
-    vm = FakeVm([[], ["tail"]], ended=launch.ClusterStopped("the cluster is stopped and the task has no exit code"))
+    vm = FakeVm([["tail"]], states=[launch.Status("stopped", "assigned", None)])
     code, lines = _run(vm, step=1)
     assert code == 1 and "tail" in lines
     assert lines[-1] == "the cluster is stopped and the task has no exit code"
     assert vm.stopped == ["atera-x"]
+
+
+def test_a_failed_log_read_in_the_drain_keeps_the_tasks_exit_code(coiled):
+    vm = FakeVm([coiled.errors.ServerError("no log group")], code=3)
+    code, lines = _run(vm, step=1)
+    assert code == 3 and vm.stopped == ["atera-x"]
+    assert [line for line in lines if line.startswith("logs:")] == ["logs: ServerError: no log group"]
+
+
+def test_no_log_is_requested_before_a_task_runs_and_the_state_lines_show_each_change_once(coiled):
+    error = coiled.errors.ServerError("Error pulling logs from CloudWatch: LogGroupName must be provided.")
+    vm = FakeVm([["remote line"]], error=error,
+                states=[STARTING, STARTING, PENDING, PENDING, launch.Status("ready", "pending", None), RUNNING,
+                        RUNNING, done(3)])
+    code, lines = _run(vm, step=1)
+    assert code == 3 and "remote line" in lines
+    assert not [line for line in lines if line.startswith("logs:")]
+    assert all(status.task in ("running", "done") for status in vm.read_in)
+    assert [line for line in lines if line.startswith(("cluster:", "task:"))] == [
+        "cluster: starting", "task: pending", "cluster: ready", "task: running", "task: done"]
+
+
+def test_a_failed_log_read_while_the_task_runs_is_one_short_line_and_the_next_poll_tries_again(coiled):
+    error = coiled.errors.ServerError(f"slow {TOKEN}")
+    vm = FakeVm([error, error, ["remote line"]], states=[RUNNING, RUNNING, RUNNING, done(0)])
+    code, lines = _run(vm, step=1)
+    assert code == 0 and "remote line" in lines
+    assert [line for line in lines if line.startswith("logs:")] == ["logs: ServerError: slow ***"]
+
+
+def test_log_reads_that_always_fail_while_the_task_runs_end_the_run_after_a_bound(coiled):
+    vm = FakeVm([coiled.errors.ServerError("x")] * 1000, states=[RUNNING])
+    code, lines = _run(vm, step=1)
+    assert code != 0 and vm.stopped == ["atera-x"]
+    assert vm.events.count("read") == launch.MAX_FAILURES
+    assert any("giving up" in line for line in lines)
+
+
+def test_a_status_call_that_fails_once_is_tolerated(coiled):
+    vm = FakeVm(states=[RUNNING, coiled.errors.ServerError("boom"), RUNNING, done(0)])
+    code, lines = _run(vm, step=1)
+    assert code == 0
+    assert [line for line in lines if line.startswith("status:")] == ["status: ServerError: boom"]
+
+
+def test_status_errors_while_the_cluster_starts_never_end_the_run(coiled):
+    errors = [coiled.errors.ServerError("not yet")] * (3 * launch.MAX_FAILURES)
+    vm = FakeVm(states=[*errors, RUNNING, done(0)])
+    assert _run(vm, step=1)[0] == 0
+
+
+def test_status_errors_in_a_row_while_the_task_runs_end_the_run_after_the_bound(coiled):
+    vm = FakeVm(states=[RUNNING, *[coiled.errors.ServerError("x")] * (2 * launch.MAX_FAILURES)])
+    code, lines = _run(vm, step=1)
+    assert code != 0 and vm.stopped == ["atera-x"]
 
 
 def test_the_stop_signals_raise_keyboard_interrupt_in_the_handler(monkeypatch):
@@ -241,13 +323,13 @@ import launch
 class Vm:
     def start(self, job, token): print("started", flush=True)
     def new_lines(self): time.sleep(0.05); return []
-    def exit_code(self): return None
+    def poll(self): return launch.Status("ready", "running", None)
     def stop(self, name): print("stopped", flush=True)
 
 launch.install_stop_signals()
 job = launch.Job("n", "m7g.xlarge", "r", "w", 1, 90, "measure.py", [])
 try:
-    launch.run(Vm(), job, "t", interval=0.05)
+    launch.run(Vm(), job, "tok-secret", interval=0.05)
 except KeyboardInterrupt:
     print("interrupted", flush=True)
 """)
@@ -255,7 +337,7 @@ except KeyboardInterrupt:
     assert process.stdout.readline().strip() == "started"
     process.send_signal(number)
     out, _ = process.communicate(timeout=30)
-    assert out.split() == ["stopped", "interrupted"]
+    assert out.split()[-2:] == ["stopped", "interrupted"]
 
 
 @pytest.mark.parametrize("vm_type, arm", [("m7g.xlarge", True), ("c6gd.large", True), ("m7i.xlarge", False),
@@ -335,46 +417,78 @@ def test_the_seen_set_stays_small_over_a_long_run(monkeypatch, coiled):
     assert len(vm.seen) <= 30
 
 
-@pytest.mark.parametrize("state, code, expected", [
-    ("running", None, None), ("stopped", 0, 0), ("running", 3, 3), ("done", None, 0)])
-def test_the_exit_code_comes_from_the_task(monkeypatch, state, code, expected, coiled):
-    task = {"exit_code": code, "state": state}
-    monkeypatch.setattr(coiled.batch, "status", lambda **k: [{"cluster_state": "ready", "tasks": [task]}])
-    assert _vm().exit_code() == expected
+def _jobs(cluster, *tasks):
+    return [{"id": 8, "cluster_state": cluster, "tasks": list(tasks)}]
 
 
-@pytest.mark.parametrize("cluster_state", ["stopped", "error"])
-def test_a_dead_cluster_with_no_exit_code_raises(monkeypatch, cluster_state, coiled):
-    task = {"exit_code": None, "state": "assigned"}
-    monkeypatch.setattr(coiled.batch, "status", lambda **k: [{"cluster_state": cluster_state, "tasks": [task]}])
-    with pytest.raises(launch.ClusterStopped, match=cluster_state):
-        _vm().exit_code()
+@pytest.mark.parametrize("cluster, state, code, expected", [
+    ("starting", "pending", None, launch.Status("starting", "pending", None)),
+    ("ready", "assigned", None, launch.Status("ready", "assigned", None)),
+    ("ready", "running", None, launch.Status("ready", "running", None)),
+    ("ready", "running", 3, launch.Status("ready", "running", 3)),
+    ("ready", "done", 0, launch.Status("ready", "done", 0)),
+    ("ready", "done", None, launch.Status("ready", "done", 0)),
+    ("ready", "error", None, launch.Status("ready", "error", 1))])
+def test_the_status_comes_from_the_task(monkeypatch, cluster, state, code, expected, coiled):
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: _jobs(cluster, {"exit_code": code, "state": state}))
+    assert _vm().poll() == expected
 
 
-def _stop(coiled, monkeypatch, capsys, delete, state):
-    deleted = []
+def test_a_job_without_tasks_or_without_jobs_has_no_task_state(monkeypatch, coiled):
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: _jobs("starting"))
+    assert _vm().poll() == launch.Status("starting", None, None)
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: [])
+    assert _vm().poll() == launch.Status(None, None, None)
+
+
+def test_a_status_reply_that_is_not_a_list_is_an_error(monkeypatch, coiled):
+    # The client prints the HTTP code and returns the error body, as a dict, when the service refuses.
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: {"message": "not ready"})
+    with pytest.raises(launch.StatusError, match="not ready"):
+        _vm().poll()
+
+
+def _stop(coiled, monkeypatch, capsys, delete, states):
+    deleted, reports = [], list(states)
 
     def fake_delete(**kwargs):
         deleted.append(kwargs)
         return delete(kwargs)
 
+    def details(*a, **k):
+        return {"current_state": {"state": reports.pop(0) if len(reports) > 1 else reports[0]}}
+
     monkeypatch.setattr(coiled, "delete_cluster", fake_delete)
-    monkeypatch.setattr(coiled.v2, "cluster_details", lambda *a, **k: {"current_state": {"state": state}})
-    _vm().stop("atera-x")
+    monkeypatch.setattr(coiled.v2, "cluster_details", details)
+    vm = _vm()
+    vm.clock, vm.sleep = Ticks(10), lambda seconds: None
+    vm.stop("atera-x")
     return deleted, capsys.readouterr().out
 
 
 def test_the_stop_goes_by_cluster_id_and_prints_the_name_and_the_state(monkeypatch, capsys, coiled):
-    deleted, out = _stop(coiled, monkeypatch, capsys, lambda k: None, "stopping")
+    deleted, out = _stop(coiled, monkeypatch, capsys, lambda k: None, ["stopping"])
     assert deleted == [{"cluster_id": 7, "workspace": "earthmover-devs"}]
     assert out.strip() == "cluster atera-x: stopping"
+
+
+def test_the_stop_waits_for_the_state_to_change_from_the_one_at_the_request(monkeypatch, capsys, coiled):
+    _, out = _stop(coiled, monkeypatch, capsys, lambda k: None, ["starting", "starting", "stopping"])
+    assert out.strip() == "cluster atera-x: stopping"
+
+
+def test_a_cluster_that_is_neither_stopping_nor_stopped_after_sixty_seconds_gets_a_warning(
+        monkeypatch, capsys, coiled):
+    _, out = _stop(coiled, monkeypatch, capsys, lambda k: None, ["starting"])
+    assert "cluster atera-x: starting" in out
+    assert "warning" in out and "id 7" in out and "atera-x" in out and "stop it by hand" in out
 
 
 def test_a_cluster_that_does_not_exist_is_a_stopped_cluster(monkeypatch, capsys, coiled):
     def gone(kwargs):
         raise coiled.errors.DoesNotExist
 
-    _, out = _stop(coiled, monkeypatch, capsys, gone, "stopped")
+    _, out = _stop(coiled, monkeypatch, capsys, gone, ["stopped"])
     assert out.strip() == "cluster atera-x: stopped" and "by hand" not in out
 
 
@@ -382,6 +496,13 @@ def test_a_failed_stop_of_a_live_cluster_says_to_stop_it_by_hand(monkeypatch, ca
     def fails(kwargs):
         raise RuntimeError("denied")
 
-    _, out = _stop(coiled, monkeypatch, capsys, fails, "running")
-    assert "could not stop the cluster atera-x: RuntimeError: denied; stop it by hand" in out
-    assert out.strip().endswith("cluster atera-x: running")
+    _, out = _stop(coiled, monkeypatch, capsys, fails, ["running"])
+    assert "RuntimeError: denied" in out and "id 7" in out and "stop it by hand" in out
+
+
+def test_a_failed_stop_of_a_cluster_that_is_stopped_is_not_an_error(monkeypatch, capsys, coiled):
+    def fails(kwargs):
+        raise RuntimeError("already stopped")
+
+    _, out = _stop(coiled, monkeypatch, capsys, fails, ["stopped"])
+    assert out.strip() == "cluster atera-x: stopped"
