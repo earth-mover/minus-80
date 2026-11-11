@@ -555,8 +555,9 @@ Each step needs approval before it writes to a shared resource.
      written chunk. The cause of the 0.55 s is not measured.
    - The process used 0.15 s of CPU per tile, for decode and write together.
 
-   Expected time for one kidney sample, derived from the 1-vCPU rates. The
-   images are 4 2D planes and 13 3D planes. Three assumptions follow. The 3D
+   Expected time for one kidney sample with one serial writer, derived from
+   the 1-vCPU rates. The second measurement below gives the estimate for the
+   full run. The images are 4 2D planes and 13 3D planes. Three assumptions follow. The 3D
    planes have the 2D planes' size. Levels 1 to 7 add 655 tiles per plane,
    from the halved shapes in 1024-pixel tiles. A lower-level tile costs the
    same as a level-0 tile. So each plane has 2,503 tiles, and the sample
@@ -569,23 +570,63 @@ Each step needs approval before it writes to a shared resource.
    These figures leave out the table, the transcripts, the H&E image and
    the download. The 3D stack goes into shards of 13 planes. A plane-by-plane
    write of a shard can rewrite the shard. Step 2 did not measure that.
+
+   Second measurement, with concurrent writes. Done on 2026-11-11 with
+   `measure.py`, one Coiled VM for each launch. The VM is an `m7g.xlarge`
+   (Graviton, `aarch64`, 4 vCPU, 16 GiB) in us-west-2. `launch.py` started it.
+   It wrote to the scratch branch `measure-2026-11-11` with the Arraylake
+   machine token. So the machine token can write to the repo. The branch does
+   not remain. Each part measured a subset from the middle of its source, and
+   passed its check. `LAYOUTS.md`, "Fixture findings", item (f), has every
+   number. This is a different machine family from the first measurement, so
+   the two runs have no ratio.
+   - Rates at concurrency 1, 8 and 32 (tiles/s, chunks/s or positions/s):
+     plane 1.615, 11.018, 12.982; mask 1.88, 15.04, 33.40; stack 0.294,
+     0.439, 0.436; H&E 1.183, 6.419, 8.508.
+   - Concurrency 32 against concurrency 1: 8.0 times for the plane, 17.8
+     times for the mask, 7.2 times for the H&E, 1.5 times for the stack.
+   - The stack decodes its planes in one thread. Its rate does not rise
+     above concurrency 8.
+   - Peak memory of each part: under 1.3 GiB. The largest, 1,299 MiB, is
+     `plane` at concurrency 1 and the transcript tile.
+   - Transcript tile `3,1`, 90,630,655 rows, to a local Parquet file:
+     165.2 s, 548,733 rows/s, 72.7 s of CPU. The file is 2,230,658,968 bytes.
+   - Not measured: the download to the VM's disk; reads from a local file;
+     the upload of Parquet files and the table commits; the polygon tables;
+     the matrix copy; the QC rasters; `verify.py --mode full`; levels above
+     0; the checksum of a `uint8` copy on R2; a staged create of a
+     partitioned table on the Arraylake catalog.
+
+   Estimate for one kidney sample at concurrency 32. It comes from the rates,
+   not from a run. Levels above 0 add about one third, so it uses the
+   factor 4/3.
+   - 2D morphology: 4 x 1,848 x 4/3 = 9,856 tiles at 12.98 tiles/s: 759 s,
+     about 13 minutes.
+   - 3D stack: 1,848 x 4/3 = 2,464 positions at 0.436 positions/s: 5,651 s,
+     about 94 minutes.
+   - H&E: 1,008 x 4/3 = 1,344 tiles at 8.51 tiles/s: 158 s, about 3 minutes.
+   - Two masks: 4,096 chunks at 33.4 chunks/s: 123 s, about 2 minutes.
+   - Transcripts, Parquet files only: 1,186,813,834 rows at 548,733 rows/s:
+     2,163 s, about 36 minutes. The 30 files total about 29.2 GB at the
+     tile's 24.6 bytes per row. Their upload is not measured.
+   - Sum: 759 + 5,651 + 158 + 123 + 2,163 = 8,854 s, about 2.5 hours. The
+     unmeasured steps add to it. The 3D stack is 64 percent of the sum.
 3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
    `imagecodecs`; Booth cannot read the codec. Approval needed: the rules
    change.
-4. **Kidney, full.** On a Coiled VM in us-west-2. The machine size is not
-   decided. It depends on a measurement of concurrent chunk writes.
-   `write_page` writes one chunk after another. So one process per plane
-   still writes each plane serially. The floor for one plane is
-   2,503 x 0.652 s = 1,632 s, about 27 minutes, at the 1-vCPU rate. On 16
-   processes, the 17 planes need a second wave for the last plane.
-   A 4-vCPU process writes the whole sample in about
-   42,551 x 0.493 s = 20,980 s, 5.8 hours wall. 0.493 s is the 4-vCPU
-   rate per tile, 911.2 s / 1,848. A shorter run needs concurrent chunk
-   writes inside a process, and no run measured that. Several writer
-   sessions on one branch need a merge or one branch per writer, also not
-   measured. Peak memory is not measured. The checksum on the R2 bucket is not measured. The disk must hold the 45.7 GB
-   bundle and the 2.8 GB H&E. Download the bundle and the H&E once, and verify their ETags. Read
+4. **Kidney, full.** On a Coiled VM in us-west-2. The machine is an
+   `m7g.xlarge` (4 vCPU, 16 GiB) with `--concurrency` 32. The plan author
+   chose both from the second measurement. The owner confirms them before
+   the full run. The peak memory of each part is under 1.3 GiB. The plane's
+   CPU time, 48 s for 300 tiles, is far below 4 vCPU x its 23.1 s wall time
+   at concurrency 32, which is 92 s. The stack decodes in one thread, so
+   more vCPU do not shorten the largest step with the present code. The
+   estimate is about 2.5 hours for the measured kinds. Step 2 gives the
+   arithmetic. Several writer sessions on one branch need a merge or one
+   branch per writer, not measured. The checksum on the R2 bucket is not
+   measured. The disk must hold the 45.7 GB bundle and the 2.8 GB H&E, and
+   one tile's Parquet file at a time, 2.1 GiB for the largest. Download the bundle and the H&E once, and verify their ETags. Read
    members in place. Write the tables, then the elements. "Stage two", item 4,
    sets the commit unit. Verify per `docs/ingest.md`: every image level against tifffile
    on a sample of tiles, every copied chunk by checksum, every table's row
@@ -608,13 +649,12 @@ Each step needs approval before it writes to a shared resource.
 | Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
 
 Expected runtime per sample has three parts. The download takes minutes at
-an estimated 1 GB/s inside the region. The JPEG 2000 decode and the
-writes of the 17 kidney planes and two masks take about 8.2 hours wall with
-one serial writer. That figure comes from step 2's 1-vCPU rates on an
-`m7i.xlarge` in us-west-2. The images also need about 1.8 hours of CPU. A
-shorter run needs concurrent chunk writes, which step 2 did not measure.
-The transcript table write is one pass over 1 to 5 billion rows. A run
-that is well past its expected time stops.
+an estimated 1 GB/s inside the region. The images, masks and transcript
+Parquet files of the kidney take about 2.5 hours wall at concurrency 32 on
+an `m7g.xlarge` in us-west-2. That figure comes from step 2's second
+measurement. It is an estimate from rates. The upload of the Parquet files
+and the table commits add to it. The transcript table write is one pass over
+1 to 5 billion rows. A run that is well past its expected time stops.
 
 Risks:
 
@@ -672,6 +712,8 @@ Each item gives the problem, the fix and the check.
      Arrow compute, not with NumPy string arrays.
    - Check: a test compares a sliced tile with a whole tile. A run on the VM
      measures the peak memory of the largest tile.
+   - Result: `write_tile` on tile `3,1`, 90,630,655 rows, peaked at 1,299 MiB
+     of 16 GiB on an `m7g.xlarge`. `LAYOUTS.md`, item (f), has the run.
 4. **The commit unit and the resume key.**
    - Problem: `Writer.element` commits once per element.
      `images/morphology` and `images/morphology_3d` take hours each. A
@@ -724,6 +766,11 @@ Each item gives the problem, the fix and the check.
      Coiled VM in us-west-2, with the machine token, not a personal one.
    - Check: the measurement gives the time per chunk and the peak memory.
      It sets the machine size for step 4.
+   - Result: done on 2026-11-11 on an `m7g.xlarge` with the machine token.
+     Concurrency 32 gives 8.0 times the rate of concurrency 1 for the plane,
+     17.8 for the mask, 7.2 for the H&E and 1.5 for the stack. The peak
+     memory of each part is under 1.3 GiB. Step 4 states the machine size
+     and the concurrency. `LAYOUTS.md`, item (f), has the numbers.
 9. **The full kidney ingest** to the Arraylake branch `main`, as step 4.
    It keeps the fixture's two tables, `transcripts` and `nucleus_boundaries`,
    and their UUIDs. It replaces their data with one overwrite snapshot each.

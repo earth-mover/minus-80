@@ -596,10 +596,86 @@ All of it ran on a laptop outside us-west-2.
     The pool had 1 thread on 1 vCPU and 2 threads on 4 vCPU.
     On 4 vCPU the plane took 24 percent less wall time.
     The array writes still took 880.1 s of the 911.2 s.
-  - Not measured: the cause of the 0.55 s per written chunk; chunk writes in parallel inside one process;
-    the bucket's limit on parallel writes; peak memory.
+  - Not measured: the cause of the 0.55 s per written chunk; the bucket's limit on parallel writes.
+    Item (f) measures chunk writes in parallel inside one process, and peak memory.
     Also not measured: the shard rewrites when the 3D stack is written plane by plane.
     Also not measured: several writer sessions on one branch, which need a merge or one branch per writer.
+- **(f) Throughput, with concurrent writes.** `measure.py` measured it on 2026-11-11, one Coiled VM for each launch.
+  The VM is an `m7g.xlarge`: Graviton, `aarch64`, 4 vCPU and 16 GiB, in AWS us-west-2, Coiled workspace `earthmover-devs`.
+  `launch.py` started each VM and ran `measure.py` from the lockfile's environment in a container.
+  The VM read the kidney bundle and the H&E object from 10x's bucket with range reads.
+  It wrote to branch `measure-2026-11-11` of `earthmover-biology/atera-kidney`.
+  It used the Arraylake machine token, passed as a Coiled secret. So the machine token can write to the repo.
+  The branch does not remain.
+  Each part measured a subset from the middle of its source, in its own process.
+  Each part passed its check: sampled tiles against tifffile, and sampled chunks byte for byte.
+  Each commit took 2.1 s to 2.5 s.
+
+| Part (subset) | Concurrency | Wall | Rate | CPU, whole process | Peak memory | In array writes | Snapshot |
+|---|---|---|---|---|---|---|---|
+| `plane` (300 tiles) | 1 | 185.8 s | 1.615 tiles/s | 48.2 s | 1,299 MiB | 180.5 s | `BEA985Z63F5TYD9R2QYG` |
+| `plane` | 8 | 27.2 s | 11.018 tiles/s | 48.4 s | 977 MiB | 173.5 s, summed over threads | `TCH8D49V22RVAKMDYPG0` |
+| `plane` | 32 | 23.1 s | 12.982 tiles/s | 48.4 s | 900 MiB | 167.3 s, summed | `CDJYKZZVVC7B0VSZ0QSG` |
+| `mask` (300 chunks) | 1 | 159.6 s | 1.88 chunks/s | 0.9 s | 310 MiB | not timed | `FEEX0VTKCSMP4JQ18S1G` |
+| `mask` | 8 | 19.9 s | 15.04 chunks/s | 0.9 s | 308 MiB | not timed | `HZGDQA3SB3KSFGSVXRMG` |
+| `mask` | 32 | 9.0 s | 33.40 chunks/s | 0.7 s | 312 MiB | not timed | `BDVSNM6BARHEVEKRHV20` |
+| `stack` (8 positions) | 1 | 27.2 s | 0.294 positions/s | 16.0 s | 472 MiB | 9.4 s | `BQWR0JVQB7YXN127KV50` |
+| `stack` | 8 | 18.2 s | 0.439 positions/s | 16.0 s | 466 MiB | 8.2 s | `H3DCV0ZMH064YQ58CVMG` |
+| `stack` | 32 | 18.4 s | 0.436 positions/s | 16.0 s | 469 MiB | 8.6 s | `REB715EDYFMDB7Y7CN9G` |
+| `he` (150 tiles) | 1 | 126.8 s | 1.183 tiles/s | 19.4 s | 916 MiB | 114.3 s | `6C2AVKX1ZQ23RTPQ8PKG` |
+| `he` | 8 | 23.4 s | 6.419 tiles/s | 19.6 s | 954 MiB | 96.8 s, summed | `5D16GV31KPH7KW0AM7SG` |
+| `he` | 32 | 17.6 s | 8.508 tiles/s | 20.6 s | 1,077 MiB | 157.2 s, summed | `ZMFSNCZCNF81MANM53K0` |
+
+  - `plane`. 300 tiles of level 0 of `morphology_2d/ch0000_dapi.ome.tif`, from tile 774.
+    The run stored 296 chunks. The other 4 tiles hold only the fill value.
+    It read 206.6 MiB (216,662,016 bytes) and stored 321.5 MiB (337,140,944 bytes).
+  - `mask`. 300 chunks of `masks/0` of `cells.zarr.zip`, from chunk 874, in 290 source requests.
+    It read 22.5 MiB (23,592,960 bytes). The chunks hold 23,484,279 bytes.
+  - `stack`. 8 shard positions of level 0 of `morphology_3d/ch0000_dapi_3d.ome.tif`, at tile row 16, from column 24.
+    Each position has 13 planes, so the run made 104 tile decodes.
+    It stored 8 shards, 95.0 MiB (99,607,066 bytes).
+    It read 80.5 MiB (84,410,368 bytes) in 92 requests.
+  - `he`. 150 tiles of level 0 of the H&E image, from tile 429.
+    The run stored 450 chunks, three channels, none empty. It stored 308.5 MiB (323,531,247 bytes).
+    It read 341.1 MiB (357,695,488 bytes) in 150 requests.
+  - `tile`. `write_tile` on tile `3,1` of `transcripts.zarr.zip`: 90,630,655 rows, 931.2 MiB of source members by the zip's sizes.
+    It wrote a local Parquet file on the VM and no table.
+    It took 165.2 s: 548,733 rows/s. The process used 72.7 s of CPU and peaked at 1,299 MiB.
+    It read 965.4 MiB (1,012,334,592 bytes) in 2,979 requests.
+    The Parquet file is 2,230,658,968 bytes (2.08 GiB).
+    Its row count equals the source's count for the tile. Its `instance` footer range is 0 to 90,630,654.
+  - Concurrency 32 against concurrency 1: 8.0 times for the plane (12.982 / 1.615), 17.8 times for the mask (33.40 / 1.88),
+    7.2 times for the H&E (8.508 / 1.183), and 1.5 times for the stack (0.436 / 0.294).
+  - The stack decodes its planes in one thread. Its rate does not rise above concurrency 8.
+  - The machine family differs from (e): `m7g.xlarge` here, `m7i.xlarge`, x86, in (e). The same region.
+    This record computes no ratio between the two families.
+  - Not measured: the download of the bundle to the VM's disk.
+    Reads from a local file: the measurement read from the bucket, and the full run reads local files.
+    The upload of Parquet files to the tables' bucket, and the table commits.
+    The polygon tables. The matrix copy. The QC rasters. `verify.py --mode full`. Levels above 0.
+    The checksum of a `uint8` copy on R2.
+    A staged create of a partitioned table on the Arraylake catalog: the first full run meets it first.
+
+  Estimate for one kidney sample, from the concurrency-32 rates. This is an estimate from rates, not a measurement.
+  Level 0 has 33 rows x 56 columns = 1,848 tiles for each of 4 channels.
+  The stack has 1,848 positions. The H&E has 42 x 24 = 1,008 tiles. Each mask has 2,048 chunks.
+  The levels above 0 add about one third, the sum of a pyramid that halves each side. The estimate uses the factor 4/3.
+  - 2D morphology: 4 x 1,848 x 4/3 = 9,856 tiles. At 12.98 tiles/s: 759 s, about 13 minutes.
+  - 3D stack: 1,848 x 4/3 = 2,464 positions. At 0.436 positions/s: 5,651 s, about 94 minutes.
+  - H&E: 1,008 x 4/3 = 1,344 tiles. At 8.51 tiles/s: 158 s, about 3 minutes.
+  - Two masks: 4,096 chunks. At 33.4 chunks/s: 123 s, about 2 minutes.
+  - Transcripts: 1,186,813,834 rows. At 548,733 rows/s: 2,163 s, about 36 minutes, for the Parquet files only.
+    The tile's ratio is 24.6 bytes per row (2,230,658,968 / 90,630,655).
+    So the 30 files total about 29.2 GB (1,186,813,834 x 24.6 = 29.2e9 bytes). Their upload is not measured.
+  - Sum of the measured kinds: 759 + 5,651 + 158 + 123 + 2,163 = 8,854 s, about 2.5 hours.
+    The unmeasured steps add to it. The 3D stack is 64 percent of the sum (5,651 / 8,854).
+
+  Choices for the full run. The plan author made these choices from the measurement. The owner confirms them before the full run.
+  - Machine: `m7g.xlarge`. The peak memory of each part is under 1.3 GiB of 16 GiB.
+    The plane's CPU time is 48 s for 300 tiles. That is far below 4 vCPU x 23.1 s = 92 s, its wall time at concurrency 32.
+    The stack decodes in one thread. So more vCPU do not shorten the largest step with the present code.
+  - `--concurrency`: 32.
+  - Disk: the bundle (45.7 GB) and the H&E (2.8 GB), plus one tile's Parquet file at a time. The largest is 2.1 GiB.
 - **Categorical columns.** pyiceberg warns `Iceberg does not have a dictionary type. <class
   'pyarrow.lib.DictionaryType'> will be inferred as string on read.` So `feature_name` reads back
   as a plain string, not a dictionary.
