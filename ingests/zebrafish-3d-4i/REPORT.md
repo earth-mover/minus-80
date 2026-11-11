@@ -38,6 +38,7 @@ written again.
 - **Figures.** Written by `diagrams.py` from the store and the zip's central directory:
   - [the source zip](diagrams/source.svg)
   - [the mapping of one field](diagrams/mapping.svg)
+  - [every field's window at every level](diagrams/crops.svg)
   - [the store's hierarchy](diagrams/store.svg)
 - **Chunks.** Image chunks are one plane of one channel, in 32-plane shards.
   Label chunks are one plane, in one shard that spans all 271 planes. Both

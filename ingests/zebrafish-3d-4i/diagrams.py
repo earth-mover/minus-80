@@ -3,7 +3,7 @@
     ARRAYLAKE_TOKEN=... uv run --package zebrafish-3d-4i-ingest python ingests/zebrafish-3d-4i/diagrams.py \\
         --directory-cache <central-directory.parquet>
 
-Writes ``source.svg``, ``mapping.svg`` and ``store.svg`` into ``diagrams/``
+Writes ``source.svg``, ``mapping.svg``, ``crops.svg`` and ``store.svg`` into ``diagrams/``
 beside this file. The values in them are read from two inputs:
 
 - the zip's central directory, from the Parquet copy the converter keeps
@@ -18,11 +18,12 @@ they are computed from what the store kept: a well image's extent is its
 ``well_ROI_table`` row divided by the 0.65 µm pixel, and each coarser level
 halves it, rounding down, as the source's levels do. The few facts that
 neither input holds (the source's OME-Zarr version, its codec and chunk
-shape) are constants below, each from PLAN.md's survey of the zip.
+shapes) are constants below.
 
-The mapping figure cuts its field's coarse windows again with
-:func:`minus80.ome.crop.crop_levels` and stops if they differ from the
-shapes and translations in the store, so the inset cannot drift from the data.
+The mapping and crops figures cut every field's windows again with
+:func:`minus80.ome.crop.crop_levels` and stop if they differ from the
+shapes and translations in the store, so the drawn windows cannot drift
+from the data.
 
 LAYOUTS.md explains the mapping; the figures carry no prose.
 """
@@ -49,8 +50,10 @@ from minus80.ome.crop import crop_levels
 REPO = "arraylake://earthmover-biology/zebrafish-3d-4i"
 OUT = Path(__file__).parent / "diagrams"
 
-# Facts about the source that neither the directory nor the store records.
-# PLAN.md, "What is in the zip", has the survey they come from.
+# Facts about the source that neither the directory nor the store records, from PLAN.md's
+# survey of the zip. On 2026-11-11 the .zarray of F/04/0 levels 0 and 3 and of F/04/1's
+# cells and nucleiRaw labels confirmed the chunk shapes, the codec, and the size rule
+# above: (14786, 17192) at level 0 from the well_ROI_table, (1848, 2149) at level 3.
 SOURCE_VERSION = "0.4"
 SOURCE_CHUNKS = (1, 10, 1000, 1000)
 SOURCE_LABEL_CHUNKS = (10, 1000, 1000)
@@ -60,7 +63,6 @@ SOURCE_CODEC = "blosc lz4 5, shuffle"
 #: both axes, so its coarse windows are wider than 1000 / 2^k.
 EXAMPLE_WELL = "C/02"
 EXAMPLE_IMAGE = "1"
-EXAMPLE_LEVEL = 3
 
 
 # Reading the zip's central directory
@@ -255,12 +257,21 @@ def tree_figure(canvas: Canvas, top: float, entries: list[tuple[TreeNode, dict]]
     return y
 
 
-def side_cube(canvas: Canvas, top: float, title: str, lines: list[str], aspect: tuple[float, float], **style) -> float:
+def side_cube(
+    canvas: Canvas,
+    top: float,
+    title: str,
+    lines: list[str],
+    aspect: tuple[float, float],
+    *,
+    width: float = 150,
+    depth: float = 26,
+    **style,
+) -> float:
     """A cube for one array, in the column right of the panels, its face ``aspect`` (y, x) in proportion."""
-    width = 150
     height = width * aspect[0] / aspect[1]
     return d.cube(
-        canvas, CubeGeometry(CUBE_X, top + 8, width, height, 26), title, lines, label_width=WIDTH - CUBE_X - 24, **style
+        canvas, CubeGeometry(CUBE_X, top + 8, width, height, depth), title, lines, label_width=WIDTH - CUBE_X - 24, **style
     )
 
 
@@ -384,8 +395,8 @@ def source_figure(listing: Listing, store: Store) -> Canvas:
                 cube=lambda top: side_cube(
                     canvas,
                     top,
-                    f"{EXAMPLE_WELL}/1/0",
-                    [f"shape  {d.dims((len(listing.channels), 271, *example))}", f"chunks {d.dims(SOURCE_CHUNKS)}"],
+                    f"source {EXAMPLE_WELL}/1/0",
+                    ["round 1, level 0", f"shape  {d.dims((len(listing.channels), 271, *example))}", f"chunks {d.dims(SOURCE_CHUNKS)}"],
                     example,
                     accent=ACCENTS["source"],
                     grid=(d.grid_lines(example[1], SOURCE_CHUNKS[-1]), d.grid_lines(example[0], SOURCE_CHUNKS[-2])),
@@ -402,8 +413,8 @@ def source_figure(listing: Listing, store: Store) -> Canvas:
                 cube=lambda top: side_cube(
                     canvas,
                     top,
-                    f"{EXAMPLE_WELL}/1/labels/cells/0",
-                    [f"shape  {d.dims((271, *example))}", f"chunks {d.dims(SOURCE_LABEL_CHUNKS)}"],
+                    f"source {EXAMPLE_WELL}/1/labels/cells/0",
+                    ["round 1, level 0", f"shape  {d.dims((271, *example))}", f"chunks {d.dims(SOURCE_LABEL_CHUNKS)}"],
                     example,
                     accent=ACCENTS["source"],
                     grid=(d.grid_lines(example[1], SOURCE_LABEL_CHUNKS[-1]), d.grid_lines(example[0], SOURCE_LABEL_CHUNKS[-2])),
@@ -443,6 +454,50 @@ def rounds_text(rounds: set[int]) -> str:
     return d.span(rounds[0], rounds[-1])
 
 
+# Every field's windows
+
+
+@dataclass
+class FieldCrop:
+    """One field of a well: its store image, its level-0 window, and its cut on every level."""
+
+    image: str
+    name: str
+    origin: dict[str, int]
+    size: dict[str, int]
+    levels: list
+    #: The stored array's shape and (y, x) translation at each level.
+    shapes: list[tuple[int, ...]]
+    translations: list[tuple[float, float]]
+
+    def wider(self, k: int, axis: str) -> bool:
+        return self.levels[k].shape["yx".index(axis)] > self.size[axis] // 2**k
+
+
+def field_crops(store: Store, well: str) -> list[FieldCrop]:
+    """Each field's windows, cut again with ``crop_levels`` and checked against the store."""
+    extent = well_extent(store, well)
+    crops = []
+    for image in store.images(well):
+        path = f"{well}/{image}"
+        annotations = store.groups[path].attrs["annotations"]
+        roi = annotations["FOV_ROI_table"]
+        scale = image_scales(store, path)
+        pixel = scale[0][-1]
+        origin = {"y": round(roi["y_micrometer"] / pixel), "x": round(roi["x_micrometer"] / pixel)}
+        size = {"y": round(roi["len_y_micrometer"] / pixel), "x": round(roi["len_x_micrometer"] / pixel)}
+        cut = crop_levels(origin, size, source_levels(extent), [{"y": s[-2], "x": s[-1]} for s in scale])
+        shapes = [store.arrays[f"{path}/{k}"].shape for k in range(len(cut))]
+        translations = [tuple(t[-2:]) for t in image_translations(store, path)]
+        for k, level in enumerate(cut):
+            if [round(level.translation[a], 6) for a in "yx"] != [round(t, 6) for t in translations[k]]:
+                raise ValueError(f"{path} level {k}: the store's translation differs from the cut's")
+            if level.shape != shapes[k][-2:]:
+                raise ValueError(f"{path} level {k}: the store's shape differs from the cut's")
+        crops.append(FieldCrop(image, annotations["field"], origin, size, cut, shapes, translations))
+    return crops
+
+
 # The mapping figure
 
 
@@ -453,19 +508,10 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     annotations = attrs["annotations"]
     roi = annotations["FOV_ROI_table"]
     field_name = annotations["field"]
-    scale = image_scales(store, path)
-    pixel = scale[0][-1]
+    pixel = image_scales(store, path)[0][-1]
     extent = well_extent(store, well)
-    levels = source_levels(extent)
-    origin = {"y": round(roi["y_micrometer"] / pixel), "x": round(roi["x_micrometer"] / pixel)}
-    size = {"y": round(roi["len_y_micrometer"] / pixel), "x": round(roi["len_x_micrometer"] / pixel)}
-    cut = crop_levels(origin, size, levels, [{"y": s[-2], "x": s[-1]} for s in scale])
-    stored_translations = image_translations(store, path)
-    for k, level in enumerate(cut):
-        if [round(level.translation[a], 6) for a in "yx"] != [round(t, 6) for t in stored_translations[k][-2:]]:
-            raise ValueError(f"{path} level {k}: the store's translation differs from the cut's")
-        if level.shape != store.arrays[f"{path}/{k}"].shape[-2:]:
-            raise ValueError(f"{path} level {k}: the store's shape differs from the cut's")
+    crop = next(c for c in field_crops(store, well) if c.image == image)
+    origin, size = crop.origin, crop.size
     others = []
     for other in store.images(well):
         r = store.groups[f"{well}/{other}"].attrs["annotations"]["FOV_ROI_table"]
@@ -478,12 +524,12 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     codec = codec_text(level0)
 
     canvas = Canvas(WIDTH)
-    y = d.heading(canvas, "Mapping", f"{well}, field {field_name} → {path}")
+    y = d.heading(canvas, "Mapping", f"source {well}, field {field_name} → store {path}")
     y = d.legend(
         canvas,
         canvas.margin,
         y + 14,
-        [(ACCENTS["source"], "source"), (ACCENTS["store"], "store"), (ACCENTS["highlight"], field_name), ("arrow", "copied"), ("changed", "wider")],
+        [(ACCENTS["source"], "source"), (ACCENTS["store"], "store"), (ACCENTS["highlight"], field_name), ("arrow", "copied")],
     )
 
     left, right = 24, 960
@@ -494,7 +540,7 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     bottom = d.cube(
         canvas,
         src,
-        f"{well}/1/0",
+        f"source {well}/1/0",
         [
             f"shape  {d.dims((len(listing.channels), 271, *extent))}",
             f"chunks {d.dims(SOURCE_CHUNKS)}",
@@ -504,7 +550,7 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
         grid=(d.grid_lines(extent[1], SOURCE_CHUNKS[-1]), d.grid_lines(extent[0], SOURCE_CHUNKS[-2])),
         window=window(roi, pixel, extent),
         outlines=[o for o in others if o != window(roi, pixel, extent)],
-        source=f"round 1, level 0, {len(others)} fields",
+        source=f"round 1, level 0; {len(others)} fields",
         label_width=420,
     )
     window_panel_x = 470
@@ -526,12 +572,12 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     )
     x0, y0, x1, y1 = window(roi, pixel, extent)
     d.link(canvas, src.face(x1, (y0 + y1) / 2), (window_panel_x, wy + 40), color=ACCENTS["highlight"])
-    dst = CubeGeometry(right, lane + 20, 170, 170, 30)
+    dst = CubeGeometry(right, lane + 20, 150, 150, 90)
     shards = level0.shards
     dbottom = d.cube(
         canvas,
         dst,
-        f"{path}/0",
+        f"store {path}/0",
         [
             f"shape  {d.dims(level0.shape)}",
             f"chunks {d.dims(level0.chunks)}",
@@ -539,7 +585,8 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
             f"codec  {codec}",
         ],
         accent=ACCENTS["store"],
-        source=f"field {field_name}, level 0",
+        source=f"{field_name}, level 0",
+        depth_lines=[k / level0.shape[-3] for k in range(shards[-3], level0.shape[-3], shards[-3])],
         label_width=420,
     )
     d.link(canvas, (window_panel_x + 360, wy + 40), dst.middle_left(), label="copied")
@@ -556,10 +603,10 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
         mine = [c for c in channels if c["round"] == r]
         rows = [Row(f"c {c['source_channel']}", c["label"]) for c in mine]
         round_tops.append(ry)
-        ry = d.panel(canvas, left, ry, 330, f"{mine[0]['source_image']}", rows, accent=ACCENTS["source"], source=f"round {r}, omero.channels") + 10
+        ry = d.panel(canvas, left, ry, 330, f"source {mine[0]['source_image']}", rows, accent=ACCENTS["source"], source=f"round {r}, omero.channels") + 10
     store_height = d.panel_height(len(store_rows), source=True)
     sy = panel_top + (ry - 10 - panel_top - store_height) / 2
-    d.panel(canvas, right, sy, 360, f"{path}  omero.channels", store_rows, accent=ACCENTS["store"], source=f"{len(channels)} channels, round order")
+    d.panel(canvas, right, sy, 360, f"store {path}  omero.channels", store_rows, accent=ACCENTS["store"], source=f"{field_name}, {len(channels)} channels, round order")
     rows_top = sy + 46
     for i, r in enumerate(rounds):
         start = (left + 330, round_tops[i] + d.panel_height(4, source=True) / 2)
@@ -575,19 +622,19 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     lbottom = d.cube(
         canvas,
         src,
-        f"{well}/1/labels/{label}/0",
+        f"source {well}/1/labels/{label}/0",
         [f"shape  {d.dims((271, *extent))}", f"chunks {d.dims(SOURCE_LABEL_CHUNKS)}", f"dtype  {label0.dtype}"],
         accent=ACCENTS["source"],
         grid=(d.grid_lines(extent[1], 1000), d.grid_lines(extent[0], 1000)),
         window=window(roi, pixel, extent),
-        source=f"one of {len(listing.labels)}: {', '.join(sorted(listing.labels, key=str.lower))}",
+        source=f"round 1; one of {len(listing.labels)}: {', '.join(sorted(listing.labels, key=str.lower))}",
         label_width=520,
     )
     dst = CubeGeometry(right, y + 10, 130, 130, 26)
     rbottom = d.cube(
         canvas,
         dst,
-        f"{path}/labels/{label}/0",
+        f"store {path}/labels/{label}/0",
         [
             f"shape  {d.dims(label0.shape)}",
             f"chunks {d.dims(label0.chunks)}",
@@ -595,7 +642,7 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
             f"codec  {codec_text(label0)}",
         ],
         accent=ACCENTS["store"],
-        source=f"{len(store.groups[f'{path}/labels'].attrs['ome']['labels'])} labels, 4 levels each",
+        source=f"{field_name}; {len(store.groups[f'{path}/labels'].attrs['ome']['labels'])} labels, 4 levels each",
         label_width=420,
     )
     lx0, ly0, lx1, ly1 = window(roi, pixel, extent)
@@ -605,7 +652,7 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
     # The ROI row: the field's position becomes the image's translation in the well's scene.
     y = section(canvas, y, "position", "FOV_ROI_table row → scene translation")
     roi_rows = [Row(k, f"{v:g}") for k, v in roi.items() if not k.startswith("z") and not k.startswith("len_z")]
-    pbottom = d.panel(canvas, left, y, 420, f"{field_name}", roi_rows, accent=ACCENTS["source"], source=f"{well}/<round>/tables/FOV_ROI_table")
+    pbottom = d.panel(canvas, left, y, 420, f"source {field_name} row", roi_rows, accent=ACCENTS["source"], source=f"{well}/<round>/tables/FOV_ROI_table")
     translation = scene["translation"]
     scene_rows = [
         Row("input", f"intrinsic, path {scene['input']['path']}"),
@@ -613,30 +660,13 @@ def mapping_figure(listing: Listing, store: Store) -> Canvas:
         Row("translation", "[" + ", ".join(f"{t:g}" for t in translation) + "]"),
         Row("axes", "c, z, y, x  (µm)"),
     ]
-    sbottom = d.panel(canvas, right, y, 420, f"{well}  ome.scene", scene_rows, accent=ACCENTS["store"], source="one translation per image")
+    sbottom = d.panel(canvas, right, y, 420, f"store {well}  ome.scene", scene_rows, accent=ACCENTS["store"], source="one translation per image")
     kept_rows = [Row("FOV_ROI_table", "row kept as is"), Row("field", field_name)]
-    kbottom = d.panel(canvas, right, sbottom + 10, 420, f"{path}  annotations", kept_rows, accent=ACCENTS["store"])
+    kbottom = d.panel(canvas, right, sbottom + 10, 420, f"store {path}  annotations", kept_rows, accent=ACCENTS["store"])
     d.link(canvas, (left + 420, y + 70), (right, y + 46 + 2.5 * d.ROW_HEIGHT), label="copied")
     d.link(canvas, (left + 420, y + 90), (right, sbottom + 10 + 30 + d.ROW_HEIGHT / 2), label="kept")
-    y = max(pbottom, kbottom) + 30
+    y = max(pbottom, kbottom)
 
-    # One coarse level: the window covers every coarse pixel the field touches.
-    k = EXAMPLE_LEVEL
-    f = 2**k
-    level = cut[k]
-    y = section(canvas, y, f"level {k}", f"{f} × {f} blocks; window covers every coarse pixel the field touches")
-    ibottom = coarse_strip(canvas, left, y, origin["x"], f, level.window["x"][0])
-    stored = store.arrays[f"{path}/{k}"]
-    level_rows = [
-        Row("source", f"{well}/1/{k}  {d.dims((len(listing.channels), 271, *levels[k]))}"),
-        Row("y", f"{level.window['y'][0]}–{level.window['y'][1]}  ({level.shape[0]} px)", status="changed", tag="wider" if level.shape[0] > 1000 // f else None),
-        Row("x", f"{level.window['x'][0]}–{level.window['x'][1]}  ({level.shape[1]} px)", status="changed", tag="wider" if level.shape[1] > 1000 // f else None),
-        Row("translation", f"y {micrometers(level.translation['y'])}, x {micrometers(level.translation['x'])}"),
-        Row("store", f"{path}/{k}  {d.dims(stored.shape)}"),
-    ]
-    tbottom = d.panel(canvas, right, y, 420, f"{path}/{k}", level_rows, accent=ACCENTS["store"], source="ome.multiscales, dataset 3")
-    d.link(canvas, (left + 4 * 2**k * 10 + 20, y + 85), (right, y + 46 + 2.5 * d.ROW_HEIGHT), label="copied")
-    y = max(ibottom, tbottom)
     return canvas
 
 
@@ -649,47 +679,169 @@ def window(roi: dict, pixel: float, extent: tuple[int, int]) -> d.Window:
 
 def section(canvas: Canvas, y: float, title: str, subtitle: str) -> float:
     """A rule across the figure with a section title above it."""
-    canvas.add(f'<line x1="24" y1="{y:.1f}" x2="{WIDTH - 24}" y2="{y:.1f}" stroke="{d.RULE}"/>', y)
+    canvas.add(f'<line x1="24" y1="{y:.1f}" x2="{canvas.width - 24}" y2="{y:.1f}" stroke="{d.RULE}"/>', y)
     canvas.text(24, y + 22, title, size=14, weight="bold")
     canvas.text(24 + d.text_width(title, 14, bold=True) + 12, y + 22, subtitle, size=12, color=d.MUTED)
     return y + 40
 
 
-def coarse_strip(canvas: Canvas, x: float, y: float, origin: int, factor: int, first: int) -> float:
-    """Level-0 pixels around a field's left edge, under the coarse pixels that hold them.
+# The crops figure
 
-    Shows the coarse pixel before the window, the first ones in it, and where
-    the field's first level-0 pixel falls inside the first.
-    """
-    px = 10.0
-    start = (first - 1) * factor
-    count = 4 * factor
-    parts = []
-    top = y + 34
-    for j in range(4):
-        cx = x + j * factor * px
-        inside = j > 0
+
+CROPS_WIDTH = 1560
+WELL_WIDTH = 900
+CROP_PANEL_X = 1080
+CROP_PANEL_WIDTH = 456
+
+
+def crops_figure(listing: Listing, store: Store) -> Canvas:
+    well = EXAMPLE_WELL
+    extent = well_extent(store, well)
+    levels = source_levels(extent)
+    crops = field_crops(store, well)
+    canvas = Canvas(CROPS_WIDTH)
+    y = d.heading(canvas, "Crops", f"source {well}/<round>/<level> → store {well}/<image>/<level>, every field, every level")
+    y = d.legend(
+        canvas,
+        canvas.margin,
+        y + 14,
+        [
+            (ACCENTS["source"], "source well image"),
+            (ACCENTS["highlight"], "field window"),
+            (ACCENTS["store"], "store image level"),
+            ("arrow", "copied"),
+            ("changed", "wider"),
+        ],
+    )
+    y += 24
+    for k, (height, width) in enumerate(levels):
+        f = 2**k
+        per_pixel = "1 level-0 pixel" if f == 1 else f"{f} × {f} level-0 pixels"
+        y = section(canvas, y, f"level {k}", f"{height} × {width} px, chunks 1000 × 1000, {per_pixel} per pixel")
+        y = crop_level(canvas, y, well, k, (height, width), crops) + 30
+    y = section(canvas, y, "windows", "start–stop  size, in each level's pixels; field edge = 2^k · start + r")
+    y = d.legend(
+        canvas,
+        canvas.margin,
+        y,
+        [(d.RULE, "level-0 pixels outside the field"), (ACCENTS["highlight"], "inside the field"), ("changed", "wider")],
+    )
+    crop_table(canvas, y + 16, crops)
+    return canvas
+
+
+def crop_level(canvas: Canvas, top: float, well: str, k: int, extent: tuple[int, int], crops: list[FieldCrop]) -> float:
+    """One level of the source well image to scale, with every field's window, and the store level each becomes."""
+    scale = WELL_WIDTH / extent[1]
+    x0, y0 = 24.0, top + 22
+    canvas.text(x0, top + 10, f"source {well}/<round>/{k}, and {well}/1/labels/<name>/{k}", size=11, color=d.MUTED)
+    parts = [
+        f'<rect x="{x0}" y="{y0:.1f}" width="{WELL_WIDTH}" height="{extent[0] * scale:.1f}" fill="{d.FACE_FILL}" '
+        f'stroke="{ACCENTS["source"]}" stroke-width="1.4"/>'
+    ]
+    for fx in d.grid_lines(extent[1], SOURCE_CHUNKS[-1]):
         parts.append(
-            f'<rect x="{cx:.1f}" y="{top:.1f}" width="{factor * px:.1f}" height="34" '
-            f'fill="{d.FACE_FILL if inside else d.BACKGROUND}" stroke="{ACCENTS["store"] if inside else d.RULE}" stroke-width="1.5"/>'
+            f'<line x1="{x0 + fx * WELL_WIDTH:.1f}" y1="{y0:.1f}" x2="{x0 + fx * WELL_WIDTH:.1f}" '
+            f'y2="{y0 + extent[0] * scale:.1f}" stroke="{d.RULE}"/>'
         )
-        parts.append(d.text(cx + factor * px / 2, top + 21, str(first - 1 + j), size=11.5, mono=True, anchor="middle", color=d.INK if inside else d.MUTED))
-    row = top + 50
-    for i in range(count):
-        p = start + i
-        in_field = p >= origin
+    for fy in d.grid_lines(extent[0], SOURCE_CHUNKS[-2]):
         parts.append(
-            f'<rect x="{x + i * px:.1f}" y="{row:.1f}" width="{px - 1:.1f}" height="16" '
-            f'fill="{ACCENTS["highlight"] if in_field else d.RULE}" fill-opacity="{0.55 if in_field else 0.6}"/>'
+            f'<line x1="{x0}" y1="{y0 + fy * extent[0] * scale:.1f}" x2="{x0 + WELL_WIDTH}" '
+            f'y2="{y0 + fy * extent[0] * scale:.1f}" stroke="{d.RULE}"/>'
         )
-    field_x = x + (origin - start) * px
-    parts.append(f'<line x1="{field_x:.1f}" y1="{top - 6:.1f}" x2="{field_x:.1f}" y2="{row + 22:.1f}" stroke="{ACCENTS["highlight"]}" stroke-width="2"/>')
-    parts.append(d.text(field_x + 4, row + 52, f"field x {origin}", size=11.5, mono=True, color=ACCENTS["highlight"]))
-    first_x = x + factor * px
-    parts.append(d.text(first_x, top - 8, f"coarse x {first}  =  level 0 x {first * factor}", size=11.5, mono=True))
-    parts.append(d.text(x, row + 34, f"level 0 x {start}", size=11.5, mono=True, color=d.MUTED))
-    canvas.text(x, y + 10, f"coarse pixels (level {round(math.log2(factor))})", size=11, color=d.MUTED)
-    return canvas.add("\n".join(parts), row + 58)
+    bottom = canvas.add("\n".join(parts), y0 + extent[0] * scale)
+    # The windows are drawn after the arrows, so an arrow passing behind another field leaves it readable.
+    boxes, parts = {}, []
+    for crop in crops:
+        (ys, ye), (xs, xe) = crop.levels[k].window["y"], crop.levels[k].window["x"]
+        box = (x0 + xs * scale, y0 + ys * scale, (xe - xs) * scale, (ye - ys) * scale)
+        boxes[crop.image] = box
+        parts.append(
+            f'<rect x="{box[0]:.1f}" y="{box[1]:.1f}" width="{box[2]:.1f}" height="{box[3]:.1f}" fill="{d.BACKGROUND}"/>'
+        )
+        parts.append(
+            f'<rect x="{box[0]:.1f}" y="{box[1]:.1f}" width="{box[2]:.1f}" height="{box[3]:.1f}" '
+            f'fill="{ACCENTS["highlight"]}" fill-opacity="0.18" stroke="{ACCENTS["highlight"]}" stroke-width="1.6"/>'
+        )
+        label = f"{crop.name} → {crop.image}"
+        if crop.wider(k, "y") or crop.wider(k, "x"):
+            parts.append(
+                f'<rect x="{box[0] + 1:.1f}" y="{box[1] + 1:.1f}" width="{d.text_width(label, 11, mono=True, bold=True) + 6:.1f}" '
+                f'height="17" fill="{d.STATUS["changed"].fill}"/>'
+            )
+        parts.append(d.text(box[0] + 4, box[1] + 14, label, size=11, weight="bold", mono=True))
+    py = top
+    for crop in sorted(crops, key=lambda c: c.origin["y"] + c.size["y"] / 2):
+        level = crop.levels[k]
+        rows = []
+        for axis in "yx":
+            start, stop = level.window[axis]
+            wider = crop.wider(k, axis)
+            rows.append(
+                Row(
+                    f"window {axis}",
+                    f"{start}–{stop}  {stop - start} px",
+                    status="changed" if wider else None,
+                    tag="wider" if wider else None,
+                )
+            )
+        ty, tx = crop.translations[k]
+        rows.append(Row("shape", d.dims(crop.shapes[k])))
+        rows.append(Row("translation", f"y {micrometers(ty)}, x {micrometers(tx)}"))
+        panel_bottom = d.panel(
+            canvas,
+            CROP_PANEL_X,
+            py,
+            CROP_PANEL_WIDTH,
+            f"store {well}/{crop.image}/{k}",
+            rows,
+            source=crop.name,
+        )
+        bx, by, bw, bh = boxes[crop.image]
+        d.link(canvas, (bx + bw, by + bh / 2), (CROP_PANEL_X, py + 20), color=ACCENTS["highlight"], stroke=1.2)
+        py = panel_bottom + 8
+    canvas.add("\n".join(parts), bottom)
+    return max(bottom, py)
+
+
+def crop_table(canvas: Canvas, top: float, crops: list[FieldCrop]) -> float:
+    """Every field's window at every level, with the coarse pixel that holds each field edge."""
+    levels = range(len(crops[0].levels))
+    widths = [130, 190] + [370] * (len(levels) - 1)
+    header = ["field → image"] + [f"level {k}" if k == 0 else f"level {k}  ({2**k} × {2**k})" for k in levels]
+    rows = []
+    for crop in crops:
+        row = [d.Cell([crop.name, f"→ image {crop.image}"])]
+        for k in levels:
+            lines = []
+            for axis in "yx":
+                start, stop = crop.levels[k].window[axis]
+                lines.append(f"{axis} {start}–{stop}  {stop - start}")
+            wider = crop.wider(k, "y") or crop.wider(k, "x")
+            row.append(d.Cell(lines, status="changed" if wider else None))
+        rows.append(row)
+
+    def glyph(i: int, j: int, x: float, y: float) -> str:
+        """The coarse pixel that holds the field's first row or column, split into its level-0 pixels."""
+        k = j - 1
+        if k < 1:
+            return ""
+        crop = crops[i]
+        f = 2**k
+        parts = []
+        for n, axis in enumerate("yx"):
+            o = crop.origin[axis]
+            start, r = divmod(o, f)
+            gx, gy = x + 128, y + 8 + n * d.CELL_LINE
+            cell = 48 / f
+            for c in range(f):
+                color = d.RULE if c < r else ACCENTS["highlight"]
+                parts.append(f'<rect x="{gx + c * cell:.1f}" y="{gy:.1f}" width="{cell:.1f}" height="12" fill="{color}"/>')
+            parts.append(f'<rect x="{gx:.1f}" y="{gy:.1f}" width="48" height="12" fill="none" stroke="{d.INK}" stroke-width="1"/>')
+            parts.append(d.text(gx + 56, gy + 10, f"{o} = {f}·{start} + {r}", size=11, mono=True, color=d.MUTED))
+        return "\n".join(parts)
+
+    return d.table(canvas, 24, top, widths, header, rows, draw=glyph)
 
 
 # The store figure
@@ -736,9 +888,21 @@ def store_figure(listing: Listing, store: Store) -> Canvas:
         return rows
 
     def cube_beside(arrays: dict[int, list[zarr.Array]], title: str):
+        """Level 0 as one channel's block: the face is one chunk, the depth is z cut into shards."""
         a = arrays[0][0]
-        lines = [f"shape  {d.dims(a.shape)}", f"chunks {d.dims(a.chunks)}", f"shards {d.dims(a.shards)}"]
-        return lambda top: side_cube(canvas, top, title, lines, (1, 1))
+        planes, depth = a.shape[-3], a.shards[-3]
+        shards = math.ceil(planes / depth)
+        lines = [
+            f"face   1 chunk, {d.dims(a.chunks[-2:])}",
+            f"z      {planes} planes, {shards} shard{'s' if shards > 1 else ''}",
+            f"shard  {depth} planes, {depth} chunks",
+        ]
+        if a.ndim == 4:
+            lines.append(f"c      {a.shape[0]}, a column each")
+        return lambda top: side_cube(
+            canvas, top, title, lines, (1, 1), width=110, depth=90,
+            depth_lines=[k / planes for k in range(depth, planes, depth)],
+        )
 
     canvas = Canvas(WIDTH)
     y = d.heading(canvas, "Store", f"{REPO.removeprefix('arraylake://')}  main @ {store.snapshot}")
@@ -846,7 +1010,8 @@ def main() -> None:
     listing = read_listing(args.directory_cache)
     store = read_store(args.repo, args.branch)
     args.out.mkdir(parents=True, exist_ok=True)
-    for name, figure in (("source", source_figure), ("mapping", mapping_figure), ("store", store_figure)):
+    figures = (("source", source_figure), ("mapping", mapping_figure), ("crops", crops_figure), ("store", store_figure))
+    for name, figure in figures:
         size = figure(listing, store).write(args.out / f"{name}.svg")
         print(f"{name}.svg  {size / 1e3:.0f} kB")
 
