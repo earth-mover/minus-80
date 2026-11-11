@@ -14,3 +14,4 @@ package = false
 [dependency-groups]
 # For the tools in explore/, which look at the source zip; the conversion does not need them.
 explore = ["marimo>=0.16", "polars>=1.20"]
+notebook = ["ipykernel", "matplotlib"]
