@@ -69,16 +69,17 @@ UNIT = "micrometer"
 MORPHOLOGY_PIXEL = "morphology_pixel"
 #: The coordinate system between the scale and the translation of a QC raster.
 QC_SCALED = "qc_scaled"
+QC_PREFIX = "images/qc_"
 #: The branches that each mode refuses to write.
 PROTECTED = {"fixture": ("main",), "full": ("fixture",)}
-#: The elements each mode writes, in order. In full mode the catalog elements come first, so a fault shows
-#: before the hours of image writes. The root attributes come last, as they describe the branch.
+#: The elements each mode writes, in order. In full mode the catalog and QC elements come first, so a fault
+#: shows before the hours of image writes. The root attributes come last, as they describe the branch.
 ELEMENTS = {
     "fixture": ("tables/table", *(f"labels/{n}" for n in MASKS), "images/morphology", "shapes/nucleus_boundaries",
                 "shapes/cell_boundaries", "points/transcripts", "root"),
     "full": ("tables/table", *(f"labels/{n}" for n in MASKS), "shapes/nucleus_boundaries", "shapes/cell_boundaries",
-             "points/transcripts", ICEBERG_TABLES, "images/morphology", "images/morphology_3d", "images/he_image",
-             *(f"images/qc_{n}" for n in QC_NAMES), "root"),
+             "points/transcripts", ICEBERG_TABLES, *(f"images/qc_{n}" for n in QC_NAMES), "images/morphology",
+             "images/morphology_3d", "images/he_image", "root"),
 }
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
@@ -327,8 +328,9 @@ def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
          translation([0.0, raster.origin[1], raster.origin[0]], axes, input_system=QC_SCALED, input_unit=UNIT,
                      unit=UNIT)],
         axes, unit=UNIT)
-    # The display window spans the values: the dtype's range would show a map of small counts as black.
-    omero = channel_omero([{"label": raster.label}], max_value=float(raster.array.max()) or 1.0)
+    # The display window spans the finite values: the dtype's range would show a map of small counts as black.
+    top = raster.array[np.isfinite(raster.array)].max()
+    omero = channel_omero([{"label": raster.label}], max_value=max(math.ceil(top), 1))
 
     def write_level(group, level):
         array = create_level(group, f"s{level}", shape, raster.array.dtype, dims=axes, chunk=shape[1:])
@@ -340,6 +342,11 @@ def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
 
 def write_qc(writer: ElementWriter, bundle: Bundle, names: Sequence[str] | None = None) -> None:
     """Write the QC rasters ``names`` of the analysis summary, all by default; skip a raster that the branch holds."""
+    if names is not None:
+        # The report is read only when a raster is missing from the branch.
+        names = [n for n in names if not skip_held(writer, f"images/qc_{n}")]
+        if not names:
+            return
     found = bundle_rasters(bundle)
     for name in names or found:
         if name not in found:
@@ -611,12 +618,17 @@ def main() -> None:
                                                       concurrency=n),
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),
         "images/he_image": lambda: write_he(writer, he_image, he_alignment, pixel_size, concurrency=n),
-        **{f"images/qc_{name}": partial(write_qc, writer, bundle, [name]) for name in QC_NAMES},
         "root": lambda: write_root(writer, bundle, sample, layouts, experiment,
                                    missing=MISSING_FROM_FULL if full else MISSING_FROM_FIXTURE,
                                    fixture=None if full else FIXTURE),
     }
+    qc_selected = [e for e in selected if e.startswith(QC_PREFIX)]
     for element in selected:
+        if element in qc_selected:
+            # One call for all selected rasters, so the report is read once.
+            if element == qc_selected[0]:
+                write_qc(writer, bundle, [e.removeprefix(QC_PREFIX) for e in qc_selected])
+            continue
         steps[element]()
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
     print(f"{args.mode} written: {', '.join(selected)}")

@@ -81,6 +81,10 @@ def rasters(html: str) -> dict[str, QcRaster]:
             raise ValueError(f"unknown QC raster label {label!r}; known: {', '.join(BIN_NAMES)}")
         shape = (math.ceil(height / bin_size), math.ceil(width / bin_size))
         array = decode(bag["_resources"][key.removeprefix(RESOURCE_PREFIX)], shape)
+        if array.size == 0:
+            raise ValueError(f"{label}: the raster has no value")
+        if not np.isfinite(array).any():
+            raise ValueError(f"{label}: the raster has no finite value")
         found[name] = QcRaster(name, label, array, bin_size, origin, unit)
     return found
 

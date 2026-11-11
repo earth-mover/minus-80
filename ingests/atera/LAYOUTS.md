@@ -278,6 +278,8 @@ The ingest stops when the bundle has no such member or has more than one. It doe
   The map `mean_q_score_80um` has 13,439 values: 89 rows by 151 columns, with the same origin.
   The bag gives no bin count for it. The bin size 80 comes from the key. The shape is `ceil(7060 / 80)` by `ceil(12060 / 80)`.
   The ingest stops when a value count does not fill its shape.
+  It also stops on a raster with no value, and on a float raster with no finite value.
+  In `full` mode the QC rasters are written before the images, and the report is read once.
 - **The names.** A table in `qc.py` maps each label of `bins` to an element name.
   A label that the table lacks stops the ingest, so a later software version does not pass silently.
   The labels are `Transcript Density Map`, `Mean Q-Score`, `Negative Control Codewords`,
@@ -288,17 +290,21 @@ The ingest stops when the bundle has no such member or has more than one. It doe
   The channel name is the report's label. The element is complete after its one commit.
   The transform into `global` is a sequence. The first step is `Scale(1, bin size, bin size)` on `c, y, x`.
   The second step is `Translation(0, y origin, x origin)` from the system `qc_scaled`.
-  Pixel `p` of an axis starts at `origin + p * bin size`, so bin `i` of a 20 µm map covers `[-10 + 20 i, 10 + 20 i)` micrometres.
-  This is the convention of the other image elements: a transform with a scale only places pixel 0 at 0.
+  Pixel `p` of an axis starts at `origin + p * bin size`.
+  Bin `i` of a 20 µm map covers `[-10 + 20 i, 10 + 20 i)` micrometres.
+  The other image elements use the same convention.
+  A transform with a scale only places pixel 0 at 0.
 - **Ranges in the kidney.** Transcript density 0 to 35,802. Mean Q-score 0 to 40. Negative control codewords 0 to 11.
   Negative control probes 0 to 3. Genomic controls 0 to 9. Mean Q-score at 80 µm 0 to 40.
 - **What the density map counts.** The sum of the density map is 1,083,945,548.
   The report states 1,083,799,964 high quality transcripts. The transcript store holds 1,186,813,834 transcripts.
   The ingest does not claim what the map counts.
-- **Orientation.** Each 2000 µm tile of the transcript store has a sum in the map of 0.90 to 0.92 of its transcript count,
-  with rows as y and no flip. The 80 µm map fits the density-weighted mean of the 20 µm quality map best with offset zero.
+- **Orientation.** The ingest stores the rows as y, with no flip.
+  Measured on 2026-11-11: each 2000 µm tile's sum in the density map is 0.90 to 0.92 of that tile's transcript count.
+  The 80 µm map is aligned with the 20 µm quality map.
+  The density-weighted mean of the 20 µm quality map fits it best with offset zero.
 - **Gate.** The `qc` gate decodes the rasters from the bundle again. It compares each stored array
-  (values, dtype and shape) and its scale and translation.
+  (values, dtype and shape), its scale and translation, and its channel label.
 
 ### What the fixture showed
 

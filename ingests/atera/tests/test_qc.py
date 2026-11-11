@@ -13,7 +13,7 @@ import ingest
 from bundle import Bundle
 from ingest import write_qc
 from minus80.core.icechunk_io import commit
-from qc import rasters
+from qc import QC_NAMES, rasters
 from tests.test_images import ALIGNMENT, PIXEL, _main, _repo, _rgb_pyramid, bundle, writer  # noqa: F401
 from verify import gate_qc
 
@@ -100,6 +100,23 @@ def test_an_unknown_dtype_raises_with_the_header():
         rasters(_html(bag))
 
 
+def test_a_raster_with_no_value_raises_with_its_label():
+    bag = _bag()
+    bag["density_plot"]["dimensions"]["height"] = 0.0
+    del bag["density_plot"]["bins"]["Transcript Density Map"]
+    bag["_resources"]["density_plot_mean_q_score"] = _resource(QUALITY[:0])
+    bag["_resources"]["density_plot_mean_q_score_80um"] = _resource(COARSE[:0])
+    with pytest.raises(ValueError, match="Mean Q-Score: the raster has no value"):
+        rasters(_html(bag))
+
+
+def test_a_float_raster_with_no_finite_value_raises_with_its_label():
+    bag = _bag()
+    bag["_resources"]["density_plot_mean_q_score"] = _resource(np.full((4, 6), np.nan, dtype="<f4"))
+    with pytest.raises(ValueError, match="Mean Q-Score.*finite"):
+        rasters(_html(bag))
+
+
 def test_a_report_without_the_data_bag_raises():
     with pytest.raises(ValueError, match="ws-data"):
         rasters("<html><body>nothing</body></html>")
@@ -170,12 +187,51 @@ def test_write_qc_refuses_a_raster_the_report_lacks(qc_bundle, writer):  # noqa:
     assert not writer.has("images/qc_negative_control_probes")
 
 
+def test_a_float_raster_with_a_nan_has_a_finite_window_and_stores_the_nan(qc_bundle, writer, tmp_path):  # noqa: F811
+    bag = _bag()
+    quality = QUALITY.copy()
+    quality[0, 0] = np.nan
+    bag["_resources"]["density_plot_mean_q_score"] = _resource(quality)
+    with zipfile.ZipFile(tmp_path / "nan.zip", "w") as zf:
+        zf.writestr("analysis_summary_nan.html", _html(bag))
+    write_qc(writer, Bundle(tmp_path / "nan.zip"), ["mean_q_score"])
+    group = _root(writer)["images/qc_mean_q_score"]
+    np.testing.assert_array_equal(group["s0"][0], quality)
+    window = group.attrs["ome"]["omero"]["channels"][0]["window"]
+    assert window["end"] == float(np.ceil(np.nanmax(quality)))
+    json.dumps(dict(group.attrs), allow_nan=False)
+
+
 def test_a_rerun_of_write_qc_skips_held_elements(qc_bundle, writer, capsys):  # noqa: F811
     write_qc(writer, qc_bundle)
     capsys.readouterr()
     write_qc(writer, qc_bundle)
     out = capsys.readouterr().out
     assert out.count("already, skipped") == 3 and "commit" not in out
+
+
+def test_the_report_is_decoded_once_in_a_run_and_not_in_a_rerun_that_holds_every_element(
+        monkeypatch, tmp_path, qc_bundle):  # noqa: F811
+    import qc
+
+    reads = []
+    real = qc.rasters
+    monkeypatch.setattr(qc, "rasters", lambda html: reads.append(len(html)) or real(html))
+    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
+    _rgb_pyramid(he, planar=False)
+    np.savetxt(alignment, ALIGNMENT, delimiter=",")
+    monkeypatch.chdir(tmp_path)
+    args = ("--mode", "full", "--branch", "full", "--bundle", str(tmp_path / "outs.zip"), "--he-image", str(he),
+            "--he-alignment", str(alignment), "--elements", "images/qc_transcript_density,images/qc_mean_q_score")
+    _main(monkeypatch, tmp_path, *args)
+    assert len(reads) == 1
+    _main(monkeypatch, tmp_path, *args)
+    assert len(reads) == 1
+
+
+def test_the_qc_elements_come_before_the_image_writes_in_full_mode():
+    full = ingest.ELEMENTS["full"]
+    assert max(full.index(f"images/qc_{n}") for n in QC_NAMES) < full.index("images/morphology")
 
 
 def test_full_mode_writes_the_qc_rasters_and_does_not_list_them_as_missing(monkeypatch, tmp_path, qc_bundle):  # noqa: F811
@@ -201,7 +257,7 @@ def qc_store(qc_bundle, writer):  # noqa: F811
     return writer.repo
 
 
-def test_gate_qc_passes_on_a_store_written_in_full(qc_bundle, qc_store):
+def test_gate_qc_passes_on_a_store_that_write_qc_wrote(qc_bundle, qc_store):
     assert gate_qc(zarr.open_group(qc_store.readonly_session(branch="work").store, mode="r"), qc_bundle) == []
 
 
@@ -245,3 +301,33 @@ def test_gate_qc_fails_when_the_scale_differs(qc_bundle, qc_store):
 
     errors = gate_qc(_corrupt(qc_store, change), qc_bundle)
     assert len(errors) == 1 and "scale" in errors[0]
+
+
+def _replace(root, path, array):
+    root.create_array(path, shape=array.shape, dtype=array.dtype, overwrite=True)[:] = array
+
+
+def test_gate_qc_fails_when_the_dtype_differs(qc_bundle, qc_store):
+    def change(root):
+        _replace(root, "images/qc_mean_q_score/s0", QUALITY[None].astype("<f8"))
+
+    errors = gate_qc(_corrupt(qc_store, change), qc_bundle)
+    assert len(errors) == 1 and "qc_mean_q_score" in errors[0] and "float64" in errors[0]
+
+
+def test_gate_qc_fails_when_the_shape_differs(qc_bundle, qc_store):
+    def change(root):
+        _replace(root, "images/qc_transcript_density/s0", DENSITY[None, :, :5])
+
+    errors = gate_qc(_corrupt(qc_store, change), qc_bundle)
+    assert len(errors) == 1 and "qc_transcript_density" in errors[0] and "(1, 4, 5)" in errors[0]
+
+
+def test_gate_qc_fails_when_the_channel_label_differs(qc_bundle, qc_store):
+    def change(root):
+        attrs = root["images/qc_mean_q_score"].attrs.asdict()
+        attrs["ome"]["omero"]["channels"][0]["label"] = "Mean Quality"
+        root["images/qc_mean_q_score"].attrs.put(attrs)
+
+    errors = gate_qc(_corrupt(qc_store, change), qc_bundle)
+    assert len(errors) == 1 and "label" in errors[0] and "Mean Quality" in errors[0]

@@ -147,8 +147,12 @@ def gate_qc(root, bundle) -> list[str]:
         if stored.shape != (1, *raster.array.shape) or stored.dtype != raster.array.dtype:
             errors.append(f"{path}: stored {stored.shape} {stored.dtype}, the report has "
                           f"{(1, *raster.array.shape)} {raster.array.dtype}")
-        elif not np.array_equal(stored[0], raster.array):
-            errors.append(f"{path}: {int((stored[0] != raster.array).sum())} values differ from the report")
+        elif not np.array_equal(stored[0], raster.array, equal_nan=True):
+            differ = ~((stored[0] == raster.array) | (np.isnan(stored[0]) & np.isnan(raster.array)))
+            errors.append(f"{path}: {int(differ.sum())} values differ from the report")
+        label = root[path].attrs["ome"]["omero"]["channels"][0]["label"]
+        if label != raster.label:
+            errors.append(f"{path}: channel label {label!r}, the report gives {raster.label!r}")
         transform = root[path].attrs["ome"]["multiscales"][0]["coordinateTransformations"][0]
         errors += _transform_errors(path, raster, transform)
     return errors
