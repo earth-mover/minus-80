@@ -97,6 +97,18 @@ levels with zstd and that client still gets the overview. Name the codecs the
 store needs in its root attributes. Drop a bespoke codec once a maintained one,
 such as `flac-numcodecs`, decodes the format.
 
+### Decode lossless JPEG 2000 once for a native copy
+
+10x Atera writes its OME-TIFF morphology as `uint16` JPEG 2000 tiles. They use
+the 5/3 reversible wavelet, so they are lossless. `tifffile` decodes them
+through `imagecodecs`.
+
+The Zarr codec for them is `imagecodecs_jpeg2k`. Only Python readers with
+`imagecodecs-zarr` have it. Arraylake's web app and its Booth service do not.
+
+A native copy therefore decodes each tile once and writes it with blosc-zstd.
+`minus80.core.pyramid` does this and checks sampled tiles against tifffile.
+
 ## Indexing remote files
 
 ### Price indexing before running it
@@ -150,3 +162,5 @@ file from the target archive as the primary fixture.
 | `arraylake` reads `ARRAYLAKE_TOKEN` when first imported | set the token before importing |
 | xarray `where(..., drop=True)` raises on `StringDType` columns | `sel` or boolean `isel` |
 | A script named like a module (`attrs.py`) shadows it when run from its folder | name scripts so they cannot shadow a package |
+| `pyiceberg` maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295 | store such columns as `int64` |
+| zarr's regular chunk grid cannot hold a virtual reference to a short last chunk | `minus80.core.tables.declare_copy` uses a rectilinear grid, and a reader sets `array.rectilinear_chunks` |

@@ -24,6 +24,7 @@ Statuses checked 2026-10-22.
 | `parse_zip_index` fetches the whole central directory in one request, which is 1.49 GB for an archive of 7.7 million members. `buffers` walks the local headers in order instead. | `minus80.parsers.zip.buffers` | Read the central directory in bounded pieces. | not filed |
 | `buffers` imports VirtualiZarr's private `_parse_zip64_extra` to read the sizes in a ZIP64 local header. | `minus80.parsers.zip.buffers` | Make it public. | not filed |
 | `tensor_ranges` reads a safetensors header and returns each tensor's byte range, including inside a STORED zip member. | `minus80.parsers.zip.safetensors_ranges` | Add a safetensors parser. | [VirtualiZarr#367](https://github.com/zarr-developers/VirtualiZarr/issues/367), open issue |
+| `ZippedZarrParser` reads a `.zarr.zip` that is its own object. It cannot read one stored inside another zip. `member_file` opens the stored member as a seekable file, and `copy_group` copies the Zarr v2 chunks into a v3 group. | `minus80.parsers.zip.nested`, `minus80.core.zarr_copy` | Let `ZippedZarrParser` read a Zarr zip that is a member of a stored zip. | not filed |
 
 ## Icechunk
 
@@ -80,6 +81,19 @@ retired in favour of virtual-tiff.
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
 | `submit` starts a coroutine on zarr's IO loop through the private `zarr.core.sync._get_loop`, so range GETs can be cancelled and the loop's daemon thread does not hold the interpreter open. `zarr.core.sync.sync` runs a coroutine to completion but returns no handle to cancel it. | `minus80.core.aio` | Expose a public way to submit a coroutine to zarr's IO loop and get a cancellable future. | no issue found |
+| A regular chunk grid cannot hold a virtual reference to a file's short last chunk. `declare_copy` writes a rectilinear grid, which needs the `array.rectilinear_chunks` config flag to open. | `minus80.core.tables` | Enable rectilinear chunk grids without a config flag. | not filed |
+
+## SpatialData
+
+| Workaround | Module | Upstream | Status |
+| --- | --- | --- | --- |
+| SpatialData cannot open a store that has no filesystem path. The ingest keeps each points and shapes Parquet file as a `uint8` array, which `declare_copy` references from the repo. | `minus80.core.tables`, `minus80.ome.spatialdata` | Open points and shapes from a store without a filesystem path. | [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107), open PR |
+
+## pyiceberg
+
+| Workaround | Module | Upstream | Status |
+| --- | --- | --- | --- |
+| pyiceberg maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295. The ingest declares such columns as `int64`. | `ingests/atera/transcripts.py` | Map unsigned integers to a type that holds their range. | not filed |
 
 ## Python standard library
 

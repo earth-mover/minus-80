@@ -9,7 +9,7 @@ repository is; this file says how to work in it.
 ingest produces an Icechunk store whose chunks reference the archive's own
 bytes, and whose hierarchy a stranger can navigate: an OME-Zarr layout with
 real axes, real physical units, resolution levels declared as such, groups that
-say what they contain, and the study's annotations travelling with the pixels.
+say what they contain, and the study's annotations travelling with the pixels. One kind of ingest copies: see Native ingests.
 
 A store that references every byte but exposes one array per file has achieved
 nothing a directory listing did not. Judge every output by one test: **open the
@@ -56,6 +56,29 @@ ingest, the work is not done. That rules out:
   for a human to approve; after the ingest, write its `REPORT.md`. The sections
   each needs are in `docs/ingest.md`. Both are public: no local paths, keys or
   credentials.
+
+### Native ingests
+
+An ingest copies the source's bytes only when the source's access policy asks for it.
+A publisher that does not want its bucket read by every user is such a case.
+Our convenience is not a reason. The ingest's `PLAN.md` states the reason.
+
+A native ingest relaxes two rules:
+
+- **It decodes pixels once.** It does so only when no codec that every reader has
+  can decode the source's chunks. It copies a chunk's bytes unchanged when one can.
+- **It chooses the chunking for the reader.** The source's storage unit is the
+  default. A different chunk shape needs a stated reason.
+
+Every other rule holds, and three become stricter:
+
+- **Verify each copied byte and each decoded tile against the source.** Compare
+  copied chunks with the source bytes. Compare decoded tiles with the format's
+  reference reader, on a sample that covers every level and layout.
+- **Record the source objects.** The root attributes hold each object's URL, size,
+  ETag and date, with the licence and the citation the publisher asks for.
+- **Run beside the data.** The ingest runs in the source's region. A run from
+  elsewhere measures nothing about the ingest.
 
 ## Layout
 
