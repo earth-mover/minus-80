@@ -12,6 +12,9 @@ dependencies = [
     "tifffile>=2025.1.1",
 ]
 
+[project.optional-dependencies]
+launch = ["coiled>=1.135.6"]
+
 [tool.uv]
 package = false
 
