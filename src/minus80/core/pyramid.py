@@ -142,7 +142,8 @@ def write_page(
 def _write_all(array: zarr.Array, writes, concurrency: int, write_bytes: int) -> int:
     """Write each `(region, data)` pair of at most `write_bytes`; return the count.
 
-    Up to `concurrency` writes run at once. The pending writes stay under `PENDING_BYTES`.
+    Up to `concurrency` writes run at once.
+    The pending writes stay under `PENDING_BYTES`, unless one write exceeds it.
     """
     count = 0
     if concurrency <= 1:
@@ -207,7 +208,7 @@ def write_stack(
 ) -> int:
     """Write one plane per page at `index`, one region per tile position; return the region count.
 
-    A region is one whole shard, so the codec writes it once, not once per plane.
+    An interior region is one whole shard, so the codec writes it once, not once per plane.
     A cropped edge region is a partial shard, so zarr reads that shard once before it writes.
     A tile with no stored bytes reads as the fill value.
     The pending regions stay under `PENDING_BYTES`, unless one region exceeds it.
