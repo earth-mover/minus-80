@@ -9,7 +9,8 @@ repository is; this file says how to work in it.
 ingest produces an Icechunk store whose chunks reference the archive's own
 bytes, and whose hierarchy a stranger can navigate: an OME-Zarr layout with
 real axes, real physical units, resolution levels declared as such, groups that
-say what they contain, and the study's annotations travelling with the pixels. One kind of ingest copies: see Native ingests.
+say what they contain, and the study's annotations travelling with the pixels.
+One kind of ingest copies: see Native ingests.
 
 A store that references every byte but exposes one array per file has achieved
 nothing a directory listing did not. Judge every output by one test: **open the

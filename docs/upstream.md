@@ -87,7 +87,7 @@ retired in favour of virtual-tiff.
 
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
-| SpatialData cannot open a store that has no filesystem path. The ingest keeps each points and shapes Parquet file as a `uint8` array, which `declare_copy` references from the repo. | `minus80.core.tables`, `minus80.ome.spatialdata` | Open points and shapes from a store without a filesystem path. | [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107), open PR |
+| SpatialData cannot open a store that has no filesystem path. The ingest keeps each points and shapes Parquet file as a `uint8` array, which `declare_copy` references from the repo. | `minus80.core.tables` | Open points and shapes from a store without a filesystem path. | [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107), open PR |
 
 ## pyiceberg
 
