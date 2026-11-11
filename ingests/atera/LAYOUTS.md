@@ -513,7 +513,7 @@ The fixture on Arraylake: repo `earthmover-biology/atera-kidney`, branch `fixtur
 `BF52XEQ53GH7JRBE4F30`. The ingest wrote it on 2026-11-11 in seven commits, one per element.
 The rewrite on the same day added three commits; "The rewrite" gives them. The Iceberg
 tables are in the namespace `atera-kidney-tables` of the catalog `arraylake://earthmover-biology`.
-All of it ran on a laptop outside us-west-2.
+The fixture ingest ran on a laptop outside us-west-2. Items (e) and (f) ran on a VM in us-west-2.
 
 - **(a) `add_files` on Arraylake's catalog.** Accepted. `atera-kidney-tables.transcripts`: UUID
   `9c8ad66e-9714-441a-a64c-47717a6df18e`, first snapshot 2561315328136931592, 2,633,912 rows in 1 file.
