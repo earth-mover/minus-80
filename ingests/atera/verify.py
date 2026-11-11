@@ -343,7 +343,7 @@ def _transcript_errors(path: str, catalog, attr, grid: dict) -> list[str]:
     """
     table = load(catalog, attr)
     held = partition_files(table, attr["snapshot_id"])
-    rows, bounds = partition_counts(held), partition_bounds(table, held, attr["index_column"])
+    rows, bounds = partition_counts(held), partition_bounds(table, held, attr["index_column"], attr["snapshot_id"])
     counts = dict(zip(grid["grid_keys"], grid["grid_number_objects"], strict=True))
     first = dict(tile_order(grid))
     errors = [f"{path}: tile {t} is not in the source" for t in sorted(set(rows) - set(counts))]

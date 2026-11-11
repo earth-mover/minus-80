@@ -190,6 +190,11 @@ That table has an int64 `method` column.
 Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
 The gates `images`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
 The gates `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
+Each `iceberg_table` attribute of the branch pins one snapshot of `nucleus_boundaries` or `transcripts`.
+The `uint8` copies of the branch reference the data files of those snapshots.
+The full ingest replaces the rows of both tables in place. It deletes no snapshot and no data file.
+So the pins stay valid, and the same gates pass on the branch after the replace.
+A gate reads a pinned snapshot with the schema of that snapshot, not with the current schema.
 `verify.py --gates` runs the gates that apply.
 A gate that raises prints a FAIL line with the exception, and the run goes on.
 
@@ -448,6 +453,8 @@ uv run --package atera-ingest python ingests/atera/verify.py --mode full \
 - **Gates.** All 13 gates that ran passed. The `source` gate printed its skip line for the local bundle.
 - **Gates that did not run.** `masks` and `instances` fail on this bundle. Its `cell_summary` has one column and three rows.
   The gates need `nucleus_area` and 50 sampled rows. They need the real bundle.
+- **Replace.** The full ingest of an Arraylake catalog that holds the fixture's tables adds
+  `--replace-tables transcripts,nucleus_boundaries`. A fresh catalog needs no flag.
 - **Refusals.** `--mode full --branch fixture` and `--mode fixture --branch main` exit 1 with a message.
   `verify.py` with a local `--repo` and `--catalog arraylake://<org>` exits 1 and creates no directory.
 
@@ -654,7 +661,8 @@ The fixture ingest ran on a laptop outside us-west-2. Items (e) and (f) ran on a
     The upload of Parquet files to the tables' bucket, and the table commits.
     The polygon tables. The matrix copy. The QC rasters. `verify.py --mode full`. Levels above 0.
     The checksum of a `uint8` copy on R2.
-    A staged create of a partitioned table on the Arraylake catalog: the first full run meets it first.
+  - A staged create of a partitioned table works on the Arraylake catalog. Measured on 2026-11-11.
+    An empty probe table was created with its partition spec in one metadata commit, then dropped.
 
   Estimate for one kidney sample, from the concurrency-32 rates. This is an estimate from rates, not a measurement.
   Level 0 has 33 rows x 56 columns = 1,848 tiles for each of 4 channels.

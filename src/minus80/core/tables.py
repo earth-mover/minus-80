@@ -170,6 +170,32 @@ class TableRef(NamedTuple):
     files: list[DataFile]
 
 
+def _iceberg_schema(schema: pa.Schema):
+    """``schema`` as Iceberg types, as ``create_table`` converts it; the field ids are placeholders."""
+    from pyiceberg.catalog import Catalog
+
+    return Catalog._convert_schema_if_needed(schema)
+
+
+def schema_changes(table, schema: pa.Schema) -> tuple[list[str], list[str]]:
+    """The columns that ``schema`` adds to ``table`` and the columns it deletes, each in schema order.
+
+    A kept column of another type raises ``ValueError`` with both types.
+    """
+    from pyiceberg.io.pyarrow import schema_to_pyarrow
+
+    wanted, present = _iceberg_schema(schema), table.schema()
+    names = {f.name for f in present.fields}
+    for field in wanted.fields:
+        if field.name in names:
+            held = present.find_field(field.name)
+            if schema_to_pyarrow(wanted).field(field.name).type != schema_to_pyarrow(present).field(field.name).type:
+                raise ValueError(f"{'.'.join(table.name())}: column {field.name} is {held.field_type}, "
+                                 f"the wanted schema has {field.field_type}")
+    return ([f.name for f in wanted.fields if f.name not in names],
+            [f.name for f in present.fields if f.name not in {w.name for w in wanted.fields}])
+
+
 def require_table(
     catalog,
     identifier: str,
@@ -177,12 +203,16 @@ def require_table(
     schema: pa.Schema,
     properties: Mapping[str, str],
     partition_by: str | None = None,
+    evolve: bool = False,
 ):
     """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``.
 
     An existing table with another identity partition spec raises ``ValueError``; the spec is not evolved.
     A column that ``schema`` marks non-nullable becomes required in an existing table too,
     when every current data file states 0 nulls in it. Otherwise it raises ``ValueError``.
+    An existing table whose columns differ from ``schema`` raises ``ValueError``, unless ``evolve``:
+    then one schema commit adds each missing column, as optional with a new field id, and deletes each other column.
+    A kept column of another type raises ``ValueError`` in both cases.
     """
     if catalog.table_exists(identifier):
         table = catalog.load_table(identifier)
@@ -193,6 +223,19 @@ def require_table(
         names = {f.name for f in table.schema().fields}
         if lacking := [f.name for f in schema if not f.nullable and f.name not in names]:
             raise ValueError(f"{identifier} has no column {', '.join(lacking)}")
+        added, deleted = schema_changes(table, schema)
+        if (added or deleted) and not evolve:
+            raise ValueError(f"{identifier} differs from the wanted schema, which adds {', '.join(added) or 'no column'} "
+                             f"and deletes {', '.join(deleted) or 'no column'}")
+        if added or deleted:
+            # The placeholder ids are all equal, so the types are read by position, not by id.
+            types = {f.name: f.field_type for f in _iceberg_schema(schema).fields}
+            with table.update_schema() as update:
+                for name in deleted:
+                    update.delete_column(name)
+                for name in added:
+                    update.add_column(name, types[name])
+            table = catalog.load_table(identifier)
         loose = [f.name for f in schema if not f.nullable and not table.schema().find_field(f.name).required]
         for name in loose:
             _check_no_nulls(table, identifier, name)
@@ -220,12 +263,14 @@ def register_files(
     properties: Mapping[str, str],
     partition_by: str | None = None,
     replace: bool = False,
+    replace_partitions: Sequence = (),
 ) -> TableRef:
     """Add ``files`` to the table ``identifier``, creating it when absent.
 
     A new table is partitioned by identity on ``partition_by``. A file the current snapshot
     already holds is not added again, so a rerun returns the same snapshot. With ``replace``,
     one overwrite snapshot also removes every other file from the table; the objects stay.
+    ``replace_partitions`` removes, in the same snapshot, the other files of those partition values.
     """
     from pyiceberg.io.pyarrow import parquet_file_to_data_file
 
@@ -233,7 +278,8 @@ def register_files(
                           partition_by=partition_by)
     held = {task.file.file_path: task.file for task in table.scan().plan_files()}
     new = [f for f in files if f not in held]
-    stale = [held_file for path, held_file in held.items() if path not in files] if replace else []
+    stale = [held_file for path, held_file in held.items()
+             if path not in files and (replace or (replace_partitions and held_file.partition[0] in replace_partitions))]
     if stale:
         with table.transaction() as transaction:
             with transaction.update_snapshot().overwrite() as overwrite:
@@ -410,14 +456,25 @@ def partition_counts(files: Sequence) -> dict:
     return counts
 
 
-def partition_bounds(table, files: Sequence, column: str) -> dict:
+def snapshot_schema(table, snapshot_id: int | None = None):
+    """The schema that ``table`` had at ``snapshot_id``, or its current schema without one."""
+    if snapshot_id is None:
+        return table.schema()
+    snapshot = table.snapshot_by_id(snapshot_id)
+    if snapshot is None:
+        raise ValueError(f"{'.'.join(table.name())} has no snapshot {snapshot_id}")
+    return table.schema() if snapshot.schema_id is None else table.schemas()[snapshot.schema_id]
+
+
+def partition_bounds(table, files: Sequence, column: str, snapshot_id: int | None = None) -> dict:
     """The (min, max) of ``column`` in each partition value of ``files``, as :func:`partition_files` gives them.
 
+    ``column`` is looked up in the schema of ``snapshot_id``, or the current schema without one.
     A data file with no bounds for ``column`` raises ``ValueError``.
     """
     from pyiceberg.conversions import from_bytes
 
-    field = table.schema().find_field(column)
+    field = snapshot_schema(table, snapshot_id).find_field(column)
     ranges: dict = {}
     for value, file in files:
         lower, upper = (b.get(field.field_id) for b in (file.lower_bounds or {}, file.upper_bounds or {}))
@@ -463,11 +520,14 @@ class TableWriter:
             raise ValueError(f"table {name} is not required; call require first")
         return self._specs[name]
 
-    def require(self, name: str, *, schema, properties, partition_by=None):
-        """The table ``name``, created when absent, with ``properties`` set; ``write`` then uses this spec."""
+    def require(self, name: str, *, schema, properties, partition_by=None, evolve=False):
+        """The table ``name``, created when absent, with ``properties`` set; ``write`` then uses this spec.
+
+        ``evolve`` changes an existing table's columns to ``schema``; see :func:`require_table`.
+        """
         self._specs[name] = {"schema": schema, "properties": properties, "partition_by": partition_by}
         table = require_table(self.catalog, f"{self.namespace}.{name}", schema=schema,
-                              properties=properties, partition_by=partition_by)
+                              properties=properties, partition_by=partition_by, evolve=evolve)
         if any(table.properties.get(k) != v for k, v in properties.items()):
             with table.transaction() as transaction:
                 transaction.set_properties(dict(properties))
@@ -540,7 +600,14 @@ class TableWriter:
             [data_file(table.io, file.file_path) for _, file in held],
         )
 
-    def write_parts(self, name: str, paths: Sequence[Path], *, replace=False) -> TableRef:
+    def remove_partitions(self, name: str, values: Sequence) -> TableRef:
+        """Delete the data files of the partition ``values`` from the current snapshot of ``name``.
+
+        The objects stay, and earlier snapshots list them. No file to delete commits no snapshot.
+        """
+        return self.write_parts(name, [], replace_partitions=values)
+
+    def write_parts(self, name: str, paths: Sequence[Path], *, replace=False, replace_partitions: Sequence = ()) -> TableRef:
         """Write each Parquet file of ``paths`` into the table ``name``, and register all in one snapshot.
 
         Without ``replace`` the files are added to the table and its earlier files stay.
@@ -551,13 +618,15 @@ class TableWriter:
         A local file goes to a unique ``.part`` name first, then replaces the final name; a crash leaves that file, which no later write uses.
         With ``replace``, the files replace every file the table holds. A failure after the table
         snapshot and before the repo commit leaves one extra snapshot; the next run converges.
+        ``replace_partitions`` replaces the files of those partition values, in the same snapshot.
         """
-        return self._register(self.require(name, **self._spec(name)), name, paths, replace)
+        return self._register(self.require(name, **self._spec(name)), name, paths, replace, replace_partitions)
 
-    def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool) -> TableRef:
+    def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool, replace_partitions: Sequence = ()) -> TableRef:
         urls = []
         for path in paths:
             url = f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet"
             _put(iceberg.io, path, url)
             urls.append(url)
-        return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace, **self._spec(name))
+        return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace,
+                              replace_partitions=replace_partitions, **self._spec(name))

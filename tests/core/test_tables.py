@@ -913,3 +913,128 @@ def test_partition_bounds_name_the_file_without_its_directory(tmp_path):
     with pytest.raises(ValueError) as raised:
         writer.partition_ranges("t", "instance")
     assert "/" not in str(raised.value) and ".parquet has no bounds for column instance" in str(raised.value)
+
+
+EVOLVE_FROM = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()), ("old", pa.int64())])
+EVOLVE_TO = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()), ("new", pa.int32())])
+
+
+def _evolvable(tmp_path):
+    """A writer whose table ``t`` has a column ``old`` that ``EVOLVE_TO`` lacks, with two rows written."""
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=EVOLVE_FROM, properties={})
+    first = writer.write("t", pa.table({"instance": [1, 2], "grid_tile": ["a", "a"], "old": [5, 6]}, schema=EVOLVE_FROM))
+    return writer, first
+
+
+def test_require_refuses_a_column_difference_unless_it_evolves(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    with pytest.raises(ValueError, match=r"ns\.t.*adds new.*deletes old"):
+        writer.require("t", schema=EVOLVE_TO, properties={})
+    assert [f.name for f in writer.catalog.load_table("ns.t").schema().fields] == ["instance", "grid_tile", "old"]
+
+
+def test_require_with_evolve_adds_and_deletes_columns_in_one_schema_commit(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    before = writer.catalog.load_table("ns.t")
+    table = writer.require("t", schema=EVOLVE_TO, properties={}, evolve=True)
+    assert [f.name for f in table.schema().fields] == ["instance", "grid_tile", "new"]
+    assert len(table.metadata.schemas) == len(before.metadata.schemas) + 1
+    assert table.schema().find_field("new").field_id > max(f.field_id for f in before.schema().fields)
+    assert table.schema().find_field("instance").field_id == before.schema().find_field("instance").field_id
+    assert table.schema().find_field("instance").required
+    assert len(table.metadata.snapshots) == 1
+    # A second evolve finds nothing to change.
+    again = writer.require("t", schema=EVOLVE_TO, properties={}, evolve=True)
+    assert len(again.metadata.schemas) == len(table.metadata.schemas)
+
+
+def test_a_kept_column_of_another_type_is_refused_with_both_types(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    other = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()), ("old", pa.string())])
+    for evolve in (False, True):
+        with pytest.raises(ValueError, match=r"column old is long.*has string"):
+            writer.require("t", schema=other, properties={}, evolve=evolve)
+    assert [f.name for f in writer.catalog.load_table("ns.t").schema().fields] == ["instance", "grid_tile", "old"]
+
+
+def test_a_missing_required_column_is_refused_even_when_evolving(tmp_path):
+    writer, _ = _evolvable(tmp_path)
+    strict = pa.schema([pa.field("instance", pa.int64(), nullable=False), pa.field("new", pa.int32(), nullable=False)])
+    with pytest.raises(ValueError, match=r"ns\.t has no column new"):
+        writer.require("t", schema=strict, properties={}, evolve=True)
+
+
+def test_a_struct_column_of_the_same_type_is_kept_when_evolving(tmp_path):
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=_NESTED, properties={})
+    wider = pa.schema([*_NESTED, ("extra", pa.string())])
+    table = writer.require("t", schema=wider, properties={}, evolve=True)
+    assert [f.name for f in table.schema().fields] == ["instance", "bbox", "extra"]
+
+
+def test_a_write_after_evolving_carries_the_evolved_field_ids_and_the_earlier_snapshot_keeps_its_columns(tmp_path):
+    writer, first = _evolvable(tmp_path)
+    writer.require("t", schema=EVOLVE_TO, properties={}, evolve=True)
+    ref = writer.write("t", pa.table({"instance": [3], "grid_tile": ["a"], "new": pa.array([7], pa.int32())}, schema=EVOLVE_TO),
+                       replace=True)
+    table = writer.catalog.load_table("ns.t")
+    footer = pq.read_schema(file_path(ref.files[0].location))
+    assert {f.name: int(f.metadata[b"PARQUET:field_id"]) for f in footer} == index_by_name(table.schema())
+    # pyiceberg scans a snapshot with the schema that snapshot was written under.
+    earlier = table.scan(snapshot_id=first.snapshot_id).to_arrow()
+    assert earlier.column_names == ["instance", "grid_tile", "old"]
+    assert earlier["old"].to_pylist() == [5, 6]
+    assert table.metadata.snapshot_by_id(first.snapshot_id).schema_id != table.metadata.current_schema_id
+    assert file_path(first.files[0].location).exists()
+    assert table.scan().to_arrow().column_names == ["instance", "grid_tile", "new"]
+
+
+def test_partition_bounds_read_the_schema_of_the_snapshot_they_are_given(tmp_path):
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", schema=EVOLVE_FROM, properties={}, partition_by="grid_tile")
+    first = writer.write_parts("t", [_tile_file_of(writer, tmp_path, EVOLVE_FROM, {"old": [5, 9]})])
+    writer.require("t", schema=EVOLVE_TO, properties={}, partition_by="grid_tile", evolve=True)
+    table = writer.catalog.load_table("ns.t")
+    held = partition_files(table, first.snapshot_id)
+    assert partition_bounds(table, held, "old", snapshot_id=first.snapshot_id) == {"a": (5, 9)}
+
+
+def _tile_file_of(writer, tmp_path, schema, columns):
+    n = len(next(iter(columns.values())))
+    table = pa.table({"instance": pa.array(range(n), pa.int64()), "grid_tile": ["a"] * n, **columns}, schema=schema)
+    path = tmp_path / "tile.parquet"
+    write_parquet(table, str(path), index_column="instance", field_ids=writer.field_ids("t"))
+    return path
+
+
+def test_register_files_replaces_the_named_partitions_in_the_one_snapshot_that_adds_the_file(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    a = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    b = writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)])
+    ref = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 5, 6, 7)], replace_partitions=["a"])
+    table = writer.catalog.load_table("ns.t")
+    assert writer.partitions("t") == {"a": 3, "b": 1}
+    assert len(table.metadata.snapshots) == 3 and ref.snapshot_id == table.current_snapshot().snapshot_id
+    assert b.files[0].location in {t.file.file_path for t in table.scan().plan_files()}
+    assert file_path(a.files[0].location).exists()
+    assert sorted(table.scan(snapshot_id=b.snapshot_id).to_arrow()["instance"].to_pylist()) == [0, 1, 2]
+
+
+def test_remove_partitions_deletes_their_files_from_the_current_snapshot_only(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    a = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)])
+    writer.remove_partitions("t", ["a"])
+    table = writer.catalog.load_table("ns.t")
+    assert writer.partitions("t") == {"b": 1}
+    assert len(table.metadata.snapshots) == 3
+    assert file_path(a.files[0].location).exists()
+    assert sorted(table.scan(snapshot_id=a.snapshot_id).to_arrow()["instance"].to_pylist()) == [0, 1]
+
+
+def test_remove_partitions_without_a_match_commits_nothing(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0)])
+    writer.remove_partitions("t", ["z"])
+    assert len(writer.catalog.load_table("ns.t").metadata.snapshots) == 1

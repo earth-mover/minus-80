@@ -30,7 +30,7 @@ from minus80.core.progress import MIB
 from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, counting_reader, reader
 from minus80.core.pyramid import channel_names, create_level, physical_sizes, write_page, write_stack
-from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog
+from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog, schema_changes
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
 from minus80.ome import channel_omero, image_attrs, label_attrs, rgb_omero
 from minus80.ome.spatialdata import (
@@ -83,6 +83,8 @@ ELEMENTS = {
              "points/transcripts", ICEBERG_TABLES, *(f"images/qc_{n}" for n in QC_NAMES), "images/morphology",
              "images/morphology_3d", "images/he_image", "root"),
 }
+#: The tables ``--replace-tables`` can replace in place; the other tables of the full mode are new.
+REPLACEABLE = ("transcripts", "nucleus_boundaries")
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
 
@@ -412,6 +414,18 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     }
 
 
+def require_tables(tables: TableWriter, specs: dict[str, dict], replace: set[str]) -> None:
+    """Require each of ``FIXTURE_TABLES``. A table in ``replace`` takes the columns of its spec, with a line that lists the change."""
+    for name in FIXTURE_TABLES:
+        identifier, changes = f"{tables.namespace}.{name}", ([], [])
+        if name in replace and tables.catalog.table_exists(identifier):
+            changes = schema_changes(tables.catalog.load_table(identifier), specs[name]["schema"])
+        tables.require(name, **specs[name], evolve=name in replace)
+        if any(changes):
+            print(f"{name}: columns added: {', '.join(changes[0]) or 'none'}; "
+                  f"columns deleted: {', '.join(changes[1]) or 'none'}", flush=True)
+
+
 def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: int, *, replace=False) -> None:
     """Write polygon set ``set_index`` as the table and the element ``name``."""
     zf = bundle.member_zip(CELLS)
@@ -449,14 +463,30 @@ def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str
         root.attrs[ICEBERG_TABLES] = pins
 
 
+def held_tile_faults(plan: Sequence[tuple[str, int]], counts: dict, held: dict, held_ranges: dict) -> dict[str, str]:
+    """Why each held tile of ``plan`` fails: another row count, or another ``instance`` range than its place in the order."""
+    faults = {}
+    for tile, first_instance in plan:
+        rows = counts[tile]
+        if tile in held and held[tile] != rows:
+            faults[tile] = f"the table holds {held[tile]} rows, the source has {rows}"
+        elif tile in held and held_ranges[tile] != (first_instance, first_instance + rows - 1):
+            faults[tile] = (f"the table holds instances {held_ranges[tile][0]}..{held_ranges[tile][1]}, "
+                            f"expected {first_instance}..{first_instance + rows - 1}")
+    return faults
+
+
 def write_transcripts(
     writer, bundle, tables: TableWriter, *, tiles: Sequence[str] | None = None, replace=False,
-    scratch: Path | None = None,
+    replace_held=False, scratch: Path | None = None,
 ) -> None:
     """Write ``tiles`` of the transcripts, or every tile when ``None``, one table snapshot per tile.
 
     ``instance`` counts the rows of ``tiles`` in the order given. A tile that the table holds is skipped;
-    a held tile with another row count raises. With ``replace`` the first tile replaces the table's files.
+    a held tile with another row count or ``instance`` range raises, and so does a held tile outside the plan.
+    With ``replace`` the first tile replaces the table's files.
+    With ``replace_held`` a failing held tile is replaced in the one snapshot that adds its file,
+    and one snapshot first removes the tiles outside the plan. The files stay in storage.
     """
     zf = bundle.member_zip(TRANSCRIPTS)
     grid = json.loads(zf.read("grid/.zattrs"))
@@ -471,26 +501,32 @@ def write_transcripts(
         directory = scratch or Path(stack.enter_context(tempfile.TemporaryDirectory()))
         codewords, field_ids = codewords_table(zf), tables.field_ids("transcripts")
         held = {} if replace else tables.partitions("transcripts")
-        if outside := sorted(set(held) - set(keys)):
+        outside = sorted(set(held) - set(keys))
+        if outside and not replace_held:
             raise ValueError(f"the table holds tiles outside the plan: {', '.join(outside)}")
         held_ranges = {} if replace or not held else tables.partition_ranges("transcripts", "instance")
+        faults = held_tile_faults(plan, counts, held, held_ranges)
+        # A failing tile with no rows has nothing to write, so it only goes.
+        if replace_held and (dropped := [*outside, *(t for t in faults if not counts[t])]):
+            tables.remove_partitions("transcripts", dropped)
+            print(f"tiles {', '.join(dropped)}: removed from the table", flush=True)
+            held = {t: n for t, n in held.items() if t not in dropped}
         all_rows, done, written, started = sum(counts[t] for t, _ in plan), 0, 0, time.monotonic()
         replacing = replace
         for index, (tile, first_instance) in enumerate(plan):
             rows = counts[tile]
-            if tile in held and held[tile] != rows:
-                raise ValueError(f"tile {tile}: the table holds {held[tile]} rows, the source has {rows}")
-            if tile in held and held_ranges[tile] != (first_instance, first_instance + rows - 1):
-                raise ValueError(f"tile {tile}: the table holds instances {held_ranges[tile][0]}..{held_ranges[tile][1]}, "
-                                 f"expected {first_instance}..{first_instance + rows - 1}")
-            if tile in held or rows == 0:
+            if tile in faults and not replace_held:
+                raise ValueError(f"tile {tile}: {faults[tile]}")
+            if (tile in held and tile not in faults) or rows == 0:
                 print(f"tile {tile}: {'in the table already' if rows else 'no rows'}, skipped", flush=True)
                 done += rows
                 continue
+            if tile in held:
+                print(f"tile {tile}: {faults[tile]}, written again", flush=True)
             path = directory / f"tile-{index}.parquet"
             try:
                 write_tile(zf, tile, codewords, path, first_instance=first_instance, field_ids=field_ids)
-                tables.write_parts("transcripts", [path], replace=replacing)
+                tables.write_parts("transcripts", [path], replace=replacing, replace_partitions=[tile] if tile in held else ())
             finally:
                 path.unlink(missing_ok=True)
             replacing = False
@@ -530,6 +566,14 @@ def rewrite_elements(text: str) -> set[str]:
     return elements
 
 
+def replace_table_names(text: str) -> set[str]:
+    """The comma-separated tables of ``--replace-tables``; each must be in :data:`REPLACEABLE`."""
+    names = set(text.split(","))
+    if unknown := names - set(REPLACEABLE):
+        raise ValueError(f"cannot replace {', '.join(sorted(unknown))}; replaceable: {', '.join(REPLACEABLE)}")
+    return names
+
+
 def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
     """The comma-separated elements of ``--elements`` in the order of ``available``, or all of them without ``text``."""
     if not text:
@@ -555,6 +599,9 @@ def main() -> None:
     parser.add_argument("--he-alignment", help="the H&E alignment CSV, a URL or a local path; by default 10x's object")
     parser.add_argument("--elements", help="write only these elements, comma-separated, of the mode's elements")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
+    parser.add_argument("--replace-tables", default="",
+                        help=f"--mode full: replace the rows of these held tables in place, comma-separated, of "
+                             f"{', '.join(REPLACEABLE)}; the earlier snapshots and their files stay")
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
                         help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")
     args = parser.parse_args()
@@ -566,7 +613,10 @@ def main() -> None:
         raise SystemExit("--elements does not apply to --rewrite; --rewrite names its own elements")
     if args.rewrite and args.mode == "full":
         raise SystemExit("--rewrite is an option of --mode fixture")
+    if args.replace_tables and args.mode != "full":
+        raise SystemExit("--replace-tables is an option of --mode full")
     try:
+        replace = replace_table_names(args.replace_tables) if args.replace_tables else set()
         selected = select_elements(args.elements, ELEMENTS[args.mode])
     except ValueError as e:
         raise SystemExit(str(e))
@@ -592,8 +642,7 @@ def main() -> None:
     methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
     # The tables exist before any element, so a repo without a container over their files fails here.
-    for name in FIXTURE_TABLES:
-        tables.require(name, **specs[name])
+    require_tables(tables, specs, replace)
     prefixes = [tables.data_prefix(name) for name in FIXTURE_TABLES]
     if on_arraylake:
         repo = arraylake_repository(args.repo, source_prefixes=prefixes)
@@ -624,11 +673,13 @@ def main() -> None:
         **{f"labels/{name}": partial(write_labels, writer, bundle, pixel_size, names=[name], concurrency=n)
            for name in MASKS},
         **{f"shapes/{name}": unless_held(writer, f"shapes/{name}",
-                                         partial(write_boundaries, writer, bundle, tables, name, index))
+                                         partial(write_boundaries, writer, bundle, tables, name, index,
+                                                 replace=name in replace))
            for name, index in (("nucleus_boundaries", NUCLEUS_SET), ("cell_boundaries", CELL_SET))},
         "points/transcripts": unless_held(
             writer, "points/transcripts",
-            lambda: write_transcripts(writer, bundle, tables, tiles=None if full else [FIXTURE_TILE])),
+            lambda: write_transcripts(writer, bundle, tables, tiles=None if full else [FIXTURE_TILE],
+                                      replace_held="transcripts" in replace)),
         ICEBERG_TABLES: lambda: write_extra_tables(writer, bundle, tables, sample, layouts, sample.repo),
         "images/morphology": lambda: write_morphology(writer, bundle, pixel_size, levels=None if full else [FIXTURE_LEVEL],
                                                       concurrency=n),

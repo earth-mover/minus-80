@@ -325,9 +325,20 @@ dropped, points and shapes are Iceberg-only, and the shim scans the table.
 The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
 
-The kidney's `nucleus_boundaries` table on Arraylake has a `method` column and several rows for one cell.
-`require_table` raises on the missing `part_count` column, and the ingest does not evolve a remote table.
-The owner decides between a replace and a second table before the full run.
+The full ingest replaces the rows of `transcripts` and `nucleus_boundaries` in place.
+It needs the flag `--replace-tables transcripts,nucleus_boundaries`. Without it, the ingest stops on a held table that differs.
+Both tables keep their names, their namespace and their UUIDs.
+The fixture's `nucleus_boundaries` has a `method` column and several rows for one cell.
+The full table has `part_count` and `methods` instead of `method`, and one row per cell.
+One schema commit adds `part_count` and `methods` and deletes `method`. One overwrite snapshot then replaces the rows.
+The ingest keeps a held `transcripts` tile that passes its row count and its `instance` range.
+It replaces a failing tile in the one overwrite snapshot that adds the tile's file.
+It removes a held tile outside the plan in a snapshot of its own.
+A rerun with the flag ends with the table of an unstopped run. A second run changes nothing.
+The ingest deletes no snapshot and no data file. Earlier snapshots and their files remain.
+The `fixture` branch reads its pinned snapshots, and the pins stay valid.
+pyiceberg scans a snapshot with the schema of that snapshot, so the `method` column stays readable.
+The `uint8` copies of the `fixture` branch reference the earlier files. No run rewrites them.
 
 Shapes tables carry an `instance` column that equals the cell mask label. It
 is the `index_column`. The source's `cell_index` stays as a column.
@@ -594,8 +605,10 @@ Each step needs approval before it writes to a shared resource.
    - Not measured: the download to the VM's disk; reads from a local file;
      the upload of Parquet files and the table commits; the polygon tables;
      the matrix copy; the QC rasters; `verify.py --mode full`; levels above
-     0; the checksum of a `uint8` copy on R2; a staged create of a
-     partitioned table on the Arraylake catalog.
+     0; the checksum of a `uint8` copy on R2. A staged create of a
+     partitioned table works on the Arraylake catalog. An empty probe table
+     got its partition spec in one metadata commit on 2026-11-11, then the
+     probe was dropped.
 
    Estimate for one kidney sample at concurrency 32. It comes from the rates,
    not from a run. Levels above 0 add about one third, so it uses the
@@ -773,7 +786,7 @@ Each item gives the problem, the fix and the check.
      and the concurrency. `LAYOUTS.md`, item (f), has the numbers.
 9. **The full kidney ingest** to the Arraylake branch `main`, as step 4.
    It keeps the fixture's two tables, `transcripts` and `nucleus_boundaries`,
-   and their UUIDs. It replaces their data with one overwrite snapshot each.
+   and their UUIDs. Item 13 gives how `--replace-tables` replaces their rows.
    It adds `cell_boundaries` as a new table. The branch `fixture` keeps its
    pinned snapshots. The ingest never overwrites their files.
 10. **Deferred minor items.** These smaller items may wait:
@@ -815,3 +828,20 @@ Each item gives the problem, the fix and the check.
       of an unstopped run. The arrays are equal. Only the ids of the six
       tables differ. This measures no speed. `LAYOUTS.md`, "The dry run of
       the full mode", has the commands and the results.
+13. **Replace the held tables in place.**
+    - Problem: the full ingest writes `transcripts` and `nucleus_boundaries`,
+      which the `fixture` branch pins. The held `nucleus_boundaries` has
+      another schema. The held `transcripts` tile `0,0` starts at `instance` 0,
+      and on `main` it starts at 1. The ingest stops on both by default.
+    - Fix: `ingest.py --mode full --replace-tables transcripts,nucleus_boundaries`.
+      `require_table` evolves the schema in one commit with `update_schema`.
+      `write_transcripts` keeps a tile that passes its checks.
+      It replaces a failing tile in one overwrite snapshot.
+      It removes a tile outside the plan in a snapshot first.
+      `partition_bounds` reads the schema of the snapshot it is given.
+    - Check: tests on a local catalog build the fixture's two tables and
+      elements by hand. They run the replace. Then they run the gates
+      `copies`, `attrs` and `field_ids` on the fixture. All pass. A scan of each earlier
+      snapshot returns the earlier rows and columns. The earlier files keep
+      their bytes and their times. A stop at each point, then a rerun, ends
+      with the table of an unstopped run.
