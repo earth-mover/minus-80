@@ -127,8 +127,15 @@ def write_page(
         )
         for channel0, y0, x0, tile in _tiles(page)
     )
+    return _write_all(
+        array, writes, concurrency if _tiles_match_chunks(array, page) else 1
+    )
+
+
+def _write_all(array: zarr.Array, writes, concurrency: int) -> int:
+    """Write each `(region, data)` pair; return the count. Up to `concurrency` writes run at once."""
     count = 0
-    if concurrency <= 1 or not _tiles_match_chunks(array, page):
+    if concurrency <= 1:
         for region, data in writes:
             array[region] = data
             count += 1
@@ -148,6 +155,67 @@ def write_page(
         # On an error, queued writes are dropped and running ones finish before it propagates.
         pool.shutdown(cancel_futures=True)
     return count
+
+
+def _check_stack(
+    array: zarr.Array, pages: Sequence[tifffile.TiffPage]
+) -> tifffile.TiffPage:
+    """Raise `ValueError` unless `pages` fill the plane axis and each tile position is one whole shard."""
+    first = pages[0]
+    for page in pages:
+        _require_tiled(page)
+        _check_shape(array, page)
+        if page.samplesperpixel != 1:
+            raise NotImplementedError(f"{page} has more than one sample per pixel")
+        if (page.tilelength, page.tilewidth) != (first.tilelength, first.tilewidth):
+            raise ValueError(f"tile size of {page} differs from {first}")
+    if len(pages) != array.shape[-3]:
+        raise ValueError(f"{len(pages)} pages for {array.shape[-3]} planes")
+    unit = tuple((array.shards or array.chunks)[-3:])
+    if unit != (len(pages), first.tilelength, first.tilewidth):
+        raise ValueError(
+            f"shard shape {unit} is not (planes, tile height, tile width)"
+            f" = {(len(pages), first.tilelength, first.tilewidth)}"
+        )
+    return first
+
+
+def write_stack(
+    array: zarr.Array,
+    pages: Sequence[tifffile.TiffPage],
+    index: tuple[int, ...],
+    *,
+    concurrency: int = 1,
+) -> int:
+    """Write one plane per page at `index`, one whole shard per tile position; return the shard count.
+
+    Each shard is written once, so the sharding codec does not rewrite it for every plane.
+    """
+    if concurrency < 1:
+        raise ValueError(f"concurrency must be at least 1, got {concurrency}")
+    first = _check_stack(array, pages)
+    height, width = array.shape[-2:]
+    tile_h, tile_w = first.tilelength, first.tilewidth
+
+    def writes():
+        for y0 in range(0, height, tile_h):
+            for x0 in range(0, width, tile_w):
+                # A tile with no stored bytes stays zero, as in an unwritten chunk.
+                stack = np.zeros(
+                    (len(pages), min(tile_h, height - y0), min(tile_w, width - x0)),
+                    array.dtype,
+                )
+                for z, page in enumerate(pages):
+                    for _, _, _, tile in _decode_tile(page, y0 // tile_h, x0 // tile_w):
+                        stack[z] = tile[0]
+                region = index + (
+                    slice(None),
+                    slice(y0, y0 + stack.shape[1]),
+                    slice(x0, x0 + stack.shape[2]),
+                )
+                yield region, stack
+
+    return _write_all(array, writes(), concurrency)
 
 
 def check_page(

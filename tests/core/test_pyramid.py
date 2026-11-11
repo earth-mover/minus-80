@@ -10,7 +10,13 @@ import zarr
 from zarr.storage import MemoryStore
 
 from minus80.core import pyramid
-from minus80.core.pyramid import channel_names, check_page, create_level, write_page
+from minus80.core.pyramid import (
+    channel_names,
+    check_page,
+    create_level,
+    write_page,
+    write_stack,
+)
 
 XML = """<?xml version="1.0"?>
 <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
@@ -408,3 +414,92 @@ def test_planes_sharing_a_chunk_are_written_serially(tmp_path, monkeypatch):
         write_page(array, page, (1,), concurrency=8)
         assert submitted == []
         np.testing.assert_array_equal(array[1], page.asarray())
+
+
+class _CountingStore(MemoryStore):
+    """Counts `set` calls per chunk key."""
+
+    def __init__(self):
+        super().__init__()
+        self.sets_per_key = {}
+
+    async def set(self, key, value, byte_range=None):
+        if not key.endswith("zarr.json"):
+            self.sets_per_key[key] = self.sets_per_key.get(key, 0) + 1
+        await super().set(key, value, byte_range)
+
+
+def _stack(tmp_path, planes=3, store=None, **kwargs):
+    """Return a sharded `(1, planes, y, x)` array and the pages of a TIFF with `planes` planes."""
+    _pyramid_tiff(tmp_path / "p.tif", planes=planes, levels=1)
+    tif = tifffile.TiffFile(tmp_path / "p.tif")
+    pages = list(tif.pages)
+    array = create_level(
+        zarr.group(store) if store is not None else _root(tmp_path),
+        "s0",
+        (1, planes, *pages[0].shape),
+        pages[0].dtype,
+        dims=("c", "z", "y", "x"),
+        chunk=(256, 256),
+        shard_planes=planes,
+        **kwargs,
+    )
+    return tif, pages, array
+
+
+def test_write_stack_reproduces_every_plane(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        assert write_stack(array, pages, (0,)) == 18
+        for z in range(3):
+            np.testing.assert_array_equal(array[0, z], pages[z].asarray())
+
+
+def test_write_stack_concurrent_equals_serial(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        assert write_stack(array, pages, (0,), concurrency=4) == 18
+        for z in range(3):
+            np.testing.assert_array_equal(array[0, z], pages[z].asarray())
+
+
+def test_write_stack_writes_each_shard_once(tmp_path):
+    store = _CountingStore()
+    tif, pages, array = _stack(tmp_path, store=store)
+    with tif:
+        write_stack(array, pages, (0,))
+        assert len(store.sets_per_key) == 18
+        assert set(store.sets_per_key.values()) == {1}
+
+
+def test_write_page_per_plane_writes_each_shard_once_per_plane(tmp_path):
+    store = _CountingStore()
+    tif, pages, array = _stack(tmp_path, store=store)
+    with tif:
+        for z in range(3):
+            write_page(array, pages[z], (0, z))
+        assert max(store.sets_per_key.values()) == 3
+
+
+def test_write_stack_refuses_pages_of_different_shape(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif, _one_page(tmp_path, _picture((256, 256)), tile=(256, 256)) as other:
+        with pytest.raises(ValueError, match="shape"):
+            write_stack(array, [pages[0], other.pages[0]], (0,))
+
+
+def test_write_stack_refuses_a_plane_count_that_differs_from_the_array(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        with pytest.raises(ValueError, match="planes"):
+            write_stack(array, pages[:2], (0,))
+
+
+def test_write_stack_refuses_an_array_not_sharded_by_stack(tmp_path):
+    tif, pages, array = _stack(tmp_path, planes=2)
+    with tif:
+        flat = zarr.group(MemoryStore()).create_array(
+            "flat", shape=(1, 2, *pages[0].shape), chunks=(1, 1, 256, 256), dtype="uint16"
+        )
+        with pytest.raises(ValueError, match="shard"):
+            write_stack(flat, pages, (0,))
