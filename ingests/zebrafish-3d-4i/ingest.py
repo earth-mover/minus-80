@@ -3,7 +3,9 @@
 PLAN.md explains the decisions behind this layout. LAYOUTS.md records the
 quirks of the source. This docstring walks through what the code does and why.
 The general parts of the work live in the minus80 package. This file holds
-only what is specific to this dataset.
+the stages of the copy and the parsing of this dataset, in the order the copy
+runs them. ``pipeline.py`` beside it holds the threads, byte budgets and
+progress counters that let the stages run at once.
 
 What the source is
 ------------------
@@ -270,159 +272,8 @@ VERSION = "0.6"
 #: Where the zip's central directory is kept between runs, by default; verify.py reads the same copy.
 DIRECTORY_CACHE = Path(cache_dir()) / "zebrafish-3d-4i" / "central-directory.parquet"
 
-#: The name of the coordinate system that each well's scene defines.
-SCENE = "well"
 
-#: How many planes one image shard holds. See decision 5 in PLAN.md. Because
-#: a chunk is one plane of one channel, showing one plane needs only one small
-#: read. With 32 planes per shard, one channel of a whole embryo takes 9
-#: requests of about 15 MB each.
-SHARD_DEPTH = 32
-
-#: See decision 6 in PLAN.md. Blosc with zstd decodes fast, and the Zarr v3
-#: specification defines it, so every Zarr reader can open the store.
-CODEC = BloscCodec(cname="zstd", clevel=5, shuffle="bitshuffle")
-
-#: Range requests in flight when reading the staged copy in R2, about 100 ms
-#: away from a VM in the same region; 64 at once measured 584 MB/s.
-READ_CONCURRENCY = 64
-
-#: The same, when reading straight from EBI. EBI starts refusing requests at
-#: about 25 connections from one address (PLAN.md), so stay well below that.
-EBI_READ_CONCURRENCY = 16
-
-#: Range requests asked for and not yet cut into members: one slow request
-#: holds back cutting, but not fetching, until this many are out. 64 of
-#: 64 MiB is 4 GiB.
-READ_WINDOW = 64
-
-#: The most compressed bytes that channel runs may hold while they wait for
-#: metadata. The first round's runs hold about 2 GB until level 0's first
-#: ``.zarray`` arrives; without a limit, a document that is missing or late
-#: would buffer the whole well, up to 27 GB.
-WAITING_LIMIT = 4 * 10**9
-
-#: The largest compressed channel run of any well: channel 3 of B/05's
-#: round-3 level 0, 1.44 GB, from the central directory.
-LARGEST_RUN = 1_500_000_000
-
-#: The most compressed bytes of channel runs handed over by the fetching
-#: thread and not yet decoded, counting the runs waiting for metadata. Below
-#: it, the fetch never waits for decoding or uploads. It must exceed
-#: :data:`WAITING_LIMIT` by :data:`LARGEST_RUN`, or runs waiting for metadata
-#: could fill it and stop the fetch before the metadata arrives.
-FETCH_AHEAD = 8 * 10**9
-
-#: The most bytes of decoded pixels not yet uploaded. A level-0 channel run of
-#: seven fields decodes to about 3.8 GB (7 x 271 planes x 1000 x 1000 x 2
-#: bytes), so this holds about four of them.
-DECODED_LIMIT = 16 * 10**9
-
-#: How many fields are assigned through zarr at once, across every channel
-#: run being uploaded.
-UPLOAD_WORKERS = 8
-
-#: zarr's ``async.concurrency``: how many shards one assignment encodes and
-#: uploads at once. zarr's own default is 10.
-ZARR_CONCURRENCY = 32
-
-#: Seconds between the commits made while a well is copied. A failure loses
-#: at most this much uploading, and each commit pauses the uploads only while
-#: the assignments already running finish.
-CHECKPOINT_SECONDS = 300
-
-#: The attribute of a well's group that records which channel runs earlier
-#: commits hold, so that a later run resumes after them. It is removed when
-#: the well is complete.
-PROGRESS = "copy_progress"
-
-#: Tables that describe the whole well rather than one field. Their rows are
-#: kept in the well's attributes, so nothing the source recorded is lost.
-WELL_TABLES = ("well_ROI_table", "embryoRaw_ROI_table")
-
-#: A level shape larger than any image, for placing fields on a level before
-#: its real shape is known; the real shapes are checked before the commit.
-_UNKNOWN_EXTENT = 1 << 40
-
-
-def image_path(field: Field) -> str:
-    """The image of field ``FOV_n`` is ``n - 1``, so the first field is image ``0``."""
-    return str(field.number - 1)
-
-
-def round_channels(plate: Plate, src: zarr.Group, well: str) -> list[dict]:
-    """Every channel of every round, in the order the image's channel axis holds them.
-
-    Each entry is the source's own ``omero`` channel (its name, display color,
-    display window and the microscope's ``wavelength_id``), plus the round it
-    came from and its position in that round's image. The names come from
-    this well's own metadata: round 3 stains different markers in different
-    wells (LAYOUTS.md).
-    """
-    channels = []
-    for rnd in plate.acquisitions:
-        for index, channel in enumerate(src[f"{well}/{rnd}"].attrs["omero"]["channels"]):
-            channels.append({**channel, "round": rnd, "source_channel": index})
-    names = [c["label"] for c in channels]
-    if len(set(names)) != len(names):
-        raise ValueError(f"{well}: channel names repeat across rounds: {names}")
-    return channels
-
-
-def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
-    """Each label's name, with the round whose image it belongs to in the source."""
-    labels = {}
-    for rnd in plate.acquisitions:
-        well_image = src[f"{well}/{rnd}"]
-        for name in well_image["labels"].attrs["labels"] if "labels" in well_image else []:
-            if name in labels:
-                raise ValueError(f"{well}: label {name} appears in rounds {labels[name]} and {rnd}")
-            labels[name] = rnd
-    return labels
-
-
-def check_codecs(src: zarr.Group, well: str, plate: Plate) -> None:
-    """Raise unless every source array of the well is compressed with Blosc.
-
-    A chunk cut short is found from its Blosc header
-    (:func:`~minus80.parsers.zip.zarr_v2.frame_problem`), which is only
-    meaningful if every chunk is a Blosc frame.
-    """
-    for rnd in plate.acquisitions:
-        well_image = src[f"{well}/{rnd}"]
-        arrays = [well_image[str(k)] for k in range(plate.levels)]
-        if "labels" in well_image:
-            arrays += [
-                well_image[f"labels/{name}/{k}"]
-                for name in well_image["labels"].attrs["labels"]
-                for k in range(plate.levels)
-            ]
-        for array in arrays:
-            compressor = array.metadata.compressor
-            if compressor is None or compressor.codec_id != "blosc":
-                raise ValueError(f"{array.path}: compressor {compressor}, expected Blosc")
-
-
-def empty_source_chunks(plan: WellPlan, src: zarr.Group, field: Field) -> list[str]:
-    """The empty source chunks that fall inside this field, at any level.
-
-    The source zip holds some chunks as empty files: 1,244 of them, in every
-    well, including chunks inside embryos. The copy reads them as the fill
-    value, 0, so the store has zeros where the source has no data. Listing
-    them on the image means nobody mistakes those zeros for a measurement.
-    """
-    found = []
-    for name in plan.empty:
-        key = plan.chunks.get(name)
-        if key is None:
-            continue
-        level = field.levels[plan.arrays[key.array].level]
-        _, chunk_y, chunk_x = src[key.array].chunks[-3:]
-        (y0, y1), (x0, x1) = level.window["y"], level.window["x"]
-        *_, yi, xi = key.index
-        if yi * chunk_y < y1 and y0 < (yi + 1) * chunk_y and xi * chunk_x < x1 and x0 < (xi + 1) * chunk_x:
-            found.append(name)
-    return sorted(found)
+# The source and the plan
 
 
 @dataclass(frozen=True)
@@ -487,14 +338,48 @@ class WellPlan:
         empty = {m["name"] for m in members if m["uncompressed"] == 0}
         return cls(well, members, chunks, arrays, rounds, channels, tables, empty)
 
-    def channel_offset(self, rnd: int) -> int:
-        """Where round ``rnd``'s first channel sits on the output image's channel axis: rounds in order."""
-        return sum(self.channels[r] for r in self.rounds if r < rnd)
-
     def run_key(self, key: ChunkKey) -> tuple[str, int | None]:
         """The channel run a chunk belongs to: its array and channel, or its label array alone."""
         array = self.arrays[key.array]
         return (key.array, None if array.label is not None else key.index[0])
+
+
+# Streaming a well
+
+
+#: Range requests in flight when reading the staged copy in R2, about 100 ms
+#: away from a VM in the same region; 64 at once measured 584 MB/s.
+READ_CONCURRENCY = 64
+
+#: The same, when reading straight from EBI. EBI starts refusing requests at
+#: about 25 connections from one address (PLAN.md), so stay well below that.
+EBI_READ_CONCURRENCY = 16
+
+#: Range requests asked for and not yet cut into members: one slow request
+#: holds back cutting, but not fetching, until this many are out. 64 of
+#: 64 MiB is 4 GiB.
+READ_WINDOW = 64
+
+#: The most compressed bytes that channel runs may hold while they wait for
+#: metadata. The first round's runs hold about 2 GB until level 0's first
+#: ``.zarray`` arrives; without a limit, a document that is missing or late
+#: would buffer the whole well, up to 27 GB.
+WAITING_LIMIT = 4 * 10**9
+
+#: The largest compressed channel run of any well: channel 3 of B/05's
+#: round-3 level 0, 1.44 GB, from the central directory.
+LARGEST_RUN = 1_500_000_000
+
+#: The most compressed bytes of channel runs handed over by the fetching
+#: thread and not yet decoded, counting the runs waiting for metadata. Below
+#: it, the fetch never waits for decoding or uploads. It must exceed
+#: :data:`WAITING_LIMIT` by :data:`LARGEST_RUN`, or runs waiting for metadata
+#: could fill it and stop the fetch before the metadata arrives.
+FETCH_AHEAD = 8 * 10**9
+
+#: A level shape larger than any image, for placing fields on a level before
+#: its real shape is known; the real shapes are checked before the commit.
+UNKNOWN_EXTENT = 1 << 40
 
 
 @dataclass
@@ -509,415 +394,7 @@ class ChannelRun:
         return sum(len(member.stored) for member in self.members)
 
 
-class WellState:
-    """What the stream has delivered for one well: its metadata documents, and what follows from them."""
-
-    def __init__(self, plan: WellPlan, plate_documents: Mapping[str, bytes]) -> None:
-        self.plan = plan
-        self.documents: dict[str, bytes] = dict(plate_documents)
-        #: Each array's own ``.zarray``, once it has arrived.
-        self.specs: dict[str, ArraySpec] = {}
-        #: The encoding each array's chunks were decoded with, which can be an
-        #: earlier array's; checked against the array's own before the commit.
-        self.used: dict[str, list[ArraySpec]] = {}
-        #: The fields each channel run was cut into, with its level; checked
-        #: against the fields the source's metadata gives before the commit.
-        self.placed: list[tuple[int, list[Field]]] = []
-        #: Each pyramid level's ``(y, x)`` extent, from the first ``.zarray`` of that level.
-        self.extents: dict[int, tuple[int, int]] = {}
-        self.table = None
-        self.scales: list[dict[str, float]] | None = None
-        self._fields: dict[int, list[Field]] = {}
-        #: Chunks that could not be decoded, by field name, with the reason.
-        #: The decoding thread adds to it and the writing thread copies it at
-        #: each checkpoint, so both go through ``_unreadable_lock``.
-        self.unreadable: dict[str, dict[str, str]] = {}
-        self._unreadable_lock = threading.Lock()
-
-    def add_document(self, name: str, data: bytes) -> None:
-        """Keep a metadata document, and learn what it says."""
-        self.documents[name] = data
-        if name.endswith("/.zarray"):
-            path = name.rsplit("/", 1)[0]
-            if path in self.plan.arrays:
-                spec = ArraySpec.from_document(data)
-                # A channel run is one channel's chunks, and _decode_into keeps
-                # only a chunk's first channel, so wider chunks would lose channels.
-                if self.plan.arrays[path].label is None and spec.chunks[0] != 1:
-                    raise ValueError(f"{path}: chunks {spec.chunks} hold {spec.chunks[0]} channels, not 1")
-                self.specs[path] = spec
-                self.extents.setdefault(self.plan.arrays[path].level, spec.shape[-2:])
-                self._fields.clear()
-        if self.table is None:
-            for rnd, members in self.plan.table_members.items():
-                round_attrs = f"{self.plan.well}/{rnd}/.zattrs"
-                if members and members <= self.documents.keys() and round_attrs in self.documents:
-                    table = f"{self.plan.well}/{rnd}/{TABLES}/{FIELDS_TABLE}"
-                    self.table = read_table(documents_store(self.documents, table))
-                    attrs = json.loads(self.documents[round_attrs])
-                    self.scales = multiscale_scales(attrs, IMAGE_DIMS, round_attrs)
-                    break
-
-    def record_unreadable(self, field: str, name: str, reason: str) -> None:
-        with self._unreadable_lock:
-            self.unreadable.setdefault(field, {})[name] = reason
-
-    def unreadable_copy(self) -> dict[str, dict[str, str]]:
-        with self._unreadable_lock:
-            return {field: dict(chunks) for field, chunks in self.unreadable.items()}
-
-    def confirmed(self, array_path: str) -> bool:
-        """True once the array's own ``.zarray`` has arrived and agrees with every encoding its chunks were decoded with."""
-        own = self.specs.get(array_path)
-        return own is not None and all(used == own for used in self.used.get(array_path, []))
-
-    def spec_for(self, array: SourceArray) -> ArraySpec | None:
-        """The encoding to decode an array's chunks with: its own, else that of the first array of the same level and kind.
-
-        A borrowed encoding is a guess until the array's own ``.zarray``
-        arrives, and :func:`check_well` confirms it before the commit.
-        Borrowing only within a level and kind keeps the guess to arrays
-        made the same way, so a level whose chunks differ waits for its own
-        ``.zarray`` instead of failing the well at the check.
-        """
-        if array.path in self.specs:
-            return self.specs[array.path]
-        for path, spec in self.specs.items():
-            other = self.plan.arrays[path]
-            if other.level == array.level and (other.label is None) == (array.label is None):
-                return spec
-        return None
-
-    def image_spec(self) -> ArraySpec | None:
-        return next((s for p, s in self.specs.items() if self.plan.arrays[p].label is None), None)
-
-    def fields_at(self, level: int) -> list[Field] | None:
-        """The well's fields placed on ``level``, once the table and that level's shape have arrived."""
-        image = self.image_spec()
-        if self.table is None or level not in self.extents or image is None:
-            return None
-        if level not in self._fields:
-            channels, depth = image.shape[0], image.shape[1]
-            shapes = [
-                (channels, depth, *self.extents.get(k, (_UNKNOWN_EXTENT, _UNKNOWN_EXTENT)))
-                for k in range(len(self.scales))
-            ]
-            self._fields[level] = fields_from_table(
-                self.plan.well, self.table, depth, self.scales[0], shapes, self.scales
-            )
-        return self._fields[level]
-
-    def missing(self, run: ChannelRun) -> list[str]:
-        """The metadata a channel run still waits for, named for an error message."""
-        array = self.plan.arrays[run.key[0]]
-        kind = "image" if array.label is None else "label"
-        needs = []
-        if self.table is None:
-            needs.append(f"a round's {FIELDS_TABLE} and that round's .zattrs")
-        if array.level not in self.extents:
-            needs.append(f"a .zarray of level {array.level}")
-        if self.image_spec() is None:
-            needs.append("an image array's .zarray")
-        if self.spec_for(array) is None:
-            needs.append(f"a .zarray of a level-{array.level} {kind} array")
-        return needs
-
-    def ready(self, run: ChannelRun) -> bool:
-        return not self.missing(run)
-
-
-@dataclass
-class DecodedRun:
-    """One channel run, decoded and cut into each field's window."""
-
-    array: SourceArray
-    channel: int | None
-    #: The fields the run was cut into. The writer uses these rather than
-    #: asking the well's state again, because the main thread can place the
-    #: fields anew while this run uploads.
-    fields: list[Field]
-    #: Each field's pixels for this channel or label at this level, by field name.
-    buffers: dict[str, np.ndarray]
-
-
-def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMember], bytes]) -> bytes:
-    """A member's contents, fetching the member a second time if its bytes do not inflate or fail the CRC.
-
-    A transfer can deliver the right number of wrong bytes, and only the
-    inflate and the CRC see it. If the second copy is good, the first was
-    damaged on the way and the copy goes on with the second. If it fails too,
-    the source member itself is damaged, and the ``ValueError`` says so.
-    """
-    try:
-        return inflate_member(member.stored, member.entry)
-    except ValueError as first:
-        try:
-            contents = inflate_member(read_again(member), member.entry)
-        except ValueError as again:
-            raise ValueError(f"{again}; read twice, so the source member is damaged") from first
-        say(f"  {member.name}: the first copy was damaged in transfer ({first}); the second is good")
-        return contents
-
-
-def _decode_into(
-    member: StoredMember,
-    key: ChunkKey,
-    array: SourceArray,
-    spec: ArraySpec,
-    windows: Sequence[tuple[str, tuple[int, int], tuple[int, int]]],
-    buffers: dict[str, np.ndarray],
-    read_again: Callable[[StoredMember], bytes],
-) -> tuple[str, str, list[str]] | None:
-    """Decode one chunk and copy each field's part of it into that field's buffer.
-
-    Runs on a worker thread; each chunk writes a different part of each
-    buffer, so the chunks of one channel run decode in parallel. Returns None,
-    or ``(name, reason, fields)`` for a chunk that cannot be decoded: a member
-    damaged in the source (:func:`inflate_or_read_again`) or a Blosc frame cut
-    short.
-    """
-    depth, chunk_z, chunk_y, chunk_x = next(iter(buffers.values())).shape[0], *spec.chunks[-3:]
-    z_index, y_index, x_index = key.index[-3:]
-    y_start, x_start = y_index * chunk_y, x_index * chunk_x
-    touched = [
-        (name, (max(y_start, y0), min(y_start + chunk_y, y1)), (max(x_start, x0), min(x_start + chunk_x, x1)), y0, x0)
-        for name, (y0, y1), (x0, x1) in windows
-        if y_start < y1 and y0 < y_start + chunk_y and x_start < x1 and x0 < x_start + chunk_x
-    ]
-    if not touched or member.entry["uncompressed"] == 0:
-        # An empty member holds no chunk; it reads as the fill value, 0, and
-        # empty_source_chunks lists it on the images it falls in.
-        return None
-    try:
-        data = inflate_or_read_again(member, read_again)
-    except ValueError as damaged:
-        return member.name, str(damaged), [name for name, *_ in touched]
-    if (reason := frame_problem(data, spec.compressor)) is not None:
-        return member.name, reason, [name for name, *_ in touched]
-    chunk = decode_chunk(data, spec)
-    if array.label is None:
-        chunk = chunk[0]
-    z0 = z_index * chunk_z
-    z1 = min(z0 + chunk_z, depth)
-    for name, (y0, y1), (x0, x1), window_y, window_x in touched:
-        buffers[name][z0:z1, y0 - window_y:y1 - window_y, x0 - window_x:x1 - window_x] = chunk[
-            : z1 - z0, y0 - y_start:y1 - y_start, x0 - x_start:x1 - x_start
-        ]
-    return None
-
-
-@dataclass
-class Prepared:
-    """What decoding a channel run needs from the well's metadata, read on the main thread."""
-
-    array: SourceArray
-    spec: ArraySpec
-    fields: list[Field]
-
-    def decoded_bytes(self) -> int:
-        """The bytes of the per-field buffers the run decodes into."""
-        depth = self.spec.shape[0] if self.array.label is not None else self.spec.shape[1]
-        level = self.array.level
-        return sum(
-            depth
-            * (f.levels[level].window["y"][1] - f.levels[level].window["y"][0])
-            * (f.levels[level].window["x"][1] - f.levels[level].window["x"][0])
-            for f in self.fields
-        ) * self.spec.dtype.itemsize
-
-
-def prepare(run: ChannelRun, state: WellState) -> Prepared:
-    """Read what decoding ``run`` needs from the well's state, and record what it used for :func:`check_well`."""
-    array = state.plan.arrays[run.key[0]]
-    spec = state.spec_for(array)
-    state.used.setdefault(array.path, []).append(spec)
-    fields = state.fields_at(array.level)
-    state.placed.append((array.level, fields))
-    return Prepared(array, spec, fields)
-
-
-def decode_run(
-    run: ChannelRun, prepared: Prepared, state: WellState, pool: ThreadPoolExecutor, note: Progress,
-    read_again: Callable[[StoredMember], bytes],
-) -> DecodedRun:
-    """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
-
-    ``note`` counts the run's chunks as they finish, decoded or skipped, and
-    each chunk that cannot be decoded is recorded in ``state`` under every
-    field it touches.
-    """
-    plan = state.plan
-    array, spec, fields = prepared.array, prepared.spec, prepared.fields
-    depth = spec.shape[0] if array.label is not None else spec.shape[1]
-    windows, buffers = [], {}
-    for field in fields:
-        window = field.levels[array.level].window
-        windows.append((field.name, window["y"], window["x"]))
-        buffers[field.name] = np.zeros(
-            (depth, window["y"][1] - window["y"][0], window["x"][1] - window["x"][0]), dtype=spec.dtype
-        )
-    futures = [
-        pool.submit(_decode_into, member, plan.chunks[member.name], array, spec, windows, buffers, read_again)
-        for member in run.members
-    ]
-    for future in futures:
-        if (problem := future.result()) is not None:
-            name, reason, touched = problem
-            for field_name in touched:
-                state.record_unreadable(field_name, name, reason)
-        note.advance()
-    return DecodedRun(array, run.key[1], fields, buffers)
-
-
-@dataclass(frozen=True)
-class _Target:
-    """Where one field of a channel run is written: the image group, the groups below it, and the array."""
-
-    image: str
-    groups: tuple[str, ...]
-    name: str
-    shape: tuple[int, ...]
-    dtype: np.dtype
-    label: bool
-
-    @property
-    def path(self) -> str:
-        return "/".join((self.image, *self.groups, self.name))
-
-
-class WellWriter:
-    """Writes decoded channel runs into the well's images, creating each array the first time it is written.
-
-    Each field of a run is one zarr assignment, started on ``pool``;
-    ``write`` returns once they are started, so the assignments of several
-    runs run at once, up to the pool's size. Each finished assignment gives
-    its buffer's bytes back to ``decoded`` and drops the buffer. Each array is
-    opened or created once per session and kept.
-
-    Every ``checkpoint_seconds`` the writer lets the running assignments
-    finish, records in the well's group which channel runs are complete
-    (:data:`PROGRESS`, with the unreadable chunks found so far) and commits.
-    A run counts as complete once all its fields are written and its array's
-    own ``.zarray`` has confirmed the encoding it was decoded with; a run
-    still unconfirmed is copied again by a later run of the ingest.
-    """
-
-    def __init__(
-        self, well_session: WellSession, plan: WellPlan, state: WellState, shard_depth: int,
-        pool: ThreadPoolExecutor, counters: Counters, decoded: Budget, out: queue.Queue,
-        *, finished: set[tuple[str, int | None]], checkpoint_seconds: float, timings: Timings,
-    ) -> None:
-        self.well_session, self.plan, self.state, self.shard_depth = well_session, plan, state, shard_depth
-        self.pool, self.counters, self.decoded, self.out = pool, counters, decoded, out
-        self.checkpoint_seconds, self.timings = checkpoint_seconds, timings
-        self.channels = sum(plan.channels.values())
-        self.arrays: dict[str, zarr.Array] = {}
-        self.assignments: list[Future] = []
-        #: Channel runs earlier commits hold, recorded again at every checkpoint.
-        self.carried = set(finished)
-        #: Channel runs whose every field is written, and the fields each run still waits for.
-        self.written: set[tuple[str, int | None]] = set()
-        self._remaining: dict[tuple[str, int | None], int] = {}
-        self._lock = threading.Lock()
-        self._checkpointed = time.monotonic()
-        #: Assignments started since the last checkpoint; a commit with none would be empty.
-        self._since_checkpoint = 0
-
-    def write(self, run: DecodedRun) -> None:
-        """Start one zarr assignment per field: a whole channel of one level, or a whole label level."""
-        if self._since_checkpoint and time.monotonic() - self._checkpointed >= self.checkpoint_seconds:
-            self.checkpoint()
-        key = (run.array.path, run.channel)
-        if not run.fields:
-            self.written.add(key)
-            return
-        targets = {field.name: self._where(run, field) for field in run.fields}
-        for target in targets.values():
-            if target.path not in self.arrays:
-                self.arrays[target.path] = self._open_or_create(target)
-        with self._lock:
-            self._remaining[key] = len(run.fields)
-        for field in run.fields:
-            target = self.arrays[targets[field.name].path]
-            nbytes = run.buffers[field.name].nbytes
-            future = self.pool.submit(self._assign, run, field, target)
-            future.add_done_callback(lambda done, n=nbytes, k=key: self._finished(done, n, k))
-            self.assignments.append(future)
-            self._since_checkpoint += 1
-
-    def finish(self) -> None:
-        """Wait for every assignment started; raise the first that failed."""
-        for future in self.assignments:
-            future.result()
-        self.assignments.clear()
-
-    def checkpoint(self) -> None:
-        """Let the running assignments finish, record the complete channel runs and commit."""
-        started = time.monotonic()
-        self.counters.stage = "checkpoint: finishing uploads"
-        self.finish()
-        self.counters.stage = "checkpoint: committing"
-        confirmed = {key for key in self.written if self.state.confirmed(key[0])}
-        complete = sorted((list(key) for key in self.carried | confirmed), key=lambda k: (k[0], k[1] or 0))
-        group = self.well_session.dest.require_group(self.plan.well)
-        group.attrs[PROGRESS] = {"complete_runs": complete, "unreadable": self.state.unreadable_copy()}
-        self.well_session.commit(f"{self.plan.well}: {len(complete)} channel runs copied so far")
-        self.arrays.clear()
-        self.timings.checkpoints += 1
-        self.timings.checkpoint_seconds += time.monotonic() - started
-        self.counters.stage = "streaming"
-        self._checkpointed = time.monotonic()
-        self._since_checkpoint = 0
-
-    def _where(self, run: DecodedRun, field: Field) -> _Target:
-        pixels = run.buffers[field.name]
-        image = f"{self.plan.well}/{image_path(field)}"
-        if run.array.label is None:
-            return _Target(image, (), str(run.array.level), (self.channels, *pixels.shape), pixels.dtype, False)
-        return _Target(
-            image, ("labels", run.array.label), str(run.array.level), pixels.shape, pixels.dtype, True
-        )
-
-    def _assign(self, run: DecodedRun, field: Field, target: zarr.Array) -> None:
-        pixels = run.buffers.pop(field.name)
-        if run.array.label is None:
-            target[self.plan.channel_offset(run.array.round) + run.channel] = pixels
-        else:
-            target[:] = pixels
-        self.counters.uploaded_field()
-
-    def _finished(self, future: Future, nbytes: int, key: tuple[str, int | None]) -> None:
-        self.decoded.give(nbytes)
-        if not future.cancelled() and (error := future.exception()) is not None:
-            self.out.put(("error", error))
-            return
-        with self._lock:
-            self._remaining[key] -= 1
-            if self._remaining[key] == 0:
-                del self._remaining[key]
-                self.written.add(key)
-
-    def _open_or_create(self, target: _Target) -> zarr.Array:
-        group = self.well_session.dest.require_group(target.image)
-        for name in target.groups:
-            group = group.require_group(name)
-        if target.name in group:
-            return group[target.name]
-        label, dtype = target.label, target.dtype
-        depth, height, width = target.shape[-3:]
-        return group.create_array(
-            target.name,
-            shape=target.shape,
-            chunks=(1, height, width) if label else (1, 1, height, width),
-            shards=(depth, height, width) if label else (1, self.shard_depth, height, width),
-            dtype=dtype,
-            compressors=CODEC,
-            fill_value=0,
-            dimension_names=LABEL_DIMS if label else IMAGE_DIMS,
-        )
-
-
-def _fetch(
+def fetch_runs(
     url: str, plan: WellPlan, members: Sequence[Mapping], out: queue.Queue, fetched: Budget,
     stop: threading.Event, counters: Counters, **read,
 ) -> None:
@@ -955,34 +432,121 @@ def _fetch(
     out.put(("end", None))
 
 
-def _decode(
-    jobs: queue.Queue, writes: queue.Queue, stop: threading.Event,
-    state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
-    timings: Timings, read_again: Callable[[StoredMember], bytes],
-) -> None:
-    """Decode channel runs one after another, on their own thread, and pass them to the writer.
+class WellState:
+    """What the stream has delivered for one well: its metadata documents, and what follows from them."""
 
-    Before decoding, a run takes its decoded size from ``decoded``, so this
-    thread waits while the runs not yet uploaded hold :data:`DECODED_LIMIT`.
-    Once decoded, a run gives its compressed bytes back to ``fetched``.
-    """
-    while (job := next_item(jobs, stop)) is not None:
-        run, prepared = job
-        decoded.take(prepared.decoded_bytes())
-        started = time.monotonic()
-        result = decode_run(run, prepared, state, pool, note, read_again)
-        timings.decode += time.monotonic() - started
-        fetched.give(run.stored_bytes())
-        writes.put(result)
-    writes.put(None)
+    def __init__(self, plan: WellPlan, plate_documents: Mapping[str, bytes]) -> None:
+        self.plan = plan
+        self.documents: dict[str, bytes] = dict(plate_documents)
+        #: Each array's own ``.zarray``, once it has arrived.
+        self.specs: dict[str, ArraySpec] = {}
+        #: The first image array's ``.zarray``, which gives every level's channels and depth.
+        self.image_spec: ArraySpec | None = None
+        #: The encoding each array's chunks were decoded with, which can be an
+        #: earlier array's; checked against the array's own before the commit.
+        self.used: dict[str, list[ArraySpec]] = {}
+        #: The fields each channel run was cut into, with its level; checked
+        #: against the fields the source's metadata gives before the commit.
+        self.placed: list[tuple[int, list[Field]]] = []
+        #: Each pyramid level's ``(y, x)`` extent, from the first ``.zarray`` of that level.
+        self.extents: dict[int, tuple[int, int]] = {}
+        self.table = None
+        self.scales: list[dict[str, float]] | None = None
+        #: The fields placed on each level, until another ``.zarray`` arrives.
+        self.fields_by_level: dict[int, list[Field]] = {}
+        #: Chunks that could not be decoded, by field name, with the reason.
+        #: The decoding thread adds to it and the writing thread copies it at
+        #: each checkpoint, so both go through ``unreadable_lock``.
+        self.unreadable: dict[str, dict[str, str]] = {}
+        self.unreadable_lock = threading.Lock()
 
+    def add_document(self, name: str, data: bytes) -> None:
+        """Keep a metadata document, and learn what it says."""
+        self.documents[name] = data
+        if name.endswith("/.zarray"):
+            path = name.rsplit("/", 1)[0]
+            if path in self.plan.arrays:
+                spec = ArraySpec.from_document(data)
+                is_image = self.plan.arrays[path].label is None
+                # A channel run is one channel's chunks, and decode_chunk_into_fields
+                # keeps only a chunk's first channel, so wider chunks would lose channels.
+                if is_image and spec.chunks[0] != 1:
+                    raise ValueError(f"{path}: chunks {spec.chunks} hold {spec.chunks[0]} channels, not 1")
+                self.specs[path] = spec
+                if is_image and self.image_spec is None:
+                    self.image_spec = spec
+                self.extents.setdefault(self.plan.arrays[path].level, spec.shape[-2:])
+                self.fields_by_level.clear()
+        if self.table is None:
+            for rnd, members in self.plan.table_members.items():
+                round_attrs = f"{self.plan.well}/{rnd}/.zattrs"
+                if members and members <= self.documents.keys() and round_attrs in self.documents:
+                    table = f"{self.plan.well}/{rnd}/{TABLES}/{FIELDS_TABLE}"
+                    self.table = read_table(documents_store(self.documents, table))
+                    attrs = json.loads(self.documents[round_attrs])
+                    self.scales = multiscale_scales(attrs, IMAGE_DIMS, round_attrs)
+                    break
 
-def _write(writes: queue.Queue, out: queue.Queue, stop: threading.Event, writer: WellWriter) -> None:
-    """Start each decoded run's assignments on the writer's pool, then wait for all of them."""
-    while (run := next_item(writes, stop)) is not None:
-        writer.write(run)
-    writer.finish()
-    out.put(("written", None))
+    def record_unreadable(self, field: str, name: str, reason: str) -> None:
+        with self.unreadable_lock:
+            self.unreadable.setdefault(field, {})[name] = reason
+
+    def unreadable_copy(self) -> dict[str, dict[str, str]]:
+        with self.unreadable_lock:
+            return {field: dict(chunks) for field, chunks in self.unreadable.items()}
+
+    def confirmed(self, array_path: str) -> bool:
+        """True once the array's own ``.zarray`` has arrived and agrees with every encoding its chunks were decoded with."""
+        own = self.specs.get(array_path)
+        return own is not None and all(used == own for used in self.used.get(array_path, []))
+
+    def spec_for(self, array: SourceArray) -> ArraySpec | None:
+        """The encoding to decode an array's chunks with: its own, else that of the first array of the same level and kind.
+
+        A borrowed encoding is a guess until the array's own ``.zarray``
+        arrives, and :func:`check_well` confirms it before the commit.
+        Borrowing only within a level and kind keeps the guess to arrays
+        made the same way, so a level whose chunks differ waits for its own
+        ``.zarray`` instead of failing the well at the check.
+        """
+        if array.path in self.specs:
+            return self.specs[array.path]
+        for path, spec in self.specs.items():
+            other = self.plan.arrays[path]
+            if other.level == array.level and (other.label is None) == (array.label is None):
+                return spec
+        return None
+
+    def fields_at(self, level: int) -> list[Field] | None:
+        """The well's fields placed on ``level``, once the table and that level's shape have arrived."""
+        image = self.image_spec
+        if self.table is None or level not in self.extents or image is None:
+            return None
+        if level not in self.fields_by_level:
+            channels, depth = image.shape[0], image.shape[1]
+            shapes = [
+                (channels, depth, *self.extents.get(k, (UNKNOWN_EXTENT, UNKNOWN_EXTENT)))
+                for k in range(len(self.scales))
+            ]
+            self.fields_by_level[level] = fields_from_table(
+                self.plan.well, self.table, depth, self.scales[0], shapes, self.scales
+            )
+        return self.fields_by_level[level]
+
+    def missing(self, run: ChannelRun) -> list[str]:
+        """The metadata a channel run still waits for, named for an error message."""
+        array = self.plan.arrays[run.key[0]]
+        kind = "image" if array.label is None else "label"
+        needs = []
+        if self.table is None:
+            needs.append(f"a round's {FIELDS_TABLE} and that round's .zattrs")
+        if array.level not in self.extents:
+            needs.append(f"a .zarray of level {array.level}")
+        if self.image_spec is None:
+            needs.append("an image array's .zarray")
+        if self.spec_for(array) is None:
+            needs.append(f"a .zarray of a level-{array.level} {kind} array")
+        return needs
 
 
 def copy_well(
@@ -1033,7 +597,6 @@ def copy_well(
             f"({waiting_limit / 1e9:.1f} GB) by at least {LARGEST_RUN / 1e9:.1f} GB"
         )
     read_again = partial(read_member_again, url, registry=registry)
-
     out: queue.Queue = queue.Queue()
     jobs: queue.Queue = queue.Queue()
     writes: queue.Queue = queue.Queue()
@@ -1058,14 +621,14 @@ def copy_well(
         )
         threads = [
             start_stage(
-                "fetch", out, _fetch, url, plan, members, out, fetched, stop, counters,
+                "fetch", out, fetch_runs, url, plan, members, out, fetched, stop, counters,
                 concurrency=concurrency, range_bytes=range_bytes, window=read_window, registry=registry,
             ),
             start_stage(
-                "decode-runs", out, _decode,
+                "decode-runs", out, decode_runs,
                 jobs, writes, stop, state, pool, note, fetched, decoded, timings, read_again,
             ),
-            start_stage("write", out, _write, writes, out, stop, writer),
+            start_stage("write", out, write_runs, writes, out, stop, writer),
         ]
         try:
             while True:
@@ -1082,7 +645,7 @@ def copy_well(
                 elif kind == "run":
                     waiting.append(item)
                     counters.waiting += item.stored_bytes()
-                while waiting and state.ready(waiting[0]):
+                while waiting and not state.missing(waiting[0]):
                     run = waiting.popleft()
                     counters.waiting -= run.stored_bytes()
                     jobs.put((run, prepare(run, state)))
@@ -1105,6 +668,373 @@ def copy_well(
                 thread.join(timeout=THREAD_JOIN_TIMEOUT)
             timings.fetch_held_back = fetched.waited
             timings.decode_held_back = decoded.waited
+
+
+# Decoding
+
+
+#: The most bytes of decoded pixels not yet uploaded. A level-0 channel run of
+#: seven fields decodes to about 3.8 GB (7 x 271 planes x 1000 x 1000 x 2
+#: bytes), so this holds about four of them.
+DECODED_LIMIT = 16 * 10**9
+
+
+@dataclass
+class Prepared:
+    """What decoding a channel run needs from the well's metadata, read on the main thread."""
+
+    array: SourceArray
+    spec: ArraySpec
+    fields: list[Field]
+
+    def decoded_bytes(self) -> int:
+        """The bytes of the per-field buffers the run decodes into."""
+        depth = self.spec.shape[0] if self.array.label is not None else self.spec.shape[1]
+        level = self.array.level
+        return sum(
+            depth
+            * (f.levels[level].window["y"][1] - f.levels[level].window["y"][0])
+            * (f.levels[level].window["x"][1] - f.levels[level].window["x"][0])
+            for f in self.fields
+        ) * self.spec.dtype.itemsize
+
+
+def prepare(run: ChannelRun, state: WellState) -> Prepared:
+    """Read what decoding ``run`` needs from the well's state, and record what it used for :func:`check_well`."""
+    array = state.plan.arrays[run.key[0]]
+    spec = state.spec_for(array)
+    state.used.setdefault(array.path, []).append(spec)
+    fields = state.fields_at(array.level)
+    state.placed.append((array.level, fields))
+    return Prepared(array, spec, fields)
+
+
+@dataclass
+class DecodedRun:
+    """One channel run, decoded and cut into each field's window."""
+
+    array: SourceArray
+    channel: int | None
+    #: The fields the run was cut into. The writer uses these rather than
+    #: asking the well's state again, because the main thread can place the
+    #: fields anew while this run uploads.
+    fields: list[Field]
+    #: Each field's pixels for this channel or label at this level, by field name.
+    buffers: dict[str, np.ndarray]
+
+
+def decode_runs(
+    jobs: queue.Queue, writes: queue.Queue, stop: threading.Event,
+    state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
+    timings: Timings, read_again: Callable[[StoredMember], bytes],
+) -> None:
+    """Decode channel runs one after another, on their own thread, and pass them to the writer.
+
+    Before decoding, a run takes its decoded size from ``decoded``, so this
+    thread waits while the runs not yet uploaded hold :data:`DECODED_LIMIT`.
+    Once decoded, a run gives its compressed bytes back to ``fetched``.
+    """
+    while (job := next_item(jobs, stop)) is not None:
+        run, prepared = job
+        decoded.take(prepared.decoded_bytes())
+        started = time.monotonic()
+        result = decode_run(run, prepared, state, pool, note, read_again)
+        timings.decode += time.monotonic() - started
+        fetched.give(run.stored_bytes())
+        writes.put(result)
+    writes.put(None)
+
+
+def decode_run(
+    run: ChannelRun, prepared: Prepared, state: WellState, pool: ThreadPoolExecutor, note: Progress,
+    read_again: Callable[[StoredMember], bytes],
+) -> DecodedRun:
+    """Decode one channel run on ``pool`` into one buffer per field, cut to the field's window at its level.
+
+    ``note`` counts the run's chunks as they finish, decoded or skipped, and
+    each chunk that cannot be decoded is recorded in ``state`` under every
+    field it touches.
+    """
+    plan = state.plan
+    array, spec, fields = prepared.array, prepared.spec, prepared.fields
+    depth = spec.shape[0] if array.label is not None else spec.shape[1]
+    windows, buffers = [], {}
+    for field in fields:
+        window = field.levels[array.level].window
+        windows.append((field.name, window["y"], window["x"]))
+        buffers[field.name] = np.zeros(
+            (depth, window["y"][1] - window["y"][0], window["x"][1] - window["x"][0]), dtype=spec.dtype
+        )
+    futures = [
+        pool.submit(
+            decode_chunk_into_fields, member, plan.chunks[member.name], array, spec, windows, buffers, read_again
+        )
+        for member in run.members
+    ]
+    for future in futures:
+        if (problem := future.result()) is not None:
+            name, reason, touched = problem
+            for field_name in touched:
+                state.record_unreadable(field_name, name, reason)
+        note.advance()
+    return DecodedRun(array, run.key[1], fields, buffers)
+
+
+def decode_chunk_into_fields(
+    member: StoredMember,
+    key: ChunkKey,
+    array: SourceArray,
+    spec: ArraySpec,
+    windows: Sequence[tuple[str, tuple[int, int], tuple[int, int]]],
+    buffers: dict[str, np.ndarray],
+    read_again: Callable[[StoredMember], bytes],
+) -> tuple[str, str, list[str]] | None:
+    """Decode one chunk and copy each field's part of it into that field's buffer.
+
+    Runs on a worker thread; each chunk writes a different part of each
+    buffer, so the chunks of one channel run decode in parallel. Returns None,
+    or ``(name, reason, fields)`` for a chunk that cannot be decoded: a member
+    damaged in the source (:func:`inflate_or_read_again`) or a Blosc frame cut
+    short.
+    """
+    depth, chunk_z, chunk_y, chunk_x = next(iter(buffers.values())).shape[0], *spec.chunks[-3:]
+    z_index, y_index, x_index = key.index[-3:]
+    y_start, x_start = y_index * chunk_y, x_index * chunk_x
+    touched = [
+        (name, (max(y_start, y0), min(y_start + chunk_y, y1)), (max(x_start, x0), min(x_start + chunk_x, x1)), y0, x0)
+        for name, (y0, y1), (x0, x1) in windows
+        if y_start < y1 and y0 < y_start + chunk_y and x_start < x1 and x0 < x_start + chunk_x
+    ]
+    if not touched or member.entry["uncompressed"] == 0:
+        # An empty member holds no chunk; it reads as the fill value, 0, and
+        # empty_source_chunks lists it on the images it falls in.
+        return None
+    try:
+        data = inflate_or_read_again(member, read_again)
+    except ValueError as damaged:
+        return member.name, str(damaged), [name for name, *_ in touched]
+    if (reason := frame_problem(data, spec.compressor)) is not None:
+        return member.name, reason, [name for name, *_ in touched]
+    chunk = decode_chunk(data, spec)
+    if array.label is None:
+        chunk = chunk[0]
+    z0 = z_index * chunk_z
+    z1 = min(z0 + chunk_z, depth)
+    for name, (y0, y1), (x0, x1), window_y, window_x in touched:
+        buffers[name][z0:z1, y0 - window_y:y1 - window_y, x0 - window_x:x1 - window_x] = chunk[
+            : z1 - z0, y0 - y_start:y1 - y_start, x0 - x_start:x1 - x_start
+        ]
+    return None
+
+
+def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMember], bytes]) -> bytes:
+    """A member's contents, fetching the member a second time if its bytes do not inflate or fail the CRC.
+
+    A transfer can deliver the right number of wrong bytes, and only the
+    inflate and the CRC see it. If the second copy is good, the first was
+    damaged on the way and the copy goes on with the second. If it fails too,
+    the source member itself is damaged, and the ``ValueError`` says so.
+    """
+    try:
+        return inflate_member(member.stored, member.entry)
+    except ValueError as first:
+        try:
+            contents = inflate_member(read_again(member), member.entry)
+        except ValueError as again:
+            raise ValueError(f"{again}; read twice, so the source member is damaged") from first
+        say(f"  {member.name}: the first copy was damaged in transfer ({first}); the second is good")
+        return contents
+
+
+# Writing fields
+
+
+#: How many planes one image shard holds. See decision 5 in PLAN.md. Because
+#: a chunk is one plane of one channel, showing one plane needs only one small
+#: read. With 32 planes per shard, one channel of a whole embryo takes 9
+#: requests of about 15 MB each.
+SHARD_DEPTH = 32
+
+#: See decision 6 in PLAN.md. Blosc with zstd decodes fast, and the Zarr v3
+#: specification defines it, so every Zarr reader can open the store.
+CODEC = BloscCodec(cname="zstd", clevel=5, shuffle="bitshuffle")
+
+#: How many fields are assigned through zarr at once, across every channel
+#: run being uploaded.
+UPLOAD_WORKERS = 8
+
+#: zarr's ``async.concurrency``: how many shards one assignment encodes and
+#: uploads at once. zarr's own default is 10.
+ZARR_CONCURRENCY = 32
+
+#: Seconds between the commits made while a well is copied. A failure loses
+#: at most this much uploading, and each commit pauses the uploads only while
+#: the assignments already running finish.
+CHECKPOINT_SECONDS = 300
+
+#: The attribute of a well's group that records which channel runs earlier
+#: commits hold, so that a later run resumes after them. It is removed when
+#: the well is complete.
+PROGRESS = "copy_progress"
+
+
+def image_path(field: Field) -> str:
+    """The image of field ``FOV_n`` is ``n - 1``, so the first field is image ``0``."""
+    return str(field.number - 1)
+
+
+@dataclass(frozen=True)
+class Target:
+    """Where one field of a channel run is written: the image group, the groups below it, and the array."""
+
+    image: str
+    groups: tuple[str, ...]
+    name: str
+    shape: tuple[int, ...]
+    dtype: np.dtype
+    label: bool
+
+
+def write_runs(writes: queue.Queue, out: queue.Queue, stop: threading.Event, writer: WellWriter) -> None:
+    """Start each decoded run's assignments on the writer's pool, then wait for all of them."""
+    while (run := next_item(writes, stop)) is not None:
+        writer.write(run)
+    writer.finish()
+    out.put(("written", None))
+
+
+class WellWriter:
+    """Writes decoded channel runs into the well's images, creating each array the first time it is written.
+
+    Each field of a run is one zarr assignment, started on ``pool``;
+    ``write`` returns once they are started, so the assignments of several
+    runs run at once, up to the pool's size. Each finished assignment gives
+    its buffer's bytes back to ``decoded`` and drops the buffer. Each array is
+    opened or created once per session and kept.
+
+    Every ``checkpoint_seconds`` the writer lets the running assignments
+    finish, records in the well's group which channel runs are complete
+    (:data:`PROGRESS`, with the unreadable chunks found so far) and commits.
+    A run counts as complete once all its fields are written and its array's
+    own ``.zarray`` has confirmed the encoding it was decoded with; a run
+    still unconfirmed is copied again by a later run of the ingest.
+    """
+
+    def __init__(
+        self, well_session: WellSession, plan: WellPlan, state: WellState, shard_depth: int,
+        pool: ThreadPoolExecutor, counters: Counters, decoded: Budget, out: queue.Queue,
+        *, finished: set[tuple[str, int | None]], checkpoint_seconds: float, timings: Timings,
+    ) -> None:
+        self.well_session, self.plan, self.state, self.shard_depth = well_session, plan, state, shard_depth
+        self.pool, self.counters, self.decoded, self.out = pool, counters, decoded, out
+        self.checkpoint_seconds, self.timings = checkpoint_seconds, timings
+        self.channels = sum(plan.channels.values())
+        self.arrays: dict[Target, zarr.Array] = {}
+        self.assignments: list[Future] = []
+        #: Channel runs earlier commits hold, recorded again at every checkpoint.
+        self.carried = set(finished)
+        #: Channel runs whose every field is written, and the fields each run still waits for.
+        self.written: set[tuple[str, int | None]] = set()
+        self.remaining: dict[tuple[str, int | None], int] = {}
+        self.lock = threading.Lock()
+        self.last_checkpoint = time.monotonic()
+        #: Assignments started since the last checkpoint; a commit with none would be empty.
+        self.since_checkpoint = 0
+
+    def write(self, run: DecodedRun) -> None:
+        """Start one zarr assignment per field: a whole channel of one level, or a whole label level."""
+        if self.since_checkpoint and time.monotonic() - self.last_checkpoint >= self.checkpoint_seconds:
+            self.checkpoint()
+        key = (run.array.path, run.channel)
+        if not run.fields:
+            self.written.add(key)
+            return
+        targets = {field.name: self.target_for(run, field) for field in run.fields}
+        for target in targets.values():
+            if target not in self.arrays:
+                self.arrays[target] = self.open_or_create(target)
+        with self.lock:
+            self.remaining[key] = len(run.fields)
+        for field in run.fields:
+            target = self.arrays[targets[field.name]]
+            nbytes = run.buffers[field.name].nbytes
+            future = self.pool.submit(self.assign, run, field, target)
+            future.add_done_callback(lambda done, n=nbytes, k=key: self.assignment_done(done, n, k))
+            self.assignments.append(future)
+            self.since_checkpoint += 1
+
+    def finish(self) -> None:
+        """Wait for every assignment started; raise the first that failed."""
+        for future in self.assignments:
+            future.result()
+        self.assignments.clear()
+
+    def checkpoint(self) -> None:
+        """Let the running assignments finish, record the complete channel runs and commit."""
+        started = time.monotonic()
+        self.counters.stage = "checkpoint: finishing uploads"
+        self.finish()
+        self.counters.stage = "checkpoint: committing"
+        confirmed = {key for key in self.written if self.state.confirmed(key[0])}
+        complete = sorted((list(key) for key in self.carried | confirmed), key=lambda k: (k[0], k[1] or 0))
+        group = self.well_session.dest.require_group(self.plan.well)
+        group.attrs[PROGRESS] = {"complete_runs": complete, "unreadable": self.state.unreadable_copy()}
+        self.well_session.commit(f"{self.plan.well}: {len(complete)} channel runs copied so far")
+        self.arrays.clear()
+        self.timings.checkpoints += 1
+        self.timings.checkpoint_seconds += time.monotonic() - started
+        self.counters.stage = "streaming"
+        self.last_checkpoint = time.monotonic()
+        self.since_checkpoint = 0
+
+    def target_for(self, run: DecodedRun, field: Field) -> Target:
+        pixels = run.buffers[field.name]
+        image = f"{self.plan.well}/{image_path(field)}"
+        if run.array.label is None:
+            return Target(image, (), str(run.array.level), (self.channels, *pixels.shape), pixels.dtype, False)
+        return Target(image, ("labels", run.array.label), str(run.array.level), pixels.shape, pixels.dtype, True)
+
+    def open_or_create(self, target: Target) -> zarr.Array:
+        group = self.well_session.dest.require_group(target.image)
+        for name in target.groups:
+            group = group.require_group(name)
+        if target.name in group:
+            return group[target.name]
+        label, dtype = target.label, target.dtype
+        depth, height, width = target.shape[-3:]
+        return group.create_array(
+            target.name,
+            shape=target.shape,
+            chunks=(1, height, width) if label else (1, 1, height, width),
+            shards=(depth, height, width) if label else (1, self.shard_depth, height, width),
+            dtype=dtype,
+            compressors=CODEC,
+            fill_value=0,
+            dimension_names=LABEL_DIMS if label else IMAGE_DIMS,
+        )
+
+    def assign(self, run: DecodedRun, field: Field, target: zarr.Array) -> None:
+        pixels = run.buffers.pop(field.name)
+        if run.array.label is None:
+            offset = sum(self.plan.channels[r] for r in self.plan.rounds if r < run.array.round)
+            target[offset + run.channel] = pixels
+        else:
+            target[:] = pixels
+        self.counters.uploaded_field()
+
+    def assignment_done(self, future: Future, nbytes: int, key: tuple[str, int | None]) -> None:
+        self.decoded.give(nbytes)
+        if not future.cancelled() and (error := future.exception()) is not None:
+            self.out.put(("error", error))
+            return
+        with self.lock:
+            self.remaining[key] -= 1
+            if self.remaining[key] == 0:
+                del self.remaining[key]
+                self.written.add(key)
+
+
+# Checking a well against its metadata
 
 
 def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) -> list[Field]:
@@ -1132,6 +1062,58 @@ def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) 
         if sum(c["round"] == rnd for c in channels) != plan.channels[rnd]:
             raise ValueError(f"{plan.well}: round {rnd}'s omero channels differ from its chunks' channels")
     return fields
+
+
+def check_codecs(src: zarr.Group, well: str, plate: Plate) -> None:
+    """Raise unless every source array of the well is compressed with Blosc.
+
+    A chunk cut short is found from its Blosc header
+    (:func:`~minus80.parsers.zip.zarr_v2.frame_problem`), which is only
+    meaningful if every chunk is a Blosc frame.
+    """
+    for rnd in plate.acquisitions:
+        well_image = src[f"{well}/{rnd}"]
+        arrays = [well_image[str(k)] for k in range(plate.levels)]
+        if "labels" in well_image:
+            arrays += [
+                well_image[f"labels/{name}/{k}"]
+                for name in well_image["labels"].attrs["labels"]
+                for k in range(plate.levels)
+            ]
+        for array in arrays:
+            compressor = array.metadata.compressor
+            if compressor is None or compressor.codec_id != "blosc":
+                raise ValueError(f"{array.path}: compressor {compressor}, expected Blosc")
+
+
+def round_channels(plate: Plate, src: zarr.Group, well: str) -> list[dict]:
+    """Every channel of every round, in the order the image's channel axis holds them.
+
+    Each entry is the source's own ``omero`` channel (its name, display color,
+    display window and the microscope's ``wavelength_id``), plus the round it
+    came from and its position in that round's image. The names come from
+    this well's own metadata: round 3 stains different markers in different
+    wells (LAYOUTS.md).
+    """
+    channels = []
+    for rnd in plate.acquisitions:
+        for index, channel in enumerate(src[f"{well}/{rnd}"].attrs["omero"]["channels"]):
+            channels.append({**channel, "round": rnd, "source_channel": index})
+    names = [c["label"] for c in channels]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{well}: channel names repeat across rounds: {names}")
+    return channels
+
+
+# Image and plate metadata
+
+
+#: The name of the coordinate system that each well's scene defines.
+SCENE = "well"
+
+#: Tables that describe the whole well rather than one field. Their rows are
+#: kept in the well's attributes, so nothing the source recorded is lost.
+WELL_TABLES = ("well_ROI_table", "embryoRaw_ROI_table")
 
 
 def write_image_metadata(
@@ -1225,6 +1207,40 @@ def write_image_metadata(
         )
 
 
+def empty_source_chunks(plan: WellPlan, src: zarr.Group, field: Field) -> list[str]:
+    """The empty source chunks that fall inside this field, at any level.
+
+    The source zip holds some chunks as empty files: 1,244 of them, in every
+    well, including chunks inside embryos. The copy reads them as the fill
+    value, 0, so the store has zeros where the source has no data. Listing
+    them on the image means nobody mistakes those zeros for a measurement.
+    """
+    found = []
+    for name in plan.empty:
+        key = plan.chunks.get(name)
+        if key is None:
+            continue
+        level = field.levels[plan.arrays[key.array].level]
+        _, chunk_y, chunk_x = src[key.array].chunks[-3:]
+        (y0, y1), (x0, x1) = level.window["y"], level.window["x"]
+        *_, yi, xi = key.index
+        if yi * chunk_y < y1 and y0 < (yi + 1) * chunk_y and xi * chunk_x < x1 and x0 < (xi + 1) * chunk_x:
+            found.append(name)
+    return sorted(found)
+
+
+def label_names(plate: Plate, src: zarr.Group, well: str) -> dict[str, int]:
+    """Each label's name, with the round whose image it belongs to in the source."""
+    labels = {}
+    for rnd in plate.acquisitions:
+        well_image = src[f"{well}/{rnd}"]
+        for name in well_image["labels"].attrs["labels"] if "labels" in well_image else []:
+            if name in labels:
+                raise ValueError(f"{well}: label {name} appears in rounds {labels[name]} and {rnd}")
+            labels[name] = rnd
+    return labels
+
+
 def well_document(plate: Plate, src: zarr.Group, url: str, well: str, fields: Sequence[Field]) -> dict:
     """The attributes of one well group.
 
@@ -1286,33 +1302,6 @@ def committed_wells(root: zarr.Group, wells: Sequence[str]) -> list[str]:
     return [w for w in wells if w in root and "well" in dict(root[w].attrs).get("ome", {})]
 
 
-def rounds_by_well(root: zarr.Group, wells: Sequence[str]) -> dict[str, dict[str, list[str]]]:
-    """Each well's channel names by round, from the channel annotations of the well's first image."""
-    found = {}
-    for well in wells:
-        first = dict(root[well].attrs)["ome"]["well"]["images"][0]["path"]
-        channels = dict(root[f"{well}/{first}"].attrs)["annotations"]["channels"]
-        by_round: dict[str, list[str]] = {}
-        for channel in channels:
-            by_round.setdefault(str(channel["round"]), []).append(channel["label"])
-        found[well] = by_round
-    return found
-
-
-def recorded_rounds(by_well: Mapping[str, Mapping[str, list[str]]]) -> dict:
-    """Each round's channel names: one list where every well agrees, else one list per well.
-
-    Round 3 stains different markers in different wells (LAYOUTS.md), so a
-    single list per round would be wrong for some wells.
-    """
-    rounds = {}
-    for rnd in sorted({r for by_round in by_well.values() for r in by_round}, key=int):
-        per_well = {well: by_round[rnd] for well, by_round in by_well.items() if rnd in by_round}
-        distinct = {tuple(names) for names in per_well.values()}
-        rounds[rnd] = list(next(iter(distinct))) if len(distinct) == 1 else per_well
-    return rounds
-
-
 def write_plate(repo, branch: str, plate_metadata: Mapping, url: str) -> None:
     """Commit plate metadata that lists exactly the wells on the branch now.
 
@@ -1358,6 +1347,36 @@ def write_plate(repo, branch: str, plate_metadata: Mapping, url: str) -> None:
         commit(session, f"Plate metadata for {len(wells)} wells")
 
 
+def rounds_by_well(root: zarr.Group, wells: Sequence[str]) -> dict[str, dict[str, list[str]]]:
+    """Each well's channel names by round, from the channel annotations of the well's first image."""
+    found = {}
+    for well in wells:
+        first = dict(root[well].attrs)["ome"]["well"]["images"][0]["path"]
+        channels = dict(root[f"{well}/{first}"].attrs)["annotations"]["channels"]
+        by_round: dict[str, list[str]] = {}
+        for channel in channels:
+            by_round.setdefault(str(channel["round"]), []).append(channel["label"])
+        found[well] = by_round
+    return found
+
+
+def recorded_rounds(by_well: Mapping[str, Mapping[str, list[str]]]) -> dict:
+    """Each round's channel names: one list where every well agrees, else one list per well.
+
+    Round 3 stains different markers in different wells (LAYOUTS.md), so a
+    single list per round would be wrong for some wells.
+    """
+    rounds = {}
+    for rnd in sorted({r for by_round in by_well.values() for r in by_round}, key=int):
+        per_well = {well: by_round[rnd] for well, by_round in by_well.items() if rnd in by_round}
+        distinct = {tuple(names) for names in per_well.values()}
+        rounds[rnd] = list(next(iter(distinct))) if len(distinct) == 1 else per_well
+    return rounds
+
+
+# The run
+
+
 def create_plate_groups(repo, branch: str, wells: Sequence[str]) -> None:
     """Create the root, row and well groups of the plate, and commit them if any were missing.
 
@@ -1378,15 +1397,6 @@ def create_plate_groups(repo, branch: str, wells: Sequence[str]) -> None:
             created += 1
     if created:
         commit(session, f"Create the plate's row and well groups ({created} groups)")
-
-
-def plate_documents(url: str, directory: pa.Table, registry=None) -> dict[str, bytes]:
-    """The plate's own metadata documents and its rows' group markers, which sit between wells.
-
-    A handful of small members, fetched once at the start, one request each.
-    """
-    names = [n for n in directory["name"].to_pylist() if n.count("/") <= 1]
-    return read_members(url, names, directory, registry=registry)
 
 
 class WellsFailed(Exception):
@@ -1518,7 +1528,10 @@ def convert(
         directory = cached_central_directory(url, directory_cache, check_version=False, registry=registry)
         say(f"  {directory.num_rows:,} members, in {time.monotonic() - started:.0f} s")
         setup["step"] = "reading the plate's metadata"
-        documents = plate_documents(url, directory, registry=registry)
+        # The plate's own documents and its rows' group markers sit between
+        # the wells: a handful of small members, fetched once, one request each.
+        plate_names = [n for n in directory["name"].to_pylist() if n.count("/") <= 1]
+        documents = read_members(url, plate_names, directory, registry=registry)
         plate_metadata = dict(documents_store(documents).attrs)["plate"]
         listed = [w["path"] for w in plate_metadata["wells"]]
         chosen = list(wells) if wells else listed
