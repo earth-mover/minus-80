@@ -497,6 +497,13 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
     adds no node that a SpatialData reader must skip. The index column is
     `codeword_index` for `codewords` and `Feature ID` for the other two.
 
+14. **The OME version of the raster elements.** The plan's author made this
+    call. The owner checks it. Decided: keep `0.5-dev-spatialdata`. Evidence
+    from 2026-11-11: `ome-zarr-models` 1.8.1 rejects the version string and
+    nothing else, and accepts the attributes with `0.5`. SpatialData 0.8.0
+    parses the stored transforms and gives the expected points. Stage two,
+    item 6, gives the reason to keep the string. Booth is not checked.
+
 ## Steps, scope and risk
 
 Each step needs approval before it writes to a shared resource.
@@ -694,6 +701,10 @@ Each item gives the problem, the fix and the check.
    - Fix: record the version as a judgement call here and in `LAYOUTS.md`.
    - Check: open one element with `ome-zarr-models` and with Booth before
      the full ingest. Record both results.
+   - Result: `ome-zarr-models` 1.8.1 rejects both elements on the version
+     string only. SpatialData 0.8.0 parses their transforms. Booth is not
+     checked. Judgement call 14 and "The OME version check" in `LAYOUTS.md`
+     give the text.
 7. **The H&E image.**
    - Problem: the kidney H&E has Deflate tiles. The brain H&E has
      uncompressed planar tiles. The Zarr core has no codec for the zlib
@@ -746,3 +757,14 @@ Each item gives the problem, the fix and the check.
     - `gate_copies` reads each file and array whole. Hash them in blocks.
     - `verify.chunk_members` does not handle the `/` chunk separator that
       `zarr_copy` handles.
+12. **The dry run of the full mode.**
+    - Problem: the full mode needs a check on a complete store before the
+      cloud run.
+    - Fix: none. The run found no fault in `ingest.py` or `verify.py`.
+    - Check: on 2026-11-11, on a laptop, a synthetic bundle, a local repo and
+      a local catalog. All 13 gates that ran passed. `masks` and `instances`
+      need the real bundle. Two runs that SIGINT stopped, one in the
+      transcript tiles and one in `images/morphology`, resumed to the store
+      of an unstopped run. The arrays are equal. Only the ids of the six
+      tables differ. This measures no speed. `LAYOUTS.md`, "The dry run of
+      the full mode", has the commands and the results.

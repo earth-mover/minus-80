@@ -419,6 +419,85 @@ SpatialData requires a `unit` on every space axis. Without one, it raises
 SpatialData reads the table keys from `uns/spatialdata_attrs`, so the ingest writes them there.
 Without them, the table opens with no region and no instance key.
 
+### The dry run of the full mode
+
+On 2026-11-11, on a laptop. It used a local repo, a local catalog and a synthetic bundle.
+The bundle has four morphology channels, a 3D stack, three cells, three transcript tiles and the H&E.
+It measures nothing about speed. Each ingest took about three seconds.
+
+```
+uv run --package atera-ingest python ingests/atera/ingest.py --sample kidney \
+  --repo <scratch>/full/repo --catalog <scratch>/full/catalog --namespace ns --mode full --branch main \
+  --bundle <scratch>/data/outs.zip --he-image <scratch>/data/he.ome.tif --he-alignment <scratch>/data/al.csv \
+  --concurrency 2
+uv run --package atera-ingest python ingests/atera/verify.py --mode full \
+  --repo <scratch>/full/repo --catalog <scratch>/full/catalog \
+  --bundle <scratch>/data/outs.zip --he-image <scratch>/data/he.ome.tif \
+  --gates complete,images,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,field_ids,table_index,source
+```
+
+- **Gates.** All 13 gates that ran passed. The `source` gate printed its skip line for the local bundle.
+- **Gates that did not run.** `masks` and `instances` fail on this bundle. Its `cell_summary` has one column and three rows.
+  The gates need `nucleus_area` and 50 sampled rows. They need the real bundle.
+- **Refusals.** `--mode full --branch fixture` and `--mode fixture --branch main` exit 1 with a message.
+  `verify.py` with a local `--repo` and `--catalog arraylake://<org>` exits 1 and creates no directory.
+
+The stop and the rerun used the same ingest command on a fresh repo and catalog.
+A driver sent SIGINT to the process group after a chosen line. Each stopped run exited with code 130.
+
+| Stop point | State at the stop | What the rerun skipped | What the rerun wrote |
+|---|---|---|---|
+| After `tile 0,0: 5 rows, 5 of 6` | The tile was in its table. The element had no commit. | `tables/table`, both labels, both shapes, and `tile 0,0: in the table already` | Tile `-1,0`, then every later element |
+| After `images/morphology/s0: reading` | Thirteen elements held. `s0` had no commit. | The thirteen elements before `images/morphology` | `s0` to `s2` of `images/morphology`, then the later elements |
+
+After each rerun, `verify.py --mode full` passed all 13 gates.
+The comparison of each resumed store with the unstopped store gave these results:
+
+- The node tree is the same: 65 nodes of the same kind.
+- All 36 arrays have equal metadata and equal values.
+- Twelve attribute keys differ. They are `snapshot_id` and `table_uuid` of the six pinned tables:
+  three in the root attribute `iceberg_tables`, three in the `iceberg_table` attribute of an element.
+  Each run builds its own catalog, so each run has its own ids.
+- No other attribute differs. The attributes hold no timestamp.
+- The six tables hold equal rows. `transcripts` has two snapshots in all three stores, one for each tile with rows.
+- Each store has 33 commits and no repeated commit message. So no element was written twice.
+
+### The OME version check
+
+On 2026-11-11, on the `images/morphology` and `labels/cell_labels` elements of the dry-run store.
+Both elements declare `ome.version` `0.5-dev-spatialdata`.
+
+`ome-zarr-models` 1.8.1 is a dependency of the workspace. `ome_zarr_models.v05.Image.from_zarr` and
+`ome_zarr_models.v05.image_label.ImageLabel.from_zarr` both reject the elements. The exception is the same for both:
+
+```
+ValidationError: 1 validation error for ImageAttrs
+version
+  Input should be '0.5' [type=literal_error, input_value='0.5-dev-spatialdata', input_type=str]
+```
+
+The version string is the only error. With `ome.version` set to `0.5`, `ImageAttrs` and `ImageLabelAttrs` accept the attributes.
+`ome_zarr_models.open_ome_zarr` rejects both elements against every model.
+Its v0.6 models say `Invalid version: '0.5-dev-spatialdata'. Must be '0.6' or '0.6.dev4'.`
+
+SpatialData 0.8.0 from PyPI parsed the stored transforms with
+`NgffBaseTransformation.from_dict` and `BaseTransformation.from_ngff`.
+The transforms came from plain JSON, not from the SpatialData store reader.
+
+| Transform | Input pixel (x, y) | Output (x, y) in micrometres |
+|---|---|---|
+| `images/he_image` of the dry-run store | (0, 0) | (8.500, 2.656) |
+| `images/he_image` of the dry-run store | (100, 50) | (-5.196, 30.048) |
+| `images/qc_transcript_density` of the dry-run store | (0, 0) | (-10.000, -20.000) |
+| `images/qc_transcript_density` of the dry-run store | (3, 2) | (50.000, 20.000) |
+| `write_he` with the kidney alignment and scale 0.21249222 | (0, 0) | (194.247, 6808.377) |
+| `write_he` with the kidney alignment and scale 0.21249222 | (23628, 0) | (237.259, 337.344) |
+
+Each result equals the value that the matrix and the scale give, to 1e-3.
+The kidney row ran `write_he` on a small synthetic H&E with the kidney matrix, so the transform JSON is the code's own.
+
+Booth: not checked. It needs a deployed service and the owner's direction.
+
 ## Fixture findings
 
 The fixture on Arraylake: repo `earthmover-biology/atera-kidney`, branch `fixture`, snapshot
