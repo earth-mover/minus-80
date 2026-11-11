@@ -30,6 +30,9 @@ import zarr
 from .progress import MIB
 from .registry import file_path
 
+#: The bytes of one virtual reference in a ``uint8`` copy of a data file.
+COPY_CHUNK = 8 << 20
+
 #: The ``file:`` Zarr convention, as its convention document states it.
 FILE_CONVENTION = {
     "uuid": "6cdb4f72-1a6a-4ca0-a008-f4ff70bd0024",
@@ -273,13 +276,18 @@ def iceberg_table_attr(
     return attr
 
 
+def copy_edges(size: int, chunk: int = COPY_CHUNK) -> list[int]:
+    """The chunk edges of a copy of a ``size``-byte file: whole chunks, then the remainder."""
+    return [chunk] * (size // chunk) + ([size % chunk] if size % chunk else [])
+
+
 def _copy_array(group: zarr.Group, path: str, file: DataFile, chunk: int) -> zarr.Array:
     import icechunk
 
     location, size = file.location, file.size
     if file.last_modified is None:
         raise ValueError(f"{location} has no last-modified time, so its references would have no checksum")
-    edges = [chunk] * (size // chunk) + ([size % chunk] if size % chunk else [])
+    edges = copy_edges(size, chunk)
     array = group.create_array(
         path, shape=(size,), chunks=[edges] if edges else (1,), dtype="uint8",
         compressors=None, filters=None, overwrite=True,
@@ -306,7 +314,7 @@ def _copy_array(group: zarr.Group, path: str, file: DataFile, chunk: int) -> zar
 
 
 def declare_copy(
-    group: zarr.Group, path: str, files: Sequence[DataFile], *, chunk: int = 8 << 20
+    group: zarr.Group, path: str, files: Sequence[DataFile], *, chunk: int = COPY_CHUNK
 ) -> list[zarr.Array]:
     """Declare ``files`` as ``uint8`` arrays of virtual references.
 
@@ -384,6 +392,43 @@ def _put(io, source: Path, url: str) -> None:
     _check_size(io, source, url)
 
 
+def partition_files(table, snapshot_id: int | None = None) -> list:
+    """The data files of ``table`` at ``snapshot_id``, or the current snapshot, each with its identity partition value.
+
+    The plan reads manifests only, never data files.
+    """
+    if len(table.spec().fields) != 1:
+        raise ValueError(f"{'.'.join(table.name())} is not partitioned by one column")
+    return [(task.file.partition[0], task.file) for task in table.scan(snapshot_id=snapshot_id).plan_files()]
+
+
+def partition_counts(files: Sequence) -> dict:
+    """The record count of each partition value of ``files``, as :func:`partition_files` gives them."""
+    counts: dict = {}
+    for value, file in files:
+        counts[value] = counts.get(value, 0) + file.record_count
+    return counts
+
+
+def partition_bounds(table, files: Sequence, column: str) -> dict:
+    """The (min, max) of ``column`` in each partition value of ``files``, as :func:`partition_files` gives them.
+
+    A data file with no bounds for ``column`` raises ``ValueError``.
+    """
+    from pyiceberg.conversions import from_bytes
+
+    field = table.schema().find_field(column)
+    ranges: dict = {}
+    for value, file in files:
+        lower, upper = (b.get(field.field_id) for b in (file.lower_bounds or {}, file.upper_bounds or {}))
+        if lower is None or upper is None:
+            raise ValueError(f"{file.file_path} has no bounds for column {column}")
+        lo, hi = from_bytes(field.field_type, lower), from_bytes(field.field_type, upper)
+        old = ranges.get(value, (lo, hi))
+        ranges[value] = (min(old[0], lo), max(old[1], hi))
+    return ranges
+
+
 class TableWriter:
     """Parquet files written into the Iceberg tables of one namespace, each under its table's location."""
 
@@ -443,38 +488,20 @@ class TableWriter:
 
     def _partition_files(self, name: str) -> tuple:
         """The table ``name`` and its current data files, each with its identity partition value."""
-        identifier = f"{self.namespace}.{name}"
-        table = self.catalog.load_table(identifier)
-        if len(table.spec().fields) != 1:
-            raise ValueError(f"{identifier} is not partitioned by one column")
-        # The plan reads manifests only, never data files.
-        return table, [(task.file.partition[0], task.file) for task in table.scan().plan_files()]
+        table = self.catalog.load_table(f"{self.namespace}.{name}")
+        return table, partition_files(table)
 
     def partitions(self, name: str) -> dict:
         """The record count of each partition value in the current snapshot of ``name``, from the manifests."""
-        counts: dict = {}
-        for value, file in self._partition_files(name)[1]:
-            counts[value] = counts.get(value, 0) + file.record_count
-        return counts
+        return partition_counts(self._partition_files(name)[1])
 
     def partition_ranges(self, name: str, column: str) -> dict:
         """The (min, max) of ``column`` in each partition value of the current snapshot, from the manifests.
 
         A data file with no bounds for ``column`` raises ``ValueError``.
         """
-        from pyiceberg.conversions import from_bytes
-
         table, held = self._partition_files(name)
-        field = table.schema().find_field(column)
-        ranges: dict = {}
-        for value, file in held:
-            lower, upper = (b.get(field.field_id) for b in (file.lower_bounds or {}, file.upper_bounds or {}))
-            if lower is None or upper is None:
-                raise ValueError(f"{file.file_path} has no bounds for column {column}")
-            lo, hi = from_bytes(field.field_type, lower), from_bytes(field.field_type, upper)
-            old = ranges.get(value, (lo, hi))
-            ranges[value] = (min(old[0], lo), max(old[1], hi))
-        return ranges
+        return partition_bounds(table, held, column)
 
     def ref(self, name: str, *, partition_order: Sequence | None = None) -> TableRef:
         """The current snapshot of ``name`` with all its files, ordered by ``partition_order`` when given.

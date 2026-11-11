@@ -373,6 +373,31 @@ The `polygons` gate fails only when the metrics CSV states a count that differs.
 | `copies` | PASS | Each `uint8` copy's bytes equal its registered Parquet file. |
 | `attrs` | PASS | Each `iceberg_table` attribute's `table_uuid` and `snapshot_id` equal the catalog's. |
 
+### The full verification
+
+`verify.py --mode full` checks every element of the full tree on any branch. It only reads.
+Every expectation comes from the bundle, so one script serves all four samples.
+A gate in this mode fails on an element that the store lacks. In `--mode fixture` it skips that element.
+`--repo` and `--catalog` use the form `arraylake://<org>` for the org.
+Each long gate prints a progress line every five seconds.
+
+| Gate | What it checks in the full store |
+|---|---|
+| `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
+| | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
+| `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
+| `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. |
+| `labels` | 200 sampled chunks of each mask equal the source members, by hash. The stored chunk count equals the member count. |
+| `matrix` | `X` reads as CSR with the source's shape and stored values. 20 sampled chunks equal the source members. |
+| `tables` | Each transcripts tile has the row count of `grid_number_objects`, and its `instance` range follows the source order. |
+| | The `instance` ranges leave no gap across tiles. The manifests give all of this, so no data file is read. |
+| | Each polygon table has one row per cell of its set. |
+| `copies` | Each `uint8` copy has the length of its data files and the chunk edges of an 8 MiB reference. |
+| | The first block, the last block and three blocks between equal the same bytes of the data file, by hash. A change in another block is not found. |
+| `source` | Each source object's size and ETag from a HEAD request equal this file and the root attribute `source`. A local `--bundle` skips the gate. |
+
+The gates read the snapshot that each attribute pins, never the current snapshot.
+
 ### Reading the fixture with SpatialData
 
 In the virtual_omics `spatial` environment, on 2026-11-10. The repo opens with
@@ -398,7 +423,7 @@ Without them, the table opens with no region and no instance key.
 The fixture on Arraylake: repo `earthmover-biology/atera-kidney`, branch `fixture`, snapshot
 `BF52XEQ53GH7JRBE4F30`. The ingest wrote it on 2026-11-11 in seven commits, one per element.
 The rewrite on the same day added three commits; "The rewrite" gives them. The Iceberg
-tables are in the namespace `atera-kidney-tables` of the catalog `arraylake:earthmover-biology`.
+tables are in the namespace `atera-kidney-tables` of the catalog `arraylake://earthmover-biology`.
 All of it ran on a laptop outside us-west-2.
 
 - **(a) `add_files` on Arraylake's catalog.** Accepted. `atera-kidney-tables.transcripts`: UUID

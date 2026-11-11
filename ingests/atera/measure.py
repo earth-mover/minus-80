@@ -163,7 +163,7 @@ def check_mask(repo, result: dict, zf, prefix: str) -> list[str]:
     store = repo.readonly_session(snapshot_id=result["snapshot"]).store
     names = sampled(chunk_members(zf, prefix)[:result["chunks"]], CHECK_CHUNKS)
     print(f"  check: {len(names)} of {result['chunks']:,} chunks", flush=True)
-    return [f"{n} differs" for n in names if raw(store, chunk_key(result["path"], n)) != zf.read(n)]
+    return [f"{n} differs" for n in names if raw(store, chunk_key(result["path"], prefix, n)) != zf.read(n)]
 
 
 def report(name: str, result: dict, errors: list[str]) -> None:

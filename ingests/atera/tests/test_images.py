@@ -54,9 +54,8 @@ def _rgb_pyramid(path, *, planar: bool):
             tw.write(np.moveaxis(data, -1, 0) if planar else data, subfiletype=1, **args)
 
 
-@pytest.fixture
-def bundle(tmp_path):
-    """A zip of four one-channel pyramids, a three-plane stack and ``experiment.spatial``."""
+def image_members(tmp_path) -> dict:
+    """The members of a bundle that the image elements read: four pyramids, a stack and ``experiment.spatial``."""
     members = {}
     for channel, name in enumerate(MORPHOLOGY_2D):
         path = tmp_path / f"c{channel}.tif"
@@ -66,15 +65,26 @@ def bundle(tmp_path):
     pyramid_tiff(tmp_path / "3d.tif", PLANES, SHAPE, LEVELS, TILE, metadata=stack)
     members[MORPHOLOGY_3D] = (tmp_path / "3d.tif").read_bytes()
     members["experiment.spatial"] = json.dumps({"pixel_size": PIXEL}).encode()
+    return members
+
+
+def write_bundle(path, members) -> None:
+    """Write ``members`` as an outs.zip with stored members."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+
+@pytest.fixture
+def bundle(tmp_path):
+    """A zip of four one-channel pyramids, a three-plane stack and ``experiment.spatial``."""
+    members = image_members(tmp_path)
     cells = io.BytesIO()
     with zipfile.ZipFile(cells, "w") as zf:
         zf.writestr(".zattrs", json.dumps({"segmentation_methods": ["m"]}))
     members["cells.zarr.zip"] = cells.getvalue()
-    path = tmp_path / "outs.zip"
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
-        for name, data in members.items():
-            zf.writestr(name, data)
-    return Bundle(path)
+    write_bundle(tmp_path / "outs.zip", members)
+    return Bundle(tmp_path / "outs.zip")
 
 
 def _repo(directory):

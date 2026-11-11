@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import zarr
 from anndata.io import write_elem
-from minus80.core.elements import ElementWriter
+from minus80.core.elements import COMPLETE, ElementWriter
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
 from minus80.core.progress import MIB
 from minus80.core.registry import as_url
@@ -58,6 +58,8 @@ ICEBERG_TABLES = "iceberg_tables"
 FIXTURE_TABLES = ("nucleus_boundaries", "cell_boundaries", "transcripts")
 #: Each differential expression table with its bundle member.
 DIFFEXP_TABLES = {"diffexp_azimuth": DIFFEXP_AZIMUTH, "diffexp_graphclust": DIFFEXP_GRAPHCLUST}
+#: The tables that the root attribute ``iceberg_tables`` pins.
+EXTRA_TABLES = ("codewords", *DIFFEXP_TABLES)
 FIXTURE_LEVEL = 6
 FIXTURE_TILE = "0,0"
 REGION_KEY, INSTANCE_KEY = "region", "instance"
@@ -108,6 +110,11 @@ MISSING_FROM_FULL = [
     {"what": "images/overview_scan", "why": "The ingest does not write it. PLAN.md, judgement call 6, says when it can be placed."},
     *NOT_WRITTEN,
 ]
+
+
+def catalog_org(location: str) -> str | None:
+    """The org of the catalog location ``arraylake://<org>``, or ``None`` for a local directory."""
+    return location.removeprefix(ARRAYLAKE) if location.startswith(ARRAYLAKE) else None
 
 
 def open_bundle(location: str) -> tuple[Bundle, ReadCounter]:
@@ -185,6 +192,8 @@ def write_labels(
             ome = label_attrs(name=name, dims=("y", "x"), level_shapes=[array.shape],
                               scale={"y": 1.0, "x": 1.0}, source_image="../../images/morphology")
             group.attrs.update(raster_attrs(_level_paths(ome, [0]), scale([pixel_size] * 2, ("y", "x"), unit=UNIT)))
+            # The unit commits whole, so a mask on the branch is a complete mask.
+            group.attrs[COMPLETE] = True
 
 
 def write_levels(writer: ElementWriter, path: str, count: int, levels: Sequence[int] | None, write_level, attrs) -> None:
@@ -528,7 +537,7 @@ def main() -> None:
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
     parser.add_argument("--catalog", required=True,
-                        help="a local directory for the catalog and its warehouse, or arraylake:<org>")
+                        help="a local directory for the catalog and its warehouse, or arraylake://<org>")
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--mode", choices=sorted(PROTECTED), default="fixture",
                         help="fixture writes one level, one tile and the polygons; full writes every element")
@@ -553,7 +562,8 @@ def main() -> None:
         selected = select_elements(args.elements, ELEMENTS[args.mode])
     except ValueError as e:
         raise SystemExit(str(e))
-    on_arraylake = args.catalog.startswith("arraylake:")
+    org = catalog_org(args.catalog)
+    on_arraylake = org is not None
     if on_arraylake != args.repo.startswith(ARRAYLAKE):
         raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")
 
@@ -569,7 +579,6 @@ def main() -> None:
     if on_arraylake:
         from arraylake import Client
 
-        org = args.catalog.removeprefix("arraylake:")
         tables = TableWriter(Client().get_iceberg(org), args.namespace, catalog_name="arraylake", org=org)
     else:
         tables = TableWriter(local_catalog(Path(args.catalog)), args.namespace, catalog_name="local", org="local")

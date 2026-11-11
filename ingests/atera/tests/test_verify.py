@@ -1,4 +1,10 @@
+import hashlib
+import http.server
 import io
+import json
+import shutil
+import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -6,20 +12,37 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import scipy.sparse
 import zarr
 from anndata.io import write_elem
 from pyiceberg.io.pyarrow import parquet_file_to_data_file
 from pyiceberg.types import LongType
+from zarr.core.sync import sync
 
-from minus80.core.icechunk_io import create_repo
+import ingest
+import verify
+from minus80.core.elements import COMPLETE, ElementWriter
+from minus80.core.registry import file_path
+from minus80.core.icechunk_io import commit, create_repo
 from minus80.ome.spatialdata import write_table_keys
-from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files
-from tests.stores import cells_zip, zip_v2_store
-from ingest import ICEBERG_TABLES, table_attr, table_specs, write_extra_tables
+from minus80.core.tables import (
+    COPY_CHUNK, TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files,
+)
+from tests.stores import cells_zip, zip_directory, zip_v2_store
+from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, image_members, write_bundle
+from tests.test_ingest_tables import TILES, _Bundle, _hold, _matrix_zip, _transcripts_run, _transcripts_zip
+from tests.test_qc import DENSITY, _bag, _html, _resource
+from bundle import CELLS, MATRIX
+from ingest import (
+    ICEBERG_TABLES, MISSING_FROM_FULL, catalog_org, table_attr, table_specs, write_extra_tables,
+    write_labels,
+)
 from polygons import polygon_table
+from sources import SAMPLES
 from verify import (
-    gate_attrs, gate_copies, gate_extra_tables, gate_field_ids, gate_polygons, gate_table_index, gate_table_region,
-    gate_tables, run_gates, select_gates,
+    chunk_key, chunk_members, element_tables, gate_attrs, gate_complete, gate_copies, gate_extra_tables,
+    gate_field_ids, gate_images, gate_labels, gate_matrix, gate_polygons, gate_qc, gate_source, gate_table_index,
+    gate_table_region, gate_tables, http_head, run_gates, select_gates, without_source,
 )
 
 LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
@@ -446,3 +469,546 @@ def test_extra_tables_fail_a_root_without_the_attribute(tmp_path):
     assert gate_extra_tables(root, local_catalog(tmp_path / "c"), transcripts, _ExtraBundle(transcripts, DIFFEXP)) == [
         "the root has no iceberg_tables attribute"
     ]
+
+
+# The full store: a synthetic bundle written by ``ingest.py --mode full``, then verified in full mode.
+
+MASK = np.arange(48, dtype="<u4").reshape(6, 8)
+METHODS = ["a", "b", "c", "d", "e"]
+
+
+def _cells(tmp_path, *, separator=".", masks=(MASK, MASK[::-1])):
+    """The cells store of ``cells_zip`` with two masks of 4 chunks each and a one-column ``cell_summary``."""
+    encoding = {"name": "v2", "separator": separator}
+    mask = {"chunks": (3, 4), "compressors": None, "chunk_key_encoding": encoding}
+    return cells_zip(tmp_path, extra={
+        "masks/0": (masks[0], mask), "masks/1": (masks[1], mask),
+        "cell_summary": (np.array([[1.0], [0.0], [2.0]]), {"attributes": {"column_names": ["nucleus_count"]}}),
+    }, attrs={"segmentation_methods": METHODS})
+
+
+def _inner(zf) -> bytes:
+    return Path(zf.filename).read_bytes()
+
+
+def _bundle_members(tmp_path) -> dict:
+    members = image_members(tmp_path)
+    members["experiment.spatial"] = json.dumps({
+        "pixel_size": PIXEL, "panel_wta": {"panel_organism": "Human"},
+        "analysis_sw_version": "1", "instrument_sw_version": "2",
+    }).encode()
+    members["cells.zarr.zip"] = _inner(_cells(tmp_path))
+    members[MATRIX] = _inner(_matrix_zip(tmp_path))
+    members["transcripts.zarr.zip"] = _inner(_transcripts_zip(tmp_path))
+    members["metrics_summary_x.csv"] = b"number_of_nucleus_non_simple_polygons,other\n,5\n"
+    for name in ("azimuth", "graphclust"):
+        members[f"diffexp_genes/gene_expression_{name}.csv"] = DIFFEXP.encode()
+    bag = _bag()
+    bag["density_plot"]["bins"] |= {
+        label: f"_resources_{key}" for label, key in (
+            ("Negative Control Codewords", "codewords"), ("Negative Control Probes", "probes"),
+            ("Genomic Controls", "genomic"))}
+    bag["_resources"] |= {key: _resource(DENSITY) for key in ("codewords", "probes", "genomic")}
+    members["analysis_summary_x.html"] = _html(bag).encode()
+    return members
+
+
+class Store:
+    """A repo and its catalog on disk, and the local objects that the ingest read."""
+
+    def __init__(self, directory: Path, branch: str = "main"):
+        self.directory, self.branch = directory, branch
+        self.repo, self.catalog = directory / "repo", directory / "catalog"
+        self.bundle, self.he, self.alignment = directory / "outs.zip", directory / "he.ome.tif", directory / "al.csv"
+
+    def copy(self, directory: Path) -> "Store":
+        """The repo and the catalog in ``directory``; the data files stay where they are."""
+        shutil.copytree(self.repo, directory / "repo")
+        shutil.copytree(self.catalog, directory / "catalog")
+        copy = Store(directory, self.branch)
+        copy.bundle, copy.he, copy.alignment = self.bundle, self.he, self.alignment
+        return copy
+
+    def root(self):
+        return verify.open_root(str(self.repo), self.branch)
+
+    def tables(self):
+        return local_catalog(self.catalog)
+
+    def bundle_zip(self, name):
+        return ingest.open_bundle(str(self.bundle))[0].member_zip(name)
+
+    def edit(self, change) -> None:
+        """Commit ``change(root)`` on the branch."""
+        session = create_repo(self.repo, [], open_existing=True).writable_session(self.branch)
+        change(zarr.open_group(session.store, mode="a"))
+        commit(session, "edit")
+
+    def argv(self, *args):
+        return ["verify.py", "--repo", str(self.repo), "--catalog", str(self.catalog), "--bundle", str(self.bundle),
+                "--he-image", str(self.he), *args]
+
+
+@pytest.fixture(scope="module")
+def full_store(tmp_path_factory):
+    """``ingest.py --mode full`` on a synthetic bundle, onto the branch ``main``. Tests copy it to damage it."""
+    store = Store(tmp_path_factory.mktemp("full"))
+    write_bundle(store.bundle, _bundle_members(store.directory))
+    _rgb_pyramid(store.he, planar=False)
+    np.savetxt(store.alignment, ALIGNMENT, delimiter=",")
+    argv = ["ingest.py", "--sample", "kidney", "--repo", str(store.repo), "--catalog", str(store.catalog),
+            "--namespace", "ns", "--mode", "full", "--branch", "main", "--bundle", str(store.bundle),
+            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--concurrency", "2"]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(store.directory)
+        patch.setattr(sys, "argv", argv)
+        ingest.main()
+    return store
+
+
+@pytest.fixture(autouse=True)
+def rectilinear_chunks():
+    """A reader of a ``uint8`` copy sets this, as ``verify.py`` does."""
+    with zarr.config.set({"array.rectilinear_chunks": True}):
+        yield
+
+
+def _verify(monkeypatch, store, *args):
+    monkeypatch.setattr(sys, "argv", store.argv(*args))
+    with pytest.raises(SystemExit) as raised:
+        verify.main()
+    return raised.value.code
+
+
+ALL_GATES = ("complete,images,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,"
+             "field_ids,table_index,source")
+
+
+def test_every_gate_of_a_full_store_passes_and_a_local_bundle_skips_the_source_gate(
+        monkeypatch, capsys, full_store):
+    code = _verify(monkeypatch, full_store, "--mode", "full", "--gates", ALL_GATES)
+    out = capsys.readouterr().out
+    assert code == 0, out
+    for gate in ALL_GATES.split(","):
+        if gate != "source":
+            assert f"{gate} PASS" in out
+    assert "source: skipped" in out and "source PASS" not in out and "source FAIL" not in out
+
+
+def test_fixture_mode_runs_the_gates_of_the_fixture_and_knows_no_complete_gate(monkeypatch, capsys, full_store):
+    assert _verify(monkeypatch, full_store, "--mode", "fixture", "--branch", "main", "--gates", "attrs,table_index") == 0
+    capsys.readouterr()
+    refusal = _verify(monkeypatch, full_store, "--mode", "fixture", "--branch", "main", "--gates", "complete")
+    assert "unknown gates: complete" in refusal
+
+
+def test_a_full_store_is_complete(full_store):
+    assert gate_complete(full_store.root()) == []
+
+
+def _complete_errors(full_store, tmp_path, change):
+    copy = full_store.copy(tmp_path)
+    copy.edit(change)
+    return gate_complete(copy.root())
+
+
+def test_complete_fails_an_image_without_the_mark_and_a_label_without_it(full_store, tmp_path):
+    def unmark(root):
+        root["images/morphology"].attrs[COMPLETE] = False
+        del root["labels/cell_labels"].attrs[COMPLETE]
+
+    assert _complete_errors(full_store, tmp_path, unmark) == [
+        f"labels/cell_labels: not marked {COMPLETE}", f"images/morphology: not marked {COMPLETE}"]
+
+
+def test_complete_fails_a_missing_qc_element_and_names_it(full_store, tmp_path):
+    errors = _complete_errors(full_store, tmp_path, lambda root: root["images"].__delitem__("qc_genomic_controls"))
+    assert errors == ["images/qc_genomic_controls: missing"]
+
+
+def test_complete_fails_a_missing_iceberg_tables_entry_and_a_missing_attribute(full_store, tmp_path):
+    def drop_entry(root):
+        pins = dict(root.attrs[ICEBERG_TABLES])
+        del pins["codewords"]
+        root.attrs[ICEBERG_TABLES] = pins
+
+    assert _complete_errors(full_store, tmp_path, drop_entry) == [f"{ICEBERG_TABLES}/codewords: missing"]
+    assert _complete_errors(full_store, tmp_path / "b", lambda root: root.attrs.__delitem__(ICEBERG_TABLES)) == [
+        f"{ICEBERG_TABLES}: missing"]
+
+
+def test_complete_fails_an_element_without_its_table_pin(full_store, tmp_path):
+    errors = _complete_errors(full_store, tmp_path,
+                              lambda root: root["points/transcripts"].attrs.__delitem__("iceberg_table"))
+    assert errors == ["points/transcripts: has no iceberg_table attribute"]
+
+
+def test_complete_fails_a_missing_list_that_differs_from_what_the_full_mode_leaves_out(full_store, tmp_path):
+    def change(root):
+        root.attrs["missing"] = [*MISSING_FROM_FULL[1:], {"what": "images/qc_mean_q_score", "why": "x"}]
+
+    errors = _complete_errors(full_store, tmp_path, change)
+    assert errors == [f"missing: lacks {MISSING_FROM_FULL[0]['what']}",
+                      "missing: lists images/qc_mean_q_score, which the full mode writes"]
+
+
+def test_the_full_tree_of_the_complete_gate_is_the_elements_that_the_ingest_writes():
+    tree = verify.full_elements()
+    assert tree == [e for e in ingest.ELEMENTS["full"] if e != "root"]
+    assert "images/qc_genomic_controls" in tree and ICEBERG_TABLES in tree
+
+
+def test_element_tables_of_a_full_store_name_every_missing_element(tmp_path):
+    root = zarr.open_group(tmp_path / "r.zarr", mode="w")
+    with pytest.raises(ValueError) as raised:
+        element_tables(root, full=True)
+    for element in ("shapes/nucleus_boundaries", "shapes/cell_boundaries", "points/transcripts"):
+        assert element in str(raised.value)
+    assert element_tables(root) == {}
+
+
+@pytest.mark.parametrize("path", ["images/he_image", "images/morphology_3d", "images/morphology"])
+def test_images_fail_on_a_missing_element_in_full_mode_and_skip_it_in_fixture_mode(full_store, tmp_path, path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root.__delitem__(path))
+    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    assert gate_images(copy.root(), bundle, str(copy.he), full=True) == [f"{path}: missing"]
+    assert gate_images(copy.root(), bundle, str(copy.he)) == []
+
+
+def test_qc_fails_on_a_missing_element_in_full_mode_and_skips_it_in_fixture_mode(full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root["images"].__delitem__("qc_mean_q_score"))
+    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    assert gate_qc(copy.root(), bundle, full=True) == ["images/qc_mean_q_score: missing"]
+    assert gate_qc(copy.root(), bundle) == []
+
+
+def test_images_in_full_mode_fail_a_level_that_the_group_lacks_though_it_lists_the_source_levels(full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root["images/he_image"].__delitem__("s1"))
+    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    errors = gate_images(copy.root(), bundle, str(copy.he), full=True)
+    assert errors == ["images/he_image: marked complete, holds levels [0, 2] of 3"]
+
+
+def _matrix_of(tmp_path, rows):
+    """A matrix store whose ``X`` is ``rows`` rows of two values each."""
+    source = tmp_path / "other.zarr"
+    write_elem(zarr.open_group(source, mode="w", zarr_format=2), "X",
+               scipy.sparse.csr_matrix(np.ones((rows, 2), dtype="int32")))
+    return zip_directory(source, tmp_path / "other.zip")
+
+
+def test_matrix_takes_its_shape_and_stored_values_from_the_bundle(full_store, tmp_path):
+    assert gate_matrix(full_store.root(), full_store.bundle_zip(MATRIX)) == []
+    errors = gate_matrix(full_store.root(), _matrix_of(tmp_path, 4))
+    assert errors[0] == "X has shape (3, 2) and 4 stored values; the source has (4, 2) and 8"
+
+
+# gate_labels
+
+def _label_repo(tmp_path, cells):
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("work", repo.lookup_branch("main"))
+    write_labels(ElementWriter(repo, "work"), _Bundle(cells), PIXEL, concurrency=1)
+    return zarr.open_group(repo.readonly_session("work").store, mode="r")
+
+
+@pytest.mark.parametrize("separator", [".", "/"])
+def test_labels_compare_chunks_stored_under_either_separator(tmp_path, separator):
+    cells = _cells(tmp_path / "a", separator=separator)
+    names = chunk_members(cells, "masks/0")
+    assert len(names) == 4
+    assert {chunk_key("labels/nucleus_labels/s0", "masks/0", n) for n in names} == {
+        f"labels/nucleus_labels/s0/c/{r}/{c}" for r in (0, 1) for c in (0, 1)}
+    assert gate_labels(_label_repo(tmp_path / "b", cells), cells) == []
+
+
+def test_labels_fail_a_chunk_that_differs_from_the_source(tmp_path):
+    root = _label_repo(tmp_path / "b", _cells(tmp_path / "a"))
+    other = _cells(tmp_path / "c", masks=(MASK + 1, MASK[::-1]))
+    errors = gate_labels(root, other)
+    assert len(errors) == 4 and all("differs" in e and e.startswith("labels/nucleus_labels/s0") for e in errors)
+
+
+def test_labels_compare_a_sample_of_chunks_by_hash_when_asked_for_one(tmp_path, capsys):
+    cells = _cells(tmp_path / "a")
+    root = _label_repo(tmp_path / "b", cells)
+    assert gate_labels(root, cells, sample=2) == []
+    assert "comparing 2 of 4 chunks of masks/0" in capsys.readouterr().out
+    other = _cells(tmp_path / "c", masks=(MASK + 1, MASK[::-1]))
+    assert len(gate_labels(root, other, sample=4)) == 4
+
+
+def test_labels_fail_a_store_that_holds_fewer_chunks_than_the_source(tmp_path):
+    cells = _cells(tmp_path / "a")
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("work", repo.lookup_branch("main"))
+    write_labels(ElementWriter(repo, "work"), _Bundle(cells), PIXEL, concurrency=1)
+    session = repo.writable_session("work")
+    sync(session.store.delete("labels/nucleus_labels/s0/c/0/0"))
+    commit(session, "drop a chunk")
+    errors = gate_labels(zarr.open_group(repo.readonly_session("work").store, mode="r"), cells)
+    assert "labels/nucleus_labels/s0: 3 chunks stored, 4 members" in errors
+
+
+# gate_tables on the transcripts
+
+GRID = {"grid_keys": list(TILES), "grid_number_objects": list(TILES.values())}
+
+
+def _held_transcripts(tmp_path, origins):
+    """A transcripts table that holds each tile of ``origins`` from its first instance; the pin of its last snapshot."""
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    for tile, first in origins.items():
+        _hold(tables, bundle, tmp_path, tile, first_instance=first)
+    return bundle, tables, table_attr(tables, "transcripts", tables.ref("transcripts"))
+
+
+def test_transcripts_pass_when_each_tile_has_its_rows_and_its_place_in_the_source_order(tmp_path, capsys):
+    _, tables, attr = _held_transcripts(tmp_path, {"0,0": 0, "-1,0": 5})
+    assert verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID) == []
+    assert "2 tiles, 6 rows, the source 6" in capsys.readouterr().out
+
+
+def test_transcripts_fail_a_tile_with_the_wrong_instance_origin(tmp_path):
+    _, tables, attr = _held_transcripts(tmp_path, {"0,0": 0, "-1,0": 7})
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID)
+    assert errors == ["points/transcripts: tile -1,0 has instances 7..7, the source order gives 5..5",
+                      "points/transcripts: instance runs to 4 in tile 0,0 and starts at 7 in tile -1,0"]
+
+
+def test_transcripts_fail_a_missing_tile_and_a_total_that_the_source_contradicts(tmp_path):
+    _, tables, attr = _held_transcripts(tmp_path, {"0,0": 0})
+    assert verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID) == [
+        "points/transcripts: tile -1,0 has 0 rows, the source 1", "points/transcripts: 5 rows, the source 6"]
+
+
+def test_transcripts_fail_a_tile_with_the_wrong_row_count_and_a_tile_the_source_lacks(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0, rows=3)
+    _hold(tables, bundle, tmp_path, "-1,0", first_instance=5, name="9,9")
+    attr = table_attr(tables, "transcripts", tables.ref("transcripts"))
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID)
+    assert "points/transcripts: tile 0,0 has 3 rows, the source 5" in errors
+    assert "points/transcripts: tile 9,9 is not in the source" in errors
+    assert "points/transcripts: tile -1,0 has 0 rows, the source 1" in errors
+
+
+def test_transcripts_read_the_pinned_snapshot_not_a_later_one(tmp_path):
+    bundle, tables, attr = _held_transcripts(tmp_path, {"0,0": 0, "-1,0": 5})
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0, name="extra")
+    assert tables.partitions("transcripts") != {"0,0": 5, "-1,0": 1}
+    assert verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID) == []
+
+
+def test_the_tables_gate_of_a_full_store_counts_each_table_against_the_source(full_store):
+    transcripts = full_store.bundle_zip("transcripts.zarr.zip")
+    cells = full_store.bundle_zip(CELLS)
+    assert gate_tables(full_store.root(), full_store.tables(), cells, transcripts, full=True) == []
+
+
+def test_the_tables_gate_of_a_full_store_fails_a_missing_element(full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root["points"].__delitem__("transcripts"))
+    with pytest.raises(ValueError, match="points/transcripts"):
+        gate_tables(copy.root(), copy.tables(), copy.bundle_zip(CELLS), copy.bundle_zip("transcripts.zarr.zip"), full=True)
+
+
+# gate_copies
+
+BIG = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("value", pa.float64())])
+ROWS = 1_600_000
+
+
+def _copy_run(tmp_path, *, chunk=COPY_CHUNK, rows=ROWS):
+    """A repo whose ``points/big`` is a copy of the 20 MB data file of the table ``big``, and the table's writer."""
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
+    tables.require("big", schema=BIG, properties={})
+    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix("big")])
+    data = {"instance": np.arange(rows), "value": np.random.default_rng(0).random(rows)}
+    ref = tables.write("big", pa.table(data, schema=BIG))
+    session = repo.writable_session("main")
+    group = zarr.open_group(session.store, mode="w").require_group("points").require_group("big")
+    group.attrs["iceberg_table"] = table_attr(tables, "big", ref)
+    declare_copy(group, "points.parquet", ref.files, chunk=chunk)
+    commit(session, "copy")
+    return tables, repo, ref
+
+
+def _root(repo):
+    return zarr.open_group(repo.readonly_session("main").store, mode="r")
+
+
+def _repin(repo, attr):
+    session = repo.writable_session("main")
+    zarr.open_group(session.store, mode="a")["points/big"].attrs["iceberg_table"] = attr
+    commit(session, "repin")
+
+
+def _other_table(tables, name, directory, data: bytes | None = None):
+    """The table ``name`` with one data file, the bytes ``data`` or a three-row file; its pin."""
+    if data is None:
+        tables.require(name, schema=BIG, properties={})
+        ref = tables.write(name, pa.table({"instance": np.arange(3), "value": np.zeros(3)}, schema=BIG))
+    else:
+        file = directory / f"{name}.parquet"
+        file.write_bytes(data)
+        ref = register_files(tables.catalog, f"ns.{name}", [str(file)], schema=BIG, properties={})
+    return iceberg_table_attr(ref, catalog="local", org="local", namespace="ns", table=name, index_column="instance")
+
+
+def test_copies_pass_by_block_hash_on_a_20_mb_file(tmp_path, capsys):
+    tables, repo, ref = _copy_run(tmp_path)
+    assert 19_000_000 < ref.files[0].size < 21_000_000
+    assert gate_copies(_root(repo), tables.catalog) == []
+    out = capsys.readouterr().out
+    assert "points/big: 1 uint8 arrays" in out and "comparing 3 blocks" in out
+
+
+def test_copies_fail_a_changed_byte_in_a_sampled_block(tmp_path):
+    tables, repo, ref = _copy_run(tmp_path)
+    data = file_path(ref.files[0].location).read_bytes()
+    changed = bytearray(data)
+    changed[COPY_CHUNK + 100] ^= 1
+    _repin(repo, _other_table(tables, "changed", tmp_path, bytes(changed)))
+    errors = gate_copies(_root(repo), tables.catalog)
+    assert len(errors) == 1 and "1 of 3 sampled blocks differ, first block 1" in errors[0]
+
+
+def test_copies_fail_a_length_that_differs_from_the_files_and_an_edge_that_is_not_a_file_boundary(tmp_path):
+    tables, repo, _ = _copy_run(tmp_path)
+    _repin(repo, _other_table(tables, "small", tmp_path))
+    errors = gate_copies(_root(repo), tables.catalog)
+    assert any(e.startswith("points/big: the copies have") and "the data files" in e for e in errors)
+    assert any("chunk edges" in e for e in errors)
+
+
+def test_copies_fail_chunk_edges_that_are_not_the_reference_size(tmp_path):
+    tables, repo, _ = _copy_run(tmp_path, chunk=4 * 2**20)
+    errors = gate_copies(_root(repo), tables.catalog)
+    assert len(errors) == 1 and "chunk edges" in errors[0]
+
+
+def test_copies_fail_a_copy_that_the_catalog_lacks_a_file_for(tmp_path):
+    tables, repo, ref = _copy_run(tmp_path)
+    session = repo.writable_session("main")
+    declare_copy(zarr.open_group(session.store, mode="a")["points/big"], "extra.parquet", ref.files)
+    commit(session, "second copy")
+    errors = gate_copies(_root(repo), tables.catalog)
+    assert errors == ["points/big: 2 uint8 arrays, 1 data files"]
+
+
+def test_copies_of_a_full_store_pair_the_parts_with_the_files_in_the_source_tile_order(full_store):
+    transcripts = full_store.bundle_zip("transcripts.zarr.zip")
+    orders = verify.copy_orders(transcripts)
+    assert orders == {"points/transcripts": ["0,0", "-1,0"]}
+    assert gate_copies(full_store.root(), full_store.tables(), orders, full=True) == []
+
+
+# gate_source
+
+SAMPLE = SAMPLES["kidney"]
+
+
+def _layouts(size, etag):
+    return ("| Repo | Object | Size | ETag | Last modified |\n|---|---|---|---|---|\n"
+            f"| `atera-kidney` | `{SAMPLE.name}_outs.zip` | {size:,} | `{etag}` | 2026-10-15 |\n")
+
+
+def _object(tmp_path):
+    path = tmp_path / "outs.zip"
+    path.write_bytes(b"0123456789")
+    return path, hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def _head_of(path, etag=None):
+    """The HEAD response of the object at ``url``, from a local file."""
+    return lambda url: (path.stat().st_size, etag or hashlib.md5(path.read_bytes()).hexdigest())
+
+
+def _source_root(tmp_path, layouts):
+    root = zarr.open_group(tmp_path / "r.zarr", mode="w")
+    root.attrs["source"] = ingest.source_objects(layouts, SAMPLE)
+    return root
+
+
+def test_source_passes_when_the_head_response_equals_layouts_and_the_root_attribute(tmp_path):
+    path, etag = _object(tmp_path)
+    layouts = _layouts(10, etag)
+    assert gate_source(_source_root(tmp_path, layouts), SAMPLE, layouts, _head_of(path)) == []
+
+
+def test_source_fails_a_wrong_etag_and_a_wrong_size(tmp_path):
+    path, etag = _object(tmp_path)
+    layouts = _layouts(10, etag)
+    url = SAMPLE.url("_outs.zip")
+    errors = gate_source(_source_root(tmp_path, layouts), SAMPLE, layouts, _head_of(path, etag="0" * 32))
+    assert errors == [f"{url}: ETag {'0' * 32}, LAYOUTS.md records {etag}"]
+    path.write_bytes(b"01234567890")
+    errors = gate_source(_source_root(tmp_path / "b", layouts), SAMPLE, layouts, _head_of(path, etag=etag))
+    assert errors == [f"{url}: size 11, LAYOUTS.md records 10"]
+
+
+def test_source_fails_a_root_attribute_that_differs_from_layouts(tmp_path):
+    path, etag = _object(tmp_path)
+    layouts = _layouts(10, etag)
+    root = _source_root(tmp_path, _layouts(10, "f" * 32))
+    errors = gate_source(root, SAMPLE, layouts, _head_of(path))
+    assert errors == [f"{SAMPLE.url('_outs.zip')}: the root attribute source differs from LAYOUTS.md"]
+    root.attrs["source"] = []
+    assert gate_source(root, SAMPLE, layouts, _head_of(path)) == [
+        f"{SAMPLE.url('_outs.zip')}: the root attribute source differs from LAYOUTS.md"]
+
+
+def test_the_recorded_objects_of_every_sample_have_a_size_and_an_etag():
+    layouts = (Path(verify.__file__).with_name("LAYOUTS.md")).read_text()
+    for sample in SAMPLES.values():
+        objects = ingest.source_objects(layouts, sample)
+        assert len(objects) == 5 and all(o["size"] > 0 and o["etag"] for o in objects)
+
+
+class _Head(http.server.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "10")
+        self.send_header("ETag", '"abc-3"')
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def test_http_head_reads_the_size_and_the_unquoted_etag_of_a_head_response():
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Head)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert http_head(f"http://127.0.0.1:{server.server_port}/x") == (10, "abc-3")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_local_bundle_drops_the_source_gate_with_a_printed_line(capsys):
+    assert without_source(["images", "source", "attrs"], local=True) == ["images", "attrs"]
+    assert "source: skipped" in capsys.readouterr().out
+    assert without_source(["source"], local=False) == ["source"]
+    assert capsys.readouterr().out == ""
+
+
+# The Arraylake org form
+
+def test_a_catalog_and_a_repo_use_the_same_org_form():
+    assert catalog_org("arraylake://earthmover-biology") == "earthmover-biology"
+    assert catalog_org("/tmp/catalog") is None
+
+
+@pytest.mark.parametrize("repo, catalog", [("arraylake://o/r", "catalog"), ("repo", "arraylake://o")])
+def test_the_ingest_refuses_a_repo_and_a_catalog_that_are_not_both_local_or_both_on_arraylake(
+        monkeypatch, tmp_path, repo, catalog):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["ingest.py", "--sample", "kidney", "--repo", repo, "--catalog", catalog,
+                                      "--namespace", "n", "--branch", "work"])
+    with pytest.raises(SystemExit, match="both be local or both be on Arraylake"):
+        ingest.main()

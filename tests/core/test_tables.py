@@ -22,12 +22,17 @@ from minus80.core.tables import (
     TableRef,
     TableWriter,
     _write_local,
+    COPY_CHUNK,
+    copy_edges,
     data_file,
     declare_copy,
     declare_file,
     iceberg_table_attr,
     local_catalog,
     parquet_field_ids,
+    partition_bounds,
+    partition_counts,
+    partition_files,
     parquet_schema,
     register_files,
     require_table,
@@ -851,3 +856,27 @@ def test_write_takes_the_index_column_of_the_call_over_the_writers(tmp_path):
     ref = writer.write("t", pa.table({"row": [1], "v": ["a"]}, schema=schema), index_column="row")
     pandas = json.loads(pq.read_schema(file_path(ref.files[0].location)).metadata[b"pandas"])
     assert pandas["index_columns"] == ["row"]
+
+
+def test_partition_functions_read_the_snapshot_they_are_given_not_the_current_one(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    first = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)])
+    table = writer.catalog.load_table("ns.t")
+    held = partition_files(table, first.snapshot_id)
+    assert partition_counts(held) == {"a": 2}
+    assert partition_bounds(table, held, "instance") == {"a": (0, 1)}
+    assert partition_counts(partition_files(table)) == {"a": 2, "b": 1}
+
+
+def test_partition_files_refuse_a_table_that_is_not_partitioned_by_one_column(tmp_path):
+    table = _writer(tmp_path / "catalog").catalog.load_table("ns.t")
+    with pytest.raises(ValueError, match="ns.t.*partition"):
+        partition_files(table)
+
+
+def test_copy_edges_are_whole_chunks_then_the_remainder():
+    assert copy_edges(25, 10) == [10, 10, 5]
+    assert copy_edges(20, 10) == [10, 10]
+    assert copy_edges(0, 10) == []
+    assert copy_edges(3 * COPY_CHUNK + 1) == [COPY_CHUNK] * 3 + [1]
