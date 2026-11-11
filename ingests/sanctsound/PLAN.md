@@ -15,11 +15,12 @@ This plan brings that code into minus-80 as `ingests/sanctsound`, rebuilt on the
 shared `minus80.parsers.flac` parser. It covers what has been done so far and
 what a rebuild of the published store would change.
 
-So far the code has been ported and checked against a local Icechunk repo. No
-shared resource has been written.
+The port was approved, and the three deployments the published store held
+only in part have since been rebuilt in full, committed straight to `main`.
+[REPORT.md](REPORT.md) has the runs and their verification.
 
-**Asked of the reviewer:** approve the port, and decide the three calls below
-before any rebuild of the published store.
+**Asked of the reviewer:** call 3 below is still open. Calls 1 and 2 were
+taken as recommended.
 
 | # | Decision | Recommended |
 |---|---|---|
@@ -43,11 +44,13 @@ A recording's start time exists only in its filename, accurate to about 1.5 s.
 [LAYOUTS.md](LAYOUTS.md) has the file layout, the filename forms, the timing
 analysis and the defects in the source.
 
-The published store holds these deployments:
+The published store held these deployments:
 
 - `CI01_01`, `CI01_02`, `OC01_01`, `OC01_03` and `SB01_03` in full;
 - `CI02_01`, `CI04_01` and `CI05_01` only for the recordings around four
   windows in November 2018: explosions, two ship passages and a blue whale bout.
+
+All eight are now in full.
 
 ## Layout
 
@@ -150,6 +153,12 @@ These calls were made in the port and need no decision:
 | Rebuild all eight deployments on Coiled, from the chunk tables, to a new branch of `earthmover-biology/sanctsound` | A branch; `main` is untouched | Yes, and an API-client grant on the repo |
 | Verify the branch with `verify.py` for each deployment | Nothing | |
 | Check the bio-demos notebooks against the branch, then move `main` to it | `main` | Yes |
+
+These steps changed when they ran. Each rebuilt deployment was committed
+straight to `main`, which the maintainer approved, and only the three partial
+deployments were rebuilt. The chunk tables were not uploaded, and the bio-demos
+notebooks have not been run against the rebuilt groups.
+[REPORT.md](REPORT.md), "Changes from the plan", has the details.
 
 Out of scope:
 

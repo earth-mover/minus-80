@@ -175,3 +175,7 @@ file from the target archive as the primary fixture.
 | `arraylake` reads `ARRAYLAKE_TOKEN` when first imported | set the token before importing |
 | xarray `where(..., drop=True)` raises on `StringDType` columns | `sel` or boolean `isel` |
 | A script named like a module (`attrs.py`) shadows it when run from its folder | name scripts so they cannot shadow a package |
+| PyAV's Linux wheel (19.0.2) fails on HTTPS URLs with "Input/output error"; the macOS wheel works | download first and hand PyAV bytes or a local path |
+| PyAV demuxing slows down as threads are added: 1.1 GB/s on one thread, 125 MB/s on eight | parse in spawned processes |
+| Forking a process after obstore has started its threads can deadlock | `multiprocessing.get_context("spawn")` |
+| Coiled's container has a 64 MB `/dev/shm` | hold downloads in memory |
