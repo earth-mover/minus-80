@@ -20,7 +20,7 @@ def test_sparse_plate_declares_every_row_and_column():
     attrs = plate_attrs(name="PML0116", rows=rows, columns=columns,
                         wells=[("B", "12"), ("H", "1")], field_count=4)
     plate = attrs["ome"]["plate"]
-    assert attrs["ome"]["version"] == "0.5"
+    assert attrs["ome"]["version"] == "0.6"
     assert len(plate["rows"]) == 8 and len(plate["columns"]) == 12
     assert plate["wells"] == [{"path": "B/12", "rowIndex": 1, "columnIndex": 11},
                               {"path": "H/1", "rowIndex": 7, "columnIndex": 0}]
@@ -36,7 +36,7 @@ def test_well_outside_the_grid_raises():
 
 def test_well_lists_its_fields():
     attrs = well_attrs(["0", "1"])
-    assert attrs == {"ome": {"version": "0.5", "well": {"images": [{"path": "0"}, {"path": "1"}]}}}
+    assert attrs == {"ome": {"version": "0.6", "well": {"images": [{"path": "0"}, {"path": "1"}]}}}
 
 
 def test_well_acquisitions_must_match_images():
@@ -63,7 +63,7 @@ def test_verify_finds_plate_fields():
             name=field, dims=("y", "x"), level_shapes=[(4, 4)], scale={"y": 1, "x": 1})})
     assert sorted(images(root)) == ["stacks/P1/B/12/F1", "stacks/P1/B/12/F2"]
     assert series_matches(root) == []
-    assert schema(root, "0.5") == []
+    assert schema(root, "0.6") == []
     root.create_group("stacks/P1/B/12/F3").attrs.update(dict(root["stacks/P1/B/12/F1"].attrs))
     assert series_matches(root) == ["1 groups missing from series and plates: ['stacks/P1/B/12/F3']"]
 
@@ -126,6 +126,6 @@ def test_plate_at_the_root_is_found_and_validated():
         name="f", dims=("y", "x"), level_shapes=[(4, 4)], scale={"y": 1, "x": 1})})
     assert list(images(root)) == ["A/1/0"]
     assert series_matches(root) == []
-    assert schema(root, "0.5") == []
-    root.attrs.update({"ome": {"version": "0.5", "plate": {"rows": []}}})
-    assert [p.split(":")[0] for p in schema(root, "0.5")] == ["plate"]
+    assert schema(root, "0.6") == []
+    root.attrs.update({"ome": {"version": "0.6", "plate": {"rows": []}}})
+    assert [p.split(":")[0] for p in schema(root, "0.6")] == ["plate"]

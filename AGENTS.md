@@ -81,8 +81,8 @@ ingest, the work is not done. That rules out:
   `ingests/<archive>/runs/`, and its header names the commit it ran from. To
   run a finished ingest again, check out that commit, or upgrade the ingest to
   the current `minus80` and record that as a new run.
-- OME-Zarr output is version 0.5 metadata; ingest an older source by upgrading
-  it.
+- OME-Zarr output is version 0.6 metadata; ingest an older source by upgrading
+  it. A store already published in 0.5 stays 0.5 until it is re-ingested.
 - Tabular data without a Zarr convention (per-target annotations, edge lists,
   proteome-wide tables) goes to an Iceberg table beside the store, not into
   Zarr arrays.

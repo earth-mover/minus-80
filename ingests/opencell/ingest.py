@@ -65,6 +65,8 @@ SOURCE_WELL = re.compile(r"(?:/|MMStack_\d+-)(?P<row>[A-H])(?P<column>\d{1,2})[-
 PLATES, PROJECTIONS, UNLISTED = "plates", "projections", "unlisted"
 #: The name of each field image's nested projection.
 PROJ = "proj"
+# The published store is OME-Zarr 0.5; a rerun must write the same version.
+OME_VERSION = "0.5"
 ORDER = {"stack": ("c", "z", "y", "x"), "proj": ("c", "y", "x")}
 
 #: The sample's pixel size in µm: the Methods' camera pixel, 13 µm (Andor iXon
@@ -253,7 +255,8 @@ def image_group(parsed: ManifestGroup, *, name: str, order: tuple[str, ...],
     ome = image_attrs(name=name, dims=order, level_shapes=[array.shape],
                       scale={"c": 1.0} | attrs["scale"],
                       units=attrs["units"], dimensions=attrs["dimensions"], omero=omero,
-                      description="the TIFF's single full-resolution level")
+                      description="the TIFF's single full-resolution level",
+                      version=OME_VERSION)
     return ManifestGroup(arrays={"0": array},
                          attributes={"ome": ome, "tiff": dict(parsed.metadata.attributes)}
                          | (annotations or {}) | ({DERIVED: derived} if derived else {}))
@@ -371,11 +374,12 @@ def main(argv: list[str] | None = None) -> None:
             in_plate = {w: m for w, m in wells.items() if w.startswith(f"{plate}/")}
             document = plate_attrs(name=plate, rows=rows, columns=columns,
                                    wells=[tuple(w.split("/")[1:]) for w in in_plate],
-                                   field_count=max(len(m) for m in in_plate.values()))
+                                   field_count=max(len(m) for m in in_plate.values()),
+                                   version=OME_VERSION)
             for tree in (PLATES, PROJECTIONS):
                 root.create_group(f"{tree}/{plate}").attrs.update(document)
             for well, members in in_plate.items():
-                attrs = (well_attrs([field_name(f) for f in members])
+                attrs = (well_attrs([field_name(f) for f in members], version=OME_VERSION)
                          | image_annotation(well_fields(members[0], lines[members[0].cid])))
                 for tree in (PLATES, PROJECTIONS):
                     root.create_group(f"{tree}/{well}").attrs.update(attrs)
@@ -390,7 +394,7 @@ def main(argv: list[str] | None = None) -> None:
                                 ).to_icechunk(store, group=f"{PROJECTIONS}/{well}/{field_name(fov)}")
                     progress.advance()
         collection = root.create_group(UNLISTED)
-        collection.attrs.update(root_attrs() | image_annotation({
+        collection.attrs.update(root_attrs(OME_VERSION) | image_annotation({
             "description": DATASET["trees"][UNLISTED],
             "cell_lines": sorted({f.cid for f in unlisted})}))
         series = []
@@ -399,7 +403,7 @@ def main(argv: list[str] | None = None) -> None:
             write_field(store, f"{UNLISTED}/{path}", fov, parsed, path_fields(fov), omero)
             series.append(path)
             progress.advance()
-        collection.create_group("OME").attrs.update(series_attrs(series))
+        collection.create_group("OME").attrs.update(series_attrs(series, version=OME_VERSION))
     written = time.monotonic() - started
     started = time.monotonic()
     snapshot = commit(session, f"OpenCell: {len(fovs)} fields of view on {len(plates)} plates, "

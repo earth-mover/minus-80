@@ -5,7 +5,7 @@ touches pixels. The functions return the JSON a reader needs to see those arrays
 as an image: which axes they have, what a pixel measures, and which array is
 which resolution level.
 
-0.5 is the default. 0.6 moves the axes inside a named ``coordinateSystems``
+0.6 is the default. 0.6 moves the axes inside a named ``coordinateSystems``
 entry and gives every transform an ``input`` and ``output``. Only the metadata
 differs between the two, so one store can carry both on separate branches over
 the same chunk references.
@@ -45,7 +45,7 @@ VERSIONS = {"0.5": "0.5", "0.6": "0.6"}
 #: (https://ngff.openmicroscopy.org/0.6/schemas/_version.schema).
 _PUBLISHED_VERSIONS = {"0.5": {"0.5"}, "0.6": {"0.6", "0.6rc0"}}
 
-DEFAULT_VERSION = "0.5"
+DEFAULT_VERSION = "0.6"
 
 #: The coordinate system 0.6 maps every resolution level onto. The name is
 #: arbitrary; "intrinsic" is what the spec's own example uses.
