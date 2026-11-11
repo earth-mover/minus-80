@@ -2,6 +2,7 @@ import io
 import subprocess
 import sys
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -80,7 +81,7 @@ def test_progress_names_the_file_then_counts(url, monkeypatch):
 def test_sparse_local_writes_only_the_regions(url, tmp_path, range_server):
     regions = [(6000, 7000), (100, 200)]
     path = sparse_local(url, regions, str(tmp_path))
-    local = open(path, "rb").read()
+    local = Path(path).read_bytes()
     assert len(local) == len(DATA)
     expected = bytearray(len(DATA))
     for a, b in regions:
@@ -105,5 +106,5 @@ def test_cache_dir_follows_the_environment(monkeypatch, tmp_path):
 
 def test_download_sends_one_request_per_block(url, tmp_path, range_server):
     path = fetch.download_then_index(url, str(tmp_path), block=4096, concurrency=2)
-    assert open(path, "rb").read() == DATA
+    assert Path(path).read_bytes() == DATA
     assert sorted(range_server.gets()) == ["bytes=0-4095", "bytes=4096-8191", "bytes=8192-11999"]

@@ -4,6 +4,8 @@ paths that share no code.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 MARKERS = ["DNA", "Pan Keratin", "CD8a", "SMA", "CD31"]
@@ -88,7 +90,7 @@ def test_byte_range_matches_pydicom(tmp_path):
 
     paths, expected = write_multiplex_series(tmp_path / "dcm", MARKERS[:1], shape=(24, 32))
     off, length = native_pixeldata_byte_range(paths[0], 24 * 32 * 2)
-    raw = open(paths[0], "rb").read()[off : off + length]
+    raw = Path(paths[0]).read_bytes()[off : off + length]
     from_bytes = np.frombuffer(raw, dtype="<u2").reshape(24, 32)
     np.testing.assert_array_equal(from_bytes, pydicom.dcmread(paths[0]).pixel_array)
     np.testing.assert_array_equal(from_bytes, expected[0])
