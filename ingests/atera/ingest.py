@@ -213,33 +213,43 @@ def write_transcripts(
     zf = bundle.member_zip(TRANSCRIPTS)
     grid = json.loads(zf.read("grid/.zattrs"))
     counts = dict(zip(grid["grid_keys"], grid["grid_number_objects"], strict=True))
-    plan = tile_order(grid) if tiles is None else tile_order(
-        {"grid_keys": list(tiles), "grid_number_objects": [counts[t] for t in tiles]}
-    )
+    if unknown := [t for t in tiles or () if t not in counts]:
+        raise ValueError(f"the source has no tile {', '.join(unknown)}")
+    keys = list(counts if tiles is None else tiles)
+    plan = tile_order({"grid_keys": keys, "grid_number_objects": [counts[t] for t in keys]})
     total = sum(member_bytes(zf, f"grid/{t}/") for t, _ in plan) + member_bytes(zf, "codeword_category/")
     with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _), \
             contextlib.ExitStack() as stack:
         directory = scratch or Path(stack.enter_context(tempfile.TemporaryDirectory()))
         codewords, field_ids = codeword_table(zf), tables.field_ids("transcripts")
         held = {} if replace else tables.partitions("transcripts")
-        all_rows, done, started = sum(counts[t] for t, _ in plan), 0, time.monotonic()
+        if outside := sorted(set(held) - set(keys)):
+            raise ValueError(f"the table holds tiles outside the plan: {', '.join(outside)}")
+        held_ranges = {} if replace or not held else tables.partition_ranges("transcripts", "instance")
+        all_rows, done, written, started = sum(counts[t] for t, _ in plan), 0, 0, time.monotonic()
         replacing = replace
         for index, (tile, first_instance) in enumerate(plan):
             rows = counts[tile]
             if tile in held and held[tile] != rows:
                 raise ValueError(f"tile {tile}: the table holds {held[tile]} rows, the source has {rows}")
+            if tile in held and held_ranges[tile] != (first_instance, first_instance + rows - 1):
+                raise ValueError(f"tile {tile}: the table holds instances {held_ranges[tile][0]}..{held_ranges[tile][1]}, "
+                                 f"expected {first_instance}..{first_instance + rows - 1}")
             if tile in held or rows == 0:
                 print(f"tile {tile}: {'in the table already' if rows else 'no rows'}, skipped", flush=True)
                 done += rows
                 continue
             path = directory / f"tile-{index}.parquet"
-            write_tile(zf, tile, codewords, path, first_instance=first_instance, field_ids=field_ids)
-            tables.write_parts("transcripts", [path], replace=replacing)
+            try:
+                write_tile(zf, tile, codewords, path, first_instance=first_instance, field_ids=field_ids)
+                tables.write_parts("transcripts", [path], replace=replacing)
+            finally:
+                path.unlink(missing_ok=True)
             replacing = False
-            path.unlink()
             done += rows
+            written += rows
             print(f"tile {tile}: {rows:,} rows, {done:,} of {all_rows:,}, "
-                  f"{done / (time.monotonic() - started):,.0f} rows/s", flush=True)
+                  f"{written / (time.monotonic() - started):,.0f} rows/s", flush=True)
         ref = tables.ref("transcripts", partition_order=[t for t, _ in plan if counts[t]])
         attr = table_attr(tables, "transcripts", ref)
         group = root.require_group("points").create_group("transcripts", overwrite=replace)

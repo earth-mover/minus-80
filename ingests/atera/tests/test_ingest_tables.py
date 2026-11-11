@@ -210,3 +210,77 @@ def test_a_given_tile_list_counts_instances_from_zero_and_leaves_no_scratch_file
     table = tables.catalog.load_table("ns.transcripts").scan().to_arrow()
     assert table["instance"].to_pylist() == [0] and table["grid_tile"].to_pylist() == ["-1,0"]
     assert list(scratch.iterdir()) == []
+
+
+def _hold(tables, bundle, tmp_path, tile, *, first_instance, name=None, rows=None):
+    """Register a real tile file in the table, optionally under another partition value or cut to ``rows``."""
+    from minus80.core.tables import write_parquet
+    from transcripts import codeword_table, tile_table
+
+    table = tile_table(bundle.zf, tile, codeword_table(bundle.zf), first_instance=first_instance)
+    if rows is not None:
+        table = table.slice(0, rows)
+    if name is not None:
+        table = table.set_column(1, table.schema.field("grid_tile"), pa.repeat(name, len(table)))
+    path = tmp_path / "held.parquet"
+    write_parquet(table, str(path), index_column="instance", field_ids=tables.field_ids("transcripts"))
+    tables.write_parts("transcripts", [path])
+
+
+def test_a_held_tile_written_from_another_origin_is_refused(tmp_path):
+    from ingest import write_transcripts
+
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=10)
+    # The manifest bounds of `instance` come from the Parquet statistics.
+    assert tables.partition_ranges("transcripts", "instance") == {"0,0": (10, 14)}
+    with pytest.raises(ValueError, match=r"tile 0,0: .*10\.\.14.*0\.\.4"):
+        write_transcripts(writer, bundle, tables)
+    assert len(tables.catalog.load_table("ns.transcripts").metadata.snapshots) == 1
+
+
+def test_a_table_partition_outside_the_plan_is_refused_before_any_tile_is_written(tmp_path):
+    from ingest import write_transcripts
+
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0, name="9,9")
+    with pytest.raises(ValueError, match="9,9"):
+        write_transcripts(writer, bundle, tables)
+    assert len(tables.catalog.load_table("ns.transcripts").metadata.snapshots) == 1
+
+
+def test_a_failed_tile_leaves_no_scratch_file(tmp_path, monkeypatch):
+    import ingest
+
+    def writes_a_part_then_fails(zf, tile, codewords, path, **kwargs):
+        path.write_bytes(b"part")
+        raise RuntimeError("stop")
+
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(ingest, "write_tile", writes_a_part_then_fails)
+    with pytest.raises(RuntimeError, match="stop"):
+        ingest.write_transcripts(writer, bundle, tables, scratch=scratch)
+    assert list(scratch.iterdir()) == []
+
+
+def test_a_tile_that_the_source_lacks_is_refused(tmp_path):
+    from ingest import write_transcripts
+
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    with pytest.raises(ValueError, match="7,7"):
+        write_transcripts(writer, bundle, tables, tiles=["7,7"])
+
+
+def test_the_rate_counts_written_rows_only(tmp_path, monkeypatch, capsys):
+    import ingest
+    from types import SimpleNamespace
+
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0)
+    ticks = iter([0.0] + [0.5] * 10)
+    monkeypatch.setattr(ingest, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+    ingest.write_transcripts(writer, bundle, tables)
+    # One row written in 0.5 s; the five held rows are in the total only.
+    assert "tile -1,0: 1 rows, 6 of 6, 2 rows/s" in capsys.readouterr().out

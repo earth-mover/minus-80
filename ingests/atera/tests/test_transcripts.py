@@ -104,7 +104,7 @@ class _ReadLog(zipfile.ZipFile):
         return super().read(name, *args, **kwargs)
 
 
-@pytest.mark.parametrize("rows", [1, 2, 5, 100])
+@pytest.mark.parametrize("rows", [2, 3, 5, 100])
 def test_slices_equal_the_whole_tile(zf, codewords, rows):
     pieces = list(tile_slices(zf, "0,0", codewords, first_instance=7, rows=rows))
     step = max(2, rows // 2 * 2)  # a slice holds whole 2-row chunks
@@ -204,3 +204,19 @@ def test_write_tile_of_a_tile_with_no_rows_writes_no_row(tmp_path, tables, codew
     path = tmp_path / "empty.parquet"
     assert write_tile(empty, "0,0", codewords, path, first_instance=0, field_ids=tables.field_ids("transcripts")) == 0
     assert pq.read_table(path).num_rows == 0
+
+
+def test_a_slice_bound_below_the_chunk_rows_is_refused(tmp_path, codewords):
+    rng = np.random.default_rng(0)
+    # The columns' chunk rows are 2 and 3, so a slice is a multiple of 6 rows.
+    store = zip_v2_store(tmp_path, "uneven", {
+        "grid/0,0/location": (rng.random((13, 3), dtype=np.float32), {"chunks": (2, 3)}),
+        "grid/0,0/codeword_identity": (rng.integers(0, 2, (13, 1)).astype("<u4"), {"chunks": (3, 1)}),
+        "grid/0,0/cell_id": (rng.integers(0, 9, (13, 2)).astype("<u4"), {"chunks": (2, 2)}),
+        "grid/0,0/quality_score": (rng.random((13, 1)).astype("<f2"), {"chunks": (2, 1)}),
+        "grid/0,0/overlaps_nucleus": (rng.integers(0, 2, (13, 1)).astype("u1"), {"chunks": (2, 1)}),
+    })
+    pieces = list(tile_slices(store, "0,0", codewords, first_instance=0, rows=7))
+    assert [len(p) for p in pieces] == [6, 6, 1]
+    with pytest.raises(ValueError, match=r"chunk rows 6"):
+        list(tile_slices(store, "0,0", codewords, first_instance=0, rows=5))

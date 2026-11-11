@@ -97,7 +97,8 @@ def tile_slices(
 ) -> Iterator[pa.Table]:
     """The transcripts of ``grid/<tile>`` in tables of at most ``rows`` rows, numbered from ``first_instance``.
 
-    Each slice reads only the source chunks that its rows touch. A slice holds whole chunks, so none decodes twice.
+    Each slice reads only the source chunks that its rows touch. A slice holds whole chunks, so none decodes twice;
+    chunks above ``rows`` rows raise ``ValueError``.
     """
     members = set(zf.namelist())
     total = json.loads(zf.read(f"grid/{tile}/location/.zarray"))["shape"][0]
@@ -106,7 +107,9 @@ def tile_slices(
     chunk_rows = math.lcm(*(
         json.loads(zf.read(f"grid/{tile}/{name}/.zarray"))["chunks"][0] for name in _COLUMN_ARRAYS
     ))
-    step = max(chunk_rows, rows // chunk_rows * chunk_rows)
+    if chunk_rows > rows:
+        raise ValueError(f"tile {tile}: chunk rows {chunk_rows} are above the slice bound {rows}")
+    step = rows // chunk_rows * chunk_rows
     for start in range(0, total, step):
         stop = min(start + step, total)
 

@@ -591,6 +591,33 @@ def test_ref_holds_every_file_of_the_current_snapshot_in_the_order_given(tmp_pat
     assert writer.ref("t", partition_order=["a", "b"]).files == [a, b]
 
 
+def test_partition_ranges_give_the_min_and_max_of_a_column_in_each_partition(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 4, 1, 2)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 7)])
+    assert writer.partition_ranges("t", "instance") == {"a": (1, 4), "b": (7, 7)}
+
+
+def test_partition_ranges_refuse_a_file_without_bounds(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    table = pa.table({"instance": pa.array([1, 2], pa.int64()), "grid_tile": ["a", "a"]}, schema=WRITER_SCHEMA)
+    ids = writer.field_ids("t")
+    schema = pa.schema([f.with_metadata({b"PARQUET:field_id": str(ids[f.name]).encode()}) for f in WRITER_SCHEMA])
+    path = tmp_path / "a.parquet"
+    pq.write_table(table.cast(schema), path, write_statistics=["grid_tile"])
+    writer.write_parts("t", [path])
+    with pytest.raises(ValueError, match="instance"):
+        writer.partition_ranges("t", "instance")
+
+
+def test_partitions_after_a_replace_leave_out_the_replaced_files(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)], replace=True)
+    assert writer.partitions("t") == {"b": 1}
+    assert writer.partition_ranges("t", "instance") == {"b": (2, 2)}
+
+
 def test_ref_refuses_a_partition_value_outside_the_order(tmp_path):
     writer = _tiled_writer(tmp_path)
     writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0)])

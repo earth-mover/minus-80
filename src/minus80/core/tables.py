@@ -457,10 +457,29 @@ class TableWriter:
             counts[value] = counts.get(value, 0) + file.record_count
         return counts
 
+    def partition_ranges(self, name: str, column: str) -> dict:
+        """The (min, max) of ``column`` in each partition value of the current snapshot, from the manifests.
+
+        A data file with no bounds for ``column`` raises ``ValueError``.
+        """
+        from pyiceberg.conversions import from_bytes
+
+        table, held = self._partition_files(name)
+        field = table.schema().find_field(column)
+        ranges: dict = {}
+        for value, file in held:
+            lower, upper = (b.get(field.field_id) for b in (file.lower_bounds or {}, file.upper_bounds or {}))
+            if lower is None or upper is None:
+                raise ValueError(f"{file.file_path} has no bounds for column {column}")
+            lo, hi = from_bytes(field.field_type, lower), from_bytes(field.field_type, upper)
+            old = ranges.get(value, (lo, hi))
+            ranges[value] = (min(old[0], lo), max(old[1], hi))
+        return ranges
+
     def ref(self, name: str, *, partition_order: Sequence | None = None) -> TableRef:
         """The current snapshot of ``name`` with all its files, ordered by ``partition_order`` when given.
 
-        A file whose partition value is not in ``partition_order`` raises ``ValueError``.
+        Files of one partition value stay in manifest order. A value not in ``partition_order`` raises ``ValueError``.
         """
         table, held = self._partition_files(name)
         if table.current_snapshot() is None:
