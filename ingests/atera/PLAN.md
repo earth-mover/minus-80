@@ -247,7 +247,7 @@ Transcripts, one row per decoded transcript, from the source tile arrays:
 | `overlaps_nucleus` | bool | `overlaps_nucleus` |
 | `bbox` | struct of four float64 | the point itself, for file pruning |
 
-Every `uint32` source column is `int64` in both tables. Iceberg has no unsigned type, and pyiceberg maps `uint32` to the signed `int`, which 10x's sentinel 4294967295 overflows.
+Every `uint32` source column is `int64` in both tables. Iceberg has no unsigned type. pyiceberg maps `uint32` to the signed `int`. 10x's sentinel 4294967295 overflows that type.
 
 Polygons, one row per cell or nucleus, from `polygon_sets/<i>`:
 

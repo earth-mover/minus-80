@@ -39,10 +39,17 @@ DESCRIPTION = (
 )
 
 READING = {
-    "spatialdata": "spatialdata.read_zarr opens images, labels and tables. It does not read the uint8 Parquet arrays.",
-    "shim": "icechunk_spatialdata.parquet_in_store() lets spatialdata.read_zarr read points and shapes from the uint8 arrays.",
-    "rectilinear_chunks": "The uint8 arrays have a rectilinear chunk grid. Set zarr.config array.rectilinear_chunks to True before you open them.",
-    "iceberg": "Each points and shapes group has an iceberg_table attribute. It gives the catalog, table, table_uuid and snapshot_id.",
+    "spatialdata": "Released spatialdata 0.8.0 cannot open an Icechunk store.",
+    "shim": (
+        "The spatialdata PR #1107 branch with the virtual_omics patch series opens every element. "
+        "It needs icechunk_spatialdata.parquet_in_store() for points and shapes."
+    ),
+    "virtual_chunks": (
+        "The uint8 arrays reference the Parquet files in the tables' bucket. "
+        "Open the repo with authorize_virtual_chunk_access for that virtual chunk container."
+    ),
+    "rectilinear_chunks": "The uint8 arrays have a rectilinear chunk grid. Set zarr.config array.rectilinear_chunks to True.",
+    "zax": "zax reads points and shapes from the Iceberg table that each group's iceberg_table attribute gives.",
 }
 
 

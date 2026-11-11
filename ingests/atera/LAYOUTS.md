@@ -122,9 +122,8 @@ The output axes of `global` carry the unit `micrometer`. The input axes carry `u
 ### What the fixture showed
 
 - **Mask order.** `masks/0` is the nucleus mask and `masks/1` the cell mask, as `polygon_set_names` orders them.
-  At 50 sampled nucleus centroids, the `masks/0` label areas equal `cell_summary.nucleus_area` with a median
-  relative error of 0.000, and the `masks/1` label areas equal `cell_area` with 0.000. The crossed pairs
-  differ by 0.502 and 1.009.
+  The gate sampled 50 nucleus centroids. `masks/0` label areas match `cell_summary.nucleus_area` with a median
+  relative error of 0.000. `masks/1` label areas match `cell_area` with 0.000. The crossed pairs differ by 0.502 and 1.009.
 - **Instance key.** The mask label at a cell's centroid is the `cell_summary` row position plus one, on 50
   of 50 sampled rows. `obs` rows follow the same order.
 - **`obs.cell_id`.** It packs the cells store's `cell_id` pair as `prefix + suffix * 2**32`. Row 0 holds
@@ -163,7 +162,8 @@ from a laptop. The table read 1,168.1 MiB for 1,030.2 MiB of members: the reader
 
 ### The verification
 
-`verify.py` on the fixture branch read 307.7 MiB of the bundle in 994.8 s. It exits 1, on `polygons` only.
+`verify.py` on the fixture branch read 307.7 MiB of the bundle in 994.8 s.
+The `polygons` gate fails only when the metrics CSV states a count that differs.
 
 | Gate | Result | What it measured |
 |---|---|---|
@@ -173,7 +173,7 @@ from a laptop. The table read 1,168.1 MiB for 1,030.2 MiB of members: the reader
 | `tables` | PASS | `transcripts` 2,633,912 rows; `nucleus_boundaries` 398,197 rows; both equal the source arrays. |
 | `masks` | PASS | See "What the fixture showed". |
 | `instances` | PASS | 50 rows: the cell mask at the centroid is row + 1, `obs.instance` is row + 1, and `obs.cell_id` decodes to the cells store's pair. |
-| `polygons` | FAIL | 1,180 invalid nucleus polygons. The metrics CSV value is empty, which the gate counts as 0. |
+| `polygons` | FINDING | 1,180 invalid nucleus polygons. The metrics CSV value is empty, so the gate has no count to compare. |
 | `copies` | PASS | Each `uint8` copy's bytes equal its registered Parquet file. |
 | `attrs` | PASS | Each `iceberg_table` attribute's `table_uuid` and `snapshot_id` equal the catalog's. |
 
@@ -191,8 +191,8 @@ In the virtual_omics `spatial` environment, on 2026-11-10. The repo opens with
 | PR #1107 with the four patches | `parquet_in_store()` | `icechunk.InvalidInputError`: the `uint8` copies' chunks resolve to the warehouse's `file://` prefix, and the repo was opened without authorizing that container. |
 | PR #1107 with the four patches | `parquet_in_store()`, container authorized | Opens all six elements in `global`. Images `morphology (4, 517, 885)` at scale 13.62 and 13.60; labels `(33139, 56644)` at 0.21249222; points `transcripts` 2,633,912 rows, 3D; shapes `nucleus_boundaries` 398,197 rows, index `instance`, first geometry a valid Polygon; table `(399120, 24674)` with region `cell_labels`, region key `region`, instance key `instance`. |
 
-The shim reads the rectilinear `uint8` copies with `array.rectilinear_chunks` set. Two attributes
-were missing on the first run, and SpatialData showed both. A space axis without a `unit` raised
-`ValueError: Each axis is either of type channel either MUST have a unit.` So every space axis now
-has one. A table without `uns/spatialdata_attrs` opened with no region and no instance key.
-So the ingest now writes `uns`.
+The shim reads the rectilinear `uint8` copies with `array.rectilinear_chunks` set.
+SpatialData requires a `unit` on every space axis. Without one, it raises
+`ValueError: Each axis is either of type channel either MUST have a unit.`
+SpatialData reads the table keys from `uns/spatialdata_attrs`, so the ingest writes them there.
+Without them, the table opens with no region and no instance key.

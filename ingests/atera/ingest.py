@@ -1,4 +1,4 @@
-"""Write an Atera sample into a local Icechunk repo and a local Iceberg catalog.
+"""Write an Atera sample into an Icechunk repo and an Iceberg catalog, local or on Arraylake.
 
 ``--fixture`` writes the fixture of PLAN.md, "Steps, scope and risk", step 1, onto
 its own branch, one commit per element. The bundle is read in place by range requests.
@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,10 +19,10 @@ import numpy as np
 import pandas as pd
 import zarr
 from anndata.io import write_elem
-from minus80.core.icechunk_io import commit, create_repo
+from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, create_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import channel_names, create_level, write_page
-from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, write_parquet
+from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, require_table, write_parquet
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
 from minus80.ome import channel_omero, image_attrs, label_attrs
 from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, table_attrs
@@ -184,27 +186,43 @@ def local_catalog(directory: Path) -> SqlCatalog:
     return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=directory.as_uri())
 
 
-class Tables:
-    """A local Iceberg catalog whose warehouse holds the Parquet files the repo references."""
+def write_local(io, url: str, table, *, geo) -> None:
+    """Write ``table`` at the ``file://`` URL ``url``."""
+    path = Path(url.removeprefix("file://"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_parquet(table, str(path), index_column="instance", geo=geo)
 
-    def __init__(self, directory: Path, namespace: str):
-        directory.mkdir(parents=True, exist_ok=True)
-        self.warehouse, self.namespace = directory.resolve(), namespace
-        self.catalog = local_catalog(directory)
+
+def write_through_io(io, url: str, table, *, geo) -> None:
+    """Write ``table`` to a temporary file, then copy it to ``url`` through the table's FileIO."""
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "part.parquet"
+        write_parquet(table, str(path), index_column="instance", geo=geo)
+        with path.open("rb") as source, io.new_output(url).create(overwrite=True) as target:
+            shutil.copyfileobj(source, target, 16 * MIB)
+
+
+class Tables:
+    """One Iceberg namespace. Each table's Parquet file goes under the table's own location."""
+
+    def __init__(self, catalog, namespace: str, *, kind: str, org: str, write_file):
+        self.catalog, self.namespace = catalog, namespace
+        self.kind, self.org, self.write_file = kind, org, write_file
         if (namespace,) not in self.catalog.list_namespaces():
             self.catalog.create_namespace(namespace)
 
     def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None):
-        data = self.warehouse / self.namespace / name / "data"
-        data.mkdir(parents=True, exist_ok=True)
-        path = data / f"{name}-0.parquet"
-        write_parquet(table, str(path), index_column="instance", geo=geo)
-        ref = register_files(self.catalog, f"{self.namespace}.{name}", [path.as_uri()], schema=schema,
-                             properties=properties, partition_by=partition_by)
-        attr = iceberg_table_attr(ref, org="local", namespace=self.namespace, table=name, index_column="instance",
-                                  geometry_column="geometry" if geo else None)
-        # The local catalog stands in for Arraylake's in a fixture, so the attribute names it.
-        return ref, {**attr, "catalog": "local"}
+        identifier = f"{self.namespace}.{name}"
+        # The table exists first, so its catalog-given location holds the file that add_files registers.
+        iceberg = require_table(self.catalog, identifier, schema=schema, properties=properties,
+                                partition_by=partition_by)
+        url = f"{iceberg.location()}/data/{name}-0.parquet"
+        self.write_file(iceberg.io, url, table, geo=geo)
+        ref = register_files(self.catalog, identifier, [url], schema=schema, properties=properties,
+                             partition_by=partition_by)
+        attr = iceberg_table_attr(ref, catalog=self.kind, org=self.org, namespace=self.namespace, table=name,
+                                  index_column="instance", geometry_column="geometry" if geo else None)
+        return ref, attr
 
 
 def write_nucleus_boundaries(writer, bundle, tables: Tables, properties: dict) -> None:
@@ -258,14 +276,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", action="store_true", required=True)
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
-    parser.add_argument("--repo", required=True, help="a new local directory")
-    parser.add_argument("--catalog", required=True, help="a local directory for the catalog and its warehouse")
+    parser.add_argument("--repo", required=True, help="a new local directory, or arraylake://<org>/<repo>")
+    parser.add_argument("--catalog", required=True,
+                        help="a local directory for the catalog and its warehouse, or arraylake:<org>")
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--branch", default="fixture")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     args = parser.parse_args()
-    if "arraylake" in (args.repo + args.catalog):
-        raise SystemExit("Arraylake targets are not implemented; pass local directories.")
+    on_arraylake = args.catalog.startswith("arraylake:")
+    if on_arraylake != args.repo.startswith(ARRAYLAKE):
+        raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")
 
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
@@ -275,9 +295,22 @@ def main() -> None:
     experiment = bundle.experiment()
     pixel_size = experiment["pixel_size"]
 
-    tables = Tables(Path(args.catalog), args.namespace)
-    repo = create_repo(args.repo, [], prefixes=[f"{tables.warehouse.as_uri()}/"])
-    repo.create_branch(args.branch, repo.lookup_branch("main"))
+    if on_arraylake:
+        from arraylake import Client
+
+        org = args.catalog.removeprefix("arraylake:")
+        tables = Tables(Client().get_iceberg(org), args.namespace, kind="arraylake", org=org,
+                        write_file=write_through_io)
+        # The repo must exist, with a virtual chunk container over the tables' bucket.
+        repo = arraylake_repository(args.repo)
+    else:
+        directory = Path(args.catalog)
+        directory.mkdir(parents=True, exist_ok=True)
+        tables = Tables(local_catalog(directory), args.namespace, kind="local", org="local",
+                        write_file=write_local)
+        repo = create_repo(args.repo, [], prefixes=[f"{directory.resolve().as_uri()}/"])
+    if args.branch not in repo.list_branches():
+        repo.create_branch(args.branch, repo.lookup_branch("main"))
     writer = Writer(repo, args.branch, counter)
     properties = table_properties(sample, layouts, sample.repo)
 

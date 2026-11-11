@@ -60,6 +60,9 @@ def test_root_attrs_splits_experiment_and_names_the_fixture():
                             "instrument_sw_version": "1.0.0.79"}
     assert attrs["metrics"] == {"m": 1}
     assert attrs["fixture"] == "one tile"
+    assert "0.8.0 cannot open" in attrs["reading"]["spatialdata"]
+    assert "authorize_virtual_chunk_access" in attrs["reading"]["virtual_chunks"]
+    assert "iceberg_table" in attrs["reading"]["zax"]
     assert len(attrs["source"]) == 5
     assert attrs["documentation"] == {
         "dataset_page": KIDNEY.page,

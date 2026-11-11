@@ -68,6 +68,8 @@ def gate_labels(root, cells) -> list[str]:
     for name, mask in MASKS.items():
         members = chunk_members(cells, mask)
         path = f"labels/{name}/s0"
+        if not members:
+            errors.append(f"{mask} has no chunk members")
         # icechunk lists only from a node path, so list the array and keep its chunk keys.
         stored = sum(k.startswith(f"{path}/c/") for k in sync(_list(root.store, path)))
         if stored != len(members):
@@ -194,9 +196,13 @@ def gate_polygons(root, catalog) -> list[str]:
     attr = element_tables(root)["shapes/nucleus_boundaries"]
     geometry = load(catalog, attr).scan(selected_fields=("geometry",)).to_arrow()["geometry"]
     invalid = int((~shapely.is_valid(shapely.from_wkb(geometry.to_numpy(zero_copy_only=False)))).sum())
-    stated = root.attrs["metrics"]["number_of_nucleus_non_simple_polygons"] or 0
-    print(f"  polygons: {invalid:,} of {len(geometry):,} nucleus polygons are not valid; the metrics CSV states {stated}")
-    return [] if invalid == stated else [f"{invalid} invalid nucleus polygons, metrics state {stated}"]
+    stated = root.attrs["metrics"]["number_of_nucleus_non_simple_polygons"]
+    print(f"  polygons: {invalid:,} of {len(geometry):,} nucleus polygons are not valid")
+    if stated is None:
+        # 10x leaves the metric empty, so there is nothing to disagree with.
+        print(f"  polygons: FINDING {invalid:,} invalid nucleus polygons; the metrics CSV states no count")
+        return []
+    return [] if invalid == stated else [f"{invalid} invalid nucleus polygons, the metrics CSV states {stated}"]
 
 
 def _sha(data: bytes) -> str:
@@ -217,8 +223,10 @@ def gate_copies(root, catalog) -> list[str]:
 
 
 def gate_attrs(root, catalog) -> list[str]:
-    errors = []
-    for path, attr in element_tables(root).items():
+    attrs = element_tables(root)
+    print(f"  attrs: {len(attrs)} iceberg_table attributes")
+    errors = [] if attrs else ["no element has an iceberg_table attribute"]
+    for path, attr in attrs.items():
         table = load(catalog, attr)
         found = (str(table.metadata.table_uuid), table.current_snapshot().snapshot_id)
         if found != (attr["table_uuid"], attr["snapshot_id"]):
