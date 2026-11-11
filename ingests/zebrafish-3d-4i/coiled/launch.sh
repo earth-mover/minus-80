@@ -27,7 +27,7 @@ NAME="zebrafish-$(echo "$WELLS" | tr -c 'A-Za-z0-9\n' '-' | cut -c1-24)-$(date -
 
 STAGE=$(mktemp -d)
 (cd "$ROOT" && uv build --wheel -q --out-dir "$STAGE")
-cp "$ROOT/ingests/zebrafish-3d-4i/ingest.py" "$HERE/run.sh" "$STAGE/"
+cp "$ROOT"/ingests/zebrafish-3d-4i/{ingest.py,pipeline.py} "$HERE/run.sh" "$STAGE/"
 cp "$DIRECTORY_CACHE" "$STAGE/central-directory.parquet"
 echo "$SHA" > "$STAGE/COMMIT"
 echo "staged commit $SHA for $WELLS: $(ls "$STAGE" | tr '\n' ' ')"

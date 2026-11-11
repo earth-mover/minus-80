@@ -193,7 +193,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import queue
 import re
 import sys
@@ -203,18 +202,30 @@ from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
+from functools import partial
 from pathlib import Path
 
 import numpy as np
+from pipeline import (
+    THREAD_JOIN_TIMEOUT,
+    Budget,
+    Counters,
+    Timings,
+    WellSession,
+    documents_store,
+    next_item,
+    open_repository,
+    read_member_again,
+    say,
+    start_stage,
+)
 import pyarrow as pa
 import zarr
 from zarr.codecs import BloscCodec
-from zarr.core.buffer import default_buffer_prototype
-from zarr.storage import MemoryStore
 
-from minus80.core.fetch import cache_dir, read_range
-from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, storage_for
-from minus80.core.metered import Meter, MeteredStore
+from minus80.core.fetch import cache_dir
+from minus80.core.icechunk_io import commit
+from minus80.core.metered import Meter
 from minus80.core.progress import Heartbeat, Progress, StallWatch, peak_memory_gb
 from minus80.ome import (
     image_annotation,
@@ -240,7 +251,7 @@ from minus80.parsers.fractal.plate import (
     read_plate,
     read_table,
 )
-from minus80.parsers.zip.directory import inflate_member, member_stored_bytes
+from minus80.parsers.zip.directory import inflate_member
 from minus80.parsers.zip.reading import RANGE_BYTES, cached_central_directory, read_members, stream_members
 from minus80.parsers.zip.streaming import StoredMember, spans_in_file_order
 from minus80.parsers.zip.zarr_v2 import ArraySpec, ChunkKey, array_paths, chunk_key, decode_chunk, frame_problem
@@ -498,17 +509,6 @@ class ChannelRun:
         return sum(len(member.stored) for member in self.members)
 
 
-def documents_store(documents: Mapping[str, bytes], path: str = "") -> zarr.Group:
-    """A read-only zarr group over metadata documents held in memory, opened at ``path``.
-
-    Opening a group at its path reads only that group's own documents, so it
-    works before the documents of the groups above it have arrived.
-    """
-    prototype = default_buffer_prototype()
-    store = MemoryStore({name: prototype.buffer.from_bytes(data) for name, data in documents.items()})
-    return zarr.open_group(store, path=path, mode="r", zarr_format=2)
-
-
 class WellState:
     """What the stream has delivered for one well: its metadata documents, and what follows from them."""
 
@@ -640,13 +640,6 @@ class DecodedRun:
     buffers: dict[str, np.ndarray]
 
 
-def read_member_again(url: str, member: StoredMember, registry=None) -> bytes:
-    """The member's stored bytes, fetched again on their own, from its local header to the next member."""
-    entry = member.entry
-    span = read_range(url, entry["start"], entry["end"], patient=True, registry=registry)
-    return member_stored_bytes(span, entry["start"], entry)
-
-
 def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMember], bytes]) -> bytes:
     """A member's contents, fetching the member a second time if its bytes do not inflate or fail the CRC.
 
@@ -776,37 +769,6 @@ def decode_run(
     return DecodedRun(array, run.key[1], fields, buffers)
 
 
-class Budget:
-    """The bytes one stage of the copy may hold at once.
-
-    ``take`` waits while the bytes held would pass the limit, except that a
-    stage holding nothing may always take, so one item larger than the limit
-    still goes through. The seconds spent waiting add up in ``waited``: they
-    show how long a later stage held this one back.
-    """
-
-    def __init__(self, limit: int, stop: threading.Event) -> None:
-        self.limit, self.stop = limit, stop
-        self.held = 0
-        self.waited = 0.0
-        self._changed = threading.Condition()
-
-    def take(self, n: int) -> None:
-        with self._changed:
-            started = time.monotonic()
-            while self.held and self.held + n > self.limit:
-                if self.stop.is_set():
-                    raise RuntimeError("stopped")
-                self._changed.wait(1)
-            self.waited += time.monotonic() - started
-            self.held += n
-
-    def give(self, n: int) -> None:
-        with self._changed:
-            self.held -= n
-            self._changed.notify_all()
-
-
 @dataclass(frozen=True)
 class _Target:
     """Where one field of a channel run is written: the image group, the groups below it, and the array."""
@@ -821,29 +783,6 @@ class _Target:
     @property
     def path(self) -> str:
         return "/".join((self.image, *self.groups, self.name))
-
-
-class WellSession:
-    """The writable session a well is copied in, renewed at each checkpoint.
-
-    A commit leaves an Icechunk session read-only, so each checkpoint commits
-    and opens a new writable session on the branch. zarr writes through a
-    :class:`~minus80.core.metered.MeteredStore`, which adds every shard
-    written to ``meter``.
-    """
-
-    def __init__(self, repo, branch: str, meter: Meter) -> None:
-        self.repo, self.branch, self.meter = repo, branch, meter
-        self._open()
-
-    def _open(self) -> None:
-        self.session = self.repo.writable_session(self.branch)
-        store = MeteredStore(self.session.store, self.meter, name=f"icechunk://{self.branch}")
-        self.dest = zarr.open_group(store, mode="a", zarr_format=3)
-
-    def commit(self, message: str) -> None:
-        commit(self.session, message)
-        self._open()
 
 
 class WellWriter:
@@ -978,72 +917,6 @@ class WellWriter:
         )
 
 
-class Counters:
-    """What one well's copy has done so far, for the heartbeat line.
-
-    The threads of the copy update these as they work, and the heartbeat
-    reads them from its own thread.
-    """
-
-    def __init__(self, well: str) -> None:
-        self.well = well
-        #: The stage the well is in, named in the heartbeat line.
-        self.stage = "streaming"
-        self.started = time.monotonic()
-        #: Bytes of the well's region fetched and cut into members.
-        self.fetched = 0
-        self.decoding: Progress | None = None
-        self.uploaded = 0
-        #: Compressed bytes of the channel runs waiting for metadata.
-        self.waiting = 0
-        #: The copy's budgets, once it starts, for what each holds.
-        self.fetched_held: Budget | None = None
-        self.decoded_held: Budget | None = None
-        #: The shards written to the store: their stored bytes and time.
-        self.meter: Meter | None = None
-        self._lock = threading.Lock()
-        self._cpu = (time.monotonic(), sum(os.times()[:2]))
-
-    def uploaded_field(self) -> None:
-        with self._lock:
-            self.uploaded += 1
-
-    def _cores_busy(self) -> float:
-        """CPU seconds used per second since the last line: how many cores the copy kept busy."""
-        now, cpu = time.monotonic(), sum(os.times()[:2])
-        (then, before), self._cpu = self._cpu, (now, cpu)
-        return (cpu - before) / max(now - then, 1e-9)
-
-    def line(self) -> str:
-        elapsed = max(time.monotonic() - self.started, 1e-9)
-        decoded = self.decoding.done if self.decoding is not None else 0
-        held = stored = ""
-        if self.fetched_held is not None and self.decoded_held is not None:
-            held = (
-                f"; holding {self.fetched_held.held / 1e9:.1f} GB fetched and not yet decoded, "
-                f"{self.decoded_held.held / 1e9:.1f} GB being decoded or waiting to upload"
-            )
-        if (m := self.meter) is not None:
-            mean = m.seconds / m.writes if m.writes else 0.0
-            stored = (
-                f"; stored {m.bytes / 1e9:.2f} GB ({m.bytes / elapsed / 1e6:.0f} MB/s) in {m.writes:,} shard writes, "
-                f"{m.running} running, {mean:.1f} s each on average, slowest {m.slowest:.0f} s"
-            )
-        return (
-            f"well {self.well}, {self.stage}: fetched {self.fetched / 1e9:.2f} GB "
-            f"({self.fetched / elapsed / 1e6:.0f} MB/s), {decoded:,} chunks decoded, "
-            f"{self.uploaded:,} fields uploaded, "
-            f"{self.waiting / 1e9:.2f} GB waiting for metadata{held}{stored}; "
-            f"{self._cores_busy():.1f} cores busy, peak memory {peak_memory_gb():.1f} GB"
-        )
-
-    def signature(self) -> tuple:
-        """What changes while the copy moves, for :class:`~minus80.core.progress.StallWatch`."""
-        decoded = self.decoding.done if self.decoding is not None else 0
-        writes = self.meter.writes if self.meter is not None else 0
-        return (self.stage, self.fetched, decoded, self.uploaded, writes)
-
-
 def _fetch(
     url: str, plan: WellPlan, members: Sequence[Mapping], out: queue.Queue, fetched: Budget,
     stop: threading.Event, counters: Counters, **read,
@@ -1057,45 +930,33 @@ def _fetch(
     fetching holds those runs, the one it is assembling, the requests
     in flight and the cutter's buffer.
     """
-    try:
-        run, finished = None, set()
-        for member in stream_members(url, members, **read):
-            if stop.is_set():
-                return
-            counters.fetched += member.entry["end"] - member.entry["start"]
-            key = plan.chunks.get(member.name)
-            if key is None:
-                out.put(("document", member))
-                continue
-            run_key = plan.run_key(key)
-            if run is None or run.key != run_key:
-                if run is not None:
-                    fetched.take(run.stored_bytes())
-                    out.put(("run", run))
-                    finished.add(run.key)
-                if run_key in finished:
-                    raise ValueError(f"{run_key}: its chunks resume after another channel's began")
-                run = ChannelRun(run_key)
-            run.members.append(member)
-        if run is not None:
-            fetched.take(run.stored_bytes())
-            out.put(("run", run))
-        out.put(("end", None))
-    except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
-        out.put(("error", error))
-
-
-def _next(items: queue.Queue, stop: threading.Event):
-    while True:
-        try:
-            return items.get(timeout=1)
-        except queue.Empty:
-            if stop.is_set():
-                raise RuntimeError("stopped") from None
+    run, finished = None, set()
+    for member in stream_members(url, members, **read):
+        if stop.is_set():
+            return
+        counters.fetched += member.entry["end"] - member.entry["start"]
+        key = plan.chunks.get(member.name)
+        if key is None:
+            out.put(("document", member))
+            continue
+        run_key = plan.run_key(key)
+        if run is None or run.key != run_key:
+            if run is not None:
+                fetched.take(run.stored_bytes())
+                out.put(("run", run))
+                finished.add(run.key)
+            if run_key in finished:
+                raise ValueError(f"{run_key}: its chunks resume after another channel's began")
+            run = ChannelRun(run_key)
+        run.members.append(member)
+    if run is not None:
+        fetched.take(run.stored_bytes())
+        out.put(("run", run))
+    out.put(("end", None))
 
 
 def _decode(
-    jobs: queue.Queue, writes: queue.Queue, out: queue.Queue, stop: threading.Event,
+    jobs: queue.Queue, writes: queue.Queue, stop: threading.Event,
     state: WellState, pool: ThreadPoolExecutor, note: Progress, fetched: Budget, decoded: Budget,
     timings: Timings, read_again: Callable[[StoredMember], bytes],
 ) -> None:
@@ -1105,60 +966,23 @@ def _decode(
     thread waits while the runs not yet uploaded hold :data:`DECODED_LIMIT`.
     Once decoded, a run gives its compressed bytes back to ``fetched``.
     """
-    try:
-        while (job := _next(jobs, stop)) is not None:
-            run, prepared = job
-            decoded.take(prepared.decoded_bytes())
-            started = time.monotonic()
-            result = decode_run(run, prepared, state, pool, note, read_again)
-            timings.decode += time.monotonic() - started
-            fetched.give(run.stored_bytes())
-            writes.put(result)
-        writes.put(None)
-    except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
-        out.put(("error", error))
+    while (job := next_item(jobs, stop)) is not None:
+        run, prepared = job
+        decoded.take(prepared.decoded_bytes())
+        started = time.monotonic()
+        result = decode_run(run, prepared, state, pool, note, read_again)
+        timings.decode += time.monotonic() - started
+        fetched.give(run.stored_bytes())
+        writes.put(result)
+    writes.put(None)
 
 
 def _write(writes: queue.Queue, out: queue.Queue, stop: threading.Event, writer: WellWriter) -> None:
     """Start each decoded run's assignments on the writer's pool, then wait for all of them."""
-    try:
-        while (run := _next(writes, stop)) is not None:
-            writer.write(run)
-        writer.finish()
-        out.put(("written", None))
-    except BaseException as error:  # noqa: BLE001 - every failure must reach the waiting thread
-        out.put(("error", error))
-
-
-@dataclass
-class Timings:
-    """Seconds each stage of a well took, for the progress lines.
-
-    The stages run at once, so these do not add up to the well's time. The
-    ``held back`` figures say which stage set the pace: the fetch waits when
-    decoding falls behind, and decoding waits when uploads fall behind.
-    """
-
-    decode: float = 0.0
-    fetch_held_back: float = 0.0
-    decode_held_back: float = 0.0
-    checkpoints: int = 0
-    checkpoint_seconds: float = 0.0
-    commit: float = 0.0
-
-    def line(self, total: float) -> str:
-        return (
-            f"{total:.0f} s in all: decoding {self.decode:.0f} s; fetch held back by decoding "
-            f"{self.fetch_held_back:.0f} s, decoding held back by uploads {self.decode_held_back:.0f} s; "
-            f"{self.checkpoints} checkpoints, {self.checkpoint_seconds:.0f} s; final commit {self.commit:.0f} s"
-        )
-
-
-#: Seconds to wait for each of the copy's threads to stop once the copy has
-#: ended or failed. They are daemon threads, so one stuck in a request does
-#: not keep the process alive, and the copy's own error surfaces without
-#: waiting on it.
-THREAD_JOIN_TIMEOUT = 10.0
+    while (run := next_item(writes, stop)) is not None:
+        writer.write(run)
+    writer.finish()
+    out.put(("written", None))
 
 
 def copy_well(
@@ -1208,8 +1032,7 @@ def copy_well(
             f"fetch_ahead ({fetch_ahead / 1e9:.1f} GB) must exceed the waiting limit "
             f"({waiting_limit / 1e9:.1f} GB) by at least {LARGEST_RUN / 1e9:.1f} GB"
         )
-    def read_again(member: StoredMember) -> bytes:
-        return read_member_again(url, member, registry)
+    read_again = partial(read_member_again, url, registry=registry)
 
     out: queue.Queue = queue.Queue()
     jobs: queue.Queue = queue.Queue()
@@ -1234,19 +1057,16 @@ def copy_well(
             finished=finished, checkpoint_seconds=checkpoint_seconds, timings=timings,
         )
         threads = [
-            threading.Thread(
-                target=_fetch, args=(url, plan, members, out, fetched, stop, counters), name="fetch", daemon=True,
-                kwargs={"concurrency": concurrency, "range_bytes": range_bytes, "window": read_window,
-                        "registry": registry},
+            start_stage(
+                "fetch", out, _fetch, url, plan, members, out, fetched, stop, counters,
+                concurrency=concurrency, range_bytes=range_bytes, window=read_window, registry=registry,
             ),
-            threading.Thread(
-                target=_decode, name="decode-runs", daemon=True,
-                args=(jobs, writes, out, stop, state, pool, note, fetched, decoded, timings, read_again),
+            start_stage(
+                "decode-runs", out, _decode,
+                jobs, writes, stop, state, pool, note, fetched, decoded, timings, read_again,
             ),
-            threading.Thread(target=_write, args=(writes, out, stop, writer), name="write", daemon=True),
+            start_stage("write", out, _write, writes, out, stop, writer),
         ]
-        for thread in threads:
-            thread.start()
         try:
             while True:
                 try:
@@ -1536,20 +1356,6 @@ def write_plate(repo, branch: str, plate_metadata: Mapping, url: str) -> None:
     if dict(root.attrs) != document:
         root.attrs.update(document)
         commit(session, f"Plate metadata for {len(wells)} wells")
-
-
-def say(line: str) -> None:
-    """Print one progress line at once, with the time, so a remote run's log shows where it is."""
-    print(f"{time.strftime('%H:%M:%S')} {line}", flush=True)
-
-
-def open_repository(location: str):
-    """Open an Icechunk repo at a local path, creating it if needed, or open an Arraylake repo."""
-    import icechunk
-
-    if location.startswith(ARRAYLAKE):
-        return arraylake_repository(location)
-    return icechunk.Repository.open_or_create(storage_for(location))
 
 
 def create_plate_groups(repo, branch: str, wells: Sequence[str]) -> None:

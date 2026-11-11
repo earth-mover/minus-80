@@ -27,6 +27,7 @@ from pathlib import Path
 import ingest
 import numpy as np
 import zarr
+from pipeline import open_repository
 
 from minus80.ome.verify import run_gates, schema
 from minus80.parsers.fractal.plate import FIELDS_TABLE, TABLES
@@ -147,7 +148,7 @@ def main() -> None:
     args = parser.parse_args()
     started = time.monotonic()
     root = zarr.open_group(
-        ingest.open_repository(args.repo).readonly_session(args.branch).store, mode="r"
+        open_repository(args.repo).readonly_session(args.branch).store, mode="r"
     )
     directory, plate = open_source(args.source, args.directory_cache)
     source = held(directory)
