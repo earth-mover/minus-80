@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import zipfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -18,6 +19,7 @@ from polygons import BBOX
 #: Rows of a tile held in memory at once. A tile has up to tens of millions of rows.
 SLICE_ROWS = 4_000_000
 
+_COLUMN_ARRAYS = ("location", "codeword_identity", "cell_id", "quality_score", "overlaps_nucleus")
 _NIBBLE_LETTERS = pa.array([chr(ord("a") + i) for i in range(16)])
 
 CATEGORY_COLUMNS = (
@@ -95,14 +97,18 @@ def tile_slices(
 ) -> Iterator[pa.Table]:
     """The transcripts of ``grid/<tile>`` in tables of at most ``rows`` rows, numbered from ``first_instance``.
 
-    Each slice reads only the source chunks that its rows touch.
+    Each slice reads only the source chunks that its rows touch. A slice holds whole chunks, so none decodes twice.
     """
     members = set(zf.namelist())
     total = json.loads(zf.read(f"grid/{tile}/location/.zarray"))["shape"][0]
     # One dictionary for every slice, so the files and the table agree on the codes.
     features = codewords["feature_name"].combine_chunks().dictionary_encode()
-    for start in range(0, total, rows):
-        stop = min(start + rows, total)
+    chunk_rows = math.lcm(*(
+        json.loads(zf.read(f"grid/{tile}/{name}/.zarray"))["chunks"][0] for name in _COLUMN_ARRAYS
+    ))
+    step = max(chunk_rows, rows // chunk_rows * chunk_rows)
+    for start in range(0, total, step):
+        stop = min(start + step, total)
 
         def read(name):
             return read_rows(zf, f"grid/{tile}/{name}", start, stop, names=members)
@@ -168,7 +174,7 @@ def write_tile(
 def tile_order(grid_attrs: Mapping) -> list[tuple[str, int]]:
     """Each tile key with its first ``instance``, in the source's order: the rows of the tiles before it."""
     first, out = 0, []
-    for key, count in zip(grid_attrs["grid_keys"], grid_attrs["grid_number_objects"]):
+    for key, count in zip(grid_attrs["grid_keys"], grid_attrs["grid_number_objects"], strict=True):
         out.append((key, first))
         first += count
     return out

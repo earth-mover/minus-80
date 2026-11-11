@@ -107,8 +107,9 @@ class _ReadLog(zipfile.ZipFile):
 @pytest.mark.parametrize("rows", [1, 2, 5, 100])
 def test_slices_equal_the_whole_tile(zf, codewords, rows):
     pieces = list(tile_slices(zf, "0,0", codewords, first_instance=7, rows=rows))
-    assert all(len(p) <= rows for p in pieces)
-    assert len(pieces) == -(-5 // rows)
+    step = max(2, rows // 2 * 2)  # a slice holds whole 2-row chunks
+    assert all(len(p) <= step for p in pieces)
+    assert len(pieces) == -(-5 // step)
     sliced = pa.concat_tables(pieces)
     whole = tile_table(zf, "0,0", codewords, first_instance=7)
     assert sliced.equals(whole)
@@ -173,3 +174,33 @@ def test_cell_id_from_arrow_equals_the_numpy_form_on_a_random_sample():
 def test_tile_order_gives_running_first_instances():
     attrs = {"grid_keys": ["-1,0", "0,0", "0,1"], "grid_number_objects": [1, 5, 2]}
     assert tile_order(attrs) == [("-1,0", 0), ("0,0", 1), ("0,1", 6)]
+
+
+def test_tile_order_refuses_lists_of_unequal_length():
+    with pytest.raises(ValueError):
+        tile_order({"grid_keys": ["0,0", "0,1"], "grid_number_objects": [1]})
+
+
+def test_slices_hold_whole_source_chunks_and_decode_each_chunk_once(zf, codewords):
+    log = _ReadLog(zf.filename)
+    pieces = list(tile_slices(log, "0,0", codewords, first_instance=0, rows=5))
+    assert [len(p) for p in pieces] == [4, 1]
+    chunks = [m for m in log.read_members if not m.endswith(".zarray")]
+    assert len(chunks) == len(set(chunks))
+
+
+def test_write_tile_of_a_tile_with_no_rows_writes_no_row(tmp_path, tables, codewords):
+    empty = zip_v2_store(
+        tmp_path,
+        "empty",
+        {
+            "grid/0,0/location": (np.zeros((0, 3), dtype="<f4"), {"chunks": (2, 3)}),
+            "grid/0,0/codeword_identity": (np.zeros((0, 1), dtype="<u4"), {"chunks": (2, 1)}),
+            "grid/0,0/cell_id": (np.zeros((0, 2), dtype="<u4"), {"chunks": (2, 2)}),
+            "grid/0,0/quality_score": (np.zeros((0, 1), dtype="<f2"), {"chunks": (2, 1)}),
+            "grid/0,0/overlaps_nucleus": (np.zeros((0, 1), dtype="u1"), {"chunks": (2, 1)}),
+        },
+    )
+    path = tmp_path / "empty.parquet"
+    assert write_tile(empty, "0,0", codewords, path, first_instance=0, field_ids=tables.field_ids("transcripts")) == 0
+    assert pq.read_table(path).num_rows == 0
