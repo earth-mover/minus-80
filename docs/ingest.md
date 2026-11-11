@@ -212,6 +212,14 @@ A reader fetches the whole snapshot on open, and Icechunk's snapshot cache
 holds 500,000 nodes by default, about 45 Cell Painting plates. Ingest one file
 from each new source to a branch and inspect it before writing to `main`.
 
+### Keep enough writes in flight
+
+A copy into an object store is often limited by its uploads, not its
+decoding. The S-BIAD3228 converter kept 10 to 26 shard writes in flight, and
+decoding waited on uploads for minutes in every well, while a separate test
+reached 522 MB/s to R2 with 128 writes in flight. Measure the store's
+throughput at several concurrencies before choosing one.
+
 ### Launch cloud workers from a clean environment
 
 Coiled copies your local environment, so a macOS wheel or an editable checkout

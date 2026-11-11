@@ -149,6 +149,23 @@ Coiled's container has a 64 MB `/dev/shm`, and `coiled batch run` cannot
 enlarge it. Writing downloads to the VM's root volume ran at 210 to 520 MB/s,
 well under the network's rate.
 
+### Check every member a copy reads
+
+Bytes can arrive damaged. Copying S-BIAD3228 from EBI, three zip members in
+30 wells failed their CRC-32 check on the first read and were good on the
+second. Check each member against the checksum the format records, read a
+failing one again, and name it when it fails twice. A damaged member that is
+not checked becomes wrong pixels or looks like a corrupt source.
+
+### Keep many ranges asked for ahead on a slow host
+
+Some hosts have slow spells that hold every request. On EBI's FTP server,
+single 64 MiB ranges took from 53 to 309 s, and the same range asked for a
+second time was just as slow. A second request does not escape such a spell;
+keeping many ranges asked for ahead of the parser does, for as long as the
+spell is shorter than the window. For S-BIAD3228, 64 ranges (4 GiB) covered
+about 30 s.
+
 ## Testing
 
 ### Test with a real file from the archive
