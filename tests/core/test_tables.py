@@ -1043,7 +1043,7 @@ def test_remove_partitions_without_a_match_commits_nothing(tmp_path):
 def test_write_without_replace_refuses_a_table_that_holds_a_file_of_other_content(tmp_path):
     writer = _writer(tmp_path)
     first = writer.write("t", _rows(1, 2))
-    with pytest.raises(ValueError, match=r"ns\.t holds 1 data file.*replace"):
+    with pytest.raises(ValueError, match=r"ns\.t holds 1 data file.*replace=True"):
         writer.write("t", _rows(3))
     table = writer.catalog.load_table("ns.t")
     assert len(table.metadata.snapshots) == 1

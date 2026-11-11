@@ -30,7 +30,7 @@ from minus80.core.progress import MIB
 from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, counting_reader, reader
 from minus80.core.pyramid import channel_names, create_level, physical_sizes, write_page, write_stack
-from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog, schema_changes
+from minus80.core.tables import HeldFilesError, TableWriter, declare_copy, iceberg_table_attr, local_catalog, schema_changes
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
 from minus80.ome import channel_omero, image_attrs, label_attrs, rgb_omero
 from minus80.ome.spatialdata import (
@@ -83,10 +83,11 @@ ELEMENTS = {
              "points/transcripts", ICEBERG_TABLES, *(f"images/qc_{n}" for n in QC_NAMES), "images/morphology",
              "images/morphology_3d", "images/he_image", "root"),
 }
-#: The tables ``--replace-tables`` can replace in place; the other tables of the full mode are new.
-REPLACEABLE = ("transcripts", "nucleus_boundaries")
+#: The tables ``--replace-tables`` can replace in place: each table the full mode writes.
+REPLACEABLE = (*FIXTURE_TABLES, *EXTRA_TABLES)
 #: The element whose step writes each replaceable table's rows.
-REPLACE_ELEMENTS = {"transcripts": "points/transcripts", "nucleus_boundaries": "shapes/nucleus_boundaries"}
+REPLACE_ELEMENTS = {"transcripts": "points/transcripts", "nucleus_boundaries": "shapes/nucleus_boundaries",
+                    "cell_boundaries": "shapes/cell_boundaries", **dict.fromkeys(EXTRA_TABLES, ICEBERG_TABLES)}
 #: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
 REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
 
@@ -416,16 +417,31 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     }
 
 
+def require_table_listing(tables: TableWriter, name: str, spec: dict, evolve: bool):
+    """Require table ``name``. With ``evolve`` it takes the columns of ``spec``, with a line that lists the change."""
+    identifier, changes = f"{tables.namespace}.{name}", ([], [])
+    if evolve and tables.catalog.table_exists(identifier):
+        changes = schema_changes(tables.catalog.load_table(identifier), spec["schema"])
+    table = tables.require(name, **spec, evolve=evolve)
+    if any(changes):
+        print(f"{name}: columns added: {', '.join(changes[0]) or 'none'}; "
+              f"columns deleted: {', '.join(changes[1]) or 'none'}", flush=True)
+    return table
+
+
 def require_tables(tables: TableWriter, specs: dict[str, dict], replace: set[str]) -> None:
-    """Require each of ``FIXTURE_TABLES``. A table in ``replace`` takes the columns of its spec, with a line that lists the change."""
+    """Require each of ``FIXTURE_TABLES``; a table in ``replace`` takes the columns of its spec."""
     for name in FIXTURE_TABLES:
-        identifier, changes = f"{tables.namespace}.{name}", ([], [])
-        if name in replace and tables.catalog.table_exists(identifier):
-            changes = schema_changes(tables.catalog.load_table(identifier), specs[name]["schema"])
-        tables.require(name, **specs[name], evolve=name in replace)
-        if any(changes):
-            print(f"{name}: columns added: {', '.join(changes[0]) or 'none'}; "
-                  f"columns deleted: {', '.join(changes[1]) or 'none'}", flush=True)
+        require_table_listing(tables, name, specs[name], name in replace)
+
+
+@contextlib.contextmanager
+def replace_hint(name: str):
+    """Add the flag that replaces the rows of table ``name`` to a refusal of a write that would mix rows."""
+    try:
+        yield
+    except HeldFilesError as e:
+        raise ValueError(f"{e}; use --replace-tables {name}") from None
 
 
 def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: int, *, replace=False) -> None:
@@ -436,14 +452,15 @@ def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: 
     with writer.unit(f"shapes/{name}", f"Write shapes/{name}", total=total) as (root, _):
         cell_id = read_array(zf, "cell_id")
         table = polygon_table(zf, set_index, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        ref = tables.write(name, table, geo=GEO_POLYGONS, replace=replace)
+        with replace_hint(name):
+            ref = tables.write(name, table, geo=GEO_POLYGONS, replace=replace)
         attr = table_attr(tables, name, ref, geo=GEO_POLYGONS)
         group = root.require_group("shapes").create_group(name, overwrite=replace)
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str, repo: str) -> None:
+def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str, repo: str, replace=frozenset()) -> None:
     """Write the codewords and the two differential expression tables, then pin them in the root attribute.
 
     A branch that holds the attribute has every table, so a rerun skips the unit.
@@ -459,10 +476,16 @@ def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str
     with writer.unit(ICEBERG_TABLES, "Write the codewords and differential expression tables") as (root, _):
         pins = {}
         for name, (table, index_column) in built.items():
-            tables.require(name, schema=table.schema, properties=properties)
-            ref = tables.write(name, table, index_column=index_column)
+            require_table_listing(tables, name, {"schema": table.schema, "properties": properties}, name in replace)
+            with replace_hint(name):
+                ref = tables.write(name, table, index_column=index_column, replace=name in replace)
             pins[name] = table_attr(tables, name, ref, index_column=index_column)
         root.attrs[ICEBERG_TABLES] = pins
+
+
+def _span(rows: int, low: int, high: int) -> str:
+    """The row count and ``instance`` range of a tile as text; an empty tile has no range."""
+    return f"{rows} rows, instances {low}..{high}" if rows else "no rows"
 
 
 def held_tile_faults(plan: Sequence[tuple[str, int]], counts: dict, held: dict, held_ranges: dict) -> dict[str, str]:
@@ -472,8 +495,7 @@ def held_tile_faults(plan: Sequence[tuple[str, int]], counts: dict, held: dict, 
         rows = counts[tile]
         expected = (first_instance, first_instance + rows - 1)
         if tile in held and (held[tile] != rows or held_ranges[tile] != expected):
-            faults[tile] = (f"the table holds {held[tile]} rows, instances {held_ranges[tile][0]}..{held_ranges[tile][1]}; "
-                            f"expected {rows} rows, instances {expected[0]}..{expected[1]}")
+            faults[tile] = f"the table holds {_span(held[tile], *held_ranges[tile])}; expected {_span(rows, *expected)}"
     return faults
 
 
@@ -595,68 +617,111 @@ def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
     return [e for e in available if e in wanted]
 
 
+def _preflight_table(catalog, namespace: str, name: str, specs: dict, replace: set[str], problems: list[str]) -> str | None:
+    """Print the plan for table ``name`` and add a problem if nothing covers its difference; its data prefix if it exists."""
+    identifier = f"{namespace}.{name}"
+    if not catalog.table_exists(identifier):
+        print(f"{name}: absent; the ingest creates it", flush=True)
+        return None
+    table = catalog.load_table(identifier)
+    tasks = list(table.scan().plan_files())
+    held = f"{len(tasks)} files, {sum(t.file.record_count for t in tasks)} rows held"
+    # A single-write table refuses other content without the flag; an equal rerun is a no-op.
+    rerun = f"an equal-content rerun is a no-op, and different content needs --replace-tables {name}"
+    if name not in specs:
+        print(f"{name}: {held}; its schema is checked at its step; {rerun}", flush=True)
+        return f"{table.location()}/data/"
+    wanted = [specs[name]["partition_by"]] if "partition_by" in specs[name] else []
+    present = [table.schema().find_column_name(f.source_id) for f in table.spec().fields]
+    schema = specs[name]["schema"]
+    lacking = [f.name for f in schema if not f.nullable and f.name not in {f.name for f in table.schema().fields}]
+    if present != wanted:
+        problems.append(f"{name}: partitioned by {present}, not {wanted}")
+    elif lacking:
+        problems.append(f"{name}: has no column {', '.join(lacking)}")
+    else:
+        try:
+            added, deleted = schema_changes(table, schema)
+        except ValueError as e:
+            problems.append(str(e))
+            return f"{table.location()}/data/"
+        if (added or deleted) and name not in replace:
+            problems.append(f"{name}: differs from the wanted schema, which adds {', '.join(added) or 'no column'} and "
+                            f"deletes {', '.join(deleted) or 'no column'}; nothing covers it without --replace-tables")
+        else:
+            change = f"add {', '.join(added) or 'nothing'}; delete {', '.join(deleted) or 'nothing'}"
+            plan = [change if added or deleted else "matches", *(["replace rows"] if name in replace else [])]
+            if name != "transcripts" and tasks and name not in replace:
+                plan += [held, rerun]
+            print(f"{name}: {'; '.join(plan)}", flush=True)
+            if name == "transcripts":
+                print(f"{name}: partitioned by {', '.join(present)}", flush=True)
+                print(f"{name}: {len(tasks)} files held; held tiles are checked against the source at the transcripts step",
+                      flush=True)
+    return f"{table.location()}/data/"
+
+
 def _preflight_tables(catalog, namespace: str, replace: set[str], problems: list[str]) -> list[str]:
-    """Print the plan for each table of the full mode and add one problem for each difference that nothing covers.
+    """Run :func:`_preflight_table` for each table of the full mode; a failure is one problem with the exception type only.
 
     Returns the data prefixes of the tables that exist.
     """
     specs, prefixes = table_specs({}, []), []
     for name in (*FIXTURE_TABLES, *EXTRA_TABLES):
-        identifier = f"{namespace}.{name}"
-        if (namespace,) not in catalog.list_namespaces() or not catalog.table_exists(identifier):
-            print(f"{name}: absent; the ingest creates it", flush=True)
-            continue
-        table = catalog.load_table(identifier)
-        prefixes.append(f"{table.location()}/data/")
-        files = len(list(table.scan().plan_files()))
-        if name not in specs:
-            print(f"{name}: {files} files held; its schema is checked at its step", flush=True)
-            continue
-        wanted = [] if "partition_by" not in specs[name] else [specs[name]["partition_by"]]
-        present = [table.schema().find_column_name(f.source_id) for f in table.spec().fields]
-        if present != wanted:
-            problems.append(f"{name}: partitioned by {present}, not {wanted}")
-            continue
-        schema = specs[name]["schema"]
-        names = {f.name for f in table.schema().fields}
-        if lacking := [f.name for f in schema if not f.nullable and f.name not in names]:
-            problems.append(f"{name}: has no column {', '.join(lacking)}")
-            continue
         try:
-            added, deleted = schema_changes(table, schema)
-        except ValueError as e:
-            problems.append(str(e))
+            prefix = _preflight_table(catalog, namespace, name, specs, replace, problems)
+        except Exception as e:  # The text of a storage error can hold a location.
+            problems.append(f"{name}: does not load ({type(e).__name__})")
             continue
-        difference = f"add {', '.join(added) or 'nothing'}; delete {', '.join(deleted) or 'nothing'}"
-        if (added or deleted) and name not in replace:
-            problems.append(f"{name}: differs from the wanted schema, which adds {', '.join(added) or 'no column'} and "
-                            f"deletes {', '.join(deleted) or 'no column'}; nothing covers it without --replace-tables")
-            continue
-        plan = [difference if added or deleted else "matches", *(["replace rows"] if name in replace else [])]
-        print(f"{name}: {'; '.join(plan)}", flush=True)
-        if name == "transcripts":
-            print(f"{name}: partitioned by {', '.join(present)}", flush=True)
-            print(f"{name}: {files} files held; held tiles are checked against the source at the transcripts step", flush=True)
+        if prefix:
+            prefixes.append(prefix)
     return prefixes
 
 
-def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[str]) -> None:
-    """Print whether the repo opens and whether ``branch`` exists or can start from ``main``."""
-    if not repo.startswith(ARRAYLAKE) and not Path(repo).exists():
-        print("repo: absent; the ingest creates it", flush=True)
-        return
+def _open_existing_repo(repo: str, prefixes: list[str]):
+    """The repo, or ``None`` for a local directory that is absent. Any other failure to open raises."""
+    if repo.startswith(ARRAYLAKE):
+        return arraylake_repository(repo, source_prefixes=prefixes)
+    return open_repository(repo) if Path(repo).exists() else None
+
+
+def held_element_conflicts(catalog, namespace: str, specs: dict, replace: set[str], handle, branch: str) -> list[str]:
+    """One line for each table of ``replace`` with another schema whose element ``branch`` holds.
+
+    The run would change the schema and skip the rows, because it skips a held element.
+    """
+    if handle is None or branch not in handle.list_branches():
+        return []
+    writer, found = ElementWriter(handle, branch), []
+    for name in (n for n in FIXTURE_TABLES if n in replace and catalog.table_exists(f"{namespace}.{n}")):
+        try:
+            added, deleted = schema_changes(catalog.load_table(f"{namespace}.{name}"), specs[name]["schema"])
+        except ValueError:  # The require step refuses a type change.
+            continue
+        if (added or deleted) and writer.has(REPLACE_ELEMENTS[name]):
+            found.append(f"--replace-tables {name}: {REPLACE_ELEMENTS[name]} is on branch {branch} already, "
+                         f"so the run changes the schema of {name} and skips its rows")
+    return found
+
+
+def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[str]):
+    """Print whether the repo opens and whether ``branch`` exists or can start from ``main``; the repo, or ``None``."""
     try:
-        branches = (arraylake_repository(repo, source_prefixes=prefixes) if repo.startswith(ARRAYLAKE)
-                    else open_repository(repo)).list_branches()
+        handle = _open_existing_repo(repo, prefixes)
     except Exception as e:  # Any failure to open is a problem to report; the text has no location.
         problems.append(f"repo: does not open ({type(e).__name__})")
-        return
+        return None
+    if handle is None:
+        print("repo: absent; the ingest creates it", flush=True)
+        return None
+    branches = handle.list_branches()
     if branch in branches:
         print(f"branch {branch}: exists", flush=True)
     elif "main" in branches:
         print(f"branch {branch}: created from main by the ingest", flush=True)
     else:
         problems.append(f"branch {branch}: absent, and the repo has no branch main to start it from")
+    return handle
 
 
 def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str, elements: str | None = None,
@@ -704,7 +769,11 @@ def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str
     except Exception as e:  # Any failure to open is a problem to report; the text has no location.
         problems.append(f"catalog: does not open ({type(e).__name__})")
         return problems
-    _preflight_repo(repo, branch, _preflight_tables(opened, namespace, replace or set(), problems), problems)
+    handle = _preflight_repo(repo, branch, _preflight_tables(opened, namespace, replace or set(), problems), problems)
+    try:
+        problems += held_element_conflicts(opened, namespace, table_specs({}, []), replace or set(), handle, branch)
+    except Exception as e:  # The text of a storage error can hold a location.
+        problems.append(f"branch {branch}: elements do not read ({type(e).__name__})")
     return problems
 
 
@@ -777,6 +846,9 @@ def main() -> None:
     methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
     # The tables exist before any element, so a repo without a container over their files fails here.
+    if replace and (found := held_element_conflicts(tables.catalog, tables.namespace, specs, replace,
+                                                    _open_existing_repo(args.repo, []), args.branch)):
+        raise SystemExit("\n".join(found))
     require_tables(tables, specs, replace)
     prefixes = [tables.data_prefix(name) for name in FIXTURE_TABLES]
     if on_arraylake:
@@ -815,7 +887,7 @@ def main() -> None:
             writer, "points/transcripts",
             lambda: write_transcripts(writer, bundle, tables, tiles=None if full else [FIXTURE_TILE],
                                       replace_held="transcripts" in replace)),
-        ICEBERG_TABLES: lambda: write_extra_tables(writer, bundle, tables, sample, layouts, sample.repo),
+        ICEBERG_TABLES: lambda: write_extra_tables(writer, bundle, tables, sample, layouts, sample.repo, replace),
         "images/morphology": lambda: write_morphology(writer, bundle, pixel_size, levels=None if full else [FIXTURE_LEVEL],
                                                       concurrency=n),
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),

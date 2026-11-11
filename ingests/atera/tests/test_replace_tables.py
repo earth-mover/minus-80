@@ -19,8 +19,9 @@ from ingest import (
     write_transcripts,
 )
 from polygons import BBOX, GEO_POLYGONS
+from ingest import CELL_SET, check_replace_elements, held_element_conflicts, write_extra_tables
 from tests.stores import cells_zip
-from tests.test_ingest_tables import _hold, _transcripts_run, _transcripts_zip
+from tests.test_ingest_tables import _ExtraBundle, _extra_run, _hold, _transcripts_run, _transcripts_zip
 
 METHODS = ["a", "b", "c", "d", "e"]
 #: Tile ``-1,0`` first, so tile ``0,0`` starts at ``instance`` 1, as on the full sample.
@@ -106,9 +107,11 @@ def _fixture_root(repo):
     return zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")
 
 
-def test_the_opt_in_names_only_tables_that_the_full_mode_replaces():
+def test_the_opt_in_names_every_table_that_the_full_mode_writes():
     assert replace_table_names("transcripts,nucleus_boundaries") == {"transcripts", "nucleus_boundaries"}
-    assert set(REPLACEABLE) == {"transcripts", "nucleus_boundaries"}
+    assert set(REPLACEABLE) == {"transcripts", "nucleus_boundaries", "cell_boundaries", "codewords",
+                                "diffexp_azimuth", "diffexp_graphclust"}
+    assert replace_table_names("cell_boundaries,codewords") == {"cell_boundaries", "codewords"}
     with pytest.raises(ValueError, match="cell_labels"):
         replace_table_names("transcripts,cell_labels")
 
@@ -346,7 +349,7 @@ def test_a_rerun_without_the_flag_after_the_schema_commit_raises_and_adds_no_sna
     bundle, catalog, repo, refs = _window(tmp_path)
     tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
     require_tables(tables, table_specs({}, METHODS), set())
-    with pytest.raises(ValueError, match=r"ns\.nucleus_boundaries holds 1 data file.*replace flag"):
+    with pytest.raises(ValueError, match=r"ns\.nucleus_boundaries holds 1 data file.*--replace-tables nucleus_boundaries"):
         write_boundaries(ElementWriter(repo, "full"), bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
     assert _snapshots(catalog, "nucleus_boundaries") == 1
 
@@ -526,3 +529,136 @@ def test_preflight_on_the_command_line_exits_with_the_number_of_the_result(monke
     with pytest.raises(SystemExit) as wrong:
         ingest.main()
     assert (clean.value.code, wrong.value.code) == (0, 1)
+
+
+def test_a_table_of_another_content_is_replaced_by_the_flag_the_message_names(tmp_path):
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    for branch in ("one", "two", "three"):
+        repo.create_branch(branch, repo.lookup_branch("main"))
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    require_tables(tables, table_specs({}, METHODS), {"nucleus_boundaries"})
+    write_boundaries(ElementWriter(repo, "one"), bundle, tables, "cell_boundaries", CELL_SET)
+    # The nucleus set has other rows than the cell set.
+    with pytest.raises(ValueError, match=r"ns\.cell_boundaries holds 1 data file.*use --replace-tables cell_boundaries"):
+        write_boundaries(ElementWriter(repo, "two"), bundle, tables, "cell_boundaries", NUCLEUS_SET)
+    write_boundaries(ElementWriter(repo, "three"), bundle, tables, "cell_boundaries", NUCLEUS_SET, replace=True)
+    assert catalog.load_table("ns.cell_boundaries").scan().to_arrow()["instance"].to_pylist() == [1, 3]
+
+
+class _OtherExtraBundle(_ExtraBundle):
+    def member_file(self, name):
+        import io
+
+        return io.BytesIO(b"Feature ID,Feature Name,Amacrine cell Mean Counts\nENSG1,A,0.5\nENSG2,B,0.7\n")
+
+
+def test_a_small_table_of_another_content_is_replaced_by_the_flag_the_message_names(tmp_path):
+    bundle, tables, repo, writer, sample, layouts = _extra_run(tmp_path)
+    write_extra_tables(writer, bundle, tables, sample, layouts, "r")
+    repo.create_branch("again", repo.lookup_branch("main"))
+    other, again = _OtherExtraBundle(tmp_path), ElementWriter(repo, "again")
+    with pytest.raises(ValueError, match=r"ns\.diffexp_azimuth holds 1 data file.*use --replace-tables diffexp_azimuth"):
+        write_extra_tables(again, other, tables, sample, layouts, "r")
+    write_extra_tables(again, other, tables, sample, layouts, "r", {"diffexp_azimuth", "diffexp_graphclust"})
+    assert tables.catalog.load_table("ns.diffexp_azimuth").scan().to_arrow().num_rows == 2
+    assert tables.catalog.load_table("ns.codewords").current_snapshot().snapshot_id is not None
+    assert len(tables.catalog.load_table("ns.codewords").metadata.snapshots) == 1
+
+
+def test_the_element_rule_covers_every_table_of_the_full_mode():
+    with pytest.raises(ValueError, match=r"codewords.*iceberg_tables"):
+        check_replace_elements({"codewords"}, ["shapes/cell_boundaries"])
+    with pytest.raises(ValueError, match=r"cell_boundaries.*shapes/cell_boundaries"):
+        check_replace_elements({"cell_boundaries"}, ["points/transcripts"])
+    check_replace_elements({"codewords", "diffexp_azimuth"}, ["iceberg_tables"])
+
+
+def test_a_preflight_lists_the_files_and_rows_of_a_held_single_write_table(tmp_path, capsys):
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    tables.require("cell_boundaries", **table_specs({}, METHODS)["cell_boundaries"])
+    repo.create_branch("again", repo.lookup_branch("main"))
+    write_boundaries(ElementWriter(repo, "again"), bundle, tables, "cell_boundaries", CELL_SET)
+    capsys.readouterr()
+    assert _preflight(tmp_path, replace_tables="transcripts,nucleus_boundaries") == []
+    assert ("cell_boundaries: matches; 1 files, 3 rows held; an equal-content rerun is a no-op, "
+            "and different content needs --replace-tables cell_boundaries") in capsys.readouterr().out
+
+
+def _hold_element(repo, branch, path):
+    with ElementWriter(repo, branch).unit(path, f"Hold {path}") as (root, _):
+        parent, name = path.split("/")
+        root.require_group(parent).create_group(name)
+
+
+def test_the_flag_with_a_held_element_and_a_changed_schema_is_refused_with_the_element_and_the_table(tmp_path):
+    from minus80.core.icechunk_io import open_repository
+
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    _hold_element(repo, "full", "shapes/nucleus_boundaries")
+    _hold_element(repo, "full", "points/transcripts")
+    specs = table_specs({}, METHODS)
+    handle = open_repository(tmp_path / "repo")
+    found = held_element_conflicts(catalog, "ns", specs, {"nucleus_boundaries", "transcripts"}, handle, "full")
+    # Only the table with another schema conflicts; the transcripts schema matches.
+    assert len(found) == 1 and "shapes/nucleus_boundaries" in found[0] and "nucleus_boundaries" in found[0]
+    assert held_element_conflicts(catalog, "ns", specs, set(), handle, "full") == []
+    assert held_element_conflicts(catalog, "ns", specs, {"nucleus_boundaries"}, handle, "new") == []
+    problems = _preflight(tmp_path, branch="full", replace_tables="nucleus_boundaries")
+    assert len(problems) == 1 and "shapes/nucleus_boundaries" in problems[0]
+    state = _state(tmp_path)
+
+    class Counter:
+        bytes = 0
+
+    cells = cells_zip(tmp_path, attrs={"segmentation_methods": METHODS})
+
+    class StubBundle:
+        def experiment(self):
+            return {"pixel_size": 1.0}
+
+        def member_zip(self, name):
+            return cells
+
+    import sys as _sys
+    from unittest import mock
+
+    argv = ["ingest.py", "--sample", "kidney", "--repo", str(tmp_path / "repo"), "--catalog", str(tmp_path / "catalog"),
+            "--namespace", "ns", "--mode", "full", "--branch", "full", "--bundle", "b", "--replace-tables", "nucleus_boundaries"]
+    with mock.patch.object(_sys, "argv", argv), mock.patch.object(ingest, "open_bundle", lambda location: (StubBundle(), Counter())):
+        with pytest.raises(SystemExit, match="shapes/nucleus_boundaries"):
+            ingest.main()
+    assert _state(tmp_path) == state
+    assert [f.name for f in catalog.load_table("ns.nucleus_boundaries").schema().fields][3] == "method"
+
+
+def test_the_flag_with_a_held_element_and_a_matching_schema_is_not_refused(tmp_path):
+    from minus80.core.icechunk_io import open_repository
+
+    bundle, catalog, repo, refs = _stage_one(tmp_path)
+    _replace(catalog, repo, bundle)
+    specs = table_specs({}, METHODS)
+    handle = open_repository(tmp_path / "repo")
+    assert held_element_conflicts(catalog, "ns", specs, set(REPLACEABLE), handle, "full") == []
+
+
+def test_a_preflight_that_cannot_load_a_table_reports_the_table_and_the_exception_type_only(tmp_path, monkeypatch):
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    _stage_one(tmp_path)
+
+    def fails(self, identifier):
+        raise RuntimeError(f"cannot read s3://bucket/{tmp_path}")
+
+    monkeypatch.setattr(SqlCatalog, "load_table", fails)
+    problems = _preflight(tmp_path, replace_tables="transcripts,nucleus_boundaries")
+    assert {"cell_boundaries", "nucleus_boundaries", "transcripts"} <= {p.split(":")[0] for p in problems}
+    assert all("RuntimeError" in p and "bucket" not in p and str(tmp_path) not in p for p in problems)
+
+
+def test_a_fault_for_a_tile_with_no_rows_says_no_rows(tmp_path):
+    bundle, tables, repo, writer = _transcripts_run(tmp_path)
+    _hold(tables, bundle, tmp_path, "0,0", first_instance=0, name="1,0")
+    with pytest.raises(ValueError, match=r"tile 1,0: the table holds 5 rows, instances 0\.\.4; expected no rows$") as e:
+        write_transcripts(writer, bundle, tables)
+    assert "-1" not in str(e.value)

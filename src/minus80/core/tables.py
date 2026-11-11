@@ -162,6 +162,10 @@ def data_file(io, location: str) -> DataFile:
     return DataFile(location, info.size, datetime.fromtimestamp(seconds, timezone.utc))
 
 
+class HeldFilesError(ValueError):
+    """A write without ``replace`` met a live data file of other content in its table."""
+
+
 class TableRef(NamedTuple):
     """An Iceberg table snapshot and each registered file."""
 
@@ -652,8 +656,8 @@ class TableWriter:
             # One write is the whole table, so another live file would mix two writes' rows.
             other = [t.file.file_path for t in iceberg.scan().plan_files() if t.file.file_path not in urls]
             if other:
-                raise ValueError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "
-                                 "that this write does not replace; replace the rows with the replace flag")
+                raise HeldFilesError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "
+                                     "that this write does not replace; write with replace=True to replace them")
         for path, url in zip(paths, urls):
             _put(iceberg.io, path, url)
         return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace,

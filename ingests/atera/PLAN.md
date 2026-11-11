@@ -327,6 +327,8 @@ The fixture on Arraylake used neither fallback: the catalog accepted
 
 The full ingest replaces the rows of `transcripts` and `nucleus_boundaries` in place.
 It needs the flag `--replace-tables transcripts,nucleus_boundaries`.
+The flag accepts every table that the full mode writes. For a single-write table it means the overwrite path.
+A refused write names the exact flag. The flag with a held element and another schema is refused before any change.
 Without it, the ingest stops before any write on a held table that differs.
 It also stops on a held `transcripts` tile that fails its checks, and the message lists every fault.
 A write to a table that holds a file of other content raises. So no stop mixes the rows of two writes.
