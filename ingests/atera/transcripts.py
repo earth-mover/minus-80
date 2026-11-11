@@ -23,6 +23,7 @@ CATEGORY_COLUMNS = (
 
 _BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 
+# Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
 TRANSCRIPT_SCHEMA = pa.schema(
     [
         ("instance", pa.int64()),
@@ -30,10 +31,10 @@ TRANSCRIPT_SCHEMA = pa.schema(
         ("x", pa.float32()),
         ("y", pa.float32()),
         ("z", pa.float32()),
-        ("codeword_index", pa.uint32()),
+        ("codeword_index", pa.int64()),
         ("feature_name", pa.dictionary(pa.int32(), pa.string())),
-        ("cell_prefix", pa.uint32()),
-        ("dataset_suffix", pa.uint32()),
+        ("cell_prefix", pa.int64()),
+        ("dataset_suffix", pa.int64()),
         ("cell_id", pa.string()),
         ("quality_score", pa.float32()),
         ("overlaps_nucleus", pa.bool_()),
@@ -56,7 +57,7 @@ def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
     feature_index = np.asarray(attrs["codeword_gene_mapping"], dtype=np.int32)
     category = read_v2_array(zf, "codeword_category")
     columns = {
-        "codeword_index": pa.array(np.arange(len(feature_index), dtype=np.uint32)),
+        "codeword_index": pa.array(np.arange(len(feature_index), dtype=np.int64)),
         "feature_index": pa.array(feature_index),
         "feature_name": feature_names,
     }
@@ -82,10 +83,10 @@ def tile_table(
             "x": x,
             "y": y,
             "z": z,
-            "codeword_index": codeword,
+            "codeword_index": codeword.astype(np.int64),
             "feature_name": names,
-            "cell_prefix": cell[:, 0],
-            "dataset_suffix": cell[:, 1],
+            "cell_prefix": cell[:, 0].astype(np.int64),
+            "dataset_suffix": cell[:, 1].astype(np.int64),
             "cell_id": pa.array(xenium_cell_id(cell[:, 0], cell[:, 1]), type=pa.string()),
             "quality_score": read("quality_score")[:, 0].astype(np.float32),
             "overlaps_nucleus": read("overlaps_nucleus")[:, 0].astype(bool),

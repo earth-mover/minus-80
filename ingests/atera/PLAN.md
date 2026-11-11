@@ -239,22 +239,24 @@ Transcripts, one row per decoded transcript, from the source tile arrays:
 | `instance` | int64 | row position in the element, 0-based |
 | `grid_tile` | string | the source tile key, the partition column |
 | `x`, `y`, `z` | float32 | `location`, in micrometres |
-| `codeword_index` | uint32 | `codeword_identity` |
+| `codeword_index` | int64 | `codeword_identity`, widened from uint32 |
 | `feature_name` | string, dictionary | `codeword_index` through the codeword map in the store's attributes |
-| `cell_prefix`, `dataset_suffix` | uint32 | `cell_id` |
+| `cell_prefix`, `dataset_suffix` | int64 | `cell_id`, widened from uint32; the pair 4294967295, 4294967295 is an unassigned transcript, kept as published |
 | `cell_id` | string | the Xenium form of the pair, as `spatialdata_io` builds it |
 | `quality_score` | float32 | `quality_score`, widened from float16 (call 3) |
 | `overlaps_nucleus` | bool | `overlaps_nucleus` |
 | `bbox` | struct of four float64 | the point itself, for file pruning |
+
+Every `uint32` source column is `int64` in both tables. Iceberg has no unsigned type, and pyiceberg maps `uint32` to the signed `int`, which 10x's sentinel 4294967295 overflows.
 
 Polygons, one row per cell or nucleus, from `polygon_sets/<i>`:
 
 | Column | Type | From |
 |---|---|---|
 | `instance` | int64 | the mask label, the index column |
-| `cell_index` | uint32 | `cell_index`, as published |
+| `cell_index` | int64 | `cell_index`, as published, widened from uint32 |
 | `cell_id` | string | the Xenium form |
-| `method` | uint32 | `method`, with the method names in the table properties |
+| `method` | int64 | `method`, widened from uint32, with the method names in the table properties |
 | `geometry` | binary, WKB polygon | `vertices[:num_vertices]`, in micrometres |
 | `bbox` | struct of four float64 | the polygon's bounds |
 

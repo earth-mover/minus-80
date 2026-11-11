@@ -11,12 +11,13 @@ from bundle import read_v2_array
 
 _BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 
+# Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
 POLYGON_SCHEMA = pa.schema(
     [
         ("instance", pa.int64()),
-        ("cell_index", pa.uint32()),
+        ("cell_index", pa.int64()),
         ("cell_id", pa.string()),
-        ("method", pa.uint32()),
+        ("method", pa.int64()),
         ("geometry", pa.binary()),
         ("bbox", _BBOX),
     ]
@@ -57,9 +58,9 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
     return pa.table(
         {
             "instance": pa.array(cell_index.astype(np.int64) + 1),
-            "cell_index": cell_index,
+            "cell_index": cell_index.astype(np.int64),
             "cell_id": pa.array(cell_ids[cell_index], type=pa.string()),
-            "method": method,
+            "method": method.astype(np.int64),
             "geometry": pa.array(shapely.to_wkb(polygons), type=pa.binary()),
             "bbox": pa.StructArray.from_arrays(
                 [pa.array(bounds[:, i]) for i in range(4)], fields=list(_BBOX)

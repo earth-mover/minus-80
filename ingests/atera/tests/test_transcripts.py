@@ -20,7 +20,7 @@ def zf(tmp_path):
     tile = {
         "grid/0,0/location": (np.array([[1.5, 2.5, 3.5]] * 5, dtype="<f4") + np.arange(5)[:, None].astype("<f4") * [0, 0, 1], {"order": "F"}),
         "grid/0,0/codeword_identity": (np.array([[0], [1], [2], [3], [0]], dtype="<u4"), {}),
-        "grid/0,0/cell_id": (np.array([[1, 1], [0x1F, 1], [0, 1], [0, 1], [5, 2]], dtype="<u4"), {"order": "F"}),
+        "grid/0,0/cell_id": (np.array([[1, 1], [0x1F, 1], [0, 1], [0, 1], [2**32 - 1, 2**32 - 1]], dtype="<u4"), {"order": "F"}),
         "grid/0,0/quality_score": (np.linspace(10, 40, 5, dtype="<f2")[:, None], {}),
         "grid/0,0/overlaps_nucleus": (np.array([[1], [0], [0], [1], [0]], dtype="u1"), {}),
         "grid/0,0/gene_offset": (np.zeros((2, 2), dtype="<u4"), {}),
@@ -48,7 +48,7 @@ def test_codeword_table_maps_codewords_to_features(codewords):
     assert codewords["feature_name"].to_pylist() == ["GENE1", "GENE2", "NegControl", "GENE1"]
     assert codewords["is_gene"].to_pylist() == [True, True, False, True]
     assert codewords["is_negative_control_codeword"].to_pylist() == [False, False, True, False]
-    assert codewords.schema.field("codeword_index").type == pa.uint32()
+    assert codewords.schema.field("codeword_index").type == pa.int64()
     assert codewords.schema.field("feature_index").type == pa.int32()
 
 
@@ -65,6 +65,16 @@ def test_tile_table_has_the_schema_and_the_xenium_cell_ids(zf, codewords):
     assert t["overlaps_nucleus"].to_pylist() == [True, False, False, True, False]
     assert t["quality_score"].to_pylist() == [10.0, 17.5, 25.0, 32.5, 40.0]
     assert t["z"].to_pylist() == [3.5, 4.5, 5.5, 6.5, 7.5]
+
+
+def test_tile_table_keeps_the_unassigned_sentinel_in_signed_columns(zf, codewords):
+    # Iceberg has no unsigned type, so every integer column is int64 and 2**32 - 1 stays positive.
+    t = tile_table(zf, "0,0", codewords, first_instance=0)
+    for name in ("codeword_index", "cell_prefix", "dataset_suffix"):
+        assert TRANSCRIPT_SCHEMA.field(name).type == pa.int64()
+    assert t["cell_prefix"][4].as_py() == 2**32 - 1
+    assert t["dataset_suffix"][4].as_py() == 2**32 - 1
+    assert t["cell_id"][4].as_py() == "pppppppp-4294967295"
 
 
 def test_xenium_cell_id_orders_letters_most_significant_first():

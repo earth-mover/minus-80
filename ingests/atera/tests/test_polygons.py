@@ -1,4 +1,5 @@
 import numpy as np
+import pyarrow as pa
 import pytest
 import shapely
 
@@ -28,6 +29,8 @@ def test_polygon_table_closes_rings_and_numbers_instances(zf):
     cell_ids = np.array(["aaaaaaab-1", "aaaaaaac-1"])
     p = polygon_table(zf, 0, cell_ids)
     assert p.schema.equals(POLYGON_SCHEMA)
+    assert POLYGON_SCHEMA.field("cell_index").type == pa.int64()
+    assert POLYGON_SCHEMA.field("method").type == pa.int64()
     assert p["instance"].to_pylist() == [1, 2]
     assert p["cell_id"].to_pylist() == ["aaaaaaab-1", "aaaaaaac-1"]
     poly = shapely.from_wkb(p["geometry"][0].as_py())
