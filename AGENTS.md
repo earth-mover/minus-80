@@ -39,10 +39,10 @@ ingest, the work is not done. That rules out:
   zero-length reference.
 - **Never decode pixels to virtualize.** Decoding happens only to build a
   derived layer, such as an overview level, and then only once.
-- **Verify, do not assert.** A claim about behaviour needs a run behind it.
-  Read the store back and compare it against the source, decoded by the
-  format's reference reader, before saying it works. Measure a number before
-  quoting one.
+- **Verify, do not assert.** A claim about behavior needs a run behind it,
+  and a number needs a measurement. Test an ingest's code on a small fixture,
+  and check the finished store with a short script that runs in a minute or
+  two and makes a handful of requests to the source (`docs/ingest.md`).
 - **Record every judgement call.** Choices the data does not determine (which
   directory is canonical, whether the file or the paper is right) go in the
   ingest's `LAYOUTS.md`, and in the report to whoever asked for the work.
