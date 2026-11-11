@@ -1,15 +1,61 @@
-"""Generate tiny uncompressed DICOM microscopy instances for offline tests.
+"""Small synthetic DICOM instances for offline tests.
 
-Not a faithful WSI writer — just enough valid DICOM (explicit-VR little-endian,
-single-frame, single-sample uint16, an OpticalPathSequence naming the marker) that
-:func:`minus80.parsers.dicom.parser.channel_metadata` parses it the same way it parses a
-real instance, so the roundtrip tests need no network.
+Each writer produces just enough valid DICOM (explicit-VR little-endian file
+meta, the image pixel module, and the elements the parser reads) for the parser
+to treat it as it treats a real instance. They are not faithful modality writers.
 """
 from __future__ import annotations
 
+import math
+import struct
 from pathlib import Path
 
 import numpy as np
+
+WSI_SOP_CLASS = "1.2.840.10008.5.1.4.1.1.77.1.6"  # VL Whole Slide Microscopy Image
+CT_SOP_CLASS = "1.2.840.10008.5.1.4.1.1.2"
+
+
+def _dataset(sop_class: str, transfer_syntax: str, *, rows: int, columns: int,
+             dtype: np.dtype, samples: int = 1, photometric: str | None = None):
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.uid import generate_uid
+
+    dtype = np.dtype(dtype)
+    fm = FileMetaDataset()
+    fm.MediaStorageSOPClassUID = sop_class
+    fm.MediaStorageSOPInstanceUID = generate_uid()
+    fm.TransferSyntaxUID = transfer_syntax
+    ds = Dataset()
+    ds.file_meta = fm
+    ds.SOPClassUID = sop_class
+    ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
+    ds.Rows, ds.Columns = rows, columns
+    ds.SamplesPerPixel = samples
+    if samples > 1:
+        ds.PlanarConfiguration = 0
+    ds.PhotometricInterpretation = photometric or ("RGB" if samples == 3 else "MONOCHROME2")
+    bits = dtype.itemsize * 8
+    ds.BitsAllocated, ds.BitsStored, ds.HighBit = bits, bits, bits - 1
+    ds.PixelRepresentation = int(dtype.kind == "i")
+    return ds
+
+
+def _shared_spacing(ds, spacing: tuple[float, float]) -> None:
+    from pydicom.dataset import Dataset
+
+    measures, group = Dataset(), Dataset()
+    measures.PixelSpacing = list(spacing)
+    group.PixelMeasuresSequence = [measures]
+    ds.SharedFunctionalGroupsSequence = [group]
+
+
+def _write(ds, path: Path) -> str:
+    import pydicom
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pydicom.dcmwrite(path, ds, enforce_file_format=True)
+    return str(path)
 
 
 def write_multiplex_series(
@@ -17,56 +63,33 @@ def write_multiplex_series(
     markers: list[str],
     *,
     shape: tuple[int, int] = (24, 32),
+    spacing: tuple[float, float] | None = (0.0005, 0.0005),
     seed: int = 0,
 ) -> tuple[list[str], np.ndarray]:
-    """Write one single-frame uint16 instance per marker. Returns the file paths (in
-    marker order) and the expected ``(c, y, x)`` stack for assertion."""
-    import pydicom
-    from pydicom.dataset import Dataset, FileMetaDataset
-    from pydicom.uid import ExplicitVRLittleEndian, generate_uid
+    """Write one single-frame uint16 instance per marker, its spacing in the shared functional groups.
 
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    Returns the file paths (in marker order) and the ``(c, y, x)`` stack.
+    """
+    from pydicom.dataset import Dataset
+    from pydicom.uid import ExplicitVRLittleEndian
+
     rng = np.random.default_rng(seed)
-    y, x = shape
-    paths, planes = [], []
-
+    planes = rng.integers(0, 4000, size=(len(markers), *shape), dtype=np.uint16)
+    paths = []
     for i, marker in enumerate(markers):
-        plane = rng.integers(0, 4000, size=(y, x), dtype=np.uint16)
-        planes.append(plane)
-
-        fm = FileMetaDataset()
-        fm.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.77.1.6"  # VL WSI Storage
-        fm.MediaStorageSOPInstanceUID = generate_uid()
-        fm.TransferSyntaxUID = ExplicitVRLittleEndian
-
-        ds = Dataset()
-        ds.file_meta = fm
-        ds.SOPClassUID = fm.MediaStorageSOPClassUID
-        ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
-        ds.Rows, ds.Columns = y, x
-        ds.TotalPixelMatrixRows, ds.TotalPixelMatrixColumns = y, x
+        ds = _dataset(WSI_SOP_CLASS, ExplicitVRLittleEndian, rows=shape[0], columns=shape[1],
+                      dtype=np.uint16)
+        ds.TotalPixelMatrixRows, ds.TotalPixelMatrixColumns = shape
         ds.NumberOfFrames = 1
-        ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME2"
-        ds.BitsAllocated = 16
-        ds.BitsStored = 16
-        ds.HighBit = 15
-        ds.PixelRepresentation = 0
-
         op = Dataset()
         op.OpticalPathIdentifier = str(i + 1)
         op.OpticalPathDescription = marker
         ds.OpticalPathSequence = [op]
-
-        ds.PixelData = plane.tobytes()
-
-        path = out / f"channel_{i:02d}.dcm"
-        # Endianness/VR are inferred from the transfer syntax in file_meta.
-        pydicom.dcmwrite(path, ds, enforce_file_format=True)
-        paths.append(str(path))
-
-    return paths, np.stack(planes)
+        if spacing is not None:
+            _shared_spacing(ds, spacing)
+        ds.PixelData = planes[i].tobytes()
+        paths.append(_write(ds, Path(out_dir) / f"channel_{i:02d}.dcm"))
+    return paths, planes
 
 
 def write_volume_series(
@@ -74,6 +97,7 @@ def write_volume_series(
     z_positions: list[float | None],
     *,
     shape: tuple[int, int] = (6, 8),
+    spacing: tuple[float, float] | None = (0.7, 0.6),
     seed: int = 0,
 ) -> tuple[list[str], np.ndarray]:
     """Write one single-frame int16 CT slice per entry of ``z_positions``.
@@ -81,44 +105,34 @@ def write_volume_series(
     Slices are written to disk in reverse order, so file order never matches
     slice order. A ``None`` position leaves ``ImagePositionPatient`` out; each
     slice's ``InstanceNumber`` is its index in ``z_positions``, plus one.
-    Returns the file paths and the ``(z, y, x)`` stack in ``z_positions`` order.
+    ``spacing`` is written as ``PixelSpacing``. Returns the file paths and the
+    ``(z, y, x)`` stack in ``z_positions`` order.
     """
-    import pydicom
-    from pydicom.dataset import Dataset, FileMetaDataset
-    from pydicom.uid import ExplicitVRLittleEndian, generate_uid
+    from pydicom.uid import ExplicitVRLittleEndian
 
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
-    y, x = shape
-    planes = [rng.integers(-1024, 3000, size=(y, x), dtype=np.int16) for _ in z_positions]
+    planes = rng.integers(-1024, 3000, size=(len(z_positions), *shape), dtype=np.int16)
     paths = []
     for i in reversed(range(len(z_positions))):
-        fm = FileMetaDataset()
-        fm.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2"  # CT Image Storage
-        fm.MediaStorageSOPInstanceUID = generate_uid()
-        fm.TransferSyntaxUID = ExplicitVRLittleEndian
-
-        ds = Dataset()
-        ds.file_meta = fm
-        ds.SOPClassUID = fm.MediaStorageSOPClassUID
-        ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
+        ds = _dataset(CT_SOP_CLASS, ExplicitVRLittleEndian, rows=shape[0], columns=shape[1],
+                      dtype=np.int16)
         ds.InstanceNumber = i + 1
         if z_positions[i] is not None:
             ds.ImagePositionPatient = [0.0, 0.0, z_positions[i]]
-        ds.Rows, ds.Columns = y, x
-        ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME2"
-        ds.BitsAllocated = 16
-        ds.BitsStored = 16
-        ds.HighBit = 15
-        ds.PixelRepresentation = 1
+        if spacing is not None:
+            ds.PixelSpacing = list(spacing)
         ds.PixelData = planes[i].tobytes()
+        paths.append(_write(ds, Path(out_dir) / f"slice_{len(paths):02d}.dcm"))
+    return paths, planes
 
-        path = out / f"slice_{len(paths):02d}.dcm"
-        pydicom.dcmwrite(path, ds, enforce_file_format=True)
-        paths.append(str(path))
-    return paths, np.stack(planes)
+
+def _level(ds, rows: int, columns: int, n_frames: int, spacing) -> None:
+    ds.ImageType = ["DERIVED", "PRIMARY", "VOLUME", "NONE"]
+    ds.TotalPixelMatrixRows, ds.TotalPixelMatrixColumns = rows, columns
+    ds.NumberOfFrames = n_frames
+    ds.DimensionOrganizationType = "TILED_FULL"
+    if spacing is not None:
+        _shared_spacing(ds, spacing)
 
 
 def write_wsi_pyramid_series(
@@ -126,59 +140,86 @@ def write_wsi_pyramid_series(
     levels: list[tuple[int, int]],
     *,
     tile: int = 256,
+    samples: int = 3,
+    dtype: np.dtype = np.uint8,
+    spacing: tuple[float, float] = (0.00025, 0.00025),
+    optical_path: str | None = None,
     seed: int = 0,
 ) -> tuple[list[str], list[np.ndarray]]:
-    """Write one uncompressed tiled RGB VL-WSM instance per pyramid level.
+    """Write one uncompressed tiled instance per pyramid level, largest first in ``levels``.
 
-    ``levels`` is a list of ``(rows, cols)`` total-pixel-matrix sizes (largest first).
-    Each level is tiled TILED_FULL into ``tile``x``tile`` frames (edge tiles zero-padded to
-    a full tile, as DICOM requires). Uncompressed, so the roundtrip is byte-exact. Returns
-    the file paths and the expected assembled ``(y, x, 3)`` image per level."""
-    import math
+    ``levels`` is a list of ``(rows, cols)`` total-pixel-matrix sizes. Each level
+    is tiled ``TILED_FULL`` into ``tile`` x ``tile`` frames, edge tiles
+    zero-padded as DICOM requires. Level ``i``'s spacing is ``spacing`` times
+    level 0's size over its own. ``optical_path`` names each level's single
+    ``OpticalPathSequence`` item. Returns the file paths and each level's
+    ``(y, x, samples)`` image (``(y, x)`` for one sample).
+    """
+    from pydicom.dataset import Dataset
+    from pydicom.uid import ExplicitVRLittleEndian
 
-    import pydicom
-    from pydicom.dataset import Dataset, FileMetaDataset
-    from pydicom.uid import ExplicitVRLittleEndian, generate_uid
-
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
+    info = np.iinfo(dtype)
     paths, expected = [], []
-
     for li, (Y, X) in enumerate(levels):
-        nR, nC = math.ceil(Y / tile), math.ceil(X / tile)
-        img = rng.integers(0, 256, size=(Y, X, 3), dtype=np.uint8)
-        expected.append(img)
-        # pack tiles in TILED_FULL raster order, each padded to a full tile
-        frames = np.zeros((nR * nC, tile, tile, 3), dtype=np.uint8)
-        for r in range(nR):
-            for c in range(nC):
-                blk = img[r * tile : r * tile + tile, c * tile : c * tile + tile]
-                frames[r * nC + c, : blk.shape[0], : blk.shape[1]] = blk
-
-        fm = FileMetaDataset()
-        fm.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.77.1.6"
-        fm.MediaStorageSOPInstanceUID = generate_uid()
-        fm.TransferSyntaxUID = ExplicitVRLittleEndian
-        ds = Dataset()
-        ds.file_meta = fm
-        ds.SOPClassUID = fm.MediaStorageSOPClassUID
-        ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
-        ds.ImageType = ["DERIVED", "PRIMARY", "VOLUME", "NONE"]
-        ds.Rows, ds.Columns = tile, tile
-        ds.TotalPixelMatrixRows, ds.TotalPixelMatrixColumns = Y, X
-        ds.NumberOfFrames = nR * nC
-        ds.SamplesPerPixel = 3
-        ds.PlanarConfiguration = 0
-        ds.PhotometricInterpretation = "RGB"
-        ds.BitsAllocated = 8
-        ds.BitsStored = 8
-        ds.HighBit = 7
-        ds.PixelRepresentation = 0
-        ds.DimensionOrganizationType = "TILED_FULL"
-        ds.PixelData = frames.tobytes()
-        path = out / f"level_{li}.dcm"
-        pydicom.dcmwrite(path, ds, enforce_file_format=True)
-        paths.append(str(path))
-
+        n_rows, n_cols = math.ceil(Y / tile), math.ceil(X / tile)
+        img = rng.integers(info.min, info.max, size=(Y, X, samples), dtype=dtype, endpoint=True)
+        frames = np.zeros((n_rows, tile, n_cols, tile, samples), dtype=dtype)
+        frames.reshape(n_rows * tile, n_cols * tile, samples)[:Y, :X] = img
+        level_spacing = (spacing[0] * levels[0][0] / Y, spacing[1] * levels[0][1] / X)
+        ds = _dataset(WSI_SOP_CLASS, ExplicitVRLittleEndian, rows=tile, columns=tile,
+                      dtype=dtype, samples=samples)
+        _level(ds, Y, X, n_rows * n_cols, level_spacing)
+        if optical_path is not None:
+            op = Dataset()
+            op.OpticalPathIdentifier = optical_path
+            ds.OpticalPathSequence = [op]
+        ds.PixelData = frames.transpose(0, 2, 1, 3, 4).tobytes()
+        paths.append(_write(ds, Path(out_dir) / f"level_{optical_path or ''}{li}.dcm"))
+        expected.append(img if samples > 1 else img[..., 0])
     return paths, expected
+
+
+def write_encapsulated_level(
+    path: str | Path,
+    frames: list[bytes],
+    *,
+    tile: tuple[int, int],
+    columns: int,
+    transfer_syntax: str,
+    samples: int = 1,
+    photometric: str | None = None,
+    offset_table: str = "none",
+    icc: bytes | None = None,
+) -> str:
+    """Write a compressed one-row tiled level whose frames are ``frames`` verbatim.
+
+    ``offset_table`` is ``"none"`` (an empty Basic Offset Table), ``"basic"`` or
+    ``"extended"``, each built by pydicom. pydicom refuses an empty frame, so
+    with ``"none"`` an empty frame is written as an empty Item. ``icc`` puts an
+    ICC profile in the ``OpticalPathSequence``.
+    """
+    from pydicom.dataset import Dataset
+    from pydicom.encaps import encapsulate, encapsulate_extended, itemize_fragment
+
+    ds = _dataset(WSI_SOP_CLASS, transfer_syntax, rows=tile[0], columns=tile[1],
+                  dtype=np.uint8, samples=samples, photometric=photometric)
+    _level(ds, tile[0], columns, len(frames), None)
+    if icc is not None:
+        optical_path = Dataset()
+        optical_path.OpticalPathIdentifier = "1"
+        optical_path.ICCProfile = icc
+        ds.OpticalPathSequence = [optical_path]
+    if offset_table == "extended":
+        ds.PixelData, ds.ExtendedOffsetTable, ds.ExtendedOffsetTableLengths = (
+            encapsulate_extended(frames))
+    elif offset_table == "basic":
+        ds.PixelData = encapsulate(frames, has_bot=True)
+    elif all(frames):
+        ds.PixelData = encapsulate(frames, has_bot=False)
+    else:
+        ds.PixelData = (itemize_fragment(b"") + b"".join(itemize_fragment(f) for f in frames)
+                        + struct.pack("<HHI", 0xFFFE, 0xE0DD, 0))
+    ds["PixelData"].VR = "OB"
+    ds["PixelData"].is_undefined_length = True
+    return _write(ds, Path(path))
