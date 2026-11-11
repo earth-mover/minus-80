@@ -172,6 +172,27 @@ region, and the laptop run dropped chunks. Price indexing before you start
 because local reads are bound by memory bandwidth; time the read a user sees
 against downloading the files.
 
+### Time workers before choosing threads or processes
+
+Which is faster depends on whether the work holds Python's global interpreter
+lock (GIL). Threads win when the work runs outside the GIL: waiting on network
+reads, or C code that releases the lock while it works. They share memory, so
+nothing is pickled between workers and nothing is copied. Threads lose when the
+work returns to Python often, because they queue for the lock, and adding
+threads can make the total slower. Processes avoid the lock, but pay for
+startup, pickling and memory.
+
+So time one worker against several before choosing. If the total rises with
+more workers, the work runs outside the GIL and threads are enough. If it
+falls, the workers are contending: try processes before blaming the network.
+
+The SanctSound FLAC scan is an example of the second kind. PyAV's demuxer
+returns to Python for every packet, and a 371 MB recording has 127,400. On a
+laptop, scanning a local copy ran at 1.5 GB/s in one process and 6.6 GB/s in
+eight, but at 350 MB/s with four threads and 125 MB/s with eight. On a cloud
+VM, four threads had read the bucket at 174 MB/s and eight at 62 MB/s, a drop
+that had been taken for a bandwidth limit.
+
 ### Decode only to build a derived layer, and only once
 
 When an overview needs pixels, decode the bytes that indexing already
