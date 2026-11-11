@@ -57,7 +57,7 @@ def plates_to_write(s: Survey, chosen: str | None) -> list[tuple[str, int]]:
     every = sorted({(e, int(p)) for e, p in zip(s.metadata.experiment, s.metadata.plate)})
     if not chosen:
         return every
-    wanted = [(e, int(p)) for e, p in (item.split("/") for item in chosen.split(","))]
+    wanted = [(e, int(p)) for e, p in (item.split("/") for item in chosen.split(",") if item)]
     missing = sorted(set(wanted) - set(every))
     if missing:
         raise SystemExit(f"{s.dataset.key} has no plate {missing}")
