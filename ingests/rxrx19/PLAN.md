@@ -161,8 +161,24 @@ All on 2026-11-11, from a laptop, with icechunk 2.3.0.
 - **Embeddings.** Every value of the rows checked prints back identically from
   float32.
 
-Not yet measured: a commit and a chunk read against the real object store,
-ice-pack against S3, and the time a reader takes to open the 57 MB snapshot.
+- **Trial on Arraylake** (2026-11-11, from a laptop, with the ingest token).
+  RxRx19a's HRCE-1 Plate1 (5,360 sites, 12,094 nodes, 26,800 references) was
+  written to two branches of `earthmover-biology/RxRx19`:
+
+  | | references committed in the session | packed by ice-pack |
+  |---|---|---|
+  | build | 6.7 s | 2.6 s |
+  | commit | about 55 s, 5,360 manifests | 4.3 s for the nodes, then about 3 s for one manifest |
+  | total | 64 s | 10.8 s |
+
+  ice-pack wrote to the repo's prefix of the org's R2 bucket with temporary
+  credentials scoped to that prefix. `verify.py` passed on both branches,
+  read through the Arraylake client: the plate's wells match
+  `metadata.csv`, a plate, a well and a site validate, and 5 sites read from
+  `gs://rxrx` through Icechunk equal their PNGs decoded straight from the
+  zip.
+
+Not yet measured: the time a reader takes to open the full 57 MB snapshot.
 
 ## Judgment calls
 
