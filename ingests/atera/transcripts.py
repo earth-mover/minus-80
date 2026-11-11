@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import zipfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -82,19 +81,20 @@ def tile_slices(
 ) -> Iterator[pa.Table]:
     """The transcripts of ``grid/<tile>`` in tables of at most ``rows`` rows, numbered from ``first_instance``.
 
-    Each slice reads only the source chunks that its rows touch. A slice holds whole chunks, so none decodes twice;
-    chunks above ``rows`` rows raise ``ValueError``.
+    Each slice reads only the source chunks that its rows touch. A slice holds whole chunks of the column with the widest chunks.
+    A chunk above ``rows`` rows raises ``ValueError``.
     """
     members = set(zf.namelist())
     total = json.loads(zf.read(f"grid/{tile}/location/.zarray"))["shape"][0]
     # One dictionary for every slice, so the files and the table agree on the codes.
     features = codewords["feature_name"].combine_chunks().dictionary_encode()
-    chunk_rows = math.lcm(*(
-        json.loads(zf.read(f"grid/{tile}/{name}/.zarray"))["chunks"][0] for name in _COLUMN_ARRAYS
-    ))
-    if chunk_rows > rows:
-        raise ValueError(f"tile {tile}: chunk rows {chunk_rows} are above the slice bound {rows}")
-    step = rows // chunk_rows * chunk_rows
+    chunk_rows = {n: json.loads(zf.read(f"grid/{tile}/{n}/.zarray"))["chunks"][0] for n in _COLUMN_ARRAYS}
+    widest = max(chunk_rows, key=chunk_rows.get)
+    if chunk_rows[widest] > rows:
+        raise ValueError(f"tile {tile}: column {widest} has chunk rows {chunk_rows[widest]}, above the slice bound {rows}")
+    # Whole widest chunks keep each column whose chunk rows divide the step aligned.
+    # Another column decodes a chunk twice at a boundary.
+    step = rows // chunk_rows[widest] * chunk_rows[widest]
     for start in range(0, total, step):
         stop = min(start + step, total)
 

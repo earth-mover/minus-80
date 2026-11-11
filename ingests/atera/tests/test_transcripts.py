@@ -195,17 +195,55 @@ def test_write_tile_of_a_tile_with_no_rows_writes_no_row(tmp_path, tables, codew
     assert pq.read_table(path).num_rows == 0
 
 
-def test_a_slice_bound_below_the_chunk_rows_is_refused(tmp_path, codewords):
+def _store_with_chunk_rows(tmp_path, chunk_rows, n=29):
+    """A one-tile store whose columns have the chunk rows ``chunk_rows`` gives, by column name."""
     rng = np.random.default_rng(0)
-    # The columns' chunk rows are 2 and 3, so a slice is a multiple of 6 rows.
-    store = zip_v2_store(tmp_path, "uneven", {
-        "grid/0,0/location": (rng.random((13, 3), dtype=np.float32), {"chunks": (2, 3)}),
-        "grid/0,0/codeword_identity": (rng.integers(0, 2, (13, 1)).astype("<u4"), {"chunks": (3, 1)}),
-        "grid/0,0/cell_id": (rng.integers(0, 9, (13, 2)).astype("<u4"), {"chunks": (2, 2)}),
-        "grid/0,0/quality_score": (rng.random((13, 1)).astype("<f2"), {"chunks": (2, 1)}),
-        "grid/0,0/overlaps_nucleus": (rng.integers(0, 2, (13, 1)).astype("u1"), {"chunks": (2, 1)}),
-    })
+    data = {
+        "location": rng.random((n, 3), dtype=np.float32),
+        "codeword_identity": rng.integers(0, 2, (n, 1)).astype("<u4"),
+        "cell_id": rng.integers(0, 2**32, (n, 2), dtype=np.uint32),
+        "quality_score": rng.random((n, 1)).astype("<f2"),
+        "overlaps_nucleus": rng.integers(0, 2, (n, 1)).astype("u1"),
+    }
+    return zip_v2_store(
+        tmp_path,
+        "uneven",
+        {f"grid/0,0/{k}": (v, {"chunks": (chunk_rows[k], v.shape[1])}) for k, v in data.items()},
+    )
+
+
+UNEVEN = {"location": 5, "codeword_identity": 4, "cell_id": 6, "quality_score": 3, "overlaps_nucleus": 6}
+
+
+@pytest.mark.parametrize("rows, sizes", [(13, [12, 12, 5]), (6, [6] * 4 + [5]), (100, [29])])
+def test_columns_with_different_chunk_rows_give_the_whole_tile(tmp_path, codewords, rows, sizes):
+    store = _store_with_chunk_rows(tmp_path, UNEVEN)
+    pieces = list(tile_slices(store, "0,0", codewords, first_instance=0, rows=rows))
+    assert [len(p) for p in pieces] == sizes
+    assert pa.concat_tables(pieces).equals(tile_table(store, "0,0", codewords, first_instance=0))
+
+
+def test_an_aligned_column_decodes_each_chunk_once_and_a_misaligned_column_at_most_twice(tmp_path, codewords):
+    store = _store_with_chunk_rows(tmp_path, UNEVEN)
+    log = _ReadLog(store.filename)
+    list(tile_slices(log, "0,0", codewords, first_instance=0, rows=13))
+    for column in UNEVEN:
+        reads = [m for m in log.read_members if m.startswith(f"grid/0,0/{column}/") and not m.endswith(".zarray")]
+        most = max(reads.count(m) for m in set(reads))
+        # The step is 12 rows, so chunks of 5 rows straddle the boundaries and the others do not.
+        assert most == (2 if column == "location" else 1), column
+
+
+def test_a_chunk_above_the_slice_bound_is_refused_with_its_column(tmp_path, codewords):
+    store = _store_with_chunk_rows(tmp_path, UNEVEN)
+    with pytest.raises(ValueError, match=r"cell_id.*chunk rows 6"):
+        list(tile_slices(store, "0,0", codewords, first_instance=0, rows=5))
+
+
+def test_chunk_rows_of_two_and_three_give_the_whole_tile_at_a_bound_of_five(tmp_path, codewords):
+    store = _store_with_chunk_rows(tmp_path, {**UNEVEN, "location": 2, "codeword_identity": 2, "cell_id": 3,
+                                              "quality_score": 2, "overlaps_nucleus": 2}, n=13)
     pieces = list(tile_slices(store, "0,0", codewords, first_instance=0, rows=7))
     assert [len(p) for p in pieces] == [6, 6, 1]
-    with pytest.raises(ValueError, match=r"chunk rows 6"):
-        list(tile_slices(store, "0,0", codewords, first_instance=0, rows=5))
+    pieces = list(tile_slices(store, "0,0", codewords, first_instance=0, rows=5))
+    assert pa.concat_tables(pieces).equals(tile_table(store, "0,0", codewords, first_instance=0))

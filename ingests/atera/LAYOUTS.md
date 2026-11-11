@@ -142,6 +142,15 @@ The column `instance` has two meanings.
 | `nucleus_boundaries`, `cell_boundaries` | The cell mask label, 1-based: `cell_index + 1`. |
 | `obs` of `tables/table` | The cell mask label, 1-based: the row position plus one. |
 
+### Chunk rows of a transcript tile
+
+A check on 2026-11-11 measured the chunk rows of the arrays of tile `3,1`.
+The columns of one tile have different chunk rows.
+The array `location` has 87,382 chunk rows.
+The least common multiple of the chunk rows of all columns is 45,813,334,016.
+This is 43,691 times 2^20.
+The ingest slices a tile in whole chunks of its widest column.
+
 ### The polygon sets
 
 Measured on 2026-11-11 in the kidney bundle. Each set is sorted by `cell_index`.
