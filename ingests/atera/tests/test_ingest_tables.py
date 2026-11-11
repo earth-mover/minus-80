@@ -83,3 +83,60 @@ def test_writer_holds_only_the_elements_a_commit_wrote(tmp_path):
         root.require_group("labels").create_group("nucleus_labels")
     assert writer.holds("labels/nucleus_labels")
     assert not writer.holds("labels/cell_labels")
+
+
+def test_an_element_that_raises_is_not_committed(tmp_path):
+    import pytest
+    from ingest import ReadCounter, Writer
+    from minus80.core.icechunk_io import create_repo
+
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    writer = Writer(repo, "fixture", ReadCounter(None))
+    snapshot = repo.lookup_branch("fixture")
+    with pytest.raises(RuntimeError, match="read failed"):
+        with writer.element("labels/nucleus_labels", None) as root:
+            root.require_group("labels").create_group("nucleus_labels")
+            raise RuntimeError("read failed")
+    assert repo.lookup_branch("fixture") == snapshot
+    assert not writer.holds("labels/nucleus_labels")
+
+
+def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
+    import pytest
+    import zarr
+    from ingest import ReadCounter, Writer
+    from minus80.core.icechunk_io import create_repo
+    from minus80.core.tables import declare_copy
+
+    writes = []
+
+    def counted_write(io, url, table, *, geo):
+        writes.append(url)
+        write_local(io, url, table, geo=geo)
+
+    tables = Tables(local_catalog(tmp_path / "catalog"), "ns", kind="local", org="local", write_file=counted_write)
+    prefix = tables.data_prefix("t", schema=SCHEMA, properties={})
+    repo = create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    writer = Writer(repo, "fixture", ReadCounter(None))
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        with writer.element("points/t", None):
+            first, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+            raise RuntimeError("commit failed")
+    assert not writer.holds("points/t")
+
+    with zarr.config.set({"array.rectilinear_chunks": True}):
+        with writer.element("points/t", None) as root:
+            again, attr = tables.write("t", _table(), schema=SCHEMA, properties={})
+            group = root.require_group("points").create_group("t")
+            group.attrs["iceberg_table"] = attr
+            declare_copy(group, "points.parquet", again.files)
+        assert writer.holds("points/t")
+        stored = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["points/t"]
+        assert stored["points.parquet"][:].tobytes() == file_path(again.files[0][0]).read_bytes()
+    assert again == first
+    assert len(writes) == 1
+    assert stored.attrs["iceberg_table"]["snapshot_id"] == first.snapshot_id
+    assert tables.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2

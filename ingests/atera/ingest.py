@@ -100,7 +100,10 @@ class Writer:
         self.repo, self.branch, self.counter = repo, branch, counter
 
     def holds(self, path: str) -> bool:
-        """True when the branch has a node at ``path``, so a rerun skips that element."""
+        """True when the branch has a node at ``path``, so a rerun skips that element.
+
+        An element is held only when its commit exists. An element that raised was never committed.
+        """
         try:
             root = zarr.open_group(self.repo.readonly_session(branch=self.branch).store, mode="r")
         except zarr.errors.GroupNotFoundError:  # A branch with no commit beyond the first has no root group.
@@ -116,6 +119,7 @@ class Writer:
 
     @contextmanager
     def element(self, path: str, total: int | None):
+        """A writable root for ``path``; it commits only when the body returns without an exception."""
         session = self.repo.writable_session(self.branch)
         root = zarr.open_group(session.store, mode="a")
         start, before = time.monotonic(), self.counter.bytes
