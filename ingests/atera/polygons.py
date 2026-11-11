@@ -7,7 +7,7 @@ import zipfile
 import numpy as np
 import pyarrow as pa
 import shapely
-from bundle import read_v2_array
+from minus80.core.zarr_copy import read_array
 
 #: A row's bounds, for file pruning by column statistics.
 BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
@@ -46,7 +46,8 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
     A ring with under 3 vertices or a non-finite coordinate raises ``ValueError`` naming the row.
     An invalid ring, such as a bow-tie, is kept as published: the source's errors are reproduced.
     """
-    read = lambda name: read_v2_array(zf, f"polygon_sets/{set_index}/{name}")
+    names = set(zf.namelist())
+    read = lambda name: read_array(zf, f"polygon_sets/{set_index}/{name}", names=names)
     vertices, num_vertices = read("vertices"), read("num_vertices")
     cell_index, method = read("cell_index"), read("method")
     polygons = []

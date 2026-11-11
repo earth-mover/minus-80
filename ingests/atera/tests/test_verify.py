@@ -8,13 +8,20 @@ from anndata.io import write_elem
 from pyiceberg.io.pyarrow import parquet_file_to_data_file
 from pyiceberg.types import LongType
 
-from ingest import Tables, local_catalog, write_local
+from ingest import table_attr
 from minus80.core.icechunk_io import create_repo
-from minus80.core.tables import declare_copy, iceberg_table_attr, register_files
+from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files
 from tests.stores import zip_v2_store
 from verify import gate_attrs, gate_copies, gate_field_ids, gate_table_index, gate_tables
 
 SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
+
+
+def _write(tables, name, table):
+    """``table`` written into table ``name``, required with ``SCHEMA``; the reference and the element attribute."""
+    tables.require(name, schema=SCHEMA, properties={})
+    ref = tables.write(name, table)
+    return ref, table_attr(tables, name, ref)
 
 
 def _table_root(tmp_path, *, index_in_order: bool):
@@ -52,9 +59,8 @@ def test_field_ids_fails_when_no_element_has_a_table(tmp_path):
 
 
 def test_field_ids_fails_a_snapshot_without_data_files(tmp_path):
-    tables = Tables(local_catalog(tmp_path / "c"), "ns", kind="local", org="local", write_file=write_local)
-    _, attr = tables.write("t", pa.table({"instance": [1], "grid_tile": ["0,0"]}, schema=SCHEMA),
-                           schema=SCHEMA, properties={})
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
+    _, attr = _write(tables, "t", pa.table({"instance": [1], "grid_tile": ["0,0"]}, schema=SCHEMA))
     iceberg = tables.catalog.load_table("ns.t")
     iceberg.delete()
     empty = tables.catalog.load_table("ns.t").current_snapshot().snapshot_id
@@ -63,9 +69,9 @@ def test_field_ids_fails_a_snapshot_without_data_files(tmp_path):
 
 
 def test_field_ids_checks_the_pinned_snapshot_and_every_field(tmp_path):
-    tables = Tables(local_catalog(tmp_path / "c"), "ns", kind="local", org="local", write_file=write_local)
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
     table = pa.table({"instance": [1], "grid_tile": ["0,0"]}, schema=SCHEMA)
-    _, attr = tables.write("t", table, schema=SCHEMA, properties={})
+    _, attr = _write(tables, "t", table)
     # A later schema adds a field the pinned snapshot's file never had.
     with tables.catalog.load_table("ns.t").update_schema() as update:
         update.add_column("extra", LongType())
@@ -83,9 +89,9 @@ def test_field_ids_checks_the_pinned_snapshot_and_every_field(tmp_path):
 
 
 def test_field_ids_passes_files_with_the_table_ids_and_a_required_instance(tmp_path):
-    tables = Tables(local_catalog(tmp_path / "c"), "ns", kind="local", org="local", write_file=write_local)
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
     table = pa.table({"instance": [1], "grid_tile": ["0,0"]}, schema=SCHEMA)
-    _, attr = tables.write("t", table, schema=SCHEMA, properties={})
+    _, attr = _write(tables, "t", table)
     assert gate_field_ids(_points_root(tmp_path, attr), tables.catalog) == []
 
 
@@ -118,9 +124,8 @@ def test_field_ids_fails_a_file_column_the_table_lacks(tmp_path, with_ids):
     # A later schema drops the column, and a later snapshot still holds the wide file.
     with catalog.load_table("ns.t").update_schema() as update:
         update.delete_column("extra")
-    tables = Tables(catalog, "ns", kind="local", org="local", write_file=write_local)
-    _, attr = tables.write("t", pa.table({"instance": [2], "grid_tile": ["0,0"]}, schema=SCHEMA),
-                           schema=SCHEMA, properties={})
+    tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
+    _, attr = _write(tables, "t", pa.table({"instance": [2], "grid_tile": ["0,0"]}, schema=SCHEMA))
     errors = gate_field_ids(_points_root(tmp_path, attr), catalog)
     assert f"points/t: {path} has columns the table lacks: extra" in errors
     assert all(path in e for e in errors)
@@ -128,11 +133,10 @@ def test_field_ids_fails_a_file_column_the_table_lacks(tmp_path, with_ids):
 
 def _pinned_fixture(tmp_path):
     """A repo whose ``points/transcripts`` pins a table snapshot that a later append left behind."""
-    tables = Tables(local_catalog(tmp_path / "c"), "ns", kind="local", org="local", write_file=write_local)
-    spec = {"schema": SCHEMA, "properties": {}}
-    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix("transcripts", **spec)])
-    ref, attr = tables.write("transcripts", pa.table({"instance": [1, 2], "grid_tile": ["0,0"] * 2}, schema=SCHEMA),
-                             **spec)
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
+    tables.require("transcripts", schema=SCHEMA, properties={})
+    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix("transcripts")])
+    ref, attr = _write(tables, "transcripts", pa.table({"instance": [1, 2], "grid_tile": ["0,0"] * 2}, schema=SCHEMA))
     session = repo.writable_session("main")
     root = zarr.open_group(session.store, mode="w")
     root.require_group("shapes")
@@ -141,7 +145,7 @@ def _pinned_fixture(tmp_path):
     with zarr.config.set({"array.rectilinear_chunks": True}):
         declare_copy(group, "points.parquet", ref.files)
     session.commit("pin")
-    tables.write("transcripts", pa.table({"instance": [3], "grid_tile": ["0,1"]}, schema=SCHEMA), **spec)
+    tables.write("transcripts", pa.table({"instance": [3], "grid_tile": ["0,1"]}, schema=SCHEMA))
     return tables.catalog, zarr.open_group(repo.readonly_session("main").store, mode="r"), attr
 
 

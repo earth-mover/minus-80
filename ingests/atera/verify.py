@@ -25,13 +25,14 @@ from anndata.io import read_elem
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import check_page
-from minus80.core.tables import parquet_field_ids
+from minus80.core.tables import local_catalog, parquet_field_ids
+from minus80.core.zarr_copy import read_array
 from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D, read_v2_array
-from ingest import FIXTURE_LEVEL, INSTANCE_KEY, MASKS, MIB, local_catalog, open_bundle
+from bundle import CELLS, MATRIX, MORPHOLOGY_2D
+from ingest import FIXTURE_LEVEL, INSTANCE_KEY, MASKS, MIB, open_bundle
 from sources import S3, SAMPLES
 
 SAMPLED = 50
@@ -333,9 +334,10 @@ def main() -> None:
     cells, matrix = bundle.member_zip(CELLS), bundle.member_zip(MATRIX)
     transcripts = bundle.member_zip("transcripts.zarr.zip")
     pixel_size = bundle.experiment()["pixel_size"]
-    summary = read_v2_array(cells, "cell_summary")
+    names = set(cells.namelist())
+    summary = read_array(cells, "cell_summary", names=names)
     columns = json.loads(cells.read("cell_summary/.zattrs"))["column_names"]
-    cell_id = read_v2_array(cells, "cell_id")
+    cell_id = read_array(cells, "cell_id", names=names)
 
     gates = {
         "images": lambda: gate_images(root, bundle),

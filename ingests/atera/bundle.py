@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import itertools
 import json
-import math
 import zipfile
 from pathlib import Path
 
-import numcodecs
-import numpy as np
 import tifffile
 from minus80.core.registry import as_url
 from minus80.core.remote import reader
-from minus80.core.zarr_copy import v2_spec
 from minus80.parsers.zip.nested import member_file, member_zip
 
 MORPHOLOGY_2D = (
@@ -50,29 +45,3 @@ class Bundle:
         # The OME-XML does not describe the pyramid's levels, so read it as a plain TIFF.
         return tifffile.TiffFile(self.member_file(name), is_ome=False)
 
-
-
-def read_v2_array(zf: zipfile.ZipFile, path: str) -> np.ndarray:
-    """Decode a whole Zarr v2 array of numeric dtype from ``zf``; a missing chunk is the fill value."""
-    zarray = json.loads(zf.read(f"{path}/.zarray"))
-    spec = v2_spec(zarray)
-    separator = zarray.get("dimension_separator", ".")
-    dtype = np.dtype(spec.dtype)
-    codecs = [spec.compressor, *reversed(spec.filters)]
-    out = np.full(spec.shape, spec.fill_value or 0, dtype=dtype, order=spec.order)
-    grid = [math.ceil(n / c) for n, c in zip(spec.shape, spec.chunks)]
-    members = set(zf.namelist())
-    for index in itertools.product(*map(range, grid)):
-        member = f"{path}/{separator.join(map(str, index))}"
-        if member not in members:
-            continue
-        raw = zf.read(member)
-        for codec in codecs:
-            if codec is not None:
-                raw = numcodecs.get_codec(dict(codec)).decode(raw)
-        chunk = np.frombuffer(raw, dtype=dtype).reshape(spec.chunks, order=spec.order)
-        # Edge chunks are stored padded to the full chunk shape.
-        start = [i * c for i, c in zip(index, spec.chunks)]
-        window = tuple(slice(s, min(s + c, n)) for s, c, n in zip(start, spec.chunks, spec.shape))
-        out[window] = chunk[tuple(slice(0, w.stop - w.start) for w in window)]
-    return out

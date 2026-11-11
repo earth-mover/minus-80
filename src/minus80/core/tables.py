@@ -12,15 +12,23 @@ must set ``zarr.config.set({"array.rectilinear_chunks": True})`` to open it.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import NamedTuple
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import zarr
+
+from .progress import MIB
+from .registry import file_path
 
 #: The ``file:`` Zarr convention, as its convention document states it.
 FILE_CONVENTION = {
@@ -178,11 +186,17 @@ def require_table(
                     update.update_column(name, required=True)
             table = catalog.load_table(identifier)
         return table
-    table = catalog.create_table(identifier, schema=schema, properties=dict(properties))
+    from pyiceberg.catalog import Catalog
+    from pyiceberg.partitioning import PartitionField, PartitionSpec
+    from pyiceberg.transforms import IdentityTransform
+
+    # The spec needs the field id, so the schema is converted before the table is created.
+    iceberg_schema = Catalog._convert_schema_if_needed(schema)
+    spec = PartitionSpec()
     if partition_by is not None:
-        with table.update_spec() as spec:
-            spec.add_identity(partition_by)
-    return table
+        field_id = iceberg_schema.find_field(partition_by).field_id
+        spec = PartitionSpec(PartitionField(field_id, 1000, IdentityTransform(), partition_by))
+    return catalog.create_table(identifier, schema=iceberg_schema, partition_spec=spec, properties=dict(properties))
 
 
 def register_files(
@@ -299,3 +313,129 @@ def declare_copy(
             _copy_array(group, f"{path}/part.{i}.parquet", file, chunk)
             for i, file in enumerate(files)
         ]
+
+
+def local_catalog(directory: Path):
+    """The SQLite catalog in ``directory``, whose warehouse is ``directory`` too.
+
+    The warehouse URL is not percent-encoded, because pyiceberg reads a ``file://`` path as it is.
+    """
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    directory.mkdir(parents=True, exist_ok=True)
+    directory = directory.resolve()
+    return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=f"file://{directory}")
+
+
+def _content_name(path: Path) -> str:
+    """The first 32 hex digits of the SHA-256 of the file at ``path``."""
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(16 * MIB):
+            digest.update(block)
+    return digest.hexdigest()[:32]
+
+
+def _write_local(source: Path, url: str) -> None:
+    """Copy ``source`` to the ``file://`` URL ``url``. The final name never holds a partial file."""
+    path = file_path(url)
+    if path.exists():
+        raise FileExistsError(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(f"{path.name}.part")
+    with source.open("rb") as data, part.open("wb") as target:
+        shutil.copyfileobj(data, target, 16 * MIB)
+    # A hard link fails when ``path`` exists, so the name is never replaced.
+    os.link(part, path)
+    part.unlink()
+
+
+def _check_size(io, source: Path, url: str) -> None:
+    """Raise ``ValueError`` when the object at ``url`` has not the size of ``source``."""
+    found, expected = len(io.new_input(url)), source.stat().st_size
+    if found != expected:
+        raise ValueError(f"{url} has size {found}, not {expected}: it is partial, so it is not used")
+
+def _put(io, source: Path, url: str) -> None:
+    """Make the object at ``url`` hold ``source``'s bytes; a complete object stays as it is.
+
+    The name holds a hash of the bytes. A local object is renamed into place, so it is complete.
+    A remote object is written in place, so its size is checked before and after the write.
+    """
+    if url.startswith("file://"):
+        if not file_path(url).exists():
+            _write_local(source, url)
+        return
+    if not io.new_input(url).exists():
+        with source.open("rb") as data, io.new_output(url).create(overwrite=False) as target:
+            shutil.copyfileobj(data, target, 16 * MIB)
+    _check_size(io, source, url)
+
+
+class TableWriter:
+    """Parquet files written into the Iceberg tables of one namespace, each under its table's location."""
+
+    def __init__(self, catalog, namespace: str, *, catalog_name: str, org: str):
+        self.catalog, self.namespace = catalog, namespace
+        self.catalog_name, self.org = catalog_name, org
+        self._specs: dict[str, dict] = {}
+        if (namespace,) not in self.catalog.list_namespaces():
+            self.catalog.create_namespace(namespace)
+
+    def _spec(self, name: str) -> dict:
+        if name not in self._specs:
+            raise ValueError(f"table {name} is not required; call require first")
+        return self._specs[name]
+
+    def require(self, name: str, *, schema, properties, partition_by=None):
+        """The table ``name``, created when absent, with ``properties`` set; ``write`` then uses this spec."""
+        self._specs[name] = {"schema": schema, "properties": properties, "partition_by": partition_by}
+        table = require_table(self.catalog, f"{self.namespace}.{name}", schema=schema,
+                              properties=properties, partition_by=partition_by)
+        if any(table.properties.get(k) != v for k, v in properties.items()):
+            with table.transaction() as transaction:
+                transaction.set_properties(dict(properties))
+            table = self.catalog.load_table(f"{self.namespace}.{name}")
+        return table
+
+    def data_prefix(self, name: str) -> str:
+        """The URL prefix that holds the Parquet files of the required table ``name``."""
+        self._spec(name)
+        return f"{self.catalog.load_table(f'{self.namespace}.{name}').location()}/data/"
+
+    def write(self, name: str, table_or_path, *, geo=None, replace=False) -> TableRef:
+        """Write a table, or a Parquet file at a path, as the one file of ``name``, and register it.
+
+        A table gets the field ids of the Iceberg schema, ``instance`` as the index and ``geo`` in the footer.
+        A file at a path is used as it is, and takes no ``geo``. See :meth:`write_parts` for the rest.
+        """
+        if isinstance(table_or_path, Path):
+            if geo is not None:
+                raise ValueError("geo applies to a table; a Parquet file carries its own footer")
+            return self.write_parts(name, [table_or_path], replace=replace)
+        from pyiceberg.schema import index_by_name
+
+        iceberg = self.require(name, **self._spec(name))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "part.parquet"
+            write_parquet(table_or_path, str(path), index_column="instance", geo=geo,
+                          field_ids=index_by_name(iceberg.schema()))
+            return self.write_parts(name, [path], replace=replace)
+
+    def write_parts(self, name: str, paths: Sequence[Path], *, replace=False) -> TableRef:
+        """Write each Parquet file of ``paths`` into the table ``name``, and register all in one snapshot.
+
+        A file name holds a hash of the file's bytes, so other bytes never take an existing name.
+        A complete object under that name is reused. A remote object of another size raises ``ValueError``.
+        A local file goes to ``<name>.part`` first, and a crash leaves that file, which the next write overwrites.
+        With ``replace``, the files replace every file the table holds. A failure after the table
+        snapshot and before the repo commit leaves one extra snapshot; the next run converges.
+        """
+        spec = self._spec(name)
+        iceberg = self.require(name, **spec)
+        urls = []
+        for path in paths:
+            url = f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet"
+            _put(iceberg.io, path, url)
+            urls.append(url)
+        return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace, **spec)

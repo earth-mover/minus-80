@@ -8,13 +8,16 @@ Only the metadata is rewritten. A v2 feature with no v3 equivalent raises
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
+import math
 import re
 import zipfile
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import numcodecs
 import numpy as np
 import zarr
 from zarr.codecs import BloscCodec, TransposeCodec, VLenUTF8Codec
@@ -227,3 +230,33 @@ def copy_group(
             zf, array_prefix, array, concurrency=concurrency, names=names
         )
     return counts
+
+
+def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None = None) -> np.ndarray:
+    """Decode a whole Zarr v2 array of numeric dtype from ``zf``; a missing chunk is the fill value.
+
+    ``zf`` is an open zip, because ``ZipStore`` cannot use one and would parse the central directory again.
+    ``names`` is the member set; pass it when reading several arrays, so ``namelist()`` runs once.
+    """
+    zarray = json.loads(zf.read(f"{path}/.zarray"))
+    spec = v2_spec(zarray)
+    separator = zarray.get("dimension_separator", ".")
+    dtype = np.dtype(spec.dtype)
+    codecs = [spec.compressor, *reversed(spec.filters)]
+    out = np.full(spec.shape, spec.fill_value or 0, dtype=dtype, order=spec.order)
+    grid = [math.ceil(n / c) for n, c in zip(spec.shape, spec.chunks)]
+    members = set(zf.namelist()) if names is None else names
+    for index in itertools.product(*map(range, grid)):
+        member = f"{path}/{separator.join(map(str, index))}"
+        if member not in members:
+            continue
+        raw = zf.read(member)
+        for codec in codecs:
+            if codec is not None:
+                raw = numcodecs.get_codec(dict(codec)).decode(raw)
+        chunk = np.frombuffer(raw, dtype=dtype).reshape(spec.chunks, order=spec.order)
+        # Edge chunks are stored padded to the full chunk shape.
+        start = [i * c for i, c in zip(index, spec.chunks)]
+        window = tuple(slice(s, min(s + c, n)) for s, c, n in zip(start, spec.chunks, spec.shape))
+        out[window] = chunk[tuple(slice(0, w.stop - w.start) for w in window)]
+    return out

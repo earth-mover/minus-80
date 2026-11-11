@@ -25,6 +25,7 @@ Statuses checked 2026-10-22.
 | `buffers` imports VirtualiZarr's private `_parse_zip64_extra` to read the sizes in a ZIP64 local header. | `minus80.parsers.zip.buffers` | Make it public. | not filed |
 | `tensor_ranges` reads a safetensors header and returns each tensor's byte range, including inside a STORED zip member. | `minus80.parsers.zip.safetensors_ranges` | Add a safetensors parser. | [VirtualiZarr#367](https://github.com/zarr-developers/VirtualiZarr/issues/367), open issue |
 | `ZippedZarrParser` reads a `.zarr.zip` that is its own object. It cannot read one stored inside another zip. `member_file` opens the stored member as a seekable file, and `copy_group` copies the Zarr v2 chunks into a v3 group. | `minus80.parsers.zip.nested`, `minus80.core.zarr_copy` | Let `ZippedZarrParser` read a Zarr zip that is a member of a stored zip. | not filed |
+| `read_array` decodes a Zarr v2 array from an open `zipfile.ZipFile`. `zarr.storage.ZipStore` takes a path or a file object, not an open `ZipFile`, so a second open parses the central directory again. | `minus80.core.zarr_copy` | `ZipStore`: accept an open `ZipFile`. | not filed |
 
 ## Icechunk
 

@@ -2,11 +2,9 @@ import io
 import json
 import zipfile
 
-import numpy as np
 import pytest
 
-from bundle import Bundle, read_v2_array
-from .stores import zip_v2_store
+from bundle import Bundle
 from sources import S3, SAMPLES
 
 
@@ -36,20 +34,6 @@ def test_bundle_opens_members_locally_and_remotely(tmp_path, range_server):
         assert "cells.zarr.zip" in b.names
         assert b.experiment()["pixel_size"] == 0.21249222
         assert "a/.zarray" in b.member_zip("cells.zarr.zip").namelist()
-
-
-def test_read_v2_array_assembles_chunks_in_the_stored_order(tmp_path):
-    fortran = np.arange(35, dtype="<f4").reshape(7, 5)
-    zf = zip_v2_store(
-        tmp_path,
-        "store",
-        {
-            "g/f": (fortran, {"order": "F", "chunks": (3, 2)}),
-            "g/v": (np.arange(10, dtype="<u4"), {"chunks": (4,)}),
-        },
-    )
-    assert np.array_equal(read_v2_array(zf, "g/f"), fortran)
-    assert np.array_equal(read_v2_array(zf, "g/v"), np.arange(10, dtype="<u4"))
 
 
 def test_open_bundle_counts_the_bytes_it_reads(tmp_path):

@@ -7,7 +7,7 @@ import zipfile
 
 import numpy as np
 import pyarrow as pa
-from bundle import read_v2_array
+from minus80.core.zarr_copy import read_array
 from polygons import BBOX
 
 CATEGORY_COLUMNS = (
@@ -54,7 +54,7 @@ def codeword_table(zf: zipfile.ZipFile) -> pa.Table:
     attrs = json.loads(zf.read(".zattrs"))
     feature_names = pa.array(attrs["codeword_gene_names"], type=pa.string())
     feature_index = np.asarray(attrs["codeword_gene_mapping"], dtype=np.int32)
-    category = read_v2_array(zf, "codeword_category")
+    category = read_array(zf, "codeword_category")
     columns = {
         "codeword_index": pa.array(np.arange(len(feature_index), dtype=np.int64)),
         "feature_index": pa.array(feature_index),
@@ -68,7 +68,8 @@ def tile_table(
     zf: zipfile.ZipFile, tile: str, codewords: pa.Table, *, first_instance: int
 ) -> pa.Table:
     """The transcripts of ``grid/<tile>``, numbered from ``first_instance``."""
-    read = lambda name: read_v2_array(zf, f"grid/{tile}/{name}")
+    members = set(zf.namelist())
+    read = lambda name: read_array(zf, f"grid/{tile}/{name}", names=members)
     location = read("location")
     codeword = read("codeword_identity")[:, 0]
     cell = read("cell_id")

@@ -8,11 +8,8 @@ The bundle is read in place by range requests.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import shutil
-import tempfile
 import time
 from pathlib import Path
 
@@ -23,17 +20,15 @@ from anndata.io import write_elem
 from minus80.core.elements import ElementWriter
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
 from minus80.core.progress import MIB
-from minus80.core.registry import as_url, file_path
+from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, counting_reader
 from minus80.core.pyramid import channel_names, create_level, write_page
-from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, require_table, write_parquet
-from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
+from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog
+from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
 from minus80.ome import channel_omero, image_attrs, label_attrs
 from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, write_table_keys
-from pyiceberg.catalog.sql import SqlCatalog
-from pyiceberg.schema import index_by_name
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle, read_v2_array
+from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
 from sources import S3, SAMPLES
@@ -168,81 +163,10 @@ def table_properties(sample, layouts: str, repo: str, **extra) -> dict[str, str]
     return properties | {k: v if isinstance(v, str) else json.dumps(v) for k, v in extra.items()}
 
 
-def local_catalog(directory: Path) -> SqlCatalog:
-    """The SQLite catalog in ``directory``, whose warehouse is ``directory`` too."""
-    directory.mkdir(parents=True, exist_ok=True)
-    directory = directory.resolve()
-    return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=directory.as_uri())
-
-
-def write_local(io, source: Path, url: str) -> None:
-    """Copy ``source`` to the ``file://`` URL ``url``; an existing file raises ``FileExistsError``."""
-    path = file_path(url)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with source.open("rb") as data, path.open("xb") as target:
-        shutil.copyfileobj(data, target, 16 * MIB)
-
-
-def write_through_io(io, source: Path, url: str) -> None:
-    """Copy ``source`` to ``url`` through the table's FileIO; an existing object raises ``FileExistsError``."""
-    with source.open("rb") as data, io.new_output(url).create(overwrite=False) as target:
-        shutil.copyfileobj(data, target, 16 * MIB)
-
-
-def content_name(path: Path) -> str:
-    """The first 32 hex digits of the SHA-256 of the file at ``path``."""
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        while block := f.read(16 * MIB):
-            digest.update(block)
-    return digest.hexdigest()[:32]
-
-
-class Tables:
-    """One Iceberg namespace. Each table's Parquet file goes under the table's own location."""
-
-    def __init__(self, catalog, namespace: str, *, kind: str, org: str, write_file):
-        self.catalog, self.namespace = catalog, namespace
-        self.kind, self.org, self.write_file = kind, org, write_file
-        if (namespace,) not in self.catalog.list_namespaces():
-            self.catalog.create_namespace(namespace)
-
-    def require(self, name: str, *, schema, properties, partition_by=None):
-        """The table ``name``, created when absent, with ``properties`` set."""
-        table = require_table(self.catalog, f"{self.namespace}.{name}", schema=schema,
-                              properties=properties, partition_by=partition_by)
-        if any(table.properties.get(k) != v for k, v in properties.items()):
-            with table.transaction() as transaction:
-                transaction.set_properties(dict(properties))
-            table = self.catalog.load_table(f"{self.namespace}.{name}")
-        return table
-
-    def data_prefix(self, name: str, **spec) -> str:
-        """The URL prefix that holds the table's Parquet files; it creates the table when absent."""
-        return f"{self.require(name, **spec).location()}/data/"
-
-    def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None, replace=False):
-        """Write ``table`` as a file of the table, with the table's field ids, and register it.
-
-        The file name holds a hash of the file's bytes, so other bytes never take an existing name.
-        An object under that name is reused and never written again, so a committed reference stays valid.
-        With ``replace``, the file replaces every file the table holds.
-        With ``replace``, a failure after the table snapshot and before the repo commit leaves one
-        extra snapshot, and the next run's snapshot leaves that file unreferenced. The next run converges.
-        """
-        spec = {"schema": schema, "properties": properties, "partition_by": partition_by}
-        iceberg = self.require(name, **spec)
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "part.parquet"
-            write_parquet(table, str(path), index_column="instance", geo=geo,
-                          field_ids=index_by_name(iceberg.schema()))
-            url = f"{iceberg.location()}/data/{name}-{content_name(path)}.parquet"
-            if not iceberg.io.new_input(url).exists():
-                self.write_file(iceberg.io, path, url)
-        ref = register_files(self.catalog, f"{self.namespace}.{name}", [url], replace=replace, **spec)
-        attr = iceberg_table_attr(ref, catalog=self.kind, org=self.org, namespace=self.namespace, table=name,
-                                  index_column="instance", geometry_column="geometry" if geo else None)
-        return ref, attr
+def table_attr(tables: TableWriter, name: str, ref, *, geo=None) -> dict:
+    """The ``iceberg_table`` attribute of the element that references table ``name`` at ``ref``."""
+    return iceberg_table_attr(ref, catalog=tables.catalog_name, org=tables.org, namespace=tables.namespace,
+                              table=name, index_column="instance", geometry_column="geometry" if geo else None)
 
 
 def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
@@ -260,25 +184,27 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     }
 
 
-def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
+def write_nucleus_boundaries(writer, bundle, tables: TableWriter, *, replace=False) -> None:
     zf = bundle.member_zip(CELLS)
     path = f"polygon_sets/{NUCLEUS_SET}/"
     total = member_bytes(zf, path) + member_bytes(zf, "cell_id/")
     with writer.unit("shapes/nucleus_boundaries", "Write shapes/nucleus_boundaries", total=total) as (root, _):
-        cell_id = read_v2_array(zf, "cell_id")
+        cell_id = read_array(zf, "cell_id")
         table = polygon_table(zf, NUCLEUS_SET, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        ref, attr = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, replace=replace, **spec)
+        ref = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, replace=replace)
+        attr = table_attr(tables, "nucleus_boundaries", ref, geo=GEO_POLYGONS)
         group = root.require_group("shapes").create_group("nucleus_boundaries", overwrite=replace)
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_transcripts(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
+def write_transcripts(writer, bundle, tables: TableWriter, *, replace=False) -> None:
     zf = bundle.member_zip(TRANSCRIPTS)
     total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
     with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _):
         table = tile_table(zf, FIXTURE_TILE, codeword_table(zf), first_instance=0)
-        ref, attr = tables.write("transcripts", table, replace=replace, **spec)
+        ref = tables.write("transcripts", table, replace=replace)
+        attr = table_attr(tables, "transcripts", ref)
         group = root.require_group("points").create_group("transcripts", overwrite=replace)
         transform = scale([1.0, 1.0, 1.0], ("x", "y", "z"), unit=UNIT)
         group.attrs.update({**points_attrs(("x", "y", "z"), transform, instance_key="cell_id",
@@ -340,15 +266,15 @@ def main() -> None:
         from arraylake import Client
 
         org = args.catalog.removeprefix("arraylake:")
-        tables = Tables(Client().get_iceberg(org), args.namespace, kind="arraylake", org=org,
-                        write_file=write_through_io)
+        tables = TableWriter(Client().get_iceberg(org), args.namespace, catalog_name="arraylake", org=org)
     else:
-        tables = Tables(local_catalog(Path(args.catalog)), args.namespace, kind="local", org="local",
-                        write_file=write_local)
+        tables = TableWriter(local_catalog(Path(args.catalog)), args.namespace, catalog_name="local", org="local")
     methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
     # The tables exist before any element, so a repo without a container over their files fails here.
-    prefixes = [tables.data_prefix(name, **spec) for name, spec in specs.items()]
+    for name, spec in specs.items():
+        tables.require(name, **spec)
+    prefixes = [tables.data_prefix(name) for name in specs]
     if on_arraylake:
         repo = arraylake_repository(args.repo, source_prefixes=prefixes)
     else:
@@ -363,9 +289,9 @@ def main() -> None:
         if "tables/table:attrs" in args.rewrite:
             write_table_index(writer)
         if "shapes/nucleus_boundaries" in args.rewrite:
-            write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"], replace=True)
+            write_nucleus_boundaries(writer, bundle, tables, replace=True)
         if "points/transcripts" in args.rewrite:
-            write_transcripts(writer, bundle, tables, specs["transcripts"], replace=True)
+            write_transcripts(writer, bundle, tables, replace=True)
         print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
         print(f"rewritten: {', '.join(sorted(args.rewrite))}")
         return
@@ -375,9 +301,9 @@ def main() -> None:
     if not skip_held(writer, f"images/morphology/s{FIXTURE_LEVEL}"):
         write_morphology(writer, bundle, pixel_size)
     if not skip_held(writer, "shapes/nucleus_boundaries"):
-        write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"])
+        write_nucleus_boundaries(writer, bundle, tables)
     if not skip_held(writer, "points/transcripts"):
-        write_transcripts(writer, bundle, tables, specs["transcripts"])
+        write_transcripts(writer, bundle, tables)
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
     print("fixture written: 1 image level, 2 labels, 1 shapes, 1 points, 1 table")

@@ -1,5 +1,7 @@
 import json
 import os
+import re
+from pathlib import Path
 from datetime import datetime, timezone
 
 import icechunk
@@ -9,16 +11,21 @@ import pyarrow.parquet as pq
 import pytest
 import zarr
 from pyiceberg.catalog.sql import SqlCatalog
+from pyarrow.fs import LocalFileSystem, SubTreeFileSystem
 from pyiceberg.io.pyarrow import PyArrowFileIO
+from pyiceberg.schema import index_by_name
 
 from minus80.core.icechunk_io import create_repo
+from minus80.core.registry import file_path
 from minus80.core.tables import (
     DataFile,
     TableRef,
+    TableWriter,
     data_file,
     declare_copy,
     declare_file,
     iceberg_table_attr,
+    local_catalog,
     parquet_field_ids,
     register_files,
     require_table,
@@ -322,3 +329,291 @@ def test_declare_file_refuses_a_wrong_array(tmp_path):
         declare_file(root.create_array("b", shape=(2, 2), dtype="uint8"), "b")
     with pytest.raises(ValueError, match="node name"):
         declare_file(root.create_array("c", shape=(4,), dtype="uint8"), "other")
+
+
+WRITER_SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
+WRITER_SPEC = {"schema": WRITER_SCHEMA, "properties": {"p": "v"}}
+
+
+class BucketFileIO(PyArrowFileIO):
+    """An ``s3://`` FileIO over a local directory: a remote location that needs no network."""
+
+    def _initialize_s3_fs(self, netloc):
+        return SubTreeFileSystem(self.properties["bucket-root"], LocalFileSystem())
+
+    def new_output(self, location):
+        # A bucket has no directories to create.
+        output = super().new_output(location)
+        output._filesystem.create_dir(Path(output._path).parent.as_posix(), recursive=True)
+        return output
+
+
+def _rows(*instances):
+    return pa.table({"instance": pa.array(instances, pa.int64()), "grid_tile": ["0,0"] * len(instances)},
+                    schema=WRITER_SCHEMA)
+
+
+def _writer(tmp_path, **spec):
+    writer = TableWriter(local_catalog(tmp_path), "ns", catalog_name="local", org="local")
+    writer.require("t", **(WRITER_SPEC | spec))
+    return writer
+
+
+def _remote_writer(tmp_path, **spec):
+    root = tmp_path / "bucket"
+    (root / "bucket").mkdir(parents=True)
+    catalog = SqlCatalog("remote", uri=f"sqlite:///{tmp_path}/catalog.db", warehouse="s3://bucket/wh",
+                         **{"py-io-impl": f"{__name__}.BucketFileIO", "bucket-root": str(root)})
+    writer = TableWriter(catalog, "ns", catalog_name="remote", org="remote")
+    writer.require("t", **(WRITER_SPEC | spec))
+    return writer, root / "bucket"
+
+
+def test_local_catalog_keeps_its_warehouse_in_its_directory(tmp_path):
+    catalog = local_catalog(tmp_path / "a b")
+    catalog.create_namespace("ns")
+    table = catalog.create_table("ns.t", schema=WRITER_SCHEMA)
+    assert table.location().startswith(f"file://{(tmp_path / 'a b').resolve()}/")
+
+
+def test_write_gives_the_file_the_table_field_ids_and_a_required_instance(tmp_path):
+    writer = _writer(tmp_path)
+    ref = writer.write("t", _rows(1, 2))
+    iceberg = writer.catalog.load_table("ns.t")
+    footer = pq.read_schema(file_path(ref.files[0].location))
+    assert {f.name: int(f.metadata[b"PARQUET:field_id"]) for f in footer} == index_by_name(iceberg.schema())
+    assert not footer.field("instance").nullable
+    assert iceberg.schema().find_field("instance").required
+
+
+def test_write_puts_geo_in_the_footer(tmp_path):
+    writer = _writer(tmp_path)
+    ref = writer.write("t", _rows(1), geo=GEO)
+    assert json.loads(pq.read_schema(file_path(ref.files[0].location)).metadata[b"geo"]) == GEO
+
+
+def test_write_with_replace_swaps_the_file_and_keeps_the_table(tmp_path):
+    writer = _writer(tmp_path)
+    first = writer.write("t", _rows(1, 2))
+    ref = writer.write("t", _rows(2), replace=True)
+    iceberg = writer.catalog.load_table("ns.t")
+    assert ref.files[0].location != first.files[0].location
+    assert [t.file.file_path for t in iceberg.scan().plan_files()] == [ref.files[0].location]
+    assert iceberg.scan().to_arrow()["instance"].to_pylist() == [2]
+    assert ref.table_uuid == first.table_uuid and ref.snapshot_id != first.snapshot_id
+    assert file_path(first.files[0].location).exists()
+
+
+def test_write_puts_the_file_in_the_table_location_under_a_content_name(tmp_path):
+    writer = _writer(tmp_path, partition_by="grid_tile")
+    ref = writer.write("t", _rows(1, 2))
+    location = writer.catalog.load_table("ns.t").location()
+    [written] = ref.files
+    assert re.fullmatch(rf"{re.escape(location)}/data/t-[0-9a-f]{{32}}\.parquet", written.location)
+    assert pq.read_table(file_path(written.location)).num_rows == 2
+
+
+def test_write_in_a_directory_with_a_space_reaches_the_table(tmp_path):
+    writer = _writer(tmp_path / "a b")
+    ref = writer.write("t", _rows(1))
+    assert "a b" in str(file_path(ref.files[0].location))
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 1
+
+
+def test_write_again_reuses_the_snapshot(tmp_path):
+    writer = _writer(tmp_path)
+    first = writer.write("t", _rows(1, 2))
+    again = writer.write("t", _rows(1, 2))
+    assert again == first
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2
+
+
+def test_write_with_other_rows_adds_an_object_and_leaves_the_first(tmp_path):
+    writer = _writer(tmp_path)
+    first = writer.write("t", _rows(1, 2))
+    held = file_path(first.files[0].location).read_bytes()
+    second = writer.write("t", _rows(3))
+    assert second.files[0].location != first.files[0].location
+    assert file_path(first.files[0].location).read_bytes() == held
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 3
+
+
+def test_a_write_after_a_replace_reuses_the_earlier_object_unchanged(tmp_path):
+    writer = _writer(tmp_path)
+    first = writer.write("t", _rows(1, 2))
+    path = file_path(first.files[0].location)
+    held, written_at = path.read_bytes(), path.stat().st_mtime_ns
+    writer.write("t", _rows(2), replace=True)
+    # The current snapshot no longer holds the first file, but its name still states its bytes.
+    again = writer.write("t", _rows(1, 2))
+    assert again.files[0].location == first.files[0].location
+    assert path.read_bytes() == held and path.stat().st_mtime_ns == written_at
+
+
+def test_a_leftover_part_file_does_not_break_the_next_write(tmp_path):
+    writer = _writer(tmp_path)
+    ref = writer.write("t", _rows(1, 2))
+    final = file_path(ref.files[0].location)
+    expected = final.read_bytes()
+    final.unlink()
+    # A crash between the write and the rename leaves only this file.
+    part = final.with_name(final.name + ".part")
+    part.write_bytes(expected[: len(expected) // 2])
+    assert not final.exists()
+    writer.write("t", _rows(1, 2), replace=True)
+    assert final.read_bytes() == expected
+    assert not part.exists()
+
+
+def test_a_data_file_is_never_visible_under_its_final_name_while_it_is_written(tmp_path):
+    writer = _writer(tmp_path)
+    ref = writer.write("t", _rows(1, 2))
+    final = file_path(ref.files[0].location)
+    assert sorted(p.name for p in final.parent.iterdir()) == [final.name]
+
+
+def test_write_parts_registers_several_files_in_one_snapshot(tmp_path):
+    writer = _writer(tmp_path)
+    ids = index_by_name(writer.catalog.load_table("ns.t").schema())
+    paths = []
+    for i in range(3):
+        paths.append(tmp_path / f"p{i}.parquet")
+        write_parquet(_rows(i), str(paths[-1]), index_column="instance", field_ids=ids)
+    ref = writer.write_parts("t", paths)
+    iceberg = writer.catalog.load_table("ns.t")
+    assert len(ref.files) == 3 and len({f.location for f in ref.files}) == 3
+    assert len(iceberg.metadata.snapshots) == 1
+    assert sorted(iceberg.scan().to_arrow()["instance"].to_pylist()) == [0, 1, 2]
+
+
+def test_write_parts_with_replace_swaps_every_file_in_one_snapshot(tmp_path):
+    writer = _writer(tmp_path)
+    ids = index_by_name(writer.catalog.load_table("ns.t").schema())
+    paths = [tmp_path / f"p{i}.parquet" for i in range(2)]
+    for i, path in enumerate(paths):
+        write_parquet(_rows(i + 10), str(path), index_column="instance", field_ids=ids)
+    writer.write("t", _rows(1))
+    writer.write_parts("t", paths, replace=True)
+    iceberg = writer.catalog.load_table("ns.t")
+    assert sorted(iceberg.scan().to_arrow()["instance"].to_pylist()) == [10, 11]
+    assert len(iceberg.metadata.snapshots) == 2
+
+
+def test_write_takes_a_parquet_file_as_it_is(tmp_path):
+    writer = _writer(tmp_path)
+    ids = index_by_name(writer.catalog.load_table("ns.t").schema())
+    path = tmp_path / "p.parquet"
+    write_parquet(_rows(5), str(path), index_column="instance", field_ids=ids)
+    ref = writer.write("t", path)
+    assert file_path(ref.files[0].location).read_bytes() == path.read_bytes()
+    with pytest.raises(ValueError, match="geo"):
+        writer.write("t", path, geo=GEO)
+
+
+def test_write_refuses_a_table_that_was_not_required(tmp_path):
+    writer = _writer(tmp_path)
+    with pytest.raises(ValueError, match="other"):
+        writer.write("other", _rows(1))
+    with pytest.raises(ValueError, match="other"):
+        writer.data_prefix("other")
+
+
+def test_a_new_partitioned_table_is_created_in_one_commit(tmp_path):
+    writer = _writer(tmp_path, partition_by="grid_tile")
+    iceberg = writer.catalog.load_table("ns.t")
+    assert [f.name for f in iceberg.spec().fields] == ["grid_tile"]
+    assert len(iceberg.metadata.metadata_log) == 0
+
+
+def test_require_sets_properties_on_an_existing_table(tmp_path):
+    writer = _writer(tmp_path)
+    writer.require("t", **(WRITER_SPEC | {"properties": {"p": "w", "q": "x"}}))
+    assert writer.catalog.load_table("ns.t").properties["p"] == "w"
+    assert writer.catalog.load_table("ns.t").properties["q"] == "x"
+
+
+def test_data_prefix_covers_the_files_the_table_gets(tmp_path):
+    writer = _writer(tmp_path)
+    prefix = writer.data_prefix("t")
+    ref = writer.write("t", _rows(1, 2))
+    assert prefix.endswith("/data/") and ref.files[0].location.startswith(prefix)
+
+
+def test_a_repo_with_the_data_prefixes_reads_the_copy(tmp_path):
+    writer = _writer(tmp_path / "catalog")
+    repo = create_repo(tmp_path / "repo", [], prefixes=[writer.data_prefix("t")])
+    ref = writer.write("t", _rows(1, 2))
+    root = zarr.open_group(repo.writable_session("main").store, mode="w")
+    [array] = declare_copy(root, "t.parquet", ref.files)
+    assert array[:].tobytes() == file_path(ref.files[0].location).read_bytes()
+
+
+def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
+    from minus80.core.elements import ElementWriter
+
+    writer = _writer(tmp_path / "catalog")
+    repo = create_repo(tmp_path / "repo", [], prefixes=[writer.data_prefix("t")])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    elements = ElementWriter(repo, "fixture")
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        with elements.unit("points/t", "Write points/t"):
+            first = writer.write("t", _rows(1, 2))
+            raise RuntimeError("commit failed")
+    assert not elements.has("points/t")
+    path = file_path(first.files[0].location)
+    written_at = path.stat().st_mtime_ns
+
+    with elements.unit("points/t", "Write points/t") as (root, _):
+        again = writer.write("t", _rows(1, 2))
+        declare_copy(root.require_group("points").create_group("t"), "points.parquet", again.files)
+    assert elements.has("points/t")
+    stored = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["points/t"]
+    assert stored["points.parquet"][:].tobytes() == path.read_bytes()
+    assert again == first and path.stat().st_mtime_ns == written_at
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2
+
+
+def test_write_to_a_remote_location_writes_through_the_table_file_io(tmp_path):
+    writer, bucket = _remote_writer(tmp_path)
+    ref = writer.write("t", _rows(1, 2))
+    [written] = ref.files
+    assert written.location.startswith("s3://bucket/wh/")
+    stored = bucket / written.location.removeprefix("s3://bucket/")
+    assert pq.read_table(stored).num_rows == 2 and written.size == stored.stat().st_size
+    assert writer.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2
+
+
+def _remote_object(writer, bucket, rows):
+    """The path in ``bucket`` where ``write`` of ``rows`` puts its object, and the file's bytes."""
+    ref = writer.write("t", rows)
+    path = bucket / ref.files[0].location.removeprefix("s3://bucket/")
+    return ref, path, path.read_bytes()
+
+
+def test_a_partial_remote_object_is_not_reused(tmp_path):
+    writer, bucket = _remote_writer(tmp_path)
+    ref, path, whole = _remote_object(writer, bucket, _rows(1, 2))
+    path.write_bytes(whole[: len(whole) // 2])
+    with pytest.raises(ValueError, match="size") as error:
+        writer.write("t", _rows(1, 2), replace=True)
+    assert path.name in str(error.value)
+    assert path.read_bytes() == whole[: len(whole) // 2]
+
+
+def test_a_complete_remote_object_is_reused_without_a_rewrite(tmp_path):
+    writer, bucket = _remote_writer(tmp_path)
+    ref, path, whole = _remote_object(writer, bucket, _rows(1, 2))
+    written_at = path.stat().st_mtime_ns
+    again = writer.write("t", _rows(1, 2))
+    assert again == ref
+    assert path.read_bytes() == whole and path.stat().st_mtime_ns == written_at
+
+
+def test_a_remote_object_that_a_write_left_partial_is_refused_after_the_write(tmp_path):
+    writer, bucket = _remote_writer(tmp_path)
+    ref, path, whole = _remote_object(writer, bucket, _rows(1, 2))
+    path.unlink()
+    path.write_bytes(whole[:-1])
+    with pytest.raises(ValueError, match="size"):
+        writer.write("t", _rows(1, 2), replace=True)

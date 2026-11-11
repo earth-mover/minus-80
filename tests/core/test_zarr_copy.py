@@ -15,7 +15,7 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 from minus80.core.icechunk_io import create_repo
-from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, v2_spec
+from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array, v2_spec
 
 
 def _v2_zip(tmp_path, groups=None, **arrays):
@@ -385,3 +385,48 @@ def test_copy_chunks_refuses_concurrency_below_one(tmp_path):
     array = create_copy(_root(tmp_path), "x", json.loads(zf.read("x/.zarray")))
     with pytest.raises(ValueError, match="concurrency"):
         copy_chunks(zf, "x", array, concurrency=0)
+
+
+def test_read_array_assembles_chunks_in_the_stored_order(tmp_path):
+    fortran = np.arange(35, dtype="<f4").reshape(7, 5)
+    zf = _v2_zip(
+        tmp_path,
+        f=dict(data=fortran, order="F", chunks=(3, 2), compressors=None),
+        v=dict(data=np.arange(10, dtype="<u4"), chunks=(4,), compressors=numcodecs.Blosc(cname="lz4")),
+    )
+    assert np.array_equal(read_array(zf, "f"), fortran)
+    assert np.array_equal(read_array(zf, "v"), np.arange(10, dtype="<u4"))
+
+
+def test_read_array_fills_a_missing_chunk(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.full(8, 7, dtype="<i4"), chunks=(4,), compressors=None, fill_value=-1))
+    with zipfile.ZipFile(tmp_path / "gap.zip", "w", zipfile.ZIP_STORED) as out:
+        for name in zf.namelist():
+            if name != "x/1":
+                out.writestr(name, zf.read(name))
+    gap = zipfile.ZipFile(tmp_path / "gap.zip")
+    assert read_array(gap, "x").tolist() == [7, 7, 7, 7, -1, -1, -1, -1]
+
+
+class _ListingCounter(zipfile.ZipFile):
+    listings = 0
+
+    def namelist(self):
+        type(self).listings += 1
+        return super().namelist()
+
+
+def test_read_array_lists_the_members_once_for_a_given_set(tmp_path):
+    zf = _v2_zip(
+        tmp_path,
+        a=dict(data=np.arange(6, dtype="<i4"), chunks=(2,), compressors=None),
+        b=dict(data=np.arange(4, dtype="<i4"), chunks=(2,), compressors=None),
+    )
+    counted = _ListingCounter(zf.filename)
+    names = set(counted.namelist())
+    _ListingCounter.listings = 0
+    assert read_array(counted, "a", names=names).tolist() == list(range(6))
+    assert read_array(counted, "b", names=names).tolist() == list(range(4))
+    assert _ListingCounter.listings == 0
+    read_array(counted, "a")
+    assert _ListingCounter.listings == 1
