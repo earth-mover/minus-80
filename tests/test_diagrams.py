@@ -119,3 +119,27 @@ def test_legend_marks_status_with_a_word():
     canvas = Canvas(600)
     diagrams.legend(canvas, 0, 0, [("changed", "unlisted"), (diagrams.ACCENTS["source"], "source"), ("arrow", "copied")])
     assert {"unlisted", "source", "copied"} <= set(texts(canvas))
+
+
+def test_table_bands_status_cells_and_calls_draw():
+    canvas = Canvas(600)
+    seen = []
+
+    def draw(i, j, x, y):
+        seen.append((i, j))
+        return ""
+
+    bottom = diagrams.table(
+        canvas, 0, 0, [100, 200], ["field", "level 1"],
+        [[diagrams.Cell(["FOV_1"]), diagrams.Cell(["y 0–500", "x 0–501"], status="changed")]], draw=draw,
+    )
+    assert {"field", "level 1", "FOV_1", "y 0–500", "x 0–501"} <= set(texts(canvas))
+    assert diagrams.STATUS["changed"].fill in canvas.svg()
+    assert seen == [(0, 0), (0, 1)]
+    assert bottom == diagrams.TABLE_HEADER + 10 + 2 * diagrams.CELL_LINE
+
+
+def test_cube_divides_its_depth_into_shards():
+    canvas = Canvas(400)
+    diagrams.cube(canvas, CubeGeometry(0, 0, 100, 100, 30), "a", [], depth_lines=[0.25, 0.5])
+    assert len(list(parse(canvas).iter("{http://www.w3.org/2000/svg}polyline"))) == 2

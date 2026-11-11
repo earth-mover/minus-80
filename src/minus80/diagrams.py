@@ -11,12 +11,12 @@ elements as strings, and the figures they make diff cleanly in git.
 How a figure is built
 ---------------------
 A :class:`Canvas` collects elements. Each block (:func:`panel`,
-:func:`tree`, :func:`link`, :func:`cube`, :func:`legend`, :func:`heading`)
-takes the canvas and a position, adds its elements, and returns the y
-coordinate of its bottom edge. A figure is laid out with a running y: the
-next block starts below the bottom the last one returned. The canvas tracks
-the lowest edge any block reached and sizes the SVG to it, so nothing is
-clipped however the content grows.
+:func:`tree`, :func:`link`, :func:`cube`, :func:`table`, :func:`legend`,
+:func:`heading`) takes the canvas and a position, adds its elements, and
+returns the y coordinate of its bottom edge. A figure is laid out with a
+running y: the next block starts below the bottom the last one returned.
+The canvas tracks the lowest edge any block reached and sizes the SVG to
+it, so nothing is clipped however the content grows.
 
 Data stays out of this module. An ingest's ``diagrams.py`` reads its source
 listing and its store, and passes the values in as strings and numbers.
@@ -32,7 +32,7 @@ name or a value, never a sentence.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -336,6 +336,7 @@ def link(
     color: str = MUTED,
     vertical: bool = False,
     dashed: bool = False,
+    stroke: float = 1.6,
 ) -> float:
     """A curved arrow from ``start`` to ``end``, with an optional label on a white chip at its middle.
 
@@ -355,7 +356,7 @@ def link(
         head = [(x2, y2), (x2 - 8 * sign, y2 - 4.5), (x2 - 8 * sign, y2 + 4.5)]
     dash = ' stroke-dasharray="5 4"' if dashed else ""
     parts = [
-        f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6"{dash}/>',
+        f'<path d="{path}" fill="none" stroke="{color}" stroke-width="{stroke}"{dash}/>',
         '<polygon points="' + " ".join(f"{px:.1f},{py:.1f}" for px, py in head) + f'" fill="{color}"/>',
     ]
     bottom = max(y1, y2) + 5
@@ -422,6 +423,7 @@ def cube(
     grid: tuple[Sequence[float], Sequence[float]] | None = None,
     window: Window | None = None,
     outlines: Sequence[Window] = (),
+    depth_lines: Sequence[float] = (),
     source: str | None = None,
     label_width: float | None = None,
 ) -> float:
@@ -430,8 +432,10 @@ def cube(
     ``grid`` is the chunk boundaries on the front face, as fractions across
     (x) and down (y); :func:`grid_lines` computes them. ``window`` highlights
     one region of the face, as ``(x0, y0, x1, y1)`` fractions, and
-    ``outlines`` draws others faintly. ``source`` names the array the cube
-    comes from, under its title.
+    ``outlines`` draws others faintly. ``depth_lines`` divides the top and
+    side faces at fractions of the depth axis, for the boundaries of shards
+    that run along it. ``source`` names the array the cube comes from, under
+    its title.
     """
     g = geometry
     x, y, w, h, d = g.x, g.y, g.width, g.height, g.depth
@@ -455,6 +459,11 @@ def cube(
                 f'<line x1="{x:.1f}" y1="{y + d + fy * h:.1f}" x2="{x + w:.1f}" y2="{y + d + fy * h:.1f}" '
                 f'stroke="{RULE}" stroke-width="1"/>'
             )
+    for t in depth_lines:
+        parts.append(
+            f'<polyline points="{x + t * d:.1f},{y + d - t * d:.1f} {x + w + t * d:.1f},{y + d - t * d:.1f} '
+            f'{x + w + t * d:.1f},{y + d + h - t * d:.1f}" fill="none" stroke="{accent}" stroke-width="1"/>'
+        )
     for x0, y0, x1, y1 in outlines:
         parts.append(
             f'<rect x="{x + x0 * w:.1f}" y="{y + d + y0 * h:.1f}" width="{(x1 - x0) * w:.1f}" '
@@ -505,3 +514,65 @@ def legend(canvas: Canvas, x: float, y: float, entries: Sequence[tuple[str, str]
         parts.append(text(cursor, y + 13, label, size=11.5, color=INK))
         cursor += text_width(label, 11.5) + 22
     return canvas.add("\n".join(parts), y + 18)
+
+
+@dataclass(frozen=True)
+class Cell:
+    """One table cell: its lines of text, and optionally a status band behind it."""
+
+    lines: Sequence[str] = ()
+    status: str | None = None
+
+
+TABLE_HEADER = 28
+CELL_LINE = 17
+
+
+def table(
+    canvas: Canvas,
+    x: float,
+    y: float,
+    widths: Sequence[float],
+    header: Sequence[str],
+    rows: Sequence[Sequence[Cell]],
+    *,
+    row_height: float | None = None,
+    draw: Callable[[int, int, float, float], str] | None = None,
+) -> float:
+    """A grid of cells under a bold header row, with rules between rows.
+
+    A cell with a ``status`` gets that status's band; the legend or a tag
+    elsewhere names it. ``draw``, if given, is called with each cell's row,
+    column and top-left corner and returns extra SVG for that cell, such as
+    a small glyph beside its text.
+    """
+    lines = max((len(cell.lines) for row in rows for cell in row), default=1)
+    row_height = row_height or 10 + lines * CELL_LINE
+    total = sum(widths)
+    parts = [
+        f'<line x1="{x:.1f}" y1="{y + TABLE_HEADER:.1f}" x2="{x + total:.1f}" y2="{y + TABLE_HEADER:.1f}" '
+        f'stroke="{INK}" stroke-width="1"/>'
+    ]
+    cx = x
+    for title, width in zip(header, widths):
+        parts.append(text(cx + 8, y + 19, fit(title, width - 12, 12, mono=True), size=12, weight="bold", mono=True))
+        cx += width
+    for i, row in enumerate(rows):
+        top = y + TABLE_HEADER + i * row_height
+        cx = x
+        for j, (cell, width) in enumerate(zip(row, widths)):
+            if cell.status:
+                parts.append(
+                    f'<rect x="{cx + 1:.1f}" y="{top + 1:.1f}" width="{width - 2:.1f}" height="{row_height - 2:.1f}" '
+                    f'fill="{STATUS[cell.status].fill}"/>'
+                )
+            for n, line in enumerate(cell.lines):
+                parts.append(text(cx + 8, top + 18 + n * CELL_LINE, line, size=11.5, mono=True))
+            if draw:
+                parts.append(draw(i, j, cx, top))
+            cx += width
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{top + row_height:.1f}" x2="{x + total:.1f}" y2="{top + row_height:.1f}" '
+            f'stroke="{RULE}" stroke-width="1"/>'
+        )
+    return canvas.add("\n".join(parts), y + TABLE_HEADER + len(rows) * row_height)
