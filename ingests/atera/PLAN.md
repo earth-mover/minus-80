@@ -734,8 +734,7 @@ Each item gives the problem, the fix and the check.
       checks.
     - Prose fixes in this file and in `docs/upstream.md`.
 11. **Small fixes.**
-    - Use one form for an Arraylake org: `--repo arraylake://<org>/<repo>`
-      and `--catalog arraylake:<org>` differ.
+    - `--repo` and `--catalog` both use `arraylake://<org>` for the org.
     - State which virtual chunk container the full ingest uses: the table's
       `data/` prefix, or the namespace's storage location.
     - `require_table` adds the partition spec in a second commit. Pass

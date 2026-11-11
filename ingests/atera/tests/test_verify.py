@@ -2,6 +2,7 @@ import hashlib
 import http.server
 import io
 import json
+import zipfile
 import shutil
 import sys
 import threading
@@ -17,12 +18,14 @@ import zarr
 from anndata.io import write_elem
 from pyiceberg.io.pyarrow import parquet_file_to_data_file
 from pyiceberg.types import LongType
+from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 import ingest
 import verify
 from minus80.core.elements import COMPLETE, ElementWriter
 from minus80.core.registry import file_path
+from minus80.core.zarr_copy import copy_group
 from minus80.core.icechunk_io import commit, create_repo
 from minus80.ome.spatialdata import write_table_keys
 from minus80.core.tables import (
@@ -117,7 +120,7 @@ def test_field_ids_checks_the_pinned_snapshot_and_every_field(tmp_path):
             append.append_data_file(parquet_file_to_data_file(newer.io, tx.table_metadata, path))
     pinned = {**attr, "snapshot_id": tables.catalog.load_table("ns.t").current_snapshot().snapshot_id}
     errors = gate_field_ids(_points_root(tmp_path, pinned), tables.catalog)
-    assert f"points/t: {path} lacks fields grid_tile, extra" in errors
+    assert "points/t: short.parquet lacks fields grid_tile, extra" in errors
 
 
 def test_field_ids_passes_files_with_the_table_ids_and_a_required_instance(tmp_path):
@@ -138,8 +141,8 @@ def test_field_ids_fails_a_file_without_ids_and_an_optional_instance(tmp_path):
     errors = gate_field_ids(_points_root(tmp_path, attr), catalog)
     assert errors == [
         "points/t: instance is optional in the table schema",
-        f"points/t: {path} has no field id, or another, for instance, grid_tile",
-        f"points/t: {path} has a nullable instance",
+        "points/t: a.parquet has no field id, or another, for instance, grid_tile",
+        "points/t: a.parquet has a nullable instance",
     ]
 
 
@@ -159,8 +162,8 @@ def test_field_ids_fails_a_file_column_the_table_lacks(tmp_path, with_ids):
     tables = TableWriter(catalog, "ns", catalog_name="local", org="local")
     _, attr = _write(tables, "t", pa.table({"instance": [2], "grid_tile": ["0,0"]}, schema=SCHEMA))
     errors = gate_field_ids(_points_root(tmp_path, attr), catalog)
-    assert f"points/t: {path} has columns the table lacks: extra" in errors
-    assert all(path in e for e in errors)
+    assert "points/t: wide.parquet has columns the table lacks: extra" in errors
+    assert all("wide.parquet" in e and str(tmp_path) not in e for e in errors)
 
 
 def _pinned_fixture(tmp_path):
@@ -701,8 +704,9 @@ def _matrix_of(tmp_path, rows):
 
 
 def test_matrix_takes_its_shape_and_stored_values_from_the_bundle(full_store, tmp_path):
+    assert gate_matrix(full_store.root(), full_store.bundle_zip(MATRIX), full=True) == []
     assert gate_matrix(full_store.root(), full_store.bundle_zip(MATRIX)) == []
-    errors = gate_matrix(full_store.root(), _matrix_of(tmp_path, 4))
+    errors = gate_matrix(full_store.root(), _matrix_of(tmp_path, 4), full=True)
     assert errors[0] == "X has shape (3, 2) and 4 stored values; the source has (4, 2) and 8"
 
 
@@ -732,13 +736,11 @@ def test_labels_fail_a_chunk_that_differs_from_the_source(tmp_path):
     assert len(errors) == 4 and all("differs" in e and e.startswith("labels/nucleus_labels/s0") for e in errors)
 
 
-def test_labels_compare_a_sample_of_chunks_by_hash_when_asked_for_one(tmp_path, capsys):
+def test_labels_compare_every_chunk_by_hash(tmp_path, capsys):
     cells = _cells(tmp_path / "a")
     root = _label_repo(tmp_path / "b", cells)
-    assert gate_labels(root, cells, sample=2) == []
-    assert "comparing 2 of 4 chunks of masks/0" in capsys.readouterr().out
-    other = _cells(tmp_path / "c", masks=(MASK + 1, MASK[::-1]))
-    assert len(gate_labels(root, other, sample=4)) == 4
+    assert gate_labels(root, cells) == []
+    assert "comparing 4 of 4 chunks of masks/0" in capsys.readouterr().out
 
 
 def test_labels_fail_a_store_that_holds_fewer_chunks_than_the_source(tmp_path):
@@ -775,8 +777,10 @@ def test_transcripts_pass_when_each_tile_has_its_rows_and_its_place_in_the_sourc
 def test_transcripts_fail_a_tile_with_the_wrong_instance_origin(tmp_path):
     _, tables, attr = _held_transcripts(tmp_path, {"0,0": 0, "-1,0": 7})
     errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID)
-    assert errors == ["points/transcripts: tile -1,0 has instances 7..7, the source order gives 5..5",
-                      "points/transcripts: instance runs to 4 in tile 0,0 and starts at 7 in tile -1,0"]
+    assert len(errors) == 3
+    assert errors[0] == "points/transcripts: tile -1,0 has instances 7..7, the source order gives 5..5"
+    assert "row group 0 has instances 7..7, expected from 5" in errors[1]
+    assert errors[2] == "points/transcripts: instance runs to 4 in tile 0,0 and starts at 7 in tile -1,0"
 
 
 def test_transcripts_fail_a_missing_tile_and_a_total_that_the_source_contradicts(tmp_path):
@@ -875,6 +879,7 @@ def test_copies_fail_a_changed_byte_in_a_sampled_block(tmp_path):
     _repin(repo, _other_table(tables, "changed", tmp_path, bytes(changed)))
     errors = gate_copies(_root(repo), tables.catalog)
     assert len(errors) == 1 and "1 of 3 sampled blocks differ, first block 1" in errors[0]
+    assert "changed.parquet" in errors[0] and str(tmp_path) not in errors[0]
 
 
 def test_copies_fail_a_length_that_differs_from_the_files_and_an_edge_that_is_not_a_file_boundary(tmp_path):
@@ -1012,3 +1017,233 @@ def test_the_ingest_refuses_a_repo_and_a_catalog_that_are_not_both_local_or_both
                                       "--namespace", "n", "--branch", "work"])
     with pytest.raises(SystemExit, match="both be local or both be on Arraylake"):
         ingest.main()
+
+
+# gate_matrix compares every copied chunk in full mode
+
+def _chunked_matrix(tmp_path):
+    """A 20-row matrix zip whose ``X`` arrays have several chunks each, and a repo that holds a copy of it."""
+    source = tmp_path / "m.zarr"
+    root = zarr.open_group(source, mode="w", zarr_format=2)
+    write_elem(root, "X", scipy.sparse.csr_matrix(np.arange(1, 41, dtype="int32").reshape(20, 2)),
+               dataset_kwargs={"chunks": (6,)})
+    zf = zip_directory(source, tmp_path / "m.zip")
+    repo = create_repo(tmp_path / "repo", [])
+    session = repo.writable_session("main")
+    copy_group(zf, "", zarr.open_group(session.store, mode="w").require_group("tables").create_group("table"))
+    commit(session, "copy")
+    return zf, repo
+
+
+def _flip(repo, key, at=-1):
+    """Change one byte of the stored object ``key`` on ``main``."""
+    session = repo.writable_session("main")
+    data = bytearray(sync(session.store.get(key, default_buffer_prototype())).to_bytes())
+    data[at] ^= 1
+    sync(session.store.set(key, default_buffer_prototype().buffer.from_bytes(bytes(data))))
+    commit(session, "flip")
+
+
+def _main_root(repo):
+    return zarr.open_group(repo.readonly_session("main").store, mode="r")
+
+
+def test_matrix_in_full_mode_compares_every_chunk_of_every_copied_array(tmp_path, capsys):
+    zf, repo = _chunked_matrix(tmp_path)
+    assert len(chunk_members(zf, "X/data")) == 7 and len(chunk_members(zf, "X/indptr")) == 4
+    assert gate_matrix(_main_root(repo), zf, full=True) == []
+    assert "comparing 18 chunks" in capsys.readouterr().out
+
+
+def test_matrix_in_full_mode_fails_a_changed_indptr(tmp_path):
+    zf, repo = _chunked_matrix(tmp_path)
+    _flip(repo, "tables/table/X/indptr/c/0")
+    assert gate_matrix(_main_root(repo), zf, full=True) == ["X/indptr: chunk X/indptr/0 differs"]
+
+
+def test_matrix_in_full_mode_fails_a_changed_byte_in_a_late_data_chunk(tmp_path):
+    zf, repo = _chunked_matrix(tmp_path)
+    _flip(repo, "tables/table/X/data/c/6")
+    assert gate_matrix(_main_root(repo), zf, full=True) == ["X/data: chunk X/data/6 differs"]
+
+
+def test_matrix_in_full_mode_fails_a_missing_chunk_and_changed_metadata(tmp_path):
+    zf, repo = _chunked_matrix(tmp_path)
+    session = repo.writable_session("main")
+    sync(session.store.delete("tables/table/X/data/c/3"))
+    root = zarr.open_group(session.store, mode="a")
+    root["tables/table/X/indices"].attrs["x"] = 1
+    commit(session, "damage")
+    errors = gate_matrix(_main_root(repo), zf, full=True)
+    assert errors == ["X/data: 6 chunks stored, 7 members", "X/data: chunk X/data/3 differs"]
+    other = zip_directory(_matrix_dir(tmp_path / "o", 4), tmp_path / "o.zip")
+    assert any("metadata differs" in e for e in gate_matrix(_main_root(repo), other, full=True))
+
+
+def _matrix_dir(tmp_path, chunk):
+    source = tmp_path / "m.zarr"
+    write_elem(zarr.open_group(source, mode="w", zarr_format=2), "X",
+               scipy.sparse.csr_matrix(np.arange(1, 41, dtype="int32").reshape(20, 2)),
+               dataset_kwargs={"chunks": (chunk,)})
+    return source
+
+
+# chunk_members
+
+def test_chunk_members_skip_the_directory_entries_of_a_zip(tmp_path):
+    path = tmp_path / "d.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for name in ("masks/", "masks/0/", "masks/0/1/", "masks/0/1/0", "masks/0/1/1", "masks/0/.zarray", "masks/0/2.3"):
+            zf.writestr(name, b"")
+    assert sorted(chunk_members(zipfile.ZipFile(path), "masks/0")) == ["masks/0/1/0", "masks/0/1/1", "masks/0/2.3"]
+
+
+# gate_masks and gate_instances
+
+CELLS_N = 60
+SUMMARY_COLUMNS = ["nucleus_area", "cell_area", "nucleus_centroid_y", "nucleus_centroid_x",
+                   "cell_centroid_y", "cell_centroid_x"]
+
+
+def _grid_store():
+    """Cell ``i`` is a 10 by 10 square with a 4 by 4 nucleus; a pixel is 1 micrometre."""
+    nucleus, cell = (np.zeros((10 * CELLS_N, 12), dtype="<u4") for _ in range(2))
+    for i in range(CELLS_N):
+        cell[10 * i:10 * i + 10, 0:10] = i + 1
+        nucleus[10 * i + 3:10 * i + 7, 3:7] = i + 1
+    root = zarr.group()
+    for name, data in (("nucleus_labels", nucleus), ("cell_labels", cell)):
+        root.require_group(f"labels/{name}").create_array("s0", data=data)
+    obs = root.require_group("tables/table/obs")
+    obs.create_array("cell_id", data=np.arange(1, CELLS_N + 1, dtype="int64") + 7 * 2**32)
+    obs.create_array("instance", data=np.arange(1, CELLS_N + 1, dtype="int64"))
+    summary = np.array([[16, 100, 10 * i + 4.5, 4.5, 10 * i + 5, 5.0] for i in range(CELLS_N)])
+    pairs = np.array([[i + 1, 7] for i in range(CELLS_N)], dtype="<u4")
+    return root, summary, pairs
+
+
+def test_masks_pass_when_each_mask_agrees_best_with_its_own_area(capsys):
+    root, summary, _ = _grid_store()
+    assert verify.gate_masks(root, summary, SUMMARY_COLUMNS, 1.0) == []
+    assert "median label area 16.00 um2" in capsys.readouterr().out
+
+
+def test_masks_fail_when_the_two_masks_are_swapped():
+    root, summary, _ = _grid_store()
+    nucleus, cell = root["labels/nucleus_labels/s0"], root["labels/cell_labels/s0"]
+    data = nucleus[:]
+    nucleus[:], cell[:] = cell[:], data
+    assert verify.gate_masks(root, summary, SUMMARY_COLUMNS, 1.0) == [
+        "nucleus_area agrees better with cell_labels than with nucleus_labels",
+        "cell_area agrees better with nucleus_labels than with cell_labels"]
+
+
+def test_instances_pass_when_the_mask_the_obs_ids_and_the_instance_agree(capsys):
+    root, summary, pairs = _grid_store()
+    assert verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0) == []
+    assert "50 rows, 0 mismatches" in capsys.readouterr().out
+
+
+def test_instances_fail_an_instance_that_is_not_the_row_plus_one():
+    root, summary, pairs = _grid_store()
+    root["tables/table/obs/instance"][:] = np.arange(2, CELLS_N + 2)
+    errors = verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0)
+    assert len(errors) == 50 and all("obs.instance is" in e for e in errors)
+    root["tables/table/obs/instance"][:] = np.arange(1, CELLS_N + 1)
+    root["tables/table/obs/cell_id"][:] = 0
+    assert all("obs.cell_id" in e for e in verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0))
+
+
+# Locations
+
+@pytest.mark.parametrize("repo, catalog", [("repo", "arraylake:org"), ("arraylake://o/r", "cat"), ("repo", "arraylake://o")])
+def test_verify_refuses_a_repo_and_a_catalog_that_are_not_both_local_or_both_on_arraylake_and_makes_no_directory(
+        monkeypatch, tmp_path, repo, catalog):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["verify.py", "--repo", repo, "--catalog", catalog])
+    with pytest.raises(SystemExit):
+        verify.main()
+    assert list(tmp_path.iterdir()) == []
+
+
+# gate_tables: row groups of each transcripts file
+
+def _hold_instances(tables, bundle, tmp_path, instances):
+    """Register tile ``0,0`` with ``instances`` in row groups of two rows."""
+    from minus80.core.tables import write_parquet
+    from tables_extra import codewords_table
+    from transcripts import tile_table
+
+    table = tile_table(bundle.zf, "0,0", codewords_table(bundle.zf), first_instance=0)
+    table = table.set_column(0, table.schema.field("instance"), pa.array(instances, pa.int64()))
+    path = tmp_path / "groups.parquet"
+    write_parquet(table, str(path), index_column="instance", field_ids=tables.field_ids("transcripts"), row_group_size=2)
+    tables.write_parts("transcripts", [path])
+    return table_attr(tables, "transcripts", tables.ref("transcripts"))
+
+
+GRID_ONE = {"grid_keys": ["0,0"], "grid_number_objects": [5]}
+
+
+def test_row_groups_chain_when_each_starts_after_the_last_and_the_first_starts_at_the_tile_origin(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    attr = _hold_instances(tables, bundle, tmp_path, [0, 1, 2, 3, 4])
+    assert verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE) == []
+
+
+def test_row_groups_fail_a_repeat_that_the_manifest_bounds_do_not_show(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    attr = _hold_instances(tables, bundle, tmp_path, [0, 1, 1, 3, 4])
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE)
+    assert errors and all("row group 1 has instances 1..3, expected from 2" in e for e in errors)
+    assert not any(str(tmp_path) in e for e in errors)
+
+
+def test_row_groups_fail_a_gap_between_row_groups(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    attr = _hold_instances(tables, bundle, tmp_path, [0, 1, 3, 3, 4])
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE)
+    assert any(e.endswith(".parquet row group 1 has instances 3..3, expected from 2") for e in errors)
+
+
+def test_row_groups_fail_a_first_row_group_that_does_not_start_at_the_tile_origin(tmp_path):
+    bundle, tables, _, _ = _transcripts_run(tmp_path)
+    attr = _hold_instances(tables, bundle, tmp_path, [1, 2, 3, 4, 5])
+    errors = verify._transcript_errors("points/transcripts", tables.catalog, attr, GRID_ONE)
+    assert any("row group 0 has instances 1..2, expected from 0" in e for e in errors)
+
+
+# gate_copies pairs each file with its own copy
+
+def _two_file_copy(tmp_path):
+    """A table of two tiles whose data files have the same size, and a repo with one copy of each in tile order."""
+    from minus80.core.tables import write_parquet
+
+    schema = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()),
+                        ("value", pa.float64())])
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
+    tables.require("two", schema=schema, properties={}, partition_by="grid_tile")
+    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix("two")])
+    for n, tile in enumerate("ab"):
+        rows = np.arange(10_000 + n * 1000, 11_000 + n * 1000)
+        table = pa.table({"instance": rows, "grid_tile": [tile] * 1000,
+                          "value": np.full(1000, n + 0.5)}, schema=schema)
+        path = tmp_path / f"{tile}.parquet"
+        write_parquet(table, str(path), index_column="instance", field_ids=tables.field_ids("two"))
+        tables.write_parts("two", [path])
+    ref = tables.ref("two", partition_order=["a", "b"])
+    assert ref.files[0].size == ref.files[1].size
+    session = repo.writable_session("main")
+    group = zarr.open_group(session.store, mode="w").require_group("points").require_group("two")
+    group.attrs["iceberg_table"] = table_attr(tables, "two", ref)
+    declare_copy(group, "points.parquet", ref.files)
+    commit(session, "copy")
+    return tables, repo
+
+
+def test_copies_fail_two_files_of_equal_size_in_the_wrong_order_and_pass_in_the_right_one(tmp_path):
+    tables, repo = _two_file_copy(tmp_path)
+    assert gate_copies(_root(repo), tables.catalog, {"points/two": ["a", "b"]}) == []
+    errors = gate_copies(_root(repo), tables.catalog, {"points/two": ["b", "a"]})
+    assert len(errors) == 2 and all("1 of 1 sampled blocks differ, first block 0" in e for e in errors)
+    assert all(str(tmp_path) not in e for e in errors)

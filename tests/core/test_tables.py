@@ -880,3 +880,36 @@ def test_copy_edges_are_whole_chunks_then_the_remainder():
     assert copy_edges(20, 10) == [10, 10]
     assert copy_edges(0, 10) == []
     assert copy_edges(3 * COPY_CHUNK + 1) == [COPY_CHUNK] * 3 + [1]
+
+
+def test_row_group_bounds_give_the_min_max_and_rows_of_each_row_group_from_the_footer(tmp_path):
+    from minus80.core.tables import row_group_bounds
+
+    path = tmp_path / "g.parquet"
+    pq.write_table(pa.table({"instance": pa.array([4, 5, 9, 1, 2], pa.int64())}), path, row_group_size=2)
+    with open(path, "rb") as stream:
+        assert row_group_bounds(stream, "instance") == [(4, 5, 2), (1, 9, 2), (2, 2, 1)]
+    with open(path, "rb") as stream, pytest.raises(KeyError):
+        row_group_bounds(stream, "other")
+
+
+def test_row_group_bounds_refuse_a_file_without_statistics(tmp_path):
+    from minus80.core.tables import row_group_bounds
+
+    path = tmp_path / "g.parquet"
+    pq.write_table(pa.table({"instance": pa.array([1, 2], pa.int64())}), path, write_statistics=False)
+    with open(path, "rb") as stream, pytest.raises(ValueError, match="row group 0.*instance"):
+        row_group_bounds(stream, "instance")
+
+
+def test_partition_bounds_name_the_file_without_its_directory(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    table = pa.table({"instance": pa.array([1, 2], pa.int64()), "grid_tile": ["a", "a"]}, schema=WRITER_SCHEMA)
+    ids = writer.field_ids("t")
+    schema = pa.schema([f.with_metadata({b"PARQUET:field_id": str(ids[f.name]).encode()}) for f in WRITER_SCHEMA])
+    path = tmp_path / "a.parquet"
+    pq.write_table(table.cast(schema), path, write_statistics=["grid_tile"])
+    writer.write_parts("t", [path])
+    with pytest.raises(ValueError) as raised:
+        writer.partition_ranges("t", "instance")
+    assert "/" not in str(raised.value) and ".parquet has no bounds for column instance" in str(raised.value)

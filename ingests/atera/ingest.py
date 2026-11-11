@@ -117,6 +117,14 @@ def catalog_org(location: str) -> str | None:
     return location.removeprefix(ARRAYLAKE) if location.startswith(ARRAYLAKE) else None
 
 
+def require_same_place(repo: str, catalog: str) -> None:
+    """Exit unless the repo and the catalog are both local or both ``arraylake://`` locations."""
+    if catalog.startswith("arraylake:") and not catalog.startswith(ARRAYLAKE):
+        raise SystemExit(f"--catalog {catalog} is not a location; use arraylake://<org>.")
+    if (catalog_org(catalog) is not None) != repo.startswith(ARRAYLAKE):
+        raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")
+
+
 def open_bundle(location: str) -> tuple[Bundle, ReadCounter]:
     file, counter = counting_reader(as_url(location))
     return Bundle(location, file), counter
@@ -562,10 +570,9 @@ def main() -> None:
         selected = select_elements(args.elements, ELEMENTS[args.mode])
     except ValueError as e:
         raise SystemExit(str(e))
+    require_same_place(args.repo, args.catalog)
     org = catalog_org(args.catalog)
     on_arraylake = org is not None
-    if on_arraylake != args.repo.startswith(ARRAYLAKE):
-        raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")
 
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")

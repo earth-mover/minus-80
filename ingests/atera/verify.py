@@ -21,7 +21,6 @@ from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
-import scipy.sparse
 import shapely
 import zarr
 from anndata.io import read_elem, sparse_dataset
@@ -34,7 +33,9 @@ from minus80.core.registry import as_url
 from minus80.core.remote import reader
 from minus80.core.tables import (
     COPY_CHUNK, copy_edges, local_catalog, parquet_field_ids, partition_bounds, partition_counts, partition_files,
+    row_group_bounds,
 )
+from minus80.core.zarr_copy import create_copy
 from minus80.core.zarr_copy import read_array
 from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
@@ -43,7 +44,7 @@ from zarr.core.sync import sync
 from bundle import CELLS, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, open_tiff
 from ingest import (
     CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS, MASKS,
-    MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle,
+    MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters
 from root_attrs import source_objects
@@ -54,8 +55,6 @@ SAMPLED = 50
 MATRIX_CHUNKS = 20
 #: Rows of ``X`` read to check that it reads as a CSR matrix.
 MATRIX_ROWS = 1000
-#: Chunks of each mask that a full run compares with the source.
-LABEL_CHUNKS = 200
 #: Blocks between the first and the last that each copy compares with its data file.
 COPY_SAMPLES = 3
 IMAGE_TILES = 4
@@ -74,13 +73,18 @@ def raw(store, key: str) -> bytes | None:
 def chunk_members(zf, prefix: str) -> list[str]:
     """The chunk members of the v2 array at ``prefix``, whether its separator is ``.`` or ``/``."""
     stem = f"{prefix}/"
-    return [n for n in zf.namelist()
-            if n.startswith(stem) and n[len(stem):].replace(".", "").replace("/", "").isdigit()]
+    return [n for n in zf.namelist() if n.startswith(stem) and not n.endswith("/")
+            and n[len(stem):].replace(".", "").replace("/", "").isdigit()]
 
 
 def chunk_key(array_path: str, prefix: str, member: str) -> str:
     """The key under the v3 array ``array_path`` of ``member``, a chunk of the v2 array at ``prefix``."""
     return f"{array_path}/c/" + member[len(prefix) + 1:].replace(".", "/")
+
+
+def _name(location: str) -> str:
+    """The file name of a data file's location; messages never print the storage prefix."""
+    return location.rsplit("/", 1)[-1]
 
 
 def full_elements() -> list[str]:
@@ -200,31 +204,37 @@ def gate_qc(root, bundle, *, full: bool = False) -> list[str]:
     return errors
 
 
-def gate_labels(root, cells, *, sample: int | None = None) -> list[str]:
-    """Chunks of each mask against the source members, by hash: ``sample`` of them, or all without ``sample``.
+def compare_chunks(
+    store, zf, prefix: str, path: str, label: str, progress: Progress, members: list[str] | None = None,
+) -> list[str]:
+    """Chunks of the v2 array at ``prefix`` against the stored array at ``path``, by hash: ``members``, or all.
 
-    The stored chunk count must equal the member count, so a missing chunk fails even when it is not sampled.
+    The stored chunk count must equal the member count, so a missing chunk fails even when it is not compared.
     """
+    errors, ndim = [], len(json.loads(zf.read(f"{prefix}/.zarray"))["shape"])
+    present = chunk_members(zf, prefix)
+    # icechunk lists only from a node path, so list the array and keep its chunk keys.
+    stored = sum(k == f"{path}/c" or k.startswith(f"{path}/c/") for k in sync(_list(store, path)))
+    if stored != len(present):
+        errors.append(f"{label}: {stored} chunks stored, {len(present)} members")
+    for member in present if members is None else members:
+        key = f"{path}/c" if ndim == 0 else chunk_key(path, prefix, member)
+        found = raw(store, key)
+        if found is None or _sha(found) != _sha(zf.read(member)):
+            errors.append(f"{label}: chunk {member} differs")
+        progress.advance()
+    return errors
+
+
+def gate_labels(root, cells) -> list[str]:
+    """Every chunk of each mask against the source member, by hash."""
     errors = []
-    rng = np.random.default_rng(SEED + 2)
     for name, mask in MASKS.items():
-        members = chunk_members(cells, mask)
-        path = f"labels/{name}/s0"
-        if not members:
+        path, total = f"labels/{name}/s0", len(chunk_members(cells, mask))
+        if not total:
             errors.append(f"{mask} has no chunk members")
-        # icechunk lists only from a node path, so list the array and keep its chunk keys.
-        stored = sum(k.startswith(f"{path}/c/") for k in sync(_list(root.store, path)))
-        if stored != len(members):
-            errors.append(f"{path}: {stored} chunks stored, {len(members)} members")
-        chosen = members if sample is None or sample >= len(members) else [
-            members[i] for i in sorted(rng.choice(len(members), sample, replace=False))]
-        with Progress(f"labels: comparing {len(chosen):,} of {len(members):,} chunks of {mask}",
-                      total=len(chosen), unit="chunks") as p:
-            for member in chosen:
-                found = raw(root.store, chunk_key(path, mask, member))
-                if found is None or _sha(found) != _sha(cells.read(member)):
-                    errors.append(f"{path}: chunk {member} differs")
-                p.advance()
+        with Progress(f"labels: comparing {total:,} of {total:,} chunks of {mask}", total=total, unit="chunks") as p:
+            errors += compare_chunks(root.store, cells, mask, path, path, p)
     return errors
 
 
@@ -232,30 +242,46 @@ async def _list(store, prefix):
     return [k async for k in store.list_prefix(prefix)]
 
 
-def gate_matrix(root, matrix) -> list[str]:
-    """``X`` reads as CSR with the shape and stored values of the source; sampled chunks equal the source's.
+def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
+    """The stored array's shape, chunk grid, dtype, codecs and fill value are those that ``create_copy`` makes of ``zarray``."""
+    expected = create_copy(zarr.group(), "a", zarray).metadata.to_dict()
+    found = array.metadata.to_dict()
+    differing = [k for k in ("shape", "chunk_grid", "data_type", "codecs", "fill_value") if found.get(k) != expected.get(k)]
+    return [f"{label}: metadata differs from the source .zarray in {', '.join(differing)}"] if differing else []
 
-    ``X`` is read lazily: only its first rows and the sampled chunks leave the store.
+
+def gate_matrix(root, matrix, *, full: bool = False) -> list[str]:
+    """``X`` is CSR with the shape and stored values of the source.
+
+    A full run compares every chunk of every array copied from the matrix store, and its metadata, with the source.
+    A fixture run compares ``MATRIX_CHUNKS`` sampled chunks of ``X/data`` and ``X/indices``.
     """
     errors = []
     x = sparse_dataset(root["tables/table/X"])
     shape, nnz = tuple(json.loads(matrix.read("X/.zattrs"))["shape"]), json.loads(matrix.read("X/data/.zarray"))["shape"][0]
-    stored, head = x.group["data"].shape[0], x[:MATRIX_ROWS]
-    print(f"  matrix: {type(head).__module__}.{type(head).__name__}, shape {x.shape}, {stored:,} stored values")
-    if x.format != "csr" or not scipy.sparse.issparse(head) or head.format != "csr":
-        errors.append(f"X is {x.format}, and its first rows read as {type(head).__name__}, not CSR")
+    stored = x.group["data"].shape[0]
+    print(f"  matrix: {x.format}, shape {x.shape}, {stored:,} stored values")
+    if x.format != "csr":
+        errors.append(f"X is {x.format}, not CSR")
     if x.shape != shape or stored != nnz:
         errors.append(f"X has shape {x.shape} and {stored} stored values; the source has {shape} and {nnz}")
     rng = np.random.default_rng(SEED)
-    with Progress(f"matrix: comparing {MATRIX_CHUNKS} sampled chunks of X/data and X/indices",
-                  total=MATRIX_CHUNKS, unit="chunks") as progress:
+    if full:
+        arrays = sorted(n.removesuffix("/.zarray") for n in matrix.namelist() if n.endswith("/.zarray"))
+        chosen = {a: None for a in arrays}
+    else:
+        chosen = {}
         for part in ("data", "indices"):
             members = chunk_members(matrix, f"X/{part}")
-            for i in rng.choice(len(members), min(MATRIX_CHUNKS // 2, len(members)), replace=False):
-                key = chunk_key(f"tables/table/X/{part}", f"X/{part}", members[i])
-                if raw(root.store, key) != matrix.read(members[i]):
-                    errors.append(f"X/{part}: chunk {members[i]} differs")
-                progress.advance()
+            chosen[f"X/{part}"] = [members[i] for i in sorted(
+                rng.choice(len(members), min(MATRIX_CHUNKS // 2, len(members)), replace=False))]
+    total = sum(len(chunk_members(matrix, a)) if m is None else len(m) for a, m in chosen.items())
+    with Progress(f"matrix: comparing {total:,} chunks of {len(chosen)} arrays", total=total, unit="chunks") as progress:
+        for array, members in chosen.items():
+            path = f"tables/table/{array}"
+            if full:
+                errors += _metadata_errors(root[path], json.loads(matrix.read(f"{array}/.zarray")), array)
+            errors += compare_chunks(root.store, matrix, array, path, array, progress, members)
     return errors
 
 
@@ -283,11 +309,39 @@ def pinned_files(catalog, attr) -> list:
     return [task.file for task in load(catalog, attr).scan(snapshot_id=attr["snapshot_id"]).plan_files()]
 
 
-def _transcript_errors(path: str, catalog, attr, grid: dict) -> list[str]:
-    """The pinned transcripts table against the source's tiles, from the manifests only.
+def _row_group_errors(path: str, table, held: list, counts: dict, first: dict) -> list[str]:
+    """Each tile's row groups, read from the Parquet footers only, chain from the tile's first ``instance``.
 
-    Each tile has the source's row count and the ``instance`` range of its place in the source order.
-    A range that fits the count does not show a repeat inside a tile; the manifests hold no more.
+    A row group starts after the last, and its range holds as many values as it has rows.
+    This proves contiguity at row-group granularity. It does not show a repeat inside one row group
+    whose minimum, maximum and row count are right.
+    """
+    errors, groups = [], {}
+    for tile, file in held:
+        with table.io.new_input(file.file_path).open() as stream:
+            groups.setdefault(tile, []).extend(
+                (low, high, rows, n, _name(file.file_path)) for n, (low, high, rows) in enumerate(
+                    row_group_bounds(stream, "instance")))
+    for tile, found in groups.items():
+        if tile not in counts or not counts[tile]:
+            continue
+        expected = first[tile]
+        for low, high, rows, n, name in sorted(found):
+            if low != expected:
+                errors.append(f"{path}: tile {tile}, {name} row group {n} has instances {low}..{high}, expected from {expected}")
+            elif high - low + 1 != rows:
+                errors.append(f"{path}: tile {tile}, {name} row group {n} has {rows} rows for {high - low + 1} instances")
+            expected = high + 1
+        if (total := sum(g[2] for g in found)) != counts[tile]:
+            errors.append(f"{path}: tile {tile} row groups hold {total} rows, the source {counts[tile]}")
+    return errors
+
+
+def _transcript_errors(path: str, catalog, attr, grid: dict) -> list[str]:
+    """The pinned transcripts table against the source's tiles.
+
+    The manifests give each tile's row count and its ``instance`` range in the source order.
+    The footers give each row group's range. A range that fits the count can hide a repeat inside one row group.
     """
     table = load(catalog, attr)
     held = partition_files(table, attr["snapshot_id"])
@@ -300,6 +354,7 @@ def _transcript_errors(path: str, catalog, attr, grid: dict) -> list[str]:
         if tile in counts and counts[tile] and (low, high) != (first[tile], first[tile] + counts[tile] - 1):
             errors.append(f"{path}: tile {tile} has instances {low}..{high}, the source order gives "
                           f"{first[tile]}..{first[tile] + counts[tile] - 1}")
+    errors += _row_group_errors(path, table, held, counts, first)
     ordered = sorted(bounds.items(), key=lambda item: item[1])
     errors += [f"{path}: instance runs to {high} in tile {a} and starts at {low} in tile {b}"
                for (a, (_, high)), (b, (low, _)) in zip(ordered, ordered[1:]) if low != high + 1]
@@ -353,13 +408,13 @@ def _field_id_errors(path: str, catalog, attr) -> list[str]:
             footer = pq.read_schema(stream)
         found = parquet_field_ids(footer)
         if extra := [n for n in found if n not in expected]:
-            errors.append(f"{path}: {f} has columns the table lacks: {', '.join(extra)}")
+            errors.append(f"{path}: {_name(f)} has columns the table lacks: {', '.join(extra)}")
         if wrong := [n for n, i in found.items() if n in expected and i != expected[n]]:
-            errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
+            errors.append(f"{path}: {_name(f)} has no field id, or another, for {', '.join(wrong)}")
         if lacking := [n for n in expected if n not in found]:
-            errors.append(f"{path}: {f} lacks fields {', '.join(lacking)}")
+            errors.append(f"{path}: {_name(f)} lacks fields {', '.join(lacking)}")
         if index in footer.names and footer.field(index).nullable:
-            errors.append(f"{path}: {f} has a nullable {index}")
+            errors.append(f"{path}: {_name(f)} has a nullable {index}")
     print(f"  field_ids: {path}: snapshot {snapshot_id}, {len(files)} files, {len(expected)} fields")
     return errors
 
@@ -630,7 +685,7 @@ def gate_copies(root, catalog, orders: dict | None = None, *, full: bool = False
                 errors.append(f"{path}: {array.basename}: the chunk edges are not the {COPY_CHUNK // MIB} MiB "
                               f"references of a {size:,}-byte file")
             if array.shape[0] != size:
-                errors.append(f"{path}: {array.basename} has {array.shape[0]:,} bytes, {file} has {size:,}")
+                errors.append(f"{path}: {array.basename} has {array.shape[0]:,} bytes, {_name(file)} has {size:,}")
             else:
                 checks.append((path, array, io, file, size))
     total = sum(len(sampled_blocks(size, COPY_CHUNK, COPY_SAMPLES)) for *_, size in checks)
@@ -641,7 +696,7 @@ def gate_copies(root, catalog, orders: dict | None = None, *, full: bool = False
                     lambda start, stop: array[start:stop].tobytes(), lambda start, stop: _read_range(stream, start, stop),
                     size, block=COPY_CHUNK, samples=COPY_SAMPLES, progress=progress)
             if differing:
-                errors.append(f"{path}: {file}: {len(differing)} of {len(sampled)} sampled blocks differ, "
+                errors.append(f"{path}: {_name(file)}: {len(differing)} of {len(sampled)} sampled blocks differ, "
                               f"first block {differing[0]}")
     return errors
 
@@ -787,6 +842,7 @@ def main() -> None:
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
     args = parser.parse_args()
+    require_same_place(args.repo, args.catalog)
 
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
@@ -807,8 +863,8 @@ def main() -> None:
     gates = {
         "images": lambda: gate_images(root, bundle, args.he_image or sample.url(HE_IMAGE, S3), full=full),
         "qc": lambda: gate_qc(root, bundle, full=full),
-        "labels": lambda: gate_labels(root, cells, sample=LABEL_CHUNKS if full else None),
-        "matrix": lambda: gate_matrix(root, matrix),
+        "labels": lambda: gate_labels(root, cells),
+        "matrix": lambda: gate_matrix(root, matrix, full=full),
         "tables": lambda: gate_tables(root, catalog, cells, transcripts, full=full),
         "masks": lambda: gate_masks(root, summary, columns, pixel_size),
         "instances": lambda: gate_instances(root, summary, columns, cell_id, pixel_size),

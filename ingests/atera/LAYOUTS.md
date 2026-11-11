@@ -387,13 +387,14 @@ Each long gate prints a progress line every five seconds.
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
 | `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. |
-| `labels` | 200 sampled chunks of each mask equal the source members, by hash. The stored chunk count equals the member count. |
-| `matrix` | `X` reads as CSR with the source's shape and stored values. 20 sampled chunks equal the source members. |
+| `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. |
+| `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. The metadata equals the source's `.zarray`. |
 | `tables` | Each transcripts tile has the row count of `grid_number_objects`, and its `instance` range follows the source order. |
 | | The `instance` ranges leave no gap across tiles. The manifests give all of this, so no data file is read. |
+| | Each row group of a tile starts after the last, and its range fits its row count. The Parquet footers give this. A repeat inside one row group with the right minimum, maximum and count is not found. |
 | | Each polygon table has one row per cell of its set. |
 | `copies` | Each `uint8` copy has the length of its data files and the chunk edges of an 8 MiB reference. |
-| | The first block, the last block and three blocks between equal the same bytes of the data file, by hash. A change in another block is not found. |
+| | For each data file, the first block, the last block and three blocks between equal the same bytes of the file, by hash. A change in another block is not found. |
 | `source` | Each source object's size and ETag from a HEAD request equal this file and the root attribute `source`. A local `--bundle` skips the gate. |
 
 The gates read the snapshot that each attribute pins, never the current snapshot.

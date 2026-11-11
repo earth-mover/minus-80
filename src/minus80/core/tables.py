@@ -422,11 +422,30 @@ def partition_bounds(table, files: Sequence, column: str) -> dict:
     for value, file in files:
         lower, upper = (b.get(field.field_id) for b in (file.lower_bounds or {}, file.upper_bounds or {}))
         if lower is None or upper is None:
-            raise ValueError(f"{file.file_path} has no bounds for column {column}")
+            raise ValueError(f"{file.file_path.rsplit('/', 1)[-1]} has no bounds for column {column}")
         lo, hi = from_bytes(field.field_type, lower), from_bytes(field.field_type, upper)
         old = ranges.get(value, (lo, hi))
         ranges[value] = (min(old[0], lo), max(old[1], hi))
     return ranges
+
+
+def row_group_bounds(stream, column: str) -> list[tuple]:
+    """The ``(min, max, rows)`` of ``column`` in each row group of a Parquet file, from the footer only.
+
+    ``KeyError`` names an absent column. A row group without statistics raises ``ValueError``.
+    """
+    metadata = pq.ParquetFile(stream).metadata
+    index = next((i for i in range(metadata.num_columns) if metadata.schema.column(i).path == column), None)
+    if index is None:
+        raise KeyError(column)
+    found = []
+    for n in range(metadata.num_row_groups):
+        group = metadata.row_group(n)
+        stats = group.column(index).statistics
+        if stats is None or not stats.has_min_max:
+            raise ValueError(f"row group {n} has no statistics for column {column}")
+        found.append((stats.min, stats.max, group.num_rows))
+    return found
 
 
 class TableWriter:
