@@ -49,7 +49,7 @@ def v2_spec(zarray: Mapping) -> ArraySpec:
     dtype = np.dtype(zarray["dtype"])
     if dtype.byteorder == ">":
         raise NotImplementedError(f"big-endian dtype {zarray['dtype']!r}")
-    if dtype == object:
+    if dtype.kind == "O":
         if not any(f["id"] == "vlen-utf8" for f in filters):
             raise NotImplementedError(
                 f"object dtype with filters {[f['id'] for f in filters]}"

@@ -2,8 +2,6 @@ import io
 import json
 import zipfile
 
-import pytest
-
 from bundle import Bundle
 from sources import S3, SAMPLES
 

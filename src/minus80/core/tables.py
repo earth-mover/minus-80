@@ -344,7 +344,7 @@ def _write_local(source: Path, url: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, suffix=".part")
     try:
-        with source.open("rb") as data, os.fdopen(descriptor, "wb") as target:
+        with os.fdopen(descriptor, "wb") as target, source.open("rb") as data:
             shutil.copyfileobj(data, target, 16 * MIB)
         # The name holds the content hash, so a concurrent writer's replace puts equal bytes.
         os.replace(temporary, path)
