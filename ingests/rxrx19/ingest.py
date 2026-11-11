@@ -30,7 +30,6 @@ from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.csv
 import pyarrow.parquet as pq
 import zarr
@@ -38,10 +37,11 @@ from imagecodecs.zarr import Png
 
 import layout
 from layout import DATASETS, Dataset
-from minus80.core.fetch import cache_dir, read_range
+from minus80.core.fetch import cache_dir
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
 from minus80.core.nodes import array_document, group_document, write_nodes
-from minus80.parsers.zip.directory import member_spans
+from minus80.parsers.zip.reading import stream_members
+from minus80.parsers.zip.streaming import spans_in_file_order
 from source import Survey, rebased, survey
 
 
@@ -206,20 +206,24 @@ class Inflating(io.RawIOBase):
 
 
 def write_embeddings(s: Survey, store) -> None:
-    entry = s.embeddings_zip.filter(pc.match_substring(s.embeddings_zip["name"], ".csv")).to_pylist()[0]
-    span = member_spans(s.embeddings_zip, [entry["name"]]).to_pylist()[0]
-    data = read_range(layout.readable(s.dataset.embeddings), span["start"], span["end"])
-    name_length, extra_length = int.from_bytes(data[26:28], "little"), int.from_bytes(data[28:30], "little")
-    deflated = data[30 + name_length + extra_length: 30 + name_length + extra_length + entry["compressed"]]
+    name = next(n for n in s.embeddings_zip["name"].to_pylist() if n.endswith(".csv"))
+    # Concurrent range requests, not one GET: RxRx19a's member is 1.4 GB deflated.
+    (member,) = stream_members(layout.readable(s.dataset.embeddings), spans_in_file_order(s.embeddings_zip, [name]))
+    deflated = member.stored
     order = {site_id: i for i, site_id in enumerate(s.metadata.site_id)}
     reader = pyarrow.csv.open_csv(io.BufferedReader(Inflating(deflated), buffer_size=1 << 22))
     features = len(reader.schema) - 1
     values = np.zeros((len(order), features), dtype="float32")
-    seen = 0
+    seen, started, reported = 0, time.monotonic(), time.monotonic()
     for batch in reader:
         rows = [order[site_id] for site_id in batch.column(0).to_pylist()]
         values[rows] = np.column_stack([batch.column(i).to_numpy().astype("float32") for i in range(1, features + 1)])
         seen += len(rows)
+        if time.monotonic() - reported > 10:
+            reported = time.monotonic()
+            rate = seen / (reported - started)
+            print(f"  embeddings: {seen:,} of {len(order):,} rows, {rate:,.0f} rows/s, "
+                  f"{(len(order) - seen) / rate:.0f} s left", flush=True)
     if seen != len(order):
         raise ValueError(f"embeddings.csv has {seen:,} rows for {len(order):,} sites")
     key = s.dataset.key
