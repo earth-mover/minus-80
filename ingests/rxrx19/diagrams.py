@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import struct
-from dataclasses import dataclass
 from pathlib import Path
 
 import layout
@@ -35,13 +33,11 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv
-from layout import DATASETS, Dataset
+from layout import DATASETS
+from source import Survey, survey
 
 from minus80 import diagrams as d
-from minus80.core.fetch import cache_dir, read_range
 from minus80.diagrams import ACCENTS, Canvas, Line, TreeNode
-from minus80.parsers.zip.directory import member_spans
-from minus80.parsers.zip.reading import cached_central_directory, read_members
 
 OUT = Path(__file__).parent / "diagrams"
 
@@ -55,87 +51,6 @@ MANIFEST_BYTES_PER_SITE = {"rxrx19a": 298, "rxrx19b": 313}
 SNAPSHOT_CACHE_NODES = 500_000
 
 EXAMPLE = ("HRCE-1", 1, "AA02", 2)
-PNG = r"^[^/]+/images/(?P<experiment>[^/]+)/Plate(?P<plate>\d+)/(?P<well>[A-Z]+\d+)_s(?P<site>\d+)_w(?P<channel>\d+)\.png$"
-
-
-# Reading the source
-
-
-@dataclass
-class Survey:
-    """What one dataset's zips hold, from their central directories and the metadata CSV."""
-
-    dataset: Dataset
-    directory: pa.Table
-    pngs: pd.DataFrame
-    metadata: pd.DataFrame
-    metadata_zip: pa.Table
-    embeddings_zip: pa.Table
-    png_header: dict
-
-    @property
-    def archive_size(self) -> int:
-        return int(self.directory.schema.metadata[b"archive_size"])
-
-    @property
-    def directory_size(self) -> int:
-        return int(self.directory.schema.metadata[b"directory_size"])
-
-    @property
-    def directory_offset(self) -> int:
-        return int(self.directory.schema.metadata[b"directory_offset"])
-
-
-def cached(url: str) -> pa.Table:
-    https = url.replace("gs://rxrx/", "https://storage.googleapis.com/rxrx/")
-    name = url.rsplit("/", 1)[-1].removesuffix(".zip")
-    return cached_central_directory(https, Path(cache_dir()) / "rxrx19" / f"{name}.central-directory.parquet")
-
-
-def check_local_extra(directory: pa.Table, key: str) -> None:
-    """Stop unless every member's span is its 30-byte header, its name, 28 bytes of extra field and its data."""
-    spans = member_spans(directory).to_pandas()
-    rows = directory.take(pa.array(spans.entry)).to_pandas()
-    expected = 30 + rows.name.str.encode("utf-8").str.len() + layout.LOCAL_EXTRA + rows.compressed.astype("int64")
-    wrong = rows.name[(spans.end - spans.start).astype("int64") != expected]
-    if len(wrong):
-        raise ValueError(f"{key}: {len(wrong)} members have another local extra field, such as {wrong.iloc[0]}")
-
-
-def survey(dataset: Dataset) -> Survey:
-    directory = cached(dataset.images)
-    check_local_extra(directory, dataset.key)
-    parts = pc.extract_regex(directory["name"], PNG)
-    keep = pc.is_valid(parts)
-    pngs = pa.table(
-        {
-            "name": directory["name"].filter(keep),
-            **{f: pc.struct_field(parts.filter(keep), f) for f in ("experiment", "plate", "well", "site", "channel")},
-            "offset": directory["local_header_offset"].filter(keep),
-            "bytes": directory["compressed"].filter(keep),
-            "method": directory["method"].filter(keep),
-        }
-    ).to_pandas()
-    for column in ("plate", "site", "channel"):
-        pngs[column] = pngs[column].astype(int)
-    pngs["data_offset"] = pngs.offset.astype("int64") + 30 + pngs.name.str.encode("utf-8").str.len() + layout.LOCAL_EXTRA
-
-    metadata_zip = cached(dataset.metadata)
-    csv = read_members(dataset.https(dataset.metadata), [dataset.csv], metadata_zip)[dataset.csv]
-    metadata = pyarrow.csv.read_csv(pa.BufferReader(csv)).to_pandas()
-
-    first = pngs.iloc[0]
-    data = read_range(dataset.https(dataset.images), int(first.data_offset), int(first.data_offset) + 33)
-    width, height, depth, color = struct.unpack(">IIBB", data[16:26])
-    return Survey(
-        dataset=dataset,
-        directory=directory,
-        pngs=pngs,
-        metadata=metadata,
-        metadata_zip=metadata_zip,
-        embeddings_zip=cached(dataset.embeddings),
-        png_header={"signature": data[:8], "width": width, "height": height, "bit_depth": depth, "color_type": color},
-    )
 
 
 # Shared pieces of both figures
@@ -312,8 +227,7 @@ def source_entries(surveys: list[Survey]) -> list:
 
 
 def site_ids(s: Survey) -> pd.Series:
-    p = s.pngs
-    return p.experiment + "_" + p.plate.astype(str) + "_" + p.well + "_" + p.site.astype(str)
+    return s.pngs.site_id
 
 
 # The store figure

@@ -49,8 +49,14 @@ class Dataset:
     pixel_size: float
     stains: tuple[str, ...] | None
 
-    def https(self, path: str) -> str:
-        return path.replace("gs://rxrx/", "https://storage.googleapis.com/rxrx/")
+
+#: Recursion's public bucket. References record these gs:// URLs; reads go over HTTPS.
+BUCKET = "gs://rxrx/"
+
+
+def readable(url: str) -> str:
+    """``url`` as this process reads it: a ``gs://rxrx/`` URL over HTTPS, anything else as given."""
+    return url.replace(BUCKET, "https://storage.googleapis.com/rxrx/")
 
 
 DATASETS = {
@@ -102,6 +108,9 @@ README_COMMIT = "19883e707d"
 
 #: The Arraylake repo that holds both datasets, each as a top-level group.
 REPO = "arraylake://earthmover-biology/RxRx19"
+
+#: The OME-Zarr version of every document the ingest writes.
+OME_VERSION = "0.6"
 
 #: Every row and column of a 1536-well plate.
 ROWS, COLUMNS = plate_grid(1536)
