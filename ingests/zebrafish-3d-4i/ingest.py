@@ -1,179 +1,37 @@
 """Convert the 3D-4i zebrafish plate (BioImage Archive S-BIAD3228) to OME-Zarr 0.6.
 
-PLAN.md explains the decisions behind this layout. LAYOUTS.md records the
-quirks of the source. This docstring walks through what the code does and why.
-The general parts of the work live in the minus80 package. This file holds
-the stages of the copy and the parsing of this dataset, in the order the copy
-runs them. ``pipeline.py`` beside it holds the threads, byte budgets and
-progress counters that let the stages run at once.
-
-What the source is
-------------------
 The source is one zip file of 591 GB. It holds an OME-Zarr 0.4 plate written
-by Fractal, the software the authors used. Inside the zip:
+by Fractal, the software the authors used. The zip compressed every file
+inside it with Deflate. Because of that, we cannot point at the source chunks
+in place. This ingest reads the pixels and writes them again.
 
-- There are 30 wells. Each well was imaged in 4 staining rounds, numbered 0 to
-  3. In each round the embryos were stained for DNA (DAPI) and three proteins,
-  imaged, and washed, so every round has 4 channels.
-- For each well and round there is one large image the size of the well. We
-  call it the well image. It has axes (c, z, y, x) and holds uint16 pixels.
-- The microscope took 5 to 9 fields of view in each well, one per embryo.
-  Each field is 1000 x 1000 pixels and 271 planes deep. Fractal pasted each
-  field onto the well image at the position where it was taken.
-- Each well image has 4 pyramid levels. Each level halves the size in y and x,
-  rounding down.
-- Round 1 also has six segmentations, called labels, on the same pixel grid.
-- Each well image has tables in AnnData format. The table ``FOV_ROI_table`` says
-  where each field sits on the well image.
-
-Most of each well image is empty. The microscope never imaged the space between
-the fields, so those pixels are exactly 0. At level 0 the source does not
-store chunks that miss every field. At levels 1 to 3 it does store them,
-full of zeros. Inside a field, even the background outside the embryo has
-camera noise, with values from 0 to 8.
-
-The zip compressed every file inside it with Deflate. Because of that, we
-cannot point at the source chunks in place. This ingest reads the pixels and
-writes them again.
-
-What the store is
------------------
 The store is an OME-Zarr 0.6 plate with one image per embryo. Each image
 holds every channel of every round, so opening an embryo gives all of its
 stains at once.
 
-- ``<row>/<column>`` is a well. Its ``well`` metadata lists the well's images.
-  The same group also has a ``scene``. The scene places every image of the
-  well in one shared coordinate system, called ``well``, so a viewer can still
-  show the whole well as one picture.
+- ``<row>/<column>`` is a well. It holds ``well`` metadata and a ``scene``.
 - ``<row>/<column>/<n - 1>`` is one embryo, the source's field ``FOV_n``, so
-  ``FOV_1`` is image ``0``. Its axes are (c, z, y, x) and its pixels are uint16. Its channel axis
-  holds round 0's four channels, then round 1's, and so on: 16 channels for 4
-  rounds. Each channel keeps its source name, such as ``DAPI_1`` or
-  ``H3K27Ac``, and the image's annotations record each channel's round.
+  ``FOV_1`` is image ``0``. Its axes are (c, z, y, x) and its pixels are
+  uint16. Its channel axis holds round 0's four channels, then round 1's,
+  and so on: 16 channels for 4 rounds.
 - ``<row>/<column>/<n - 1>/labels/<name>`` holds the labels, cut to the field.
 
-Why the rounds are channels
----------------------------
-An OME-Zarr image allows only one axis that is neither space nor time, so
-rounds cannot be an axis of their own next to the channels. The rounds of the
-published data are already registered to each other, so they can share one
-image and one coordinate system. If a later use needs each round as a separate
-image, the chunks can serve both layouts: every chunk is one plane of one
-channel with the same codec.
+The pipeline
+------------
+The zip is read once, well by well, in the order it stores its bytes. For
+each well, four stages run at once, each on its own thread:
 
-Cutting out the fields leaves the empty space of the well image behind. A few
-chunks are still all zero, mostly label planes above and below each embryo.
-zarr does not write those chunks. When read, they come back as the fill
-value, 0.
+1. fetch the well's bytes in range requests and cut them into channel runs;
+2. hold each channel run until the metadata it needs has arrived;
+3. decode each channel run into one buffer per embryo;
+4. write each buffer into its embryo's image, committing every few minutes.
 
-How the copy works
-------------------
-The zip is read once, well by well, in the order it stores its bytes. Each
-well is one contiguous region of the zip, and every metadata document the
-well needs lies inside that region (PLAN.md, decision 14).
-
-- **The index.** The zip's central directory, its table of contents at the
-  end of the file, lists every member with its size and where it starts.
-  ``minus80.parsers.zip.reading`` reads it once and keeps it as a Parquet
-  file. The directory alone says what every member is, because a member's
-  name is a Zarr key: ``C/02/2/0/1/13/0/7`` is chunk (1, 13, 0, 7) of array
-  ``C/02/2/0`` (``minus80.parsers.zip.zarr_v2``).
-- **Fetching.** ``minus80.parsers.zip.reading.stream_members`` reads a well's
-  region as 64 MiB range requests, many at once, and cuts the members out
-  of them in order. New requests go on starting while an earlier one is
-  slow, up to 64 asked for ahead of the cutting, and a request still out
-  after 20 s is made a second time, so one slow request does not idle the
-  others (``minus80.core.fetch.iter_ranges``). A thread of its own does
-  this and hands over finished channel runs. It waits only when the runs it
-  has handed over and that are not yet decoded hold 8 GB compressed
-  (``--fetch-ahead-gb``), so the fetch keeps going while earlier runs
-  decode and upload.
-- **Channel runs.** Within one array the zip stores one channel at a time,
-  so the chunks arrive as *channel runs*: every chunk of one channel of one
-  array, or every chunk of one label array. A destination shard needs four
-  z indices of one channel, and the zip stores a channel's z indices in a
-  scrambled order, so no shard is complete until nearly the whole channel
-  run has arrived. A channel run is therefore the unit of work.
-- **Waiting for metadata.** A channel run can be decoded once three things
-  have arrived: the field positions (``FOV_ROI_table``), the shape of its
-  pyramid level (any ``.zarray`` of that level), and its array's encoding.
-  The zip stores the first round's table after that round's two coarsest
-  levels, and each array's ``.zarray`` half way through its chunks, so the
-  first channel runs wait in memory, compressed, until these arrive: about
-  2 GB, until level 0's first ``.zarray`` arrives partway through the first
-  level-0 run. Runs that wait are capped (``waiting_limit``, 4 GB by
-  default), so a document that is missing or late stops the well with an
-  error naming it, instead of buffering the whole well. An array's chunks
-  can be decoded with the encoding of an earlier array of the same level
-  and kind before its own ``.zarray`` arrives; every array's own
-  ``.zarray`` is checked against the encoding used before the well is
-  committed.
-- **Memory.** At any moment the copy holds: up to 8 GB of compressed
-  channel runs fetched and not yet decoded, the runs waiting for metadata
-  among them; one run being assembled; up to 64 range requests of 64 MiB
-  asked for and not yet cut; the cutter's buffer, the part of a range not
-  yet cut into members; up to 16 GB of decoded pixels not yet uploaded
-  (``--decoded-limit-gb``); and zarr's shards while it encodes them.
-- **Decoding.** A thread decodes one channel run after another, and waits
-  when the decoded runs not yet uploaded hold 16 GB. For each chunk in a
-  grid cell that some field touches, a thread pool inflates it, checks its Blosc frame, decodes it and copies
-  each field's part into that field's buffer. zlib and Blosc release the
-  GIL, so this uses every core.
-- **Cutting each level.** The module ``minus80.ome.crop`` works out which part
-  of each source level belongs to a field. At level 0 this is exactly the
-  field's 1000 x 1000 pixels. Levels 1 to 3 copy the source's own coarse
-  pixels, so that every value in the store is the authors'. Most fields do
-  not start on a coarse pixel boundary. The cut therefore covers every coarse
-  pixel the field touches, and it can be one pixel wider than 1000 / 2^k.
-  Each level's translation records exactly where the cut sits. A later
-  commit can replace these levels with ones rebuilt from level 0.
-- **Writing.** Each channel run becomes one zarr assignment per field: a
-  whole channel of one level, or a whole label level. The assignments of
-  several runs run at once, up to ``--upload-workers`` of them, while later
-  runs decode and fetch, and zarr's ``async.concurrency`` sets how many
-  shards each assignment uploads at once. zarr writes through a
-  ``minus80.core.metered.MeteredStore``, which counts the stored bytes and
-  times each shard write. A chunk is one
-  plane of one channel and a shard holds 32 planes; for labels, a shard
-  holds all 271 planes, because a label plane compresses to only a few KB.
-  Every shard is written once and never read back.
-- **Checking.** Before a well is committed, its metadata is read the way a
-  reader of the source would read it: ``minus80.parsers.fractal`` checks
-  that every round's ``FOV_ROI_table`` agrees and that each pyramid level is
-  the one above halved, and the fields it finds must be the ones the copy
-  used.
-- **Commits.** Before any well, the run creates the plate's root, row and
-  well groups, so that processes copying different wells never create the
-  same group. While a well is copied, it commits every 5 minutes
-  (``--checkpoint-minutes``): the running uploads finish, the well's group
-  records which channel runs are complete, and the commit is made. The
-  well's own metadata goes in its last commit, so a well counts as on the
-  branch only once all of it is copied; until then its arrays hold zeros
-  where runs are still missing. If a run stops, the next run resumes the
-  well after the channel runs its commits hold, and fetches only the rest.
-  A well that fails is reported and skipped, and the run goes on to the
-  next well and exits nonzero at the end, listing the failed wells. The
-  shards uploaded after a well's last commit stay in storage, unreachable,
-  until Icechunk's garbage collection removes them. At the end, every run
-  writes the plate's metadata. That metadata lists exactly the wells that
-  are on the branch at that moment.
-- **Progress.** Decoding prints a line every few seconds, counting chunks.
-  Every 30 s a heartbeat line names the stage the well is in (streaming,
-  checking, writing metadata, committing) with what has been fetched and
-  uploaded and at what rates, the chunks decoded, the bytes held between
-  the stages, the assignments running, the cores busy and memory, so a
-  long commit or check is not mistaken for a hang and a slow stage shows
-  where the bytes pile up. A range request or a shard write that takes over
-  20 s is reported on its own line. If the copy stops moving for a minute,
-  every thread's stack is printed, with the end of ``--stall-log`` (such as
-  Icechunk's log), and again every 5 minutes while the stall lasts. The well's last line says how long each stage
-  was held back by the next.
-- **Speed.** Fetching, decoding and uploading run at once, each waiting only
-  when the bytes it has passed on reach their limit, so a well takes about
-  as long as the slowest of them. To go faster still, start more processes
-  and give each one different wells with ``--wells``. Each process commits
-  its own wells, and Icechunk rebases each commit onto the others.
+Then the well is checked against the source's metadata, its image and well
+metadata are written, and its last commit is made. This file holds the
+stages and the parsing of this dataset, in the order the copy runs them.
+``pipeline.py`` beside it holds the threads, byte budgets and progress
+counters that let the stages run at once. The general parts of the work live
+in the minus80 package.
 
 Terms: a *member* is one file inside the zip; a *chunk* is a member that
 holds pixels; a *run* is one array's chunks, stored back to back; a *channel
@@ -189,6 +47,10 @@ Running it
         --source <zip URL> --repo <dir | arraylake://org/repo> [--wells C/02,E/05] \\
         [--upload-workers 8] [--zarr-concurrency 32] [--waiting-limit-gb 4] \\
         [--fetch-ahead-gb 8] [--decoded-limit-gb 16] [--read-window 64]
+
+PLAN.md explains the decisions behind this layout. LAYOUTS.md records the
+quirks of the source. REPORT.md describes the finished store and the copy
+that made it.
 """
 
 from __future__ import annotations
@@ -274,6 +136,36 @@ DIRECTORY_CACHE = Path(cache_dir()) / "zebrafish-3d-4i" / "central-directory.par
 
 
 # The source and the plan
+#
+# The zip holds 30 wells. Each well was imaged in 4 staining rounds, numbered
+# 0 to 3. In each round the embryos were stained for DNA (DAPI) and three
+# proteins, imaged and washed, so every round has 4 channels. For each well
+# and round the source stores:
+#
+# - one image the size of the well, the *well image*, with axes (c, z, y, x)
+#   and uint16 pixels, in 4 pyramid levels that each halve y and x, rounding
+#   down;
+# - the 5 to 9 fields of view the microscope took, one per embryo, each
+#   1000 x 1000 pixels and 271 planes deep, pasted onto the well image at the
+#   position where it was taken;
+# - tables in AnnData format, among them ``FOV_ROI_table``, which says where
+#   each field sits on the well image;
+# - in round 1, six segmentations, called labels, on the same pixel grid.
+#
+# Most of each well image is empty. The microscope never imaged the space
+# between the fields, so those pixels are exactly 0. At level 0 the source
+# does not store chunks that miss every field; at levels 1 to 3 it stores
+# them, full of zeros. Inside a field, even the background outside the embryo
+# has camera noise, with values from 0 to 8.
+#
+# Each well is one contiguous region of the zip, and every metadata document
+# the well needs lies inside that region (PLAN.md, decision 14). A well can
+# therefore be planned before any of it is fetched. The zip's central
+# directory, its table of contents at the end of the file, lists every member
+# with its size and where it starts, and a member's name is a Zarr key:
+# ``C/02/2/0/1/13/0/7`` is chunk (1, 13, 0, 7) of array ``C/02/2/0``
+# (``minus80.parsers.zip.zarr_v2``). The directory is read once and kept as a
+# Parquet file (``minus80.parsers.zip.reading``).
 
 
 @dataclass(frozen=True)
@@ -345,6 +237,40 @@ class WellPlan:
 
 
 # Streaming a well
+#
+# Within one array the zip stores one channel at a time, so the chunks arrive
+# as channel runs: every chunk of one channel of one array, or every chunk of
+# one label array. A destination shard needs four z indices of one channel,
+# and the zip stores a channel's z indices in a scrambled order, so no shard
+# is complete until nearly the whole channel run has arrived. A channel run
+# is therefore the unit of work.
+#
+# The well's region is read as 64 MiB range requests, many at once, and cut
+# into members in order. New requests go on starting while an earlier one is
+# slow, up to 64 asked for ahead of the cutting, and a request still out
+# after 20 s is made a second time, so one slow request does not idle the
+# others (``minus80.core.fetch.iter_ranges``).
+#
+# A channel run can be decoded once three things have arrived: the field
+# positions (``FOV_ROI_table``), the shape of its pyramid level (any
+# ``.zarray`` of that level) and its array's encoding. The zip stores the
+# first round's table after that round's two coarsest levels, and each
+# array's ``.zarray`` half way through its chunks. So the first channel runs
+# wait in memory, compressed, until these arrive: about 2 GB, until level 0's
+# first ``.zarray`` arrives partway through the first level-0 run.
+#
+# At any moment the copy holds:
+#
+# - up to 8 GB of compressed channel runs fetched and not yet decoded, the
+#   runs waiting for metadata among them;
+# - one run being assembled;
+# - up to 64 range requests of 64 MiB asked for and not yet cut;
+# - the cutter's buffer, the part of a range not yet cut into members;
+# - up to 16 GB of decoded pixels not yet uploaded;
+# - zarr's shards while it encodes them.
+#
+# Each stage waits only when the bytes it has passed on reach their limit, so
+# a well takes about as long as the slowest stage.
 
 
 #: R2 answers a VM in its own region in about 100 ms; 64 requests at once
@@ -677,6 +603,19 @@ def copy_well(
 
 
 # Decoding
+#
+# Only the chunks in grid cells that some field touches are decoded. Each is
+# inflated, its Blosc frame is checked and decoded, and each field's part is
+# copied into that field's buffer. zlib and Blosc release the GIL, so the
+# chunks of one channel run decode on a thread pool that uses every core.
+#
+# At level 0 a field's cut is exactly its 1000 x 1000 pixels. Levels 1 to 3
+# copy the source's own coarse pixels, so that every value in the store is
+# the authors'. Most fields do not start on a coarse pixel boundary. The cut
+# therefore covers every coarse pixel the field touches, and it can be one
+# pixel wider than 1000 / 2^k. Each level's translation records exactly where
+# the cut sits (``minus80.ome.crop``). A later commit can replace these levels
+# with ones rebuilt from level 0.
 
 
 #: A level-0 channel run of seven fields decodes to about 3.8 GB
@@ -862,6 +801,22 @@ def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMemb
 
 
 # Writing fields
+#
+# An OME-Zarr image allows only one axis that is neither space nor time, so
+# rounds cannot be an axis of their own next to the channels. The rounds of
+# the published data are already registered to each other, so they can share
+# one image and one coordinate system. If a later use needs each round as a
+# separate image, the chunks can serve both layouts: every chunk is one plane
+# of one channel with the same codec.
+#
+# An image shard holds 32 planes. A label shard holds all 271 planes, because
+# a label plane compresses to only a few KB. Every shard is written once and
+# never read back.
+#
+# Cutting out the fields leaves the empty space of the well image behind. A
+# few chunks are still all zero, mostly label planes above and below each
+# embryo. zarr does not write those chunks. When read, they come back as the
+# fill value, 0.
 
 
 #: Planes per image shard (PLAN.md, decision 5). One channel of a whole embryo
@@ -1049,6 +1004,13 @@ class WellWriter:
 
 
 # Checking a well against its metadata
+#
+# The stream places fields and decodes chunks with the first metadata of each
+# kind to arrive, before the well's own documents are all in. So before a
+# well is committed, its metadata is read the way a reader of the source
+# would read it (``minus80.parsers.fractal``): every round's
+# ``FOV_ROI_table`` must agree, each pyramid level must be the one above
+# halved, and the fields it finds must be the ones the copy used.
 
 
 def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) -> list[Field]:
@@ -1124,6 +1086,13 @@ def round_channels(plate: Plate, src: zarr.Group, well: str) -> list[dict]:
 
 
 # Image and plate metadata
+#
+# Each channel keeps its source name, such as ``DAPI_1`` or ``H3K27Ac``, and
+# the image's annotations record each channel's round.
+#
+# Each well group also holds a ``scene``. The scene places every image of the
+# well in one shared coordinate system, called ``well``, so a viewer can
+# still show the whole well as one picture.
 
 
 #: The name of the coordinate system that each well's scene defines.
@@ -1392,6 +1361,29 @@ def recorded_rounds(by_well: Mapping[str, Mapping[str, list[str]]]) -> dict:
 
 
 # The run
+#
+# Until a well's last commit, its arrays hold zeros where channel runs are
+# still missing. The shards uploaded after a well's last commit stay in
+# storage, unreachable, until Icechunk's garbage collection removes them.
+#
+# To go faster, start more processes and give each one different wells with
+# ``--wells``. Each process commits its own wells, and Icechunk rebases each
+# commit onto the others.
+#
+# A run reports its progress so that a long commit or check is not mistaken
+# for a hang, and a slow stage shows where the bytes pile up:
+#
+# - Decoding prints a line every few seconds, counting chunks.
+# - Every 30 s a heartbeat line names the stage the well is in (streaming,
+#   checking, writing metadata, committing) with what has been fetched and
+#   uploaded and at what rates, the chunks decoded, the bytes held between
+#   the stages, the assignments running, the cores busy and memory.
+# - A range request or a shard write that takes over 20 s is reported on its
+#   own line.
+# - If the copy stops moving for a minute, every thread's stack is printed,
+#   with the end of ``--stall-log`` (such as Icechunk's log), and again every
+#   5 minutes while the stall lasts.
+# - The well's last line says how long each stage was held back by the next.
 
 
 def create_plate_groups(repo, branch: str, wells: Sequence[str]) -> None:
