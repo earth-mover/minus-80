@@ -24,7 +24,7 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 | `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |
 | `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's; `submit` starts one on the same loop and returns a cancellable future. |
 | `zarr_copy` | `copy_group` copies every Zarr v2 array in a zip, and the attributes of every group, into a v3 group, and `copy_chunks` writes one array's chunk members to their v3 keys, bytes unchanged. `create_copy` makes the v3 array from a `.zarray`: blosc, Fortran order and `vlen-utf8` translate; any other filter or compressor raises `NotImplementedError`. |
-| `tables` | Needs the `tables` extra. `write_parquet` writes a Parquet file with pandas index and `geo` footer metadata. `register_files` adds files to an Iceberg table. `iceberg_table_attr` pins the table and snapshot. `declare_copy` makes `uint8` arrays whose chunks reference the files. A copy has a rectilinear grid, so a reader sets `zarr.config.set({"array.rectilinear_chunks": True})`. |
+| `tables` | Needs the `tables` extra. `write_parquet` writes a Parquet file with pandas index and `geo` footer metadata. `register_files` adds files to an Iceberg table and returns each file's `data_file`: its size and last-modified time. `iceberg_table_attr` pins the table and snapshot. `declare_copy` makes `uint8` arrays whose chunks reference the files. Each reference carries the file's last-modified time, so Icechunk refuses to read a file that changed. A copy has a rectilinear grid, so a reader sets `zarr.config.set({"array.rectilinear_chunks": True})`. |
 
 ## Usage
 

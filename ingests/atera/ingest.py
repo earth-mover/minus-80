@@ -7,6 +7,7 @@ its own branch, one commit per element. The bundle is read in place by range req
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -226,20 +227,27 @@ def local_catalog(directory: Path) -> SqlCatalog:
     return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=directory.as_uri())
 
 
-def write_local(io, url: str, table, *, geo, field_ids=None) -> None:
-    """Write ``table`` at the ``file://`` URL ``url``."""
+def write_local(io, source: Path, url: str) -> None:
+    """Copy ``source`` to the ``file://`` URL ``url``; an existing file raises ``FileExistsError``."""
     path = file_path(url)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_parquet(table, str(path), index_column="instance", geo=geo, field_ids=field_ids)
+    with source.open("rb") as data, path.open("xb") as target:
+        shutil.copyfileobj(data, target, 16 * MIB)
 
 
-def write_through_io(io, url: str, table, *, geo, field_ids=None) -> None:
-    """Write ``table`` to a temporary file, then copy it to ``url`` through the table's FileIO."""
-    with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / "part.parquet"
-        write_parquet(table, str(path), index_column="instance", geo=geo, field_ids=field_ids)
-        with path.open("rb") as source, io.new_output(url).create(overwrite=True) as target:
-            shutil.copyfileobj(source, target, 16 * MIB)
+def write_through_io(io, source: Path, url: str) -> None:
+    """Copy ``source`` to ``url`` through the table's FileIO; an existing object raises ``FileExistsError``."""
+    with source.open("rb") as data, io.new_output(url).create(overwrite=False) as target:
+        shutil.copyfileobj(data, target, 16 * MIB)
+
+
+def content_name(path: Path) -> str:
+    """The first 32 hex digits of the SHA-256 of the file at ``path``."""
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(16 * MIB):
+            digest.update(block)
+    return digest.hexdigest()[:32]
 
 
 class Tables:
@@ -266,19 +274,23 @@ class Tables:
         return f"{self.require(name, **spec).location()}/data/"
 
     def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None, replace=False):
-        """Write ``table`` as the table's file, with the table's field ids, and register it.
+        """Write ``table`` as a file of the table, with the table's field ids, and register it.
 
-        With ``replace``, the file name carries the table's snapshot count, so it is not a registered
-        file's name, and the file replaces every file the table holds.
+        The file name holds a hash of the file's bytes, so other bytes never take an existing name.
+        An object under that name is reused and never written again, so a committed reference stays valid.
+        With ``replace``, the file replaces every file the table holds.
         With ``replace``, a failure after the table snapshot and before the repo commit leaves one
         extra snapshot, and the next run's snapshot leaves that file unreferenced. The next run converges.
         """
         spec = {"schema": schema, "properties": properties, "partition_by": partition_by}
         iceberg = self.require(name, **spec)
-        url = f"{iceberg.location()}/data/{name}-{len(iceberg.snapshots()) if replace else 0}.parquet"
-        # A rerun leaves a registered file as it is, so the table's statistics still describe it.
-        if url not in {task.file.file_path for task in iceberg.scan().plan_files()}:
-            self.write_file(iceberg.io, url, table, geo=geo, field_ids=index_by_name(iceberg.schema()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "part.parquet"
+            write_parquet(table, str(path), index_column="instance", geo=geo,
+                          field_ids=index_by_name(iceberg.schema()))
+            url = f"{iceberg.location()}/data/{name}-{content_name(path)}.parquet"
+            if not iceberg.io.new_input(url).exists():
+                self.write_file(iceberg.io, path, url)
         ref = register_files(self.catalog, f"{self.namespace}.{name}", [url], replace=replace, **spec)
         attr = iceberg_table_attr(ref, catalog=self.kind, org=self.org, namespace=self.namespace, table=name,
                                   index_column="instance", geometry_column="geometry" if geo else None)

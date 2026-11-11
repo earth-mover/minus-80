@@ -1,7 +1,11 @@
+import re
+
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
+from pyiceberg.io.pyarrow import PyArrowFileIO
 
-from ingest import Tables, local_catalog, write_local
+from ingest import Tables, local_catalog, write_local, write_through_io
 from minus80.core.registry import file_path
 
 SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
@@ -32,7 +36,7 @@ def test_tables_write_with_replace_swaps_the_file_and_keeps_the_table(tmp_path):
     first, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
     ref, attr = tables.write("t", _table().slice(1), schema=SCHEMA, properties={}, replace=True)
     iceberg = tables.catalog.load_table("ns.t")
-    assert [f for f, _ in ref.files] == [f"{iceberg.location()}/data/t-1.parquet"]
+    assert ref.files[0].location != first.files[0].location
     assert [t.file.file_path for t in iceberg.scan().plan_files()] == [ref.files[0][0]]
     assert iceberg.scan().to_arrow()["instance"].to_pylist() == [2]
     assert ref.table_uuid == first.table_uuid and attr["snapshot_id"] == ref.snapshot_id != first.snapshot_id
@@ -43,7 +47,8 @@ def test_tables_writes_the_file_in_the_table_location_and_pins_the_snapshot(tmp_
     tables = _tables(tmp_path)
     ref, attr = tables.write("t", _table(), schema=SCHEMA, properties={"p": "v"}, partition_by="grid_tile")
     location = tables.catalog.load_table("ns.t").location()
-    assert [f for f, _ in ref.files] == [f"{location}/data/t-0.parquet"]
+    [written] = ref.files
+    assert re.fullmatch(rf"{re.escape(location)}/data/t-[0-9a-f]{{32}}\.parquet", written.location)
     assert pq.read_table(file_path(ref.files[0][0])).num_rows == 2
     assert attr["catalog"] == "local" and attr["org"] == "local" and attr["table"] == "t"
     assert attr["snapshot_id"] == tables.catalog.load_table("ns.t").current_snapshot().snapshot_id
@@ -65,10 +70,54 @@ def test_data_prefix_covers_the_files_the_table_gets(tmp_path):
     assert prefix.endswith("/data/") and ref.files[0][0].startswith(prefix)
 
 
+def _parquet(tmp_path, name="part.parquet"):
+    path = tmp_path / name
+    pq.write_table(_table(), path)
+    return path
+
+
 def test_write_local_decodes_the_url(tmp_path):
     directory = tmp_path / "a b"
-    write_local(None, (directory / "f.parquet").as_uri(), _table(), geo=None)
-    assert (directory / "f.parquet").exists()
+    write_local(None, _parquet(tmp_path), (directory / "f.parquet").as_uri())
+    assert (directory / "f.parquet").read_bytes() == _parquet(tmp_path).read_bytes()
+
+
+@pytest.mark.parametrize("write_file", [write_local, write_through_io])
+def test_a_write_never_replaces_an_existing_object(tmp_path, write_file):
+    target = tmp_path / "f.parquet"
+    target.write_bytes(b"held")
+    with pytest.raises(FileExistsError):
+        write_file(PyArrowFileIO(), _parquet(tmp_path), target.as_uri())
+    assert target.read_bytes() == b"held"
+
+
+def test_a_second_write_with_other_rows_adds_an_object_and_leaves_the_first(tmp_path):
+    tables = _tables(tmp_path)
+    first, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+    held = file_path(first.files[0].location).read_bytes()
+    second, _ = tables.write("t", _table().slice(1), schema=SCHEMA, properties={})
+    assert second.files[0].location != first.files[0].location
+    assert file_path(first.files[0].location).read_bytes() == held
+    assert tables.catalog.load_table("ns.t").scan().to_arrow().num_rows == 3
+
+
+def test_a_write_after_a_replace_reuses_the_earlier_object_unchanged(tmp_path):
+    writes = []
+
+    def counted_write(io, source, url):
+        writes.append(url)
+        write_local(io, source, url)
+
+    tables = Tables(local_catalog(tmp_path), "ns", kind="local", org="local", write_file=counted_write)
+    first, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+    path = file_path(first.files[0].location)
+    held, written_at = path.read_bytes(), path.stat().st_mtime_ns
+    tables.write("t", _table().slice(1), schema=SCHEMA, properties={}, replace=True)
+    # The current snapshot no longer holds the first file, but its name still states its bytes.
+    again, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+    assert again.files[0].location == first.files[0].location
+    assert path.read_bytes() == held and path.stat().st_mtime_ns == written_at
+    assert len(writes) == 2
 
 
 def test_a_repo_with_the_data_prefixes_reads_the_copy(tmp_path):
@@ -135,9 +184,9 @@ def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
 
     writes = []
 
-    def counted_write(io, url, table, *, geo, field_ids):
+    def counted_write(io, source, url):
         writes.append(url)
-        write_local(io, url, table, geo=geo, field_ids=field_ids)
+        write_local(io, source, url)
 
     tables = Tables(local_catalog(tmp_path / "catalog"), "ns", kind="local", org="local", write_file=counted_write)
     prefix = tables.data_prefix("t", schema=SCHEMA, properties={})

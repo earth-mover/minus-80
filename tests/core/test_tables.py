@@ -1,16 +1,20 @@
 import json
 import os
 
+import icechunk
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import zarr
 from pyiceberg.catalog.sql import SqlCatalog
+from pyiceberg.io.pyarrow import PyArrowFileIO
 
 from minus80.core.icechunk_io import create_repo
 from minus80.core.tables import (
+    DataFile,
     TableRef,
+    data_file,
     declare_copy,
     declare_file,
     iceberg_table_attr,
@@ -43,6 +47,10 @@ def _catalog(tmp_path):
     )
     catalog.create_namespace("ns")
     return catalog
+
+
+def _data_file(path):
+    return data_file(PyArrowFileIO(), path.as_uri())
 
 
 def _group(tmp_path, *paths):
@@ -80,7 +88,11 @@ def test_register_files_adds_the_files_and_returns_the_snapshot(tmp_path):
     assert loaded.current_snapshot().snapshot_id == ref.snapshot_id
     assert loaded.scan().to_arrow().num_rows == 2 * table.num_rows
     assert loaded.properties["geo"] == "{}"
-    assert ref.files == [(p1, os.path.getsize(p1)), (p2, os.path.getsize(p2))]
+    assert [(f.location, f.size) for f in ref.files] == [(p1, os.path.getsize(p1)), (p2, os.path.getsize(p2))]
+    for f in ref.files:
+        # The time is the file's, rounded up to a whole second.
+        stated = f.last_modified.timestamp()
+        assert stated == int(stated) and 0 <= stated - os.path.getmtime(f.location) < 1
 
 
 def test_register_files_skips_a_file_the_table_already_holds(tmp_path):
@@ -228,7 +240,7 @@ def test_declare_copy_reads_back_the_file_bytes(tmp_path):
     path = tmp_path / "shapes.parquet"
     path.write_bytes(np.random.default_rng(0).bytes(20_000_001))
     root = _group(tmp_path, path)
-    (array,) = declare_copy(root, "shapes/cells/shapes.parquet", [(path.as_uri(), 20_000_001)])
+    (array,) = declare_copy(root, "shapes/cells/shapes.parquet", [_data_file(path)])
     assert array.shape == (20_000_001,)
     assert array.metadata.chunk_grid.chunk_shapes == ((8 << 20, 8 << 20, 3_222_785),)
     assert array.dtype == np.uint8
@@ -241,7 +253,7 @@ def test_a_file_smaller_than_a_chunk_has_one_chunk(tmp_path):
     path = tmp_path / "s.parquet"
     path.write_bytes(b"abc")
     root = _group(tmp_path, path)
-    (array,) = declare_copy(root, "s.parquet", [(path.as_uri(), 3)])
+    (array,) = declare_copy(root, "s.parquet", [_data_file(path)])
     assert array.metadata.chunk_grid.chunk_shapes == ((3,),)
     assert bytes(array[:]) == b"abc"
 
@@ -252,16 +264,31 @@ def test_several_files_become_parts(tmp_path):
     p2.write_bytes(b"y" * 20)
     root = _group(tmp_path, p1, p2)
     arrays = declare_copy(
-        root, "points/t/points.parquet", [(p1.as_uri(), 10), (p2.as_uri(), 20)]
+        root, "points/t/points.parquet", [_data_file(p1), _data_file(p2)]
     )
     assert [a.basename for a in arrays] == ["part.0.parquet", "part.1.parquet"]
     assert bytes(arrays[1][:]) == b"y" * 20
 
 
+def test_a_copy_of_a_file_that_changed_afterwards_fails_to_read(tmp_path):
+    path = tmp_path / "s.parquet"
+    path.write_bytes(b"abc")
+    repo = create_repo(tmp_path / "repo", [path.as_uri()])
+    session = repo.writable_session("main")
+    declare_copy(zarr.open_group(session.store, mode="w"), "s.parquet", [_data_file(path)])
+    session.commit("copy")
+    path.write_bytes(b"xyz")
+    later = os.path.getmtime(path) + 2
+    os.utime(path, (later, later))
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    with pytest.raises(icechunk.StorageError, match="checksum"):
+        root["s.parquet"][:]
+
+
 def test_a_file_outside_every_container_is_refused(tmp_path):
     root = _group(tmp_path, tmp_path / "f.parquet")
     with pytest.raises(ValueError, match="container"):
-        declare_copy(root, "x", [("file:///nowhere/f.parquet", 10)])
+        declare_copy(root, "x", [DataFile("file:///nowhere/f.parquet", 10, None)])
 
 
 def test_declare_file_refuses_a_wrong_array(tmp_path):

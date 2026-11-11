@@ -5,6 +5,7 @@ The ingest writes each Parquet file itself, so the footer carries GeoParquet
 Each column can carry the field id of the table's schema, so a reader needs no name mapping.
 :func:`declare_copy` then references the same files from the repo, so a Python
 reader sees the file and a reader of the ``iceberg_table`` attribute uses the table.
+Each reference carries the file's last-modified time, so a changed file fails to read.
 
 A copy's last chunk is shorter than the others, so its grid is rectilinear. A reader
 must set ``zarr.config.set({"array.rectilinear_chunks": True})`` to open it.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from typing import NamedTuple
 
 import pyarrow as pa
@@ -110,12 +112,35 @@ def write_parquet(
         return f.seek(0, 2)
 
 
+class DataFile(NamedTuple):
+    """A data file's location, size in bytes, and last-modified time when the store states one."""
+
+    location: str
+    size: int
+    last_modified: datetime | None
+
+
+def data_file(io, location: str) -> DataFile:
+    """The :class:`DataFile` at ``location``, read through the pyiceberg FileIO ``io``.
+
+    The time is rounded up to a whole second: Icechunk keeps whole seconds and
+    refuses a chunk whose object is newer than its checksum.
+    """
+    file = io.new_input(location)
+    # pyiceberg's InputFile has no public modification time; PyArrowFile's _file_info has it.
+    info = file._file_info() if hasattr(file, "_file_info") else None
+    if info is None or info.mtime_ns is None:
+        return DataFile(location, len(file), None)
+    seconds = -(-info.mtime_ns // 1_000_000_000)
+    return DataFile(location, info.size, datetime.fromtimestamp(seconds, timezone.utc))
+
+
 class TableRef(NamedTuple):
-    """An Iceberg table snapshot and the size of each registered file."""
+    """An Iceberg table snapshot and each registered file."""
 
     table_uuid: str
     snapshot_id: int
-    files: list[tuple[str, int]]
+    files: list[DataFile]
 
 
 def require_table(
@@ -175,21 +200,21 @@ def register_files(
                           partition_by=partition_by)
     held = {task.file.file_path: task.file for task in table.scan().plan_files()}
     new = [f for f in files if f not in held]
-    stale = [data_file for path, data_file in held.items() if path not in files] if replace else []
+    stale = [held_file for path, held_file in held.items() if path not in files] if replace else []
     if stale:
         with table.transaction() as transaction:
             with transaction.update_snapshot().overwrite() as overwrite:
-                for data_file in stale:
-                    overwrite.delete_data_file(data_file)
+                for held_file in stale:
+                    overwrite.delete_data_file(held_file)
                 for f in new:
                     overwrite.append_data_file(parquet_file_to_data_file(table.io, transaction.table_metadata, f))
         table = catalog.load_table(identifier)
     elif new:
         table.add_files(new)
         table = catalog.load_table(identifier)
-    sizes = [(f, len(table.io.new_input(f))) for f in files]
     return TableRef(
-        str(table.metadata.table_uuid), table.current_snapshot().snapshot_id, sizes
+        str(table.metadata.table_uuid), table.current_snapshot().snapshot_id,
+        [data_file(table.io, f) for f in files],
     )
 
 
@@ -218,11 +243,10 @@ def iceberg_table_attr(
     return attr
 
 
-def _copy_array(
-    group: zarr.Group, path: str, location: str, size: int, chunk: int
-) -> zarr.Array:
+def _copy_array(group: zarr.Group, path: str, file: DataFile, chunk: int) -> zarr.Array:
     import icechunk
 
+    location, size = file.location, file.size
     edges = [chunk] * (size // chunk) + ([size % chunk] if size % chunk else [])
     array = group.create_array(
         path, shape=(size,), chunks=[edges] if edges else (1,), dtype="uint8",
@@ -230,8 +254,10 @@ def _copy_array(
     )
     declare_file(array, array.basename)
     specs = [
+        # The checksum makes Icechunk refuse the chunk once the file changes.
         icechunk.VirtualChunkSpec(
-            index=[k], location=location, offset=k * chunk, length=min(chunk, size - k * chunk)
+            index=[k], location=location, offset=k * chunk, length=min(chunk, size - k * chunk),
+            last_updated_at_checksum=file.last_modified,
         )
         for k in range(math.ceil(size / chunk))
     ]
@@ -248,9 +274,9 @@ def _copy_array(
 
 
 def declare_copy(
-    group: zarr.Group, path: str, files: Sequence[tuple[str, int]], *, chunk: int = 8 << 20
+    group: zarr.Group, path: str, files: Sequence[DataFile], *, chunk: int = 8 << 20
 ) -> list[zarr.Array]:
-    """Declare ``files`` (location, size) as ``uint8`` arrays of virtual references.
+    """Declare ``files`` as ``uint8`` arrays of virtual references.
 
     One file gives the array at ``path``. Several give ``path/part.<i>.parquet``.
     The group must live in a writable session whose repo has a container for each location.
@@ -259,8 +285,8 @@ def declare_copy(
     """
     with zarr.config.set({"array.rectilinear_chunks": True}):
         if len(files) == 1:
-            return [_copy_array(group, path, *files[0], chunk)]
+            return [_copy_array(group, path, files[0], chunk)]
         return [
-            _copy_array(group, f"{path}/part.{i}.parquet", *file, chunk)
+            _copy_array(group, f"{path}/part.{i}.parquet", file, chunk)
             for i, file in enumerate(files)
         ]
