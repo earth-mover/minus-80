@@ -253,35 +253,49 @@ All of it ran on a laptop outside us-west-2.
   zax reads 2,633,912 transcripts and 398,197 nucleus polygons.
   zax counts 1,180 invalid polygons, the same count as `verify.py`.
   A box query of 100 by 100 micrometres returns 4,721 transcripts, 3,143 genes and 124 nuclei.
-  The check takes 23.7 s wall time and 2.1 GB of memory on a laptop.
+  On a laptop, outside the source region, the check takes 23.7 s wall time and 2.1 GB of memory.
   zax reads the `feature_name` categories from the Parquet dictionary.
   zax also reads name-mapped files, so a table that another tool registers with `add_files` works.
   Open item for the full ingest: the AnnData table annotates `cell_labels` only.
   So the fixture has no join from `nucleus_boundaries` to the table rows.
-- **(e) Throughput.** Measured on 2026-11-11 by `measure.py`, on one Coiled VM: `m7i.xlarge`, 4
-  vCPU, 15 GiB, AWS us-west-2, Coiled workspace `earthmover-devs`. The VM read the bundle from
-  10x's bucket and wrote to branch `measure-2026-11-11` of `earthmover-biology/atera-kidney`.
+- **(e) Throughput.** `measure.py` measured it on 2026-11-11 on one Coiled VM.
+  The VM is an `m7i.xlarge`: 4 vCPU and 15 GiB, in AWS us-west-2, Coiled workspace `earthmover-devs`.
+  The VM read the bundle from 10x's bucket.
+  It wrote to branch `measure-2026-11-11` of `earthmover-biology/atera-kidney`.
   The VM used a personal Arraylake ID token, passed as a secret environment variable.
-  The table below gives the results. The laptop times further down do not predict the ingest.
+  The 1-vCPU rows ran under `taskset -c 0`, which pins the process and its threads to one vCPU.
+  The laptop times further down do not predict the ingest.
 
-| Part, `m7i.xlarge`, us-west-2 | Cores | Wall | CPU | In array writes | Commit | Rate | Snapshot |
+| Part, `m7i.xlarge`, us-west-2 | vCPU | Wall | CPU, whole process | In array writes | Commit | Rate | Snapshot |
 |---|---|---|---|---|---|---|---|
 | `ch0000_dapi` level 0, 33139 x 56644, 1,848 tiles | 1 | 1,204.8 s | 284.5 s | 955.3 s | 2.4 s | 1.53 tiles/s, 2.97 MiB/s decoded | `H7KJHS5C0R1ZCF9CQJH0` |
 | the same plane | 4 | 911.2 s | 294.4 s | 880.1 s | 2.3 s | 2.03 tiles/s, 3.93 MiB/s decoded | `X14XX29WVGB1HN1SK4Z0` |
-| `cells.zarr.zip` `masks/0`, 2,048 chunks | 1 | 968.3 s | 5.8 s | | 2.1 s | 2.12 chunks/s, 0.12 MiB/s | `Q8HNM2ZZ0K5C3XF48ZR0` |
+| `cells.zarr.zip` `masks/0`, 2,048 chunks | 1 | 968.3 s | 5.8 s | not timed | 2.1 s | 2.12 chunks/s, 0.12 MiB/s | `Q8HNM2ZZ0K5C3XF48ZR0` |
 
-  - Bytes, on the VM. The plane read 1,130.6 MiB of JPEG 2000 and decoded 3,580.3 MiB. It stored
-    1,729.0 MiB as blosc-zstd in 1,731 chunks. The other 117 tiles hold only the fill value, so
-    zarr stores no chunk for them. The mask read 120.1 MiB and stored 120.0 MiB of chunks.
+  - Bytes, on the VM. The plane read 1,130.6 MiB of JPEG 2000 and decoded 3,580.3 MiB.
+    It stored 1,729.0 MiB as blosc-zstd in 1,731 chunks.
+    The other 117 tiles hold only the fill value, so zarr stores no chunk for them.
+    The mask read 120.1 MiB and stored 120.0 MiB of chunks.
   - Checks, on the VM. Both plane runs: `check_page` PASS on 4 tiles, (0, 0), (10, 55), (21, 55)
     and (32, 55). The mask: 20 sampled chunks equal the source members, byte for byte.
-  - Partial chunks. Zarr read no chunk back during any write: 0 store `get` calls. The tile is the
-    chunk, so each tile write fills its chunk.
-  - Where the time goes. The writes are serial and take about 0.5 s per chunk: 955.3 s for 1,731
-    plane chunks, and 968.3 s for 2,048 mask chunks. Decode takes 0.15 s of CPU per tile.
-  - Decode threads. tifffile decodes the tiles in a thread pool of `TIFF.MAXWORKERS` threads. That
-    is 1 thread on one core and 2 threads on 4 vCPU. On 4 vCPU the decode runs beside the
-    writes. So 4 cores cut the plane by 24 percent only, because the writes stay serial.
+  - Partial chunks. Zarr read no chunk back during any write: 0 store `get` calls.
+    The tile is the chunk, so each tile write fills its chunk.
+  - Plane time, 1 vCPU. 955.3 s of the 1,204.8 s wall time is inside the array writes.
+    That is 0.55 s for each of the 1,731 written chunks.
+    The process used 284.5 s of CPU in all, for read, decode, encode and upload.
+    That is 0.15 s of CPU per tile, for decode and write together.
+    The cause of the 0.55 s per chunk is not measured.
+  - Mask time, 1 vCPU. 968.3 s for 2,048 chunks is 0.47 s per chunk.
+    That time holds the range read from 10x's bucket and the write to Arraylake.
+    `measure.py` did not time the two apart.
+  - Decode threads. tifffile decodes the tiles in a thread pool of `TIFF.MAXWORKERS` threads.
+    The pool had 1 thread on 1 vCPU and 2 threads on 4 vCPU.
+    On 4 vCPU the plane took 24 percent less wall time.
+    The array writes still took 880.1 s of the 911.2 s.
+  - Not measured: the cause of the 0.55 s per written chunk; chunk writes in parallel inside one process;
+    the bucket's limit on parallel writes; peak memory.
+    Also not measured: the shard rewrites when the 3D stack is written plane by plane.
+    Also not measured: several writer sessions on one branch, which need a merge or one branch per writer.
 - **Categorical columns.** pyiceberg warns `Iceberg does not have a dictionary type. <class
   'pyarrow.lib.DictionaryType'> will be inferred as string on read.` So `feature_name` reads back
   as a plain string, not a dictionary.

@@ -470,39 +470,48 @@ Each step needs approval before it writes to a shared resource.
    rewrite", gives the new coordinates.
 2. **Throughput on Coiled.** Done on 2026-11-11 with `measure.py`, on one
    `m7i.xlarge` (4 vCPU) in us-west-2, on the scratch branch
-   `measure-2026-11-11`. All numbers below are from that VM.
-   - One full-resolution DAPI plane, 1,848 tiles, pinned to 1 core:
-     1,204.8 s wall, 284.5 s CPU, 1.53 tiles/s, 2.97 MiB/s decoded.
+   `measure-2026-11-11`. All numbers below are from that VM. The 1-vCPU runs
+   ran under `taskset -c 0`, which pins the process to one vCPU.
+   - One full-resolution DAPI plane, 1,848 tiles, 1 vCPU: 1,204.8 s wall,
+     284.5 s CPU for the whole process, 1.53 tiles/s, 2.97 MiB/s decoded.
    - The same plane on 4 vCPU: 911.2 s wall, 2.03 tiles/s.
-   - One label mask, 2,048 chunks, 1 core: 968.3 s, 2.12 chunks/s,
-     0.12 MiB/s.
-   - The serial chunk writes take about 0.5 s each and are most of the
-     time: 955.3 s of the 1-core plane. Decode takes 0.15 s of CPU per tile.
+   - One label mask, 2,048 chunks, 1 vCPU: 968.3 s wall, 2.12 chunks/s,
+     0.12 MiB/s. This time holds both the source reads and the writes.
+   - 955.3 s of the 1-vCPU plane is inside the array writes: 0.55 s per
+     written chunk. The cause of the 0.55 s is not measured.
+   - The process used 0.15 s of CPU per tile, for decode and write together.
 
-   Expected time for one kidney sample, derived from the 1-core rates. The
-   images are 4 2D planes and 13 3D planes. This assumes that the 3D planes
-   have the 2D planes' size. Each plane then has 1,848 tiles at level 0 and 655 tiles at levels 1 to 7, so 42,551 tiles in all. At
-   0.652 s per tile, the images take 27,740 s, 7.7 hours, on one core. The
-   two masks take 2 x 968.3 s, 0.5 hours. So the images and the masks take
-   about 8.2 hours on one core with serial writes. They need about 1.8 hours
-   of CPU time. These figures leave out the table, the transcripts, the H&E
-   image and the download. The 3D stack goes into shards of 13 planes. A
-   plane-by-plane write of a shard can rewrite the shard; step 2 did not
-   measure that.
+   Expected time for one kidney sample, derived from the 1-vCPU rates. The
+   images are 4 2D planes and 13 3D planes. Three assumptions follow. The 3D
+   planes have the 2D planes' size. Levels 1 to 7 add 655 tiles per plane,
+   from the halved shapes in 1024-pixel tiles. A lower-level tile costs the
+   same as a level-0 tile. So each plane has 2,503 tiles, and the sample
+   has 42,551 tiles.
+   - Images, one serial writer: 42,551 x 0.652 s = 27,740 s, 7.7 hours wall.
+   - Masks, one serial writer: 2 x 968.3 s = 1,937 s, 0.5 hours wall.
+   - Images and masks together: about 8.2 hours wall.
+   - CPU for the images: 42,551 x 0.154 s = 6,550 s of CPU, 1.8 CPU hours.
+
+   These figures leave out the table, the transcripts, the H&E image and
+   the download. The 3D stack goes into shards of 13 planes. A plane-by-plane
+   write of a shard can rewrite the shard. Step 2 did not measure that.
 3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
    `imagecodecs`; Booth cannot read the codec. Approval needed: the rules
    change.
-4. **Kidney, full.** On a Coiled VM in us-west-2. The machine size depends
-   on whether the chunk writes run in parallel. With serial writes, as
-   `write_page` does them, more cores do not help: 4 vCPU cut the plane by
-   24 percent only, so the images take about 6 hours on any machine. With
-   the writes in parallel, for example one process per plane, the 1.8 CPU
-   hours bound the run: about 14 minutes on 8 vCPU, or 7 minutes on 16 vCPU,
-   if the bucket accepts that many writes. Proposed: 16 vCPU and 64 GB of
-   memory (for example `m7i.4xlarge`), one writer process per plane, and
-   100 GB of disk for the 45.7 GB bundle and the 2.8 GB H&E. The bucket's
-   limit on parallel writes is not measured. Download the bundle and the H&E once, and verify their ETags. Read
+4. **Kidney, full.** On a Coiled VM in us-west-2. The machine size is not
+   decided. It depends on a measurement of concurrent chunk writes.
+   `write_page` writes one chunk after another. So one process per plane
+   still writes each plane serially. The floor for one plane is
+   2,503 x 0.652 s = 1,632 s, about 27 minutes, at the 1-vCPU rate. On 16
+   processes, the 17 planes need a second wave for the last plane.
+   A 4-vCPU process writes the whole sample in about
+   42,551 x 0.493 s = 20,980 s, 5.8 hours wall. 0.493 s is the 4-vCPU
+   rate per tile, 911.2 s / 1,848. A shorter run needs concurrent chunk
+   writes inside a process, and no run measured that. Several writer
+   sessions on one branch need a merge or one branch per writer, also not
+   measured. Peak memory is not measured. The disk must hold the 45.7 GB
+   bundle and the 2.8 GB H&E. Download the bundle and the H&E once, and verify their ETags. Read
    members in place. Write the tables, then the elements, with one commit per
    element. Verify per `docs/ingest.md`: every image level against tifffile
    on a sample of tiles, every copied chunk by checksum, every table's row
@@ -526,10 +535,12 @@ Each step needs approval before it writes to a shared resource.
 
 Expected runtime per sample has three parts. The download takes minutes at
 an estimated 1 GB/s inside the region. The JPEG 2000 decode and the
-writes of the 17 kidney planes and two masks take about 8.2 hours on one
-core with serial writes, from step 2's rates on an `m7i.xlarge` in
-us-west-2. Parallel writes bring them near 1.8 CPU hours. The transcript
-table write is one pass over 1 to 5 billion rows. A run that is well past its expected time stops.
+writes of the 17 kidney planes and two masks take about 8.2 hours wall with
+one serial writer. That figure comes from step 2's 1-vCPU rates on an
+`m7i.xlarge` in us-west-2. The images also need about 1.8 hours of CPU. A
+shorter run needs concurrent chunk writes, which step 2 did not measure.
+The transcript table write is one pass over 1 to 5 billion rows. A run
+that is well past its expected time stops.
 
 Risks:
 
