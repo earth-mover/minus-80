@@ -75,6 +75,21 @@ instead of forcing one, or padding it with singleton axes. Never infer what
 channels mean from how many there are: three samples can be RGB or three
 stains.
 
+### Choose each piece's form from its data, not from how it was shipped
+
+The format an archive is distributed in shows what was easy to publish, not
+how readers use the data. Decide each piece's form from its shape and its use:
+
+- a dense numeric matrix indexed by sites, cells or genes is an array, even when
+  it ships as a CSV;
+- records with mixed fields, queried by those fields, are a table;
+- images are images, even when they ship as one file per channel.
+
+RxRx19's per-site deep-learning embeddings ship as `embeddings.csv`, inside a
+zip beside `metadata.csv`. The metadata is a table. The embeddings are a sites
+× 1024 matrix of floats, which belongs in a Zarr array with a `site` dimension,
+not in a table with 1024 columns.
+
 ### Join annotations by exact key
 
 When a key matches nothing, leave it blank and record the join coverage. A

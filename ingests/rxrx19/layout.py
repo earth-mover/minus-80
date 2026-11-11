@@ -46,6 +46,8 @@ class Dataset:
     side: int
     citation: str
     doi: str
+    pixel_size: float
+    stains: tuple[str, ...] | None
 
     def https(self, path: str) -> str:
         return path.replace("gs://rxrx/", "https://storage.googleapis.com/rxrx/")
@@ -63,6 +65,14 @@ DATASETS = {
         side=1024,
         citation="Heiser et al. 2020",
         doi="10.1101/2020.04.21.054387",
+        pixel_size=1.30,
+        stains=(
+            "Hoechst 33342 (nucleus)",
+            "Concanavalin A (membrane glycoproteins)",
+            "Phalloidin (actin)",
+            "Syto14 (RNA)",
+            "Wheat germ agglutinin (Golgi)",
+        ),
     ),
     "rxrx19b": Dataset(
         key="rxrx19b",
@@ -75,8 +85,20 @@ DATASETS = {
         side=2048,
         citation="Cuccarese et al. 2020",
         doi="10.1101/2020.08.02.233064",
+        pixel_size=0.65,
+        stains=None,
     ),
 }
+
+#: Where the pixel sizes and RxRx19a's stains are stated: each dataset's README in
+#: recursionpharma/rxrx-datasets, at this commit. Both READMEs give "Physical resolution:
+#: 0.65 micron/pixel". RxRx19b's 2048-pixel PNGs are the instrument's images, so 0.65 µm
+#: is their pixel. RxRx19a's 1024-pixel PNGs are, per its dataset page, downsampled from
+#: 2048-pixel originals, so its pixel is taken as 1.30 µm; its README does not say which
+#: images the 0.65 describes, and RxRx1's README gives the same 0.65 for 512-pixel images.
+#: RxRx19a's README maps w1–w5 to stains; RxRx19b's README maps none, so its channels are
+#: named w1–w6.
+README_COMMIT = "19883e707d"
 
 #: Every row and column of a 1536-well plate.
 ROWS, COLUMNS = plate_grid(1536)
@@ -148,17 +170,19 @@ def well_document(sites: list[int], fields: dict) -> dict:
 
 
 def site_document(dataset: Dataset, site_id: str, channels: int) -> dict:
-    """One site as an OME-Zarr image.
+    """One site as an OME-Zarr image, with the pixel size and stains from ``README_COMMIT``.
 
-    No source states the pixel size, so the scale is 1.0 with no unit, and
-    no source maps ``w1``… to stains, so the channels are labeled by number.
+    A channel's label is its stain where the README names one, else its file
+    suffix (``w1`` …).
     """
+    labels = dataset.stains or tuple(f"w{c + 1}" for c in range(channels))
     ome = image_attrs(
         name=site_id,
         dims=("c", "y", "x"),
         level_shapes=[(channels, dataset.side, dataset.side)],
-        scale={"c": 1.0, "y": 1.0, "x": 1.0},
-        omero=channel_omero([{"label": f"w{c + 1}"} for c in range(channels)], max_value=255),
+        scale={"c": 1.0, "y": dataset.pixel_size, "x": dataset.pixel_size},
+        units={"y": "micrometer", "x": "micrometer"},
+        omero=channel_omero([{"label": label} for label in labels], max_value=255),
     )
     return {"ome": ome, **image_annotation({"site_id": site_id}, source_url=dataset.images)}
 

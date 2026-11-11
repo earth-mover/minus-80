@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1230" viewBox="0 0 1560 1230">
 <rect x="0" y="0" width="1560" height="1230" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">RxRx19 as published</text>
-<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">gs://rxrx: one zip of PNGs per dataset, beside a metadata zip and an embeddings zip</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">gs://rxrx: per dataset, a zip of PNGs, a metadata zip and an embeddings zip</text>
 <text x="24.0" y="91.9" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">1,949,904 PNGs in 916.0 GB of zips, read from the zips' central directories and metadata.csv.</text>
 <rect x="24.0" y="111.8" width="14" height="14" rx="3" fill="#2a78d6"/>
 <text x="44.0" y="122.8" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
-<rect x="104.6" y="109.8" width="170.3" height="18" rx="3" fill="#fef3c7"/>
-<text x="189.8" y="122.8" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b45309" text-anchor="middle" xml:space="preserve">the README says otherwise</text>
+<rect x="104.6" y="109.8" width="398.8" height="18" rx="3" fill="#fee2e2"/>
+<text x="304.0" y="122.8" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c" text-anchor="middle" xml:space="preserve">the dataset's README in recursionpharma/rxrx-datasets is wrong</text>
 <rect x="400.0" y="147.8" width="1136.0" height="163.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
 <rect x="400.0" y="147.8" width="4" height="163.0" rx="2" fill="#2a78d6"/>
 <text x="416.0" y="169.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">gs://rxrx/</text>
@@ -47,13 +47,13 @@
 <rect x="400.0" y="719.8" width="4" height="163.0" rx="2" fill="#2a78d6"/>
 <text x="416.0" y="741.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">HRCE-1/Plate1/AA02_s2_w3.png</text>
 <text x="1522.0" y="741.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="end" xml:space="preserve">member</text>
-<rect x="406.0" y="753.8" width="1124.0" height="17" fill="#fef3c7"/>
-<text x="1522.0" y="766.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#b45309" text-anchor="end" xml:space="preserve">the README says the opposite</text>
+<rect x="406.0" y="753.8" width="1124.0" height="17" fill="#fee2e2"/>
+<text x="1522.0" y="766.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#b91c1c" text-anchor="end" xml:space="preserve">rxrx-datasets README is wrong</text>
 <text x="416.0" y="766.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">well AA02 = row AA, column 02</text>
-<rect x="406.0" y="770.8" width="1124.0" height="17" fill="#fef3c7"/>
-<text x="416.0" y="783.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve"><tspan fill="#64748b"># the README reads AA02 as "column AA, row 2"; but the letters (30) fit the plate's 32 rows and the numbers (46) its 48 columns</tspan></text>
+<rect x="406.0" y="770.8" width="1124.0" height="17" fill="#fee2e2"/>
+<text x="416.0" y="783.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve"><tspan fill="#64748b"># rxrx-datasets/rxrx19a/README.md reads AA02 as "column AA, row 2"; but the letters (30) fit the plate's 32 rows and the numbers (46) its 48 columns</tspan></text>
 <text x="416.0" y="800.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">site s2 of 4 (rxrx19a), of 1 (rxrx19b)</text>
-<text x="416.0" y="817.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">channel w3 of w1–w5 (rxrx19a), w1–w6 (rxrx19b)<tspan fill="#64748b">  # no file says which stain each w is</tspan></text>
+<text x="416.0" y="817.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">channel w3 of w1–w5 (rxrx19a), w1–w6 (rxrx19b)<tspan fill="#64748b">  # rxrx19a: w3 is Phalloidin, per its rxrx-datasets README; rxrx19b's README names no stains</tspan></text>
 <text x="416.0" y="834.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">local header at 132,963,618,065; PNG at 132,963,618,166, 455,182 bytes, stored</text>
 <text x="416.0" y="851.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">rxrx19a: PNG 1024 × 1024, 8-bit grayscale; 2,808–606,573 bytes each</text>
 <text x="416.0" y="868.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#0f172a" xml:space="preserve">rxrx19b: PNG 2048 × 2048, 8-bit grayscale; 126,263–1,664,754 bytes each</text>

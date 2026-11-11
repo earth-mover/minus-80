@@ -193,9 +193,9 @@ def source_summary(surveys: list[Survey]) -> str:
 
 def source_figure(surveys: list[Survey]) -> Canvas:
     canvas = Canvas(WIDTH)
-    y = d.heading(canvas, "RxRx19 as published", "gs://rxrx: one zip of PNGs per dataset, beside a metadata zip and an embeddings zip")
+    y = d.heading(canvas, "RxRx19 as published", "gs://rxrx: per dataset, a zip of PNGs, a metadata zip and an embeddings zip")
     y = canvas.text(canvas.margin, y + 22, source_summary(surveys), size=13, color=d.MUTED)
-    y = d.legend(canvas, canvas.margin, y + 14, [(ACCENTS["source"], "source"), ("changed", "the README says otherwise")])
+    y = d.legend(canvas, canvas.margin, y + 14, [(ACCENTS["source"], "source"), ("removed", "the dataset's README in recursionpharma/rxrx-datasets is wrong")])
     y = tree_with_panels(canvas, y + 20, source_entries(surveys))
     metadata_table(canvas, y, surveys, WIDTH - 2 * canvas.margin)
     return canvas
@@ -285,12 +285,12 @@ def source_entries(surveys: list[Survey]) -> list:
             TreeNode("<well>_s<site>_w<ch>.png", 0, 4, count=len(a.pngs) + len(b.pngs), subtitle="one channel of one site"),
             example_name.split("/images/")[1],
             [
-                Line("well AA02 = row AA, column 02", status="changed", tag="the README says the opposite"),
-                Line(comment=f'the README reads AA02 as "column AA, row 2"; but the letters ({len(letters)}) fit the '
-                             f"plate's 32 rows and the numbers ({len(numbers)}) its 48 columns", status="changed"),
+                Line("well AA02 = row AA, column 02", status="removed", tag="rxrx-datasets README is wrong"),
+                Line(comment=f'rxrx-datasets/rxrx19a/README.md reads AA02 as "column AA, row 2"; but the letters ({len(letters)}) fit the '
+                             f"plate's 32 rows and the numbers ({len(numbers)}) its 48 columns", status="removed"),
                 Line(f"site s{EXAMPLE[3]} of {a.pngs.site.max()} (rxrx19a), of {b.pngs.site.max()} (rxrx19b)"),
                 Line(f"channel w3 of w1–w{a.pngs.channel.max()} (rxrx19a), w1–w{b.pngs.channel.max()} (rxrx19b)",
-                     comment="no file says which stain each w is"),
+                     comment="rxrx19a: w3 is Phalloidin, per its rxrx-datasets README; rxrx19b's README names no stains"),
                 Line(f"local header at {int(example.offset):,}; PNG at {int(example.data_offset):,}, {int(example.bytes):,} bytes, stored"),
             ]
             + [Line(f"{s.dataset.key}: PNG {s.png_header['width']} × {s.png_header['height']}, {s.png_header['bit_depth']}-bit grayscale; "
@@ -342,7 +342,7 @@ def store_figure(surveys: list[Survey]) -> Canvas:
     for line in store_summary(surveys):
         y = canvas.text(canvas.margin, y + 21, line, size=13, color=d.MUTED)
     y = canvas.text(canvas.margin, y + 21, f"Example values: rxrx19a {experiment} Plate{plate}, well {well}, site {site}.", size=13, color=d.MUTED)
-    y = d.legend(canvas, canvas.margin, y + 14, [(ACCENTS["store"], "store group or array"), ("changed", "open question"), ("added", "not in the source")])
+    y = d.legend(canvas, canvas.margin, y + 14, [(ACCENTS["store"], "store group or array"), ("changed", "judgment call or unknown"), ("added", "not in the source")])
     tree_with_panels(canvas, y + 20, store_entries(surveys))
     return canvas
 
@@ -389,9 +389,10 @@ def store_entries(surveys: list[Survey]) -> list:
                 Line(f'title: "{a.dataset.title}"'),
                 Line(f'citation: {{text: "{a.dataset.citation}", doi: "{a.dataset.doi}"}}'),
                 Line(f'source: {{images: "{a.dataset.images}", metadata: "…-metadata.zip", embeddings: "…-DL-embeddings.zip"}}'),
-                Line("tables beside the store: sites (metadata.csv), embeddings (1024 per site)",
-                     comment="Iceberg, keyed by site_id", status="added", tag="beside"),
-                Line("stains: w1–w5 unmapped; pixel size: not stated", status="changed", tag="open"),
+                Line("metadata.csv → an Iceberg table keyed by site_id", comment="mixed fields, queried by treatment or condition",
+                     status="added", tag="Iceberg, not Zarr"),
+                Line(f"embeddings: array (site: {len(a.metadata):,}, feature: 1024) float32, with a site_id array",
+                     comment="copied from embeddings.csv; float32 is lossless for its values", status="added", tag="native copy"),
             ],
             "zarr.json attributes", store,
         ),
@@ -436,8 +437,13 @@ def store_entries(surveys: list[Survey]) -> list:
             f"…/{row}/{column}/{site}",
             [
                 Line(f'ome: {{version: "0.6", multiscales: [{{axes: c (channel), y, x (space),', comment="one level: the PNGs as published"),
-                Line('  datasets: [{path: "0", scale: [1, 1, 1]}]}]', comment="no source states a pixel size", status="changed", tag="open"),
-                Line(f'  omero: {{channels: [{", ".join(channels)}]}}', comment="no source maps w to a stain", status="changed", tag="open"),
+                Line(f'  datasets: [{{path: "0", scale: [1, {a.dataset.pixel_size}, {a.dataset.pixel_size}]}}]}}],  unit: micrometer',
+                     comment=f"README: 0.65 µm per pixel; doubled for the 2048 → 1024 downsampling",
+                     status="changed", tag="judgment: 0.65 × 2"),
+                Line(f"  omero: {{channels: [{', '.join(label.split(' (')[0] for label in channels)}]}}",
+                     comment=f"w1–w5, per the rxrx19a README"),
+                Line(comment=f"rxrx19b: scale [1, {b.dataset.pixel_size}, {b.dataset.pixel_size}] µm; channels w1–w6, because its README names no stains",
+                     status="changed", tag="rxrx19b stains unknown"),
                 Line(f'annotations: {{site_id: "{site_row.site_id}", source_url: "{a.dataset.images}"}}'),
             ],
             "zarr.json attributes", image,
@@ -511,7 +517,7 @@ def mapping_figure(surveys: list[Survey]) -> Canvas:
     for line in store_summary(surveys):
         y = canvas.text(canvas.margin, y + 21, "Store: " + line, size=13, color=d.MUTED)
     y = d.legend(canvas, canvas.margin, y + 14, [(ACCENTS["source"], "source"), (ACCENTS["store"], "store"),
-                                                 ("changed", "open question, or the README says otherwise"), ("added", "not in the source"), ("arrow", "becomes")])
+                                                 ("removed", "the rxrx-datasets README is wrong"), ("changed", "judgment call or unknown"), ("added", "not in the source"), ("arrow", "becomes")])
     y += 24
     canvas.text(LEFT_X, y, "gs://rxrx today", size=16, weight="bold")
     canvas.text(RIGHT_X, y, "proposed store", size=16, weight="bold")
