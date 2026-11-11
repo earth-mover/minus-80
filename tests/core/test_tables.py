@@ -14,6 +14,7 @@ from minus80.core.tables import (
     declare_copy,
     declare_file,
     iceberg_table_attr,
+    parquet_field_ids,
     register_files,
     require_table,
     write_parquet,
@@ -101,14 +102,14 @@ def _nested():
     return pa.table({"instance": [1, 2], "bbox": [{"xmin": 0.0, "xmax": 1.0}] * 2}, schema=_NESTED)
 
 
-def _parquet_ids(path) -> dict[str, int]:
-    """Field id by dotted column name, as the Parquet footer states it."""
-    def walk(fields, prefix=""):
-        for f in fields:
-            yield f"{prefix}{f.name}", int(f.metadata[b"PARQUET:field_id"])
-            if pa.types.is_struct(f.type):
-                yield from walk(f.type, f"{prefix}{f.name}.")
-    return dict(walk(pq.read_schema(path)))
+def _parquet_ids(path) -> dict[str, int | None]:
+    return parquet_field_ids(pq.read_schema(path))
+
+
+def test_parquet_field_ids_gives_none_for_a_column_without_an_id(tmp_path):
+    path = str(tmp_path / "a.parquet")
+    pq.write_table(_nested(), path)
+    assert _parquet_ids(path) == {"instance": None, "bbox": None, "bbox.xmin": None, "bbox.xmax": None}
 
 
 def test_write_parquet_gives_every_column_the_table_field_id(tmp_path):
@@ -132,6 +133,13 @@ def test_write_parquet_refuses_a_column_without_a_field_id(tmp_path):
                       field_ids={"instance": 1, "bbox": 2, "bbox.xmin": 3})
 
 
+@pytest.mark.parametrize("type_", [pa.list_(pa.int64()), pa.map_(pa.string(), pa.int64())])
+def test_write_parquet_refuses_list_and_map_columns(tmp_path, type_):
+    table = pa.table({"v": pa.array([None], type_)})
+    with pytest.raises(NotImplementedError, match="v"):
+        write_parquet(table, str(tmp_path / "a.parquet"), index_column="v", field_ids={"v": 1})
+
+
 def test_a_new_table_makes_a_non_nullable_column_required(tmp_path):
     table = require_table(_catalog(tmp_path), "ns.t", schema=_NESTED, properties={})
     assert table.schema().find_field("instance").required
@@ -145,6 +153,36 @@ def test_an_existing_table_makes_a_non_nullable_column_required(tmp_path):
     assert table.schema().find_field("instance").required
     assert not table.schema().find_field("bbox").required
     assert str(table.metadata.table_uuid) == str(created.metadata.table_uuid)
+
+
+def _loose_table_with(tmp_path, instance, properties=None):
+    """A table with an optional ``instance`` that holds one file of ``instance`` values."""
+    catalog = _catalog(tmp_path)
+    loose = pa.schema([("instance", pa.int64()), ("bbox", _BBOX)])
+    path = str(tmp_path / "loose.parquet")
+    pq.write_table(pa.table({"instance": instance, "bbox": [None] * len(instance)}, schema=loose), path)
+    register_files(catalog, "ns.t", [path], schema=loose, properties=properties or {})
+    return catalog
+
+
+def test_an_existing_table_with_a_null_refuses_the_required_column(tmp_path):
+    catalog = _loose_table_with(tmp_path, [1, None, None])
+    with pytest.raises(ValueError, match=r"ns\.t.*instance.*2 null"):
+        require_table(catalog, "ns.t", schema=_NESTED, properties={})
+    assert not catalog.load_table("ns.t").schema().find_field("instance").required
+
+
+def test_an_existing_table_without_null_counts_refuses_the_required_column(tmp_path):
+    catalog = _loose_table_with(tmp_path, [1, 2], {"write.metadata.metrics.default": "none"})
+    with pytest.raises(ValueError, match=r"ns\.t.*instance.*no null count"):
+        require_table(catalog, "ns.t", schema=_NESTED, properties={})
+
+
+def test_an_existing_table_without_the_column_is_refused(tmp_path):
+    catalog = _loose_table_with(tmp_path, [1])
+    strict = pa.schema([pa.field("other", pa.int64(), nullable=False)])
+    with pytest.raises(ValueError, match=r"ns\.t has no column other"):
+        require_table(catalog, "ns.t", schema=strict, properties={})
 
 
 def test_register_files_with_replace_swaps_the_files_in_one_snapshot(tmp_path):

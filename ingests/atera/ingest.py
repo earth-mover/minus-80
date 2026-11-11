@@ -273,6 +273,8 @@ class Tables:
 
         With ``replace``, the file name carries the table's snapshot count, so it is not a registered
         file's name, and the file replaces every file the table holds.
+        With ``replace``, a failure after the table snapshot and before the repo commit leaves one
+        extra snapshot, and the next run's snapshot leaves that file unreferenced. The next run converges.
         """
         spec = {"schema": schema, "properties": properties, "partition_by": partition_by}
         iceberg = self.require(name, **spec)
@@ -363,6 +365,8 @@ def main() -> None:
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
                         help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")
     args = parser.parse_args()
+    if args.rewrite and args.branch == "main":
+        raise SystemExit("--rewrite never writes to main")
     on_arraylake = args.catalog.startswith("arraylake:")
     if on_arraylake != args.repo.startswith(ARRAYLAKE):
         raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")

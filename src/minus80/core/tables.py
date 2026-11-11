@@ -49,8 +49,33 @@ def _with_field_id(field: pa.Field, field_ids: Mapping[str, int], prefix: str = 
     type_ = field.type
     if pa.types.is_struct(type_):
         type_ = pa.struct([_with_field_id(child, field_ids, f"{name}.") for child in type_])
+    elif pa.types.is_list(type_) or pa.types.is_large_list(type_) or pa.types.is_fixed_size_list(type_) \
+            or pa.types.is_list_view(type_) or pa.types.is_map(type_):
+        raise NotImplementedError(f"column {name} is a {type_}; only struct children get field ids")
     metadata = {**(field.metadata or {}), b"PARQUET:field_id": str(field_ids[name]).encode()}
     return pa.field(field.name, type_, field.nullable, metadata)
+
+
+def parquet_field_ids(schema: pa.Schema) -> dict[str, int | None]:
+    """Field id by dotted column name, struct children included, as a Parquet footer states it."""
+    def walk(fields, prefix=""):
+        for f in fields:
+            found = (f.metadata or {}).get(b"PARQUET:field_id")
+            yield f"{prefix}{f.name}", None if found is None else int(found)
+            if pa.types.is_struct(f.type):
+                yield from walk(f.type, f"{prefix}{f.name}.")
+    return dict(walk(schema))
+
+
+def _check_no_nulls(table, identifier: str, name: str) -> None:
+    """Raise ``ValueError`` unless every current data file states 0 nulls in column ``name``."""
+    field_id = table.schema().find_field(name).field_id
+    for task in table.scan().plan_files():
+        count = (task.file.null_value_counts or {}).get(field_id)
+        if count is None:
+            raise ValueError(f"{identifier}: column {name} has no null count in {task.file.file_path}")
+        if count > 0:
+            raise ValueError(f"{identifier}: column {name} has {count} null values in {task.file.file_path}")
 
 
 def write_parquet(
@@ -103,13 +128,19 @@ def require_table(
 ):
     """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``.
 
-    A column that ``schema`` marks non-nullable becomes required in an existing table too.
+    A column that ``schema`` marks non-nullable becomes required in an existing table too,
+    when every current data file states 0 nulls in it. Otherwise it raises ``ValueError``.
     """
     if catalog.table_exists(identifier):
         table = catalog.load_table(identifier)
+        names = {f.name for f in table.schema().fields}
+        if lacking := [f.name for f in schema if not f.nullable and f.name not in names]:
+            raise ValueError(f"{identifier} has no column {', '.join(lacking)}")
         loose = [f.name for f in schema if not f.nullable and not table.schema().find_field(f.name).required]
+        for name in loose:
+            _check_no_nulls(table, identifier, name)
         if loose:
-            # pyiceberg refuses optional to required by default; the caller states the column holds no null.
+            # pyiceberg refuses optional to required by default; the null counts above show none.
             with table.update_schema(allow_incompatible_changes=True) as update:
                 for name in loose:
                     update.update_column(name, required=True)

@@ -15,7 +15,6 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
-import pyarrow as pa
 import pyarrow.parquet as pq
 import scipy.sparse
 import shapely
@@ -24,6 +23,7 @@ from anndata.io import read_elem
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import check_page
+from minus80.core.tables import parquet_field_ids
 from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
@@ -135,33 +135,37 @@ def gate_tables(root, catalog, cells, transcripts) -> list[str]:
     return errors
 
 
-def _footer_ids(fields, prefix=""):
-    """(dotted name, field id or None) for each Parquet column, struct children included."""
-    for f in fields:
-        found = (f.metadata or {}).get(b"PARQUET:field_id")
-        yield f"{prefix}{f.name}", None if found is None else int(found)
-        if pa.types.is_struct(f.type):
-            yield from _footer_ids(f.type, f"{prefix}{f.name}.")
-
-
 def gate_field_ids(root, catalog) -> list[str]:
-    """Each data file states the table's field ids, and the index column is required."""
-    errors = []
-    for path, attr in element_tables(root).items():
-        table, index = load(catalog, attr), attr["index_column"]
-        expected = index_by_name(table.schema())
-        if not table.schema().find_field(index).required:
+    """Each data file of the pinned snapshot states every field id of that snapshot's schema.
+
+    The index column is required in that schema and non-nullable in each file.
+    """
+    attrs = element_tables(root)
+    errors = [] if attrs else ["no element has an iceberg_table attribute"]
+    for path, attr in attrs.items():
+        table, index, snapshot_id = load(catalog, attr), attr["index_column"], attr["snapshot_id"]
+        snapshot = table.snapshot_by_id(snapshot_id)
+        if snapshot is None:
+            errors.append(f"{path}: the table has no snapshot {snapshot_id}")
+            continue
+        schema = table.schemas()[snapshot.schema_id]
+        expected = index_by_name(schema)
+        if not schema.find_field(index).required:
             errors.append(f"{path}: {index} is optional in the table schema")
-        files = [task.file.file_path for task in table.scan().plan_files()]
+        files = [task.file.file_path for task in table.scan(snapshot_id=snapshot_id).plan_files()]
+        if not files:
+            errors.append(f"{path}: snapshot {snapshot_id} has no data files")
         for f in files:
             with table.io.new_input(f).open() as stream:
                 footer = pq.read_schema(stream)
-            wrong = [n for n, i in _footer_ids(footer) if i != expected.get(n)]
-            if wrong:
+            found = parquet_field_ids(footer)
+            if wrong := [n for n, i in found.items() if i != expected.get(n)]:
                 errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
-            if footer.field(index).nullable:
+            if lacking := [n for n in expected if n not in found]:
+                errors.append(f"{path}: {f} lacks fields {', '.join(lacking)}")
+            if index in footer.names and footer.field(index).nullable:
                 errors.append(f"{path}: {f} has a nullable {index}")
-        print(f"  field_ids: {path}: {len(files)} files, {len(expected)} fields")
+        print(f"  field_ids: {path}: snapshot {snapshot_id}, {len(files)} files, {len(expected)} fields")
     return errors
 
 
