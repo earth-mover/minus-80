@@ -118,16 +118,26 @@ per-object cost.
 
 ## Verification
 
-### Test the code, spot-check the store
+### Make the store right by design, then spot-check it
+
+Correctness comes from how the store is built, not from searching it
+afterwards. Build every node from one source of truth in one place: when the
+plates, wells and images all come from the same metadata rows, in the same
+loop, the store cannot disagree with itself, and a gate that walks every node
+looking for disagreement only repeats the design at the store's full size.
+Every check has to stay cheap however large the store gets: a count, or a
+sample. Never one that grows with every node.
 
 Catch a converter's bugs with tests that run the ingest end to end on a small
 fixture, where checking every plane is cheap. The finished store then needs
 only a short check of what depends on the real data:
 
-1. **Completeness.** Every item the source lists is in the store. Read the
-   listing from a local copy, such as the zip's central directory or the
-   bucket listing, rather than from the host.
-2. **Metadata.** The OME-Zarr documents validate.
+1. **Completeness.** The store holds as many images and references as the
+   source lists, compared as counts. Read the listing from a local copy, such
+   as the zip's central directory or the bucket listing, rather than from the
+   host.
+2. **Metadata.** A few named documents validate, one of each kind: a plate, a
+   well, an image.
 3. **A few pixels.** A plane or two equal the source's values, decoded by the
    format's reference reader. For lossy codecs, use the same decoder on both
    sides: two conformant JPEG 2000 decoders can differ by one bit.
