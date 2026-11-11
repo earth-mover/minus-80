@@ -26,7 +26,7 @@ from minus80.core.pyramid import channel_names, create_level, write_page
 from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, require_table, write_parquet
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
 from minus80.ome import channel_omero, image_attrs, label_attrs
-from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, table_attrs
+from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, write_table_keys
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.schema import index_by_name
 
@@ -158,10 +158,7 @@ def write_table(writer: Writer, bundle: Bundle) -> None:
         write_elem(obs, REGION_KEY, pd.Categorical(["cell_labels"] * n))
         write_elem(obs, INSTANCE_KEY, np.arange(1, n + 1, dtype=np.int64))
         obs.attrs["column-order"] = [*obs.attrs["column-order"], REGION_KEY, INSTANCE_KEY]
-        keys = {"region": "cell_labels", "region_key": REGION_KEY, "instance_key": INSTANCE_KEY}
-        # SpatialData reads the keys from uns; the group attributes only mirror them.
-        write_elem(group, "uns", {"spatialdata_attrs": keys})
-        group.attrs.update(table_attrs(keys["region"], region_key=REGION_KEY, instance_key=INSTANCE_KEY))
+        write_table_keys(group, "cell_labels", region_key=REGION_KEY, instance_key=INSTANCE_KEY)
 
 
 def write_table_index(writer: Writer) -> None:

@@ -10,6 +10,7 @@ import copy
 from collections.abc import Mapping, Sequence
 
 import numpy as np
+import zarr
 
 CONTAINER_VERSION = "0.2"
 RASTER_VERSION = "0.3"
@@ -48,20 +49,20 @@ def container_attrs() -> dict:
 
 
 def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "global",
-          unit: str = PLACEHOLDER_UNIT) -> dict:
+          unit: str) -> dict:
     """``unit`` is the unit of the output system's space axes."""
     return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit)
 
 
 def affine(matrix: np.ndarray, input_axes: Sequence[str], output_axes: Sequence[str],
-           *, system: str = "global", unit: str = PLACEHOLDER_UNIT) -> dict:
+           *, system: str = "global", unit: str) -> dict:
     # The spec omits the homogeneous last row.
     return _transform("affine", {"affine": np.asarray(matrix)[:-1].tolist()},
                       input_axes, output_axes, system, unit)
 
 
 def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str = "global",
-             unit: str = PLACEHOLDER_UNIT) -> dict:
+             unit: str) -> dict:
     return _transform("sequence", {"transformations": list(transforms)}, axes, axes, system, unit)
 
 
@@ -92,3 +93,24 @@ def shapes_attrs(geometry: str, transform: Mapping) -> dict:
 def table_attrs(region: str, *, region_key: str, instance_key: str) -> dict:
     return {"spatialdata-encoding-type": "ngff:regions_table", "region": region,
             "region_key": region_key, "instance_key": instance_key, "version": TABLE_VERSION}
+
+
+def _write_dict(group: zarr.Group, name: str, values: Mapping[str, str]) -> None:
+    """Write ``values`` as AnnData's on-disk dict of string scalars."""
+    child = group.require_group(name)
+    child.attrs.update({"encoding-type": "dict", "encoding-version": "0.1.0"})
+    for key, value in values.items():
+        array = child.create_array(key, shape=(), dtype=str, overwrite=True)
+        array[()] = value
+        array.attrs.update({"encoding-type": "string", "encoding-version": "0.2.0"})
+
+
+def write_table_keys(group: zarr.Group, region: str, *, region_key: str, instance_key: str) -> None:
+    """Write the table keys of an AnnData ``group`` to its attributes and to ``uns/spatialdata_attrs``.
+
+    SpatialData reads the keys only from ``uns``; the group attributes mirror them for other readers.
+    """
+    _write_dict(group, "uns", {})
+    _write_dict(group["uns"], "spatialdata_attrs",
+                {"region": region, "region_key": region_key, "instance_key": instance_key})
+    group.attrs.update(table_attrs(region, region_key=region_key, instance_key=instance_key))

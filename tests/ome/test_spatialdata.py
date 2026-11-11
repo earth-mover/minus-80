@@ -1,5 +1,8 @@
 import numpy as np
 
+import pytest
+import zarr
+
 from minus80.ome import image_attrs
 from minus80.ome.spatialdata import (
     affine,
@@ -10,13 +13,14 @@ from minus80.ome.spatialdata import (
     sequence,
     shapes_attrs,
     table_attrs,
+    write_table_keys,
 )
 
 
 def test_scale_names_input_and_output_axes():
-    t = scale([1.0, 0.2125, 0.2125], ("c", "y", "x"))
+    t = scale([1.0, 0.2125, 0.2125], ("c", "y", "x"), unit="micrometer")
     assert t["input"]["axes"][0] == {"name": "c", "type": "channel"}
-    assert t["output"] == {"name": "global", "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space", "unit": "unit"}, {"name": "x", "type": "space", "unit": "unit"}]}
+    assert t["output"] == {"name": "global", "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space", "unit": "micrometer"}, {"name": "x", "type": "space", "unit": "micrometer"}]}
 
 
 def test_every_space_axis_has_a_unit_because_spatialdata_refuses_one_without():
@@ -31,7 +35,7 @@ def test_every_space_axis_has_a_unit_because_spatialdata_refuses_one_without():
 
 def test_raster_attrs_sets_the_spatialdata_version_and_element_transform():
     ome = image_attrs(name="m", dims=("c", "y", "x"), level_shapes=[(4, 100, 200), (4, 50, 100)], scale={"c": 1, "y": 1, "x": 1})
-    attrs = raster_attrs(ome, scale([1, 0.2, 0.2], ("c", "y", "x")))
+    attrs = raster_attrs(ome, scale([1, 0.2, 0.2], ("c", "y", "x"), unit="micrometer"))
     assert attrs["ome"]["version"] == "0.5-dev-spatialdata"
     assert attrs["ome"]["multiscales"][0]["coordinateTransformations"][0]["type"] == "scale"
     assert attrs["spatialdata_attrs"] == {"version": "0.3"}
@@ -40,16 +44,16 @@ def test_raster_attrs_sets_the_spatialdata_version_and_element_transform():
 
 
 def test_points_and_shapes_attrs_carry_the_spec_keys():
-    p = points_attrs(("x", "y", "z"), scale([1, 1, 1], ("x", "y", "z")), feature_key="feature_name")
+    p = points_attrs(("x", "y", "z"), scale([1, 1, 1], ("x", "y", "z"), unit="micrometer"), feature_key="feature_name")
     assert p["encoding-type"] == "ngff:points" and p["spatialdata_attrs"] == {"version": "0.2", "feature_key": "feature_name"}
-    s = shapes_attrs("POLYGON", scale([1, 1], ("x", "y")))
+    s = shapes_attrs("POLYGON", scale([1, 1], ("x", "y"), unit="micrometer"))
     assert s["spatialdata_attrs"]["geos"] == {"name": "POLYGON", "type": 3}
-    assert shapes_attrs("POINT", scale([1, 1], ("x", "y")))["spatialdata_attrs"]["geos"] == {"name": "POINT", "type": 0}
+    assert shapes_attrs("POINT", scale([1, 1], ("x", "y"), unit="micrometer"))["spatialdata_attrs"]["geos"] == {"name": "POINT", "type": 0}
 
 
 def test_affine_drops_the_homogeneous_row():
     m = np.array([[0.0024, 1.289, 914.1], [-1.289, 0.0024, 32040.6], [0, 0, 1]])
-    assert affine(m, ("x", "y"), ("x", "y"))["affine"] == m[:2].tolist()
+    assert affine(m, ("x", "y"), ("x", "y"), unit="micrometer")["affine"] == m[:2].tolist()
 
 
 def test_table_attrs():
@@ -61,14 +65,14 @@ def test_container_attrs():
 
 
 def test_sequence_lists_its_members():
-    members = [scale([2, 2], ("x", "y")), scale([1, 1], ("x", "y"))]
-    t = sequence(members, ("x", "y"))
+    members = [scale([2, 2], ("x", "y"), unit="micrometer"), scale([1, 1], ("x", "y"), unit="micrometer")]
+    t = sequence(members, ("x", "y"), unit="micrometer")
     assert t["type"] == "sequence" and t["transformations"] == members
     assert t["output"]["name"] == "global"
 
 
 def test_points_attrs_carry_both_keys_when_given():
-    p = points_attrs(("x", "y"), scale([1, 1], ("x", "y")), instance_key="cell_id", feature_key="gene")
+    p = points_attrs(("x", "y"), scale([1, 1], ("x", "y"), unit="micrometer"), instance_key="cell_id", feature_key="gene")
     assert p["spatialdata_attrs"] == {"version": "0.2", "instance_key": "cell_id", "feature_key": "gene"}
 
 
@@ -76,3 +80,24 @@ def test_table_attrs_keys():
     assert table_attrs("cell_labels", region_key="r", instance_key="i") == {
         "spatialdata-encoding-type": "ngff:regions_table", "region": "cell_labels",
         "region_key": "r", "instance_key": "i", "version": "0.2"}
+
+
+@pytest.mark.parametrize("transform", [scale, sequence])
+def test_a_transform_without_a_unit_is_refused(transform):
+    with pytest.raises(TypeError, match="unit"):
+        transform([1, 1], ("x", "y"))
+
+
+def test_an_affine_without_a_unit_is_refused():
+    with pytest.raises(TypeError, match="unit"):
+        affine(np.eye(3), ("x", "y"), ("x", "y"))
+
+
+def test_write_table_keys_writes_the_group_attributes_and_uns():
+    anndata_io = pytest.importorskip("anndata.io")
+    group = zarr.open_group(store={}, mode="w")
+    write_table_keys(group, "cell_boundaries", region_key="region", instance_key="instance")
+    assert dict(group.attrs) == table_attrs("cell_boundaries", region_key="region", instance_key="instance")
+    # SpatialData reads the keys from uns, as AnnData decodes it.
+    assert anndata_io.read_elem(group["uns"]) == {"spatialdata_attrs": {
+        "region": "cell_boundaries", "region_key": "region", "instance_key": "instance"}}
