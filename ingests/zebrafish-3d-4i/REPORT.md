@@ -35,6 +35,11 @@ written again.
   pixel wider than 1000 / 2^k, and its translation records where it sits.
   The three ROI tables are kept as attributes on the wells and images.
   LAYOUTS.md maps every source key onto the store.
+- **Figures.** Written by `diagrams.py` from the store and the zip's central directory:
+  - [the source zip](diagrams/source.svg)
+  - [the mapping of one field](diagrams/mapping.svg)
+  - [every field's window at every level](diagrams/crops.svg)
+  - [the store's hierarchy](diagrams/store.svg)
 - **Chunks.** Image chunks are one plane of one channel, in 32-plane shards.
   Label chunks are one plane, in one shard that spans all 271 planes. Both
   use blosc zstd level 5 with bitshuffle.

@@ -103,29 +103,30 @@ per-object cost.
 
 ## Verification
 
-### Treat passing checks as a floor
+### Test the code, spot-check the store
 
-Each gate in `minus80.ome.verify` exists because a mistake got through once. No
-gate can see a wrong shape, a partial ingest or a tenfold pixel size.
+Catch a converter's bugs with tests that run the ingest end to end on a small
+fixture, where checking every plane is cheap. The finished store then needs
+only a short check of what depends on the real data:
 
-### Compare against the format's reference reader
+1. **Completeness.** Every item the source lists is in the store. Read the
+   listing from a local copy, such as the zip's central directory or the
+   bucket listing, rather than from the host.
+2. **Metadata.** The OME-Zarr documents validate.
+3. **A few pixels.** A plane or two equal the source's values, decoded by the
+   format's reference reader. For lossy codecs, use the same decoder on both
+   sides: two conformant JPEG 2000 decoders can differ by one bit.
 
-Read the store back, compare it with the source decoded by the format's
-reference reader, and report the counts. For lossy codecs, use the same decoder
-on both sides: two conformant JPEG 2000 decoders can differ by one bit.
+`REPORT.md` says what the check covered.
 
-### Keep verification to a minute
+### Keep the store check to a minute or two
 
-Never read the whole archive to verify it. Run the gates that read only
-metadata (schema, axes, pixel size, completeness against the source listing)
-on every image. Check chunk references and pixels on a sample that covers
-every distinct shape, codec and source layout: read each sampled chunk's
-reference back from the store (VirtualiZarr's `IcechunkParser`), compare its
-path, offset and length with the reference reader's index of the file, and
-decode a plane against the reference reader. Every item went through the same
-parse, so the sample stands for the rest. Checking every reference means
-reading every file's index, which for OpenCell's 12,602 TIFFs took hours from
-a laptop against the published repo.
+Count the requests a check makes to the source before you write it. Public
+archives can be slow: a single request to EBI's FTP server can take minutes,
+and one plate's verify script, which fetched 9,458 metadata documents there
+one by one, was stopped after two hours. A check that needs much of the
+source belongs in a fixture test. Don't add a gate to the store check because
+it exists for another ingest, or because a sample might miss something.
 
 ### Open the store and look
 
@@ -138,12 +139,13 @@ shell's environment.
 Every virtual array, or its group, names its source URL. The `provenance` gate
 checks this.
 
-### Check every item, not a sample
+### Check a derived layer on every item
 
-A rule that holds on the items you tried can fail on the rest. Cutting
-CAMELYON's exclusion regions from its tumour outlines worked on the slides
-tried, and erased 18 tumour islands on a slide that only the check over all 160
-found.
+When the ingest derives data by a rule, check the rule's output on every item
+while building it. A rule that holds on the items you tried can fail on the
+rest. Cutting CAMELYON's exclusion regions from its tumor outlines worked on
+the slides tried, and erased 18 tumor islands on a slide that only the check
+over all 160 found.
 
 ### Raise on a missing value instead of defaulting
 
@@ -312,7 +314,7 @@ anything.
 ### `REPORT.md`, after the ingest
 
 1. **What was built**, where it is, and how to open it.
-2. **Verification** against the format's reference reader, with counts.
+2. **Verification**: what the store check covered and what it found.
 3. **Changes from the plan.**
 4. **Judgement calls made.**
 5. **Problems found in the source data.**
