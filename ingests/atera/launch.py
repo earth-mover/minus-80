@@ -41,8 +41,8 @@ UPLOAD = "<git archive of HEAD>"
 LOG_WINDOW_MS = 120_000
 #: The longest the launcher reads the log after the task ends, and the empty reads in a row that end it earlier.
 DRAIN_SECONDS, DRAIN_EMPTY_READS = 60, 2
-#: Consecutive failed status or log calls, while the task runs, that end the run. 30 polls of 10 s are five minutes,
-#: longer than the log service lags behind a new VM; before the task runs no failure counts.
+#: Consecutive failed status calls, while the task runs, that end the run: 30 polls of 10 s are five minutes.
+#: Before the task runs no failure counts.
 MAX_FAILURES = 30
 #: Task states of a batch job, as ``coiled batch wait`` counts them: ``assigned`` and ``running`` both mean the VM works.
 RUNNING_TASK = ("assigned", "running")
@@ -312,8 +312,9 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
                 except Exception as error:
                     log_streak += 1
                     failed("logs", error, log_streak)
-            if running and max(poll_streak, log_streak) >= MAX_FAILURES:
-                say(f"giving up: {max(poll_streak, log_streak)} calls in a row failed while the task runs")
+            # A failed log read never ends the run: the lines stay in Coiled's logs.
+            if running and poll_streak >= MAX_FAILURES:
+                say(f"giving up: {poll_streak} status calls in a row failed while the task runs")
                 return 1
             if clock() - started >= job.minutes * 60:
                 say(f"the time limit of {job.minutes} minutes passed; stopping the VM")

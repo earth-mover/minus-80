@@ -273,12 +273,13 @@ def test_a_failed_log_read_while_the_task_runs_is_one_short_line_and_the_next_po
     assert [line for line in lines if line.startswith("logs:")] == ["logs: ServerError: slow ***"]
 
 
-def test_log_reads_that_always_fail_while_the_task_runs_end_the_run_after_a_bound(coiled):
-    vm = FakeVm([coiled.errors.ServerError("x")] * 1000, states=[RUNNING])
+def test_log_reads_that_always_fail_never_end_a_run_whose_task_still_works(coiled):
+    polls = 2 * launch.MAX_FAILURES
+    vm = FakeVm([coiled.errors.ServerError("x")] * 1000, states=[*[RUNNING] * polls, done(0)])
     code, lines = _run(vm, step=1)
-    assert code != 0 and vm.stopped == ["atera-x"]
-    assert vm.events.count("read") == launch.MAX_FAILURES
-    assert any("giving up" in line for line in lines)
+    assert code == 0 and vm.stopped == ["atera-x"]
+    assert vm.events.count("read") >= polls
+    assert not any("giving up" in line for line in lines)
 
 
 def test_a_status_call_that_fails_once_is_tolerated(coiled):
