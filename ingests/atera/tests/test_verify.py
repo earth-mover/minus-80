@@ -1,3 +1,6 @@
+import io
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -12,12 +15,14 @@ from minus80.core.icechunk_io import create_repo
 from minus80.ome.spatialdata import write_table_keys
 from minus80.core.tables import TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files
 from tests.stores import cells_zip, zip_v2_store
-from ingest import table_attr, table_specs
+from ingest import ICEBERG_TABLES, table_attr, table_specs, write_extra_tables
 from polygons import polygon_table
 from verify import (
-    gate_attrs, gate_copies, gate_field_ids, gate_polygons, gate_table_index, gate_table_region, gate_tables,
+    gate_attrs, gate_copies, gate_extra_tables, gate_field_ids, gate_polygons, gate_table_index, gate_table_region,
+    gate_tables, run_gates, select_gates,
 )
 
+LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
 SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
 
 
@@ -197,38 +202,70 @@ def _summary(nucleus_count):
     return np.array([[c] for c in nucleus_count], dtype="float64"), ["nucleus_count"]
 
 
+def _with(table, column, values):
+    """``table`` with ``column`` replaced by ``values``."""
+    index = table.schema.get_field_index(column)
+    return table.set_column(index, table.schema.field(column), pa.array(values, type=table.schema.field(column).type))
+
+
+NUCLEUS = "shapes/nucleus_boundaries"
+
+
 def test_polygons_passes_both_sets(tmp_path, capsys):
-    root, tables, _ = _polygon_root(tmp_path)
-    assert gate_polygons(root, tables.catalog, *_summary([1, 0, 2])) == []
+    root, tables, zf = _polygon_root(tmp_path)
+    assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == []
     assert "shapes/cell_boundaries" in capsys.readouterr().out
 
 
 def test_polygons_fails_a_repeated_instance(tmp_path):
-    zf = cells_zip(tmp_path)
-    nucleus = polygon_table(zf, 0, CELL_IDS)
-    repeated = pa.concat_tables([nucleus, nucleus.slice(0, 1)])
-    root, tables, _ = _polygon_root(tmp_path / "x", {"nucleus_boundaries": repeated})
-    errors = gate_polygons(root, tables.catalog, *_summary([1, 0, 2]))
-    assert errors == ["shapes/nucleus_boundaries: 1 instance repeats, first 1"]
+    nucleus = polygon_table(cells_zip(tmp_path), 0, CELL_IDS)
+    root, tables, zf = _polygon_root(tmp_path / "x", {"nucleus_boundaries": _with(nucleus, "instance", [1, 1])})
+    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2]))
+    assert errors == [f"{NUCLEUS}: 1 instance repeats, first 1"]
 
 
 def test_polygons_fails_a_part_count_that_cell_summary_contradicts(tmp_path):
-    root, tables, _ = _polygon_root(tmp_path)
-    errors = gate_polygons(root, tables.catalog, *_summary([1, 1, 2]))
-    assert errors == ["shapes/nucleus_boundaries: part_count differs from nucleus_count on 1 of 3 sampled cells, first cell_index 1"]
+    root, tables, zf = _polygon_root(tmp_path)
+    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, 1, 2]))
+    assert errors == [f"{NUCLEUS}: part_count differs from nucleus_count on 1 cell, first cell_index 1"]
+
+
+def test_polygons_fails_a_nucleus_count_that_is_nan(tmp_path):
+    root, tables, zf = _polygon_root(tmp_path)
+    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, np.nan, 2]))
+    assert errors == ["cell_summary nucleus_count is NaN on 1 cell, first cell_index 1"]
+
+
+def test_polygons_fails_a_nucleus_table_that_lacks_a_part(tmp_path):
+    table = _with(polygon_table(cells_zip(tmp_path), 0, CELL_IDS), "part_count", [1, 1])
+    root, tables, zf = _polygon_root(tmp_path / "x", {"nucleus_boundaries": table})
+    assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == [
+        f"{NUCLEUS}: part_count sums to 2, the source has 3 rows",
+        f"{NUCLEUS}: part_count differs from the source row count on 1 cell, first cell_index 2",
+        f"{NUCLEUS}: part_count differs from nucleus_count on 1 cell, first cell_index 2",
+    ]
+
+
+def test_polygons_fails_a_cell_table_that_lacks_a_part(tmp_path):
+    table = _with(polygon_table(cells_zip(tmp_path), 1, CELL_IDS), "part_count", [1, 1, 0])
+    root, tables, zf = _polygon_root(tmp_path / "x", {"cell_boundaries": table})
+    assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == [
+        "shapes/cell_boundaries: part_count sums to 2, the source has 3 rows",
+        "shapes/cell_boundaries: part_count differs from the source row count on 1 cell, first cell_index 2",
+    ]
 
 
 def test_polygons_reads_the_pinned_snapshot(tmp_path):
     root, tables, zf = _polygon_root(tmp_path)
     # A later snapshot repeats an instance; the pinned one does not.
     tables.write("nucleus_boundaries", polygon_table(zf, 1, CELL_IDS))
-    assert gate_polygons(root, tables.catalog, *_summary([1, 0, 2])) == []
+    assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == []
 
 
 def test_polygons_fails_a_count_of_invalid_parts_that_the_metrics_contradict(tmp_path):
-    root, tables, _ = _polygon_root(tmp_path)
+    root, tables, zf = _polygon_root(tmp_path)
     root.attrs["metrics"] = {"number_of_nucleus_non_simple_polygons": 4}
-    errors = gate_polygons(root, tables.catalog, *_summary([1, 0, 2]))
+    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2]))
     assert errors == ["0 invalid nucleus polygons, the metrics CSV states 4"]
 
 
@@ -285,4 +322,127 @@ def test_table_region_fails_a_region_other_than_cell_boundaries(tmp_path):
         "tables/table: region attribute is 'cell_labels'",
         "tables/table: uns region is 'cell_labels'",
         "tables/table: obs.region holds 'cell_labels'",
+    ]
+
+
+def test_table_region_fails_a_repeated_obs_instance(tmp_path):
+    root, tables = _region_root(tmp_path, obs_instance=[1, 2, 2])
+    assert gate_table_region(root, tables.catalog) == [
+        "cell_boundaries has 1 instance that obs.instance lacks, first 3",
+        "obs.instance has 1 instance that repeats, first 2",
+        "cell_id differs on 1 of 3 sampled instances, first instance 2",
+    ]
+
+
+def test_a_gate_that_raises_fails_and_the_run_goes_on(capsys):
+    ran = []
+
+    def raises():
+        raise KeyError("shapes/cell_boundaries")
+
+    gates = {"a": raises, "b": lambda: ran.append("b") or [], "c": lambda: ["bad"]}
+    assert run_gates(gates, list(gates)) == ["a", "c"]
+    out = capsys.readouterr().out
+    assert "a FAIL" in out and "raised KeyError: 'shapes/cell_boundaries'" in out and "b PASS" in out
+    assert ran == ["b"]
+
+
+def test_select_gates_takes_commas_or_spaces_and_refuses_an_unknown_name():
+    available = {"images": 0, "labels": 1, "polygons": 2}
+    assert select_gates(None, available) == ["images", "labels", "polygons"]
+    assert select_gates(["labels,images", "polygons"], available) == ["labels", "images", "polygons"]
+    with pytest.raises(ValueError, match="nope"):
+        select_gates(["images,nope"], available)
+
+
+DIFFEXP = "Feature ID,Feature Name,G Mean Counts\nENSG1,A,0.5\nENSG2,B,2.0\n"
+
+
+def _codewords_zip(tmp_path, names):
+    return zip_v2_store(
+        tmp_path, "transcripts", {"codeword_category": (np.zeros((len(names), 9), dtype=bool), {})},
+        attrs={"codeword_gene_names": names, "codeword_gene_mapping": list(range(len(names)))},
+    )
+
+
+class _ExtraBundle:
+    """The transcripts zip and one CSV for both differential expression members."""
+
+    def __init__(self, transcripts, csv):
+        self.transcripts, self.csv = transcripts, csv
+
+    def member_zip(self, name):
+        return self.transcripts
+
+    def member_file(self, name):
+        return io.BytesIO(self.csv.encode())
+
+
+def _extra_root(tmp_path, csv=DIFFEXP, names=("A", "B")):
+    """A root whose ``iceberg_tables`` attribute pins the tables that ``write_extra_tables`` wrote."""
+    from minus80.core.elements import ElementWriter
+    from sources import SAMPLES
+
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
+    transcripts = _codewords_zip(tmp_path, list(names))
+    write_extra_tables(ElementWriter(repo, "fixture"), _ExtraBundle(transcripts, csv), tables,
+                       SAMPLES["kidney"], LAYOUTS, "repo")
+    root = zarr.open_group(tmp_path / "r.zarr", mode="w")
+    root.attrs[ICEBERG_TABLES] = dict(zarr.open_group(repo.readonly_session("fixture").store, mode="r").attrs[ICEBERG_TABLES])
+    return root, tables, transcripts
+
+
+def test_extra_tables_pass_when_each_table_equals_its_source(tmp_path):
+    root, tables, transcripts = _extra_root(tmp_path)
+    assert gate_extra_tables(root, tables.catalog, transcripts, _ExtraBundle(transcripts, DIFFEXP)) == []
+
+
+def test_extra_tables_fail_a_row_count_that_the_source_contradicts(tmp_path):
+    root, tables, transcripts = _extra_root(tmp_path)
+    source = _ExtraBundle(_codewords_zip(tmp_path / "y", ["A", "B", "C"]), DIFFEXP + "ENSG3,C,1.0\n")
+    errors = gate_extra_tables(root, tables.catalog, source.transcripts, source)
+    assert "iceberg_tables/codewords: 2 rows, source 3" in errors
+    assert "iceberg_tables/diffexp_azimuth: 2 rows, source 3" in errors
+
+
+def test_extra_tables_fail_a_repeated_index_value(tmp_path):
+    csv = DIFFEXP + "ENSG1,C,1.0\n"
+    root, tables, transcripts = _extra_root(tmp_path, csv)
+    errors = gate_extra_tables(root, tables.catalog, transcripts, _ExtraBundle(transcripts, csv))
+    assert errors == [
+        "iceberg_tables/diffexp_azimuth: 1 Feature ID value repeats, first ENSG1",
+        "iceberg_tables/diffexp_graphclust: 1 Feature ID value repeats, first ENSG1",
+    ]
+
+
+def test_extra_tables_fail_a_pin_the_table_lacks(tmp_path):
+    root, tables, transcripts = _extra_root(tmp_path)
+    root.attrs[ICEBERG_TABLES] = {**root.attrs[ICEBERG_TABLES],
+                                  "codewords": {**root.attrs[ICEBERG_TABLES]["codewords"], "snapshot_id": 1}}
+    errors = gate_extra_tables(root, tables.catalog, transcripts, _ExtraBundle(transcripts, DIFFEXP))
+    assert errors == ["iceberg_tables/codewords: the table has no snapshot 1"]
+
+
+def test_extra_tables_fail_a_file_without_field_ids(tmp_path):
+    root, tables, transcripts = _extra_root(tmp_path)
+    catalog = tables.catalog
+    loose = pa.schema([("Feature ID", pa.string())])
+    path = str(tmp_path / "loose.parquet")
+    pq.write_table(pa.table({"Feature ID": ["x"]}, schema=loose), path)
+    ref = register_files(catalog, "ns.loose", [path], schema=loose, properties={})
+    pins = dict(root.attrs[ICEBERG_TABLES])
+    pins["codewords"] = iceberg_table_attr(ref, catalog="local", org="local", namespace="ns", table="loose",
+                                           index_column="Feature ID")
+    root.attrs[ICEBERG_TABLES] = pins
+    errors = gate_extra_tables(root, catalog, transcripts, _ExtraBundle(transcripts, DIFFEXP))
+    assert any("iceberg_tables/codewords" in e and "no field id" in e for e in errors)
+
+
+def test_extra_tables_fail_a_root_without_the_attribute(tmp_path):
+    root = zarr.open_group(tmp_path / "r.zarr", mode="w")
+    transcripts = _codewords_zip(tmp_path, ["A"])
+    assert gate_extra_tables(root, local_catalog(tmp_path / "c"), transcripts, _ExtraBundle(transcripts, DIFFEXP)) == [
+        "the root has no iceberg_tables attribute"
     ]

@@ -15,7 +15,11 @@ def zip_v2_store(tmp_path, name, arrays, attrs=None, group_attrs=None):
         root.require_group(group).attrs.update(group_attr)
     for path, (data, kwargs) in arrays.items():
         root.create_array(path, data=data, **kwargs)
-    path = tmp_path / f"{name}.zip"
+    return zip_directory(source, tmp_path / f"{name}.zip")
+
+
+def zip_directory(source, path):
+    """Zip the files under ``source`` STORED at ``path``; the open zip."""
     with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
         for file in sorted(source.rglob("*")):
             if file.is_file():

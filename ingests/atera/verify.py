@@ -8,7 +8,9 @@ so they check the kidney fixture only.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import math
 import os
@@ -32,7 +34,10 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 from bundle import CELLS, MATRIX, MORPHOLOGY_2D
-from ingest import CELL_SET, FIXTURE_LEVEL, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION, open_bundle
+from ingest import (
+    CELL_SET, DIFFEXP_TABLES, FIXTURE_LEVEL, ICEBERG_TABLES, INSTANCE_KEY, MASKS, MIB, NUCLEUS_SET, TABLE_REGION,
+    open_bundle,
+)
 from sources import S3, SAMPLES
 from transcripts import xenium_cell_id
 
@@ -118,7 +123,7 @@ def element_tables(root) -> dict[str, dict]:
     """``iceberg_table`` attribute by element path."""
     found = {}
     for kind in ("points", "shapes"):
-        for name, group in root[kind].groups():
+        for name, group in root[kind].groups() if kind in root else ():
             found[f"{kind}/{name}"] = dict(group.attrs["iceberg_table"])
     return found
 
@@ -147,39 +152,43 @@ def gate_tables(root, catalog, cells, transcripts) -> list[str]:
     return errors
 
 
-def gate_field_ids(root, catalog) -> list[str]:
-    """Each data file of the pinned snapshot states every field id of that snapshot's schema.
+def _field_id_errors(path: str, catalog, attr) -> list[str]:
+    """The data files of the snapshot that ``attr`` pins state every field id of that snapshot's schema.
 
     The index column is required in that schema and non-nullable in each file.
     """
+    table, index, snapshot_id = load(catalog, attr), attr["index_column"], attr["snapshot_id"]
+    snapshot = table.snapshot_by_id(snapshot_id)
+    if snapshot is None:
+        return [f"{path}: the table has no snapshot {snapshot_id}"]
+    schema = table.schemas()[snapshot.schema_id]
+    expected, errors = index_by_name(schema), []
+    if not schema.find_field(index).required:
+        errors.append(f"{path}: {index} is optional in the table schema")
+    files = [task.file.file_path for task in table.scan(snapshot_id=snapshot_id).plan_files()]
+    if not files:
+        errors.append(f"{path}: snapshot {snapshot_id} has no data files")
+    for f in files:
+        with table.io.new_input(f).open() as stream:
+            footer = pq.read_schema(stream)
+        found = parquet_field_ids(footer)
+        if extra := [n for n in found if n not in expected]:
+            errors.append(f"{path}: {f} has columns the table lacks: {', '.join(extra)}")
+        if wrong := [n for n, i in found.items() if n in expected and i != expected[n]]:
+            errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
+        if lacking := [n for n in expected if n not in found]:
+            errors.append(f"{path}: {f} lacks fields {', '.join(lacking)}")
+        if index in footer.names and footer.field(index).nullable:
+            errors.append(f"{path}: {f} has a nullable {index}")
+    print(f"  field_ids: {path}: snapshot {snapshot_id}, {len(files)} files, {len(expected)} fields")
+    return errors
+
+
+def gate_field_ids(root, catalog) -> list[str]:
     attrs = element_tables(root)
     errors = [] if attrs else ["no element has an iceberg_table attribute"]
     for path, attr in attrs.items():
-        table, index, snapshot_id = load(catalog, attr), attr["index_column"], attr["snapshot_id"]
-        snapshot = table.snapshot_by_id(snapshot_id)
-        if snapshot is None:
-            errors.append(f"{path}: the table has no snapshot {snapshot_id}")
-            continue
-        schema = table.schemas()[snapshot.schema_id]
-        expected = index_by_name(schema)
-        if not schema.find_field(index).required:
-            errors.append(f"{path}: {index} is optional in the table schema")
-        files = [task.file.file_path for task in table.scan(snapshot_id=snapshot_id).plan_files()]
-        if not files:
-            errors.append(f"{path}: snapshot {snapshot_id} has no data files")
-        for f in files:
-            with table.io.new_input(f).open() as stream:
-                footer = pq.read_schema(stream)
-            found = parquet_field_ids(footer)
-            if extra := [n for n in found if n not in expected]:
-                errors.append(f"{path}: {f} has columns the table lacks: {', '.join(extra)}")
-            if wrong := [n for n, i in found.items() if n in expected and i != expected[n]]:
-                errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
-            if lacking := [n for n in expected if n not in found]:
-                errors.append(f"{path}: {f} lacks fields {', '.join(lacking)}")
-            if index in footer.names and footer.field(index).nullable:
-                errors.append(f"{path}: {f} has a nullable {index}")
-        print(f"  field_ids: {path}: snapshot {snapshot_id}, {len(files)} files, {len(expected)} fields")
+        errors += _field_id_errors(path, catalog, attr)
     return errors
 
 
@@ -269,19 +278,40 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def gate_polygons(root, catalog, summary, columns) -> list[str]:
-    """Each polygon set: unique ``instance``, the invalid parts against the metrics, and, for the nucleus set, ``part_count``."""
+def _repeats(path: str, noun: str, values: np.ndarray) -> list[str]:
+    """One error when ``values`` repeat, naming the first repeated value."""
+    unique, counts = np.unique(values, return_counts=True)
+    if not len(repeated := unique[counts > 1]):
+        return []
+    return [f"{path}: {_plural(len(repeated), noun)} repeat{'s' if len(repeated) == 1 else ''}, first {repeated[0]}"]
+
+
+def _first_cell(label: str, cells: np.ndarray) -> list[str]:
+    """One error that says how many ``cells`` differ, and the first."""
+    return [f"{label} on {_plural(len(cells), 'cell')}, first cell_index {cells[0]}"] if len(cells) else []
+
+
+def gate_polygons(root, catalog, cells, summary, columns) -> list[str]:
+    """Each polygon set against its source: unique ``instance``, every part counted, and the invalid parts.
+
+    ``part_count`` equals the source rows of each cell. The nucleus set also equals ``nucleus_count`` of every cell.
+    """
     errors = []
     for path, attr in ((p, a) for p, a in element_tables(root).items() if p in POLYGON_SETS):
         table = pinned_columns(catalog, attr, ("instance", "cell_index", "part_count", "geometry"))
-        values, counts = np.unique(table["instance"].to_numpy(), return_counts=True)
-        if len(repeated := values[counts > 1]):
-            errors.append(f"{path}: {_plural(len(repeated), 'instance')} repeat{'s' if len(repeated) == 1 else ''}, first {repeated[0]}")
+        errors += _repeats(path, "instance", table["instance"].to_numpy())
+        source = read_array(cells, f"polygon_sets/{POLYGON_SETS[path]}/cell_index").astype(np.int64)
+        held = np.zeros(len(summary), dtype=np.int64)
+        held[table["cell_index"].to_numpy()] = table["part_count"].to_numpy()
+        if (total := int(table["part_count"].to_numpy().sum())) != len(source):
+            errors.append(f"{path}: part_count sums to {total}, the source has {len(source)} rows")
+        errors += _first_cell(f"{path}: part_count differs from the source row count",
+                              np.flatnonzero(held != np.bincount(source, minlength=len(summary))))
         parts = shapely.get_parts(shapely.from_wkb(table["geometry"].to_numpy(zero_copy_only=False)))
         invalid = int((~shapely.is_valid(parts)).sum())
-        print(f"  polygons: {invalid:,} of {len(parts):,} {path} parts are not valid")
+        print(f"  polygons: {path}: {len(table):,} cells, {total:,} parts, {invalid:,} parts not valid")
         if path == "shapes/nucleus_boundaries":
-            errors += _gate_part_count(path, table, summary, columns)
+            errors += _nucleus_count_errors(path, held, summary[:, columns.index("nucleus_count")])
             stated = root.attrs["metrics"]["number_of_nucleus_non_simple_polygons"]
             if stated is None:
                 # 10x leaves the metric empty, so there is nothing to disagree with.
@@ -291,17 +321,12 @@ def gate_polygons(root, catalog, summary, columns) -> list[str]:
     return errors
 
 
-def _gate_part_count(path: str, table, summary, columns) -> list[str]:
-    """``part_count`` against ``nucleus_count`` of ``cell_summary`` on a sample of cells; a cell with no row has 0 parts."""
-    rows = np.random.default_rng(SEED + 2).choice(len(summary), min(SAMPLED, len(summary)), replace=False)
-    held = dict(zip(table["cell_index"].to_pylist(), table["part_count"].to_pylist()))
-    stated = summary[:, columns.index("nucleus_count")]
-    differ = sorted(int(r) for r in rows if held.get(int(r), 0) != stated[r])
-    print(f"  polygons: {path} part_count differs from nucleus_count on {len(differ)} of {len(rows)} sampled cells")
-    if not differ:
-        return []
-    return [f"{path}: part_count differs from nucleus_count on {len(differ)} of {len(rows)} sampled cells, "
-            f"first cell_index {differ[0]}"]
+def _nucleus_count_errors(path: str, held: np.ndarray, nucleus_count: np.ndarray) -> list[str]:
+    """``part_count`` against ``nucleus_count`` of every cell; a cell with no row has 0 parts."""
+    unknown = np.isnan(nucleus_count)
+    return (_first_cell("cell_summary nucleus_count is NaN", np.flatnonzero(unknown))
+            + _first_cell(f"{path}: part_count differs from nucleus_count",
+                          np.flatnonzero(~unknown & (held != np.nan_to_num(nucleus_count)))))
 
 
 def gate_table_region(root, catalog) -> list[str]:
@@ -316,6 +341,9 @@ def gate_table_region(root, catalog) -> list[str]:
                               ("cell_boundaries", np.setdiff1d(shape_instance, instance), "obs.instance")):
         if len(only):
             errors.append(f"{noun} has {_plural(len(only), 'instance')} that {other} lacks, first {only[0]}")
+    values, counts = np.unique(instance, return_counts=True)
+    if len(repeated := values[counts > 1]):
+        errors.append(f"obs.instance has {_plural(len(repeated), 'instance')} that repeats, first {repeated[0]}")
     known = np.flatnonzero(np.isin(instance, shape_instance))
     rows = np.random.default_rng(SEED + 3).choice(known, min(SAMPLED, len(known)), replace=False)
     packed = table["obs/cell_id"][:][rows]
@@ -337,6 +365,37 @@ def gate_table_region(root, catalog) -> list[str]:
     return errors
 
 
+def gate_extra_tables(root, catalog, transcripts, bundle) -> list[str]:
+    """Each table of the root attribute ``iceberg_tables`` against its source.
+
+    The pin is in the catalog, the row count equals the source, the index has no repeat, and the files carry field ids.
+    """
+    pins = root.attrs.get(ICEBERG_TABLES)
+    if not pins:
+        return [f"the root has no {ICEBERG_TABLES} attribute"]
+    expected = {"codewords": len(json.loads(transcripts.read(".zattrs"))["codeword_gene_names"])}
+    for name, member in DIFFEXP_TABLES.items():
+        with bundle.member_file(member) as f:
+            # The header is not a data row.
+            expected[name] = sum(1 for _ in csv.reader(io.TextIOWrapper(f, encoding="utf-8", newline=""))) - 1
+    errors = [f"{ICEBERG_TABLES} has no entry for {name}" for name in expected if name not in pins]
+    for name, attr in pins.items():
+        path = f"{ICEBERG_TABLES}/{name}"
+        if name not in expected:
+            errors.append(f"{path}: the source has no such table")
+        elif found := _attr_errors(path, catalog, attr):
+            errors += found
+        else:
+            rows = sum(f.record_count for f in pinned_files(catalog, attr))
+            print(f"  extra_tables: {path} has {rows:,} rows, the source {expected[name]:,}")
+            if rows != expected[name]:
+                errors.append(f"{path}: {rows} rows, source {expected[name]}")
+            index = attr["index_column"]
+            errors += _repeats(path, f"{index} value", pinned_columns(catalog, attr, (index,))[index].to_numpy(zero_copy_only=False))
+            errors += _field_id_errors(path, catalog, attr)
+    return errors
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -355,17 +414,49 @@ def gate_copies(root, catalog) -> list[str]:
     return errors
 
 
+def _attr_errors(path: str, catalog, attr) -> list[str]:
+    """The catalog's table has the UUID and the snapshot that ``attr`` pins."""
+    table = load(catalog, attr)
+    if str(table.metadata.table_uuid) != attr["table_uuid"]:
+        return [f"{path}: attribute pins table {attr['table_uuid']}, catalog has {table.metadata.table_uuid}"]
+    if table.snapshot_by_id(attr["snapshot_id"]) is None:
+        return [f"{path}: the table has no snapshot {attr['snapshot_id']}"]
+    return []
+
+
 def gate_attrs(root, catalog) -> list[str]:
     attrs = element_tables(root)
     print(f"  attrs: {len(attrs)} iceberg_table attributes")
     errors = [] if attrs else ["no element has an iceberg_table attribute"]
     for path, attr in attrs.items():
-        table = load(catalog, attr)
-        if str(table.metadata.table_uuid) != attr["table_uuid"]:
-            errors.append(f"{path}: attribute pins table {attr['table_uuid']}, catalog has {table.metadata.table_uuid}")
-        elif table.snapshot_by_id(attr["snapshot_id"]) is None:
-            errors.append(f"{path}: the table has no snapshot {attr['snapshot_id']}")
+        errors += _attr_errors(path, catalog, attr)
     return errors
+
+
+def run_gates(gates: dict, names: list[str]) -> list[str]:
+    """Run the gates ``names``, print each result, and return the failed names. A gate that raises fails."""
+    failed = []
+    for name in names:
+        try:
+            errors = gates[name]()
+        except Exception as e:  # A gate that cannot run on this store is a failed gate, and the run goes on.
+            errors = [f"raised {type(e).__name__}: {e}"]
+        print(f"{name} {'FAIL' if errors else 'PASS'}", flush=True)
+        for error in errors[:20]:
+            print(f"  {error}")
+        if errors:
+            failed.append(name)
+    return failed
+
+
+def select_gates(requested: list[str] | None, available) -> list[str]:
+    """The gates of ``--gates``, split at commas, or all of ``available``; an unknown name raises ``ValueError``."""
+    if not requested:
+        return list(available)
+    names = [n for item in requested for n in item.split(",") if n]
+    if unknown := [n for n in names if n not in available]:
+        raise ValueError(f"unknown gates: {', '.join(unknown)}; known: {', '.join(available)}")
+    return names
 
 
 def open_root(location: str, branch: str) -> zarr.Group:
@@ -390,7 +481,7 @@ def main() -> None:
     parser.add_argument("--branch", default="fixture")
     parser.add_argument("--sample", choices=sorted(SAMPLES), default="kidney")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
-    parser.add_argument("--gates", nargs="+", help="run only these gates")
+    parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
     args = parser.parse_args()
 
     # 10x's bucket is public, and a signed request without credentials fails.
@@ -414,22 +505,19 @@ def main() -> None:
         "tables": lambda: gate_tables(root, catalog, cells, transcripts),
         "masks": lambda: gate_masks(root, summary, columns, pixel_size),
         "instances": lambda: gate_instances(root, summary, columns, cell_id, pixel_size),
-        "polygons": lambda: gate_polygons(root, catalog, summary, columns),
+        "polygons": lambda: gate_polygons(root, catalog, cells, summary, columns),
         "table_region": lambda: gate_table_region(root, catalog),
         "copies": lambda: gate_copies(root, catalog),
         "attrs": lambda: gate_attrs(root, catalog),
+        "extra_tables": lambda: gate_extra_tables(root, catalog, transcripts, bundle),
         "field_ids": lambda: gate_field_ids(root, catalog),
         "table_index": lambda: gate_table_index(root),
     }
-    failed = []
-    for name in args.gates or gates:
-        gate = gates[name]
-        errors = gate()
-        print(f"{name} {'FAIL' if errors else 'PASS'}", flush=True)
-        for error in errors[:20]:
-            print(f"  {error}")
-        if errors:
-            failed.append(name)
+    try:
+        names = select_gates(args.gates, gates)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    failed = run_gates(gates, names)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read")
     sys.exit(1 if failed else 0)
 

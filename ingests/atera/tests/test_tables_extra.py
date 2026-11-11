@@ -67,3 +67,14 @@ def test_a_table_with_spaces_and_hyphens_in_column_names_round_trips_through_ice
     footer = pq.read_schema(file_path(ref.files[0].location))
     assert all(i is not None for i in parquet_field_ids(footer).values())
     assert tables.catalog.load_table("ns.diffexp").scan().to_arrow().sort_by("Feature ID").equals(table)
+
+
+def test_diffexp_table_types_a_column_without_values_as_float64():
+    t = diffexp_table("Feature ID,Feature Name,G Mean Counts\nENSG1,A,\nENSG2,B,\n")
+    assert t["G Mean Counts"].type == pa.float64()
+    assert t["G Mean Counts"].to_pylist() == [None, None]
+
+
+def test_diffexp_table_refuses_a_repeated_column_name():
+    with pytest.raises(ValueError, match="G Mean Counts"):
+        diffexp_table("Feature ID,G Mean Counts,G Mean Counts\nENSG1,1,2\n")

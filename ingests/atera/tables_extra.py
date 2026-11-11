@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from collections import Counter
 
 import numpy as np
 import pyarrow as pa
@@ -36,5 +37,12 @@ def codewords_table(zf: zipfile.ZipFile) -> pa.Table:
 
 
 def diffexp_table(text: str) -> pa.Table:
-    """A ``diffexp_genes`` CSV with its own column names and the types that Arrow infers; ``Feature ID`` is the index."""
-    return _required(pacsv.read_csv(io.BytesIO(text.encode())), "Feature ID")
+    """A ``diffexp_genes`` CSV with its own column names and the types that Arrow infers; ``Feature ID`` is the index.
+
+    A column with no value is float64, because Iceberg has no null type. A repeated column name raises ``ValueError``.
+    """
+    table = pacsv.read_csv(io.BytesIO(text.encode()))
+    if repeated := [name for name, count in Counter(table.column_names).items() if count > 1]:
+        raise ValueError(f"the CSV has the column {repeated[0]!r} more than once")
+    typed = pa.schema([pa.field(f.name, pa.float64()) if pa.types.is_null(f.type) else f for f in table.schema])
+    return _required(table.cast(typed), "Feature ID")

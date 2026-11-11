@@ -166,6 +166,23 @@ An invalid ring, such as a bow-tie, stays as published.
 The kidney's `cell_boundaries` set has a polygon for every cell. So the `table_region` gate passes on its cell set.
 The gate stays, because another sample can lack polygons.
 
+`cell_summary` is float64 with shape 399,120 by 8, and one chunk for each column.
+Its columns are `cell_centroid_x`, `cell_centroid_y`, `cell_area`, `nucleus_centroid_x`, `nucleus_centroid_y`, `nucleus_area`, `z_level` and `nucleus_count`.
+`nucleus_count` has no NaN. It is 0 in 5,044 cells, 1 in 390,150, 2 in 3,741, 3 in 175 and 4 in 10.
+The three nucleus centroid and area columns are NaN in the 5,044 cells with no nucleus.
+The parts of set 0 equal `nucleus_count` for all 399,120 cells.
+The `polygons` gate checks `part_count` against the source rows of every cell, in both sets.
+It also checks `nucleus_count` for every cell in the nucleus set.
+
+### The fixture branch
+
+The branch `fixture` has several rows for one cell in `nucleus_boundaries`, with an int64 `method` column.
+Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
+The gates `images`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
+The gates `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
+`verify.py --gates` runs the gates that apply.
+A gate that raises prints a FAIL line with the exception, and the run goes on.
+
 ### The smaller tables
 
 Three tables annotate no SpatialData element.

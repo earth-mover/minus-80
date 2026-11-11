@@ -46,7 +46,7 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
 
     ``vertices`` rows interleave x and y (x0, y0, x1, y1, ...); ``num_vertices`` counts the pairs.
     A cell with one part is a ``Polygon``, a cell with several a ``MultiPolygon`` in source order.
-    A ring with under 3 vertices or a non-finite coordinate raises ``ValueError`` naming the row.
+    A ring with under 3 vertices, more vertices than its row holds, or a non-finite coordinate raises ``ValueError`` naming the row.
     An invalid ring, such as a bow-tie, is kept as published: the source's errors are reproduced.
     """
     names = set(zf.namelist())
@@ -56,6 +56,9 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
 
     vertices, num_vertices = read("vertices"), read("num_vertices").astype(np.int64)
     cell_index, method = read("cell_index").astype(np.int64), read("method")
+    capacity = vertices.shape[1] // 2
+    if len(over := np.flatnonzero(num_vertices > capacity)):
+        raise ValueError(f"polygon row {over[0]} has {num_vertices[over[0]]} vertices, the row holds {capacity}")
     used = np.arange(vertices.shape[1])[None, :] < 2 * num_vertices[:, None]
     if len(bad := np.flatnonzero((num_vertices < 3) | (~np.isfinite(vertices) & used).any(axis=1))):
         raise ValueError(f"polygon row {bad[0]} has {num_vertices[bad[0]]} vertices and cannot be a ring")

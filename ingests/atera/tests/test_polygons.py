@@ -140,3 +140,14 @@ def test_an_empty_set_gives_an_empty_table(tmp_path):
     zf = _set(tmp_path, [], cell_index=[])
     p = polygon_table(zf, 0, np.array(["a"]))
     assert p.schema.equals(POLYGON_SCHEMA) and len(p) == 0
+
+
+def test_a_vertex_count_above_the_row_capacity_names_the_row(tmp_path):
+    zf = zip_v2_store(tmp_path / "x", "cells", {
+        "polygon_sets/0/vertices": (np.zeros((2, 8), dtype="<f4"), {}),
+        "polygon_sets/0/num_vertices": (np.array([4, 5], dtype="<i4"), {}),
+        "polygon_sets/0/cell_index": (np.array([0, 1], dtype="<u4"), {}),
+        "polygon_sets/0/method": (np.ones(2, dtype="<u4"), {}),
+    })
+    with pytest.raises(ValueError, match=r"row 1 has 5 vertices.*holds 4"):
+        polygon_table(zf, 0, np.array(["a", "b"]))

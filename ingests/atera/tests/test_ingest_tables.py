@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
@@ -6,10 +7,10 @@ import pytest
 import zarr
 
 from .stores import cells_zip
-from bundle import DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST
 from ingest import table_attr
 from minus80.core.tables import TableWriter, local_catalog
 
+LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
 SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
 
 
@@ -330,33 +331,45 @@ def test_write_boundaries_writes_one_row_per_cell_of_the_set(tmp_path, name, set
     assert attr["snapshot_id"] == tables.catalog.load_table(f"ns.{name}").current_snapshot().snapshot_id
 
 
-def test_write_extra_tables_pins_each_table_in_one_root_attribute(tmp_path, capsys):
-    from ingest import ICEBERG_TABLES, write_extra_tables
+class _ExtraBundle:
+    """A transcripts zip and one differential expression CSV for both members."""
+
+    def __init__(self, tmp_path):
+        from .stores import zip_v2_store
+
+        self.transcripts = zip_v2_store(
+            tmp_path, "transcripts", {"codeword_category": (np.zeros((2, 9), dtype=bool), {})},
+            attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1]},
+        )
+
+    def member_zip(self, name):
+        return self.transcripts
+
+    def member_file(self, name):
+        return io.BytesIO(b"Feature ID,Feature Name,Amacrine cell Mean Counts\nENSG1,A,0.5\n")
+
+
+def _extra_run(tmp_path):
     from minus80.core.elements import ElementWriter
     from minus80.core.icechunk_io import create_repo
-    from .stores import zip_v2_store
-
-    transcripts = zip_v2_store(
-        tmp_path, "transcripts", {"codeword_category": (np.zeros((2, 9), dtype=bool), {})},
-        attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1]},
-    )
-    diffexp = "Feature ID,Feature Name,Amacrine cell Mean Counts\nENSG1,A,0.5\n"
-
-    class Bundle:
-        names = [DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST]
-
-        def member_zip(self, name):
-            return transcripts
-
-        def member_file(self, name):
-            return io.BytesIO(diffexp.encode())
+    from sources import SAMPLES
 
     tables = TableWriter(local_catalog(tmp_path / "catalog"), "ns", catalog_name="local", org="local")
     repo = create_repo(tmp_path / "repo", [])
     repo.create_branch("fixture", repo.lookup_branch("main"))
-    writer = ElementWriter(repo, "fixture")
-    write_extra_tables(writer, Bundle(), tables, {})
-    root = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")
+    return _ExtraBundle(tmp_path), tables, repo, ElementWriter(repo, "fixture"), SAMPLES["kidney"], LAYOUTS
+
+
+def _pinned(repo):
+    return zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")
+
+
+def test_write_extra_tables_pins_each_table_in_one_root_attribute(tmp_path, capsys):
+    from ingest import ICEBERG_TABLES, write_extra_tables
+
+    bundle, tables, repo, writer, sample, layouts = _extra_run(tmp_path)
+    write_extra_tables(writer, bundle, tables, sample, layouts, "r")
+    root = _pinned(repo)
     pinned = root.attrs[ICEBERG_TABLES]
     assert list(pinned) == ["codewords", "diffexp_azimuth", "diffexp_graphclust"]
     assert pinned["codewords"]["index_column"] == "codeword_index"
@@ -368,28 +381,59 @@ def test_write_extra_tables_pins_each_table_in_one_root_attribute(tmp_path, caps
         assert entry["table_uuid"] == str(table.metadata.table_uuid)
     assert not any(group for group, _ in root.groups())
     capsys.readouterr()
-    write_extra_tables(writer, Bundle(), tables, {})
+    write_extra_tables(writer, bundle, tables, sample, layouts, "r")
     assert "skipped" in capsys.readouterr().out
     assert len(tables.catalog.load_table("ns.codewords").metadata.snapshots) == 1
+
+
+def test_the_extra_tables_say_that_the_root_attribute_pins_them(tmp_path):
+    from ingest import write_extra_tables
+
+    bundle, tables, repo, writer, sample, layouts = _extra_run(tmp_path)
+    write_extra_tables(writer, bundle, tables, sample, layouts, "r")
+    for name in ("codewords", "diffexp_azimuth", "diffexp_graphclust"):
+        text = tables.catalog.load_table(f"ns.{name}").properties["referenced_by"]
+        assert "uint8" not in text and "iceberg_tables" in text and "repo r" in text
+
+
+def test_a_run_that_stopped_after_the_tables_registered_resumes_to_one_snapshot_each(tmp_path, monkeypatch):
+    import ingest
+
+    bundle, tables, repo, writer, sample, layouts = _extra_run(tmp_path)
+    real = ingest.table_attr
+
+    def stops_at_the_last_table(tables, name, *args, **kwargs):
+        if name == "diffexp_graphclust":
+            raise RuntimeError("stop")
+        return real(tables, name, *args, **kwargs)
+
+    monkeypatch.setattr(ingest, "table_attr", stops_at_the_last_table)
+    with pytest.raises(RuntimeError, match="stop"):
+        ingest.write_extra_tables(writer, bundle, tables, sample, layouts, "r")
+    assert not writer.has_attribute(ingest.ICEBERG_TABLES)
+    assert len(tables.catalog.load_table("ns.diffexp_graphclust").metadata.snapshots) == 1
+    monkeypatch.setattr(ingest, "table_attr", real)
+    ingest.write_extra_tables(writer, bundle, tables, sample, layouts, "r")
+    assert writer.has_attribute(ingest.ICEBERG_TABLES)
+    for name in ("codewords", "diffexp_azimuth", "diffexp_graphclust"):
+        assert len(tables.catalog.load_table(f"ns.{name}").metadata.snapshots) == 1
 
 
 def _matrix_zip(tmp_path):
     import pandas as pd
     import scipy.sparse
-    import zipfile
     from anndata.io import write_elem
+
+    from .stores import zip_directory
 
     source = tmp_path / "matrix.zarr"
     root = zarr.open_group(source, mode="w", zarr_format=2)
     write_elem(root, "X", scipy.sparse.csr_matrix(np.array([[1, 0], [0, 2], [3, 3]], dtype="int32")))
-    write_elem(root, "obs", pd.DataFrame({"cell_id": [10, 11, 12]}, index=pd.Index(["a", "b", "c"], name="barcode")))
+    # obs.cell_id packs the cells store's pairs (1, 1), (2, 1), (3, 1) as prefix + suffix * 2**32.
+    write_elem(root, "obs", pd.DataFrame({"cell_id": [1 + 2**32, 2 + 2**32, 3 + 2**32]},
+                                         index=pd.Index(["a", "b", "c"], name="barcode")))
     write_elem(root, "var", pd.DataFrame({"n": [1, 2]}, index=pd.Index(["g1", "g2"], name="feature_id")))
-    path = tmp_path / "matrix.zip"
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
-        for file in sorted(source.rglob("*")):
-            if file.is_file():
-                zf.write(file, file.relative_to(source).as_posix())
-    return zipfile.ZipFile(path)
+    return zip_directory(source, tmp_path / "matrix.zip")
 
 
 def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path):
@@ -406,3 +450,32 @@ def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path)
     assert group["uns/spatialdata_attrs/region"][()] == "cell_boundaries"
     assert group["obs/instance"][:].tolist() == [1, 2, 3]
     assert set(read_elem(group["obs/region"])) == {"cell_boundaries"}
+
+
+def test_a_fresh_fixture_has_a_table_region_that_every_gate_of_the_region_accepts(tmp_path):
+    from ingest import FIXTURE_TABLES, CELL_SET, NUCLEUS_SET, table_specs, write_boundaries, write_table
+    from minus80.core.elements import ElementWriter
+    from minus80.core.icechunk_io import create_repo
+    from verify import gate_table_region
+
+    class FixtureBundle:
+        def __init__(self, matrix, cells):
+            self.zips = {"cell_feature_matrix.zarr.zip": matrix, "cells.zarr.zip": cells}
+
+        def member_zip(self, name):
+            return self.zips[name]
+
+    assert "cell_boundaries" in FIXTURE_TABLES
+    bundle = FixtureBundle(_matrix_zip(tmp_path), cells_zip(tmp_path))
+    tables = TableWriter(local_catalog(tmp_path / "catalog"), "ns", catalog_name="local", org="local")
+    specs = table_specs({}, ["a", "b", "c", "d", "e"])
+    for name in FIXTURE_TABLES:
+        tables.require(name, **specs[name])
+    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix(n) for n in FIXTURE_TABLES])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    writer = ElementWriter(repo, "fixture")
+    write_table(writer, bundle)
+    write_boundaries(writer, bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
+    write_boundaries(writer, bundle, tables, "cell_boundaries", CELL_SET)
+    with zarr.config.set({"array.rectilinear_chunks": True}):
+        assert gate_table_region(_pinned(repo), tables.catalog) == []

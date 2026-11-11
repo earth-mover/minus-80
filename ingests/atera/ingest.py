@@ -46,7 +46,7 @@ NUCLEUS_SET, CELL_SET = 0, 1
 #: The root attribute that pins the tables that annotate no element, each as an ``iceberg_table`` attribute does.
 ICEBERG_TABLES = "iceberg_tables"
 #: The Iceberg tables the fixture writes; the others wait for the full ingest.
-FIXTURE_TABLES = ("nucleus_boundaries", "transcripts")
+FIXTURE_TABLES = ("nucleus_boundaries", "cell_boundaries", "transcripts")
 #: Each differential expression table with its bundle member.
 DIFFEXP_TABLES = {"diffexp_azimuth": DIFFEXP_AZIMUTH, "diffexp_graphclust": DIFFEXP_GRAPHCLUST}
 FIXTURE_LEVEL = 6
@@ -61,14 +61,13 @@ REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:a
 
 FIXTURE = (
     "This branch is a fixture, not the full store. It holds one level of images/morphology (s6), "
-    f"one transcript tile (grid {FIXTURE_TILE}) and one polygon set (nucleus)."
+    f"one transcript tile (grid {FIXTURE_TILE}) and both polygon sets (nucleus and cell)."
 )
 
 MISSING_FROM_FIXTURE = [
     {"what": "images/morphology levels 0 to 5 and 7", "why": "The fixture writes level 6 only."},
     {"what": "images/morphology_3d, images/he_image, images/overview_scan, images/qc_*", "why": "The fixture leaves them out."},
     {"what": f"points/transcripts tiles other than {FIXTURE_TILE}", "why": "The fixture writes one tile."},
-    {"what": "shapes/cell_boundaries", "why": "The fixture writes the nucleus polygon set only."},
     {"what": "Iceberg tables codewords, diffexp_azimuth, diffexp_graphclust", "why": "The fixture leaves them out."},
     {"what": "csc_cell_feature_matrix.zarr.zip", "why": "It is a copy of X ordered by column."},
     {"what": "binned_transcripts.zarr.zip", "why": "It is derived from the transcripts for 10x Explorer."},
@@ -164,13 +163,18 @@ def write_morphology(writer: ElementWriter, bundle: Bundle, pixel_size: float) -
         group.attrs.update(raster_attrs(_single_level(ome, f"s{FIXTURE_LEVEL}"), scale(factors, ("c", "y", "x"), unit=UNIT)))
 
 
-def table_properties(sample, layouts: str, repo: str, **extra) -> dict[str, str]:
-    """Attribution on every table, so a table read on its own still attributes."""
+def table_properties(sample, layouts: str, repo: str, *, element: bool = True, **extra) -> dict[str, str]:
+    """Attribution on every table, so a table read on its own still attributes.
+
+    ``element`` is false for a table that no element references; the root attribute pins it.
+    """
+    referenced = (f"The uint8 arrays of the Icechunk repo {repo} reference this table's data files." if element
+                  else f"The root attribute iceberg_tables of the Icechunk repo {repo} pins this table's snapshot.")
     properties = {
         "license": json.dumps(LICENSE),
         "citation": citation_text(sample),
         "source": json.dumps(source_objects(layouts, sample)),
-        "referenced_by": f"The uint8 arrays of the Icechunk repo {repo} reference this table's data files.",
+        "referenced_by": referenced,
     }
     return properties | {k: v if isinstance(v, str) else json.dumps(v) for k, v in extra.items()}
 
@@ -214,7 +218,7 @@ def write_boundaries(writer, bundle, tables: TableWriter, name: str, set_index: 
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_extra_tables(writer, bundle, tables: TableWriter, properties: dict) -> None:
+def write_extra_tables(writer, bundle, tables: TableWriter, sample, layouts: str, repo: str) -> None:
     """Write the codewords and the two differential expression tables, then pin them in the root attribute.
 
     A branch that holds the attribute has every table, so a rerun skips the unit.
@@ -222,6 +226,7 @@ def write_extra_tables(writer, bundle, tables: TableWriter, properties: dict) ->
     if writer.has_attribute(ICEBERG_TABLES):
         print(f"{ICEBERG_TABLES}: on branch {writer.branch} already, skipped", flush=True)
         return
+    properties = table_properties(sample, layouts, repo, element=False)
     built = {"codewords": (codewords_table(bundle.member_zip(TRANSCRIPTS)), "codeword_index")}
     for name, member in DIFFEXP_TABLES.items():
         with bundle.member_file(member) as f:
@@ -381,13 +386,14 @@ def main() -> None:
     write_labels(writer, bundle, pixel_size)
     if not skip_held(writer, f"images/morphology/s{FIXTURE_LEVEL}"):
         write_morphology(writer, bundle, pixel_size)
-    if not skip_held(writer, "shapes/nucleus_boundaries"):
-        write_boundaries(writer, bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
+    for name, set_index in (("nucleus_boundaries", NUCLEUS_SET), ("cell_boundaries", CELL_SET)):
+        if not skip_held(writer, f"shapes/{name}"):
+            write_boundaries(writer, bundle, tables, name, set_index)
     if not skip_held(writer, "points/transcripts"):
         write_transcripts(writer, bundle, tables, tiles=[FIXTURE_TILE])
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
-    print("fixture written: 1 image level, 2 labels, 1 shapes, 1 points, 1 table")
+    print("fixture written: 1 image level, 2 labels, 2 shapes, 1 points, 1 table")
 
 
 if __name__ == "__main__":

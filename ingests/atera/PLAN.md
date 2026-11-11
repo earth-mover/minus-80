@@ -324,9 +324,9 @@ dropped, points and shapes are Iceberg-only, and the shim scans the table.
 The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
 
-The table `nucleus_boundaries` on Arraylake has the earlier schema: `method` is int64 and there is no `part_count`.
-`require_table` raises on the missing column, and the ingest does not evolve a remote table.
-The kidney's existing `nucleus_boundaries` table needs the owner's decision before the full run.
+The kidney's `nucleus_boundaries` table on Arraylake has a `method` column and several rows for one cell.
+`require_table` raises on the missing `part_count` column, and the ingest does not evolve a remote table.
+The owner decides between a replace and a second table before the full run.
 
 Shapes tables carry an `instance` column that equals the cell mask label. It
 is the `index_column`. The source's `cell_index` stays as a column.
