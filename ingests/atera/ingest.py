@@ -99,6 +99,21 @@ class Writer:
     def __init__(self, repo, branch: str, counter: ReadCounter):
         self.repo, self.branch, self.counter = repo, branch, counter
 
+    def holds(self, path: str) -> bool:
+        """True when the branch has a node at ``path``, so a rerun skips that element."""
+        try:
+            root = zarr.open_group(self.repo.readonly_session(branch=self.branch).store, mode="r")
+        except zarr.errors.GroupNotFoundError:  # A branch with no commit beyond the first has no root group.
+            return False
+        return path in root
+
+    def skips(self, path: str) -> bool:
+        """True, with a printed line, when the branch holds ``path`` from an earlier run."""
+        if self.holds(path):
+            print(f"{path}: on branch {self.branch} already, skipped", flush=True)
+            return True
+        return False
+
     @contextmanager
     def element(self, path: str, total: int | None):
         session = self.repo.writable_session(self.branch)
@@ -141,6 +156,8 @@ def _single_level(ome: dict, path: str) -> dict:
 def write_labels(writer: Writer, bundle: Bundle, pixel_size: float) -> None:
     zf = bundle.member_zip(CELLS)
     for name, mask in MASKS.items():
+        if writer.skips(f"labels/{name}"):
+            continue
         with writer.element(f"labels/{name}", member_bytes(zf, f"{mask}/")) as root:
             group = root.require_group("labels").create_group(name)
             array = create_copy(group, "s0", json.loads(zf.read(f"{mask}/.zarray")), dimension_names=("y", "x"))
@@ -341,11 +358,15 @@ def main() -> None:
     writer = Writer(repo, args.branch, counter)
 
     started = time.monotonic()
-    write_table(writer, bundle)
+    if not writer.skips("tables/table"):
+        write_table(writer, bundle)
     write_labels(writer, bundle, pixel_size)
-    write_morphology(writer, bundle, pixel_size)
-    write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"])
-    write_transcripts(writer, bundle, tables, specs["transcripts"])
+    if not writer.skips(f"images/morphology/s{FIXTURE_LEVEL}"):
+        write_morphology(writer, bundle, pixel_size)
+    if not writer.skips("shapes/nucleus_boundaries"):
+        write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"])
+    if not writer.skips("points/transcripts"):
+        write_transcripts(writer, bundle, tables, specs["transcripts"])
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
     print("fixture written: 1 image level, 2 labels, 1 shapes, 1 points, 1 table")

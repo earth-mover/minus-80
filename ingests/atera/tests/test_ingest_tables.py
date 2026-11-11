@@ -69,3 +69,17 @@ def test_table_specs_partition_the_transcripts_and_describe_the_polygons():
     assert specs["transcripts"]["partition_by"] == "grid_tile"
     assert specs["nucleus_boundaries"]["properties"]["method_names"] == '["m"]'
     assert "geo" in specs["nucleus_boundaries"]["properties"]
+
+
+def test_writer_holds_only_the_elements_a_commit_wrote(tmp_path):
+    from ingest import ReadCounter, Writer
+    from minus80.core.icechunk_io import create_repo
+
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    writer = Writer(repo, "fixture", ReadCounter(None))
+    assert not writer.holds("labels/nucleus_labels")
+    with writer.element("labels/nucleus_labels", None) as root:
+        root.require_group("labels").create_group("nucleus_labels")
+    assert writer.holds("labels/nucleus_labels")
+    assert not writer.holds("labels/cell_labels")
