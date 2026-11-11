@@ -9,7 +9,8 @@ import pyarrow as pa
 import shapely
 from bundle import read_v2_array
 
-_BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
+#: A row's bounds, for file pruning by column statistics.
+BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 
 # Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
 POLYGON_SCHEMA = pa.schema(
@@ -19,7 +20,7 @@ POLYGON_SCHEMA = pa.schema(
         ("cell_id", pa.string()),
         ("method", pa.int64()),
         ("geometry", pa.binary()),
-        ("bbox", _BBOX),
+        ("bbox", BBOX),
     ]
 )
 
@@ -63,7 +64,7 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
             "method": method.astype(np.int64),
             "geometry": pa.array(shapely.to_wkb(polygons), type=pa.binary()),
             "bbox": pa.StructArray.from_arrays(
-                [pa.array(bounds[:, i]) for i in range(4)], fields=list(_BBOX)
+                [pa.array(bounds[:, i]) for i in range(4)], fields=list(BBOX)
             ),
         },
         schema=POLYGON_SCHEMA,

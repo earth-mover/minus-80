@@ -253,7 +253,7 @@ def test_rewrite_refuses_the_main_branch(monkeypatch, tmp_path):
     # A regression must not read 10x's bucket or write into the working directory.
     monkeypatch.setattr(ingest, "open_bundle", no_bundle)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["ingest.py", "--fixture", "--sample", "kidney", "--repo", "r", "--catalog", "c",
+    monkeypatch.setattr(sys, "argv", ["ingest.py", "--sample", "kidney", "--repo", "r", "--catalog", "c",
                                       "--namespace", "n", "--branch", "main", "--rewrite", "points/transcripts"])
     with pytest.raises(SystemExit, match="--rewrite never writes to main"):
         ingest.main()

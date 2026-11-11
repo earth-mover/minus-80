@@ -8,6 +8,7 @@ import zipfile
 import numpy as np
 import pyarrow as pa
 from bundle import read_v2_array
+from polygons import BBOX
 
 CATEGORY_COLUMNS = (
     "is_gene",
@@ -20,8 +21,6 @@ CATEGORY_COLUMNS = (
     "is_genomic_control",
     "is_boosted_gene",
 )
-
-_BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 
 # Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
 TRANSCRIPT_SCHEMA = pa.schema(
@@ -38,7 +37,7 @@ TRANSCRIPT_SCHEMA = pa.schema(
         ("cell_id", pa.string()),
         ("quality_score", pa.float32()),
         ("overlaps_nucleus", pa.bool_()),
-        ("bbox", _BBOX),
+        ("bbox", BBOX),
     ]
 )
 
@@ -92,7 +91,7 @@ def tile_table(
             "overlaps_nucleus": read("overlaps_nucleus")[:, 0].astype(bool),
             "bbox": pa.StructArray.from_arrays(
                 [pa.array(v.astype(np.float64)) for v in (x, y, x, y)],
-                fields=list(_BBOX),
+                fields=list(BBOX),
             ),
         },
         schema=TRANSCRIPT_SCHEMA,

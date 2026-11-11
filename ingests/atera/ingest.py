@@ -1,7 +1,8 @@
-"""Write an Atera sample into an Icechunk repo and an Iceberg catalog, local or on Arraylake.
+"""Write the fixture of an Atera sample into an Icechunk repo and an Iceberg catalog, local or on Arraylake.
 
-``--fixture`` writes the fixture of PLAN.md, "Steps, scope and risk", step 1, onto
-its own branch, one commit per element. The bundle is read in place by range requests.
+The script has one mode: the fixture of PLAN.md, "Steps, scope and risk", step 1. It writes onto
+its own branch, one commit per element. The full ingest is stage-two work, in PLAN.md, "Stage two".
+The bundle is read in place by range requests.
 """
 
 from __future__ import annotations
@@ -363,7 +364,6 @@ def rewrite_elements(text: str) -> set[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", action="store_true", required=True)
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
     parser.add_argument("--catalog", required=True,
