@@ -60,14 +60,45 @@ def levels(image) -> list[str]:
         return []
 
 
+def structure(value) -> object:
+    """A document's shape without its values: its keys, its nesting and the types of its leaves.
+
+    A list becomes the set of its items' shapes, so a plate of 1,340 wells and
+    one of 1,328 have the same shape.
+    """
+    if isinstance(value, Mapping):
+        return tuple(sorted((key, structure(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return ("list", tuple(sorted({structure(item) for item in value}, key=repr)))
+    return type(value).__name__
+
+
 def schema(root, version: str) -> list[str]:
-    """Every group's OME metadata validates against the spec's own schema."""
+    """Every group's OME metadata validates against the spec's own schema.
+
+    One document of each shape (:func:`structure`) is validated. A store's
+    documents come from the same builders, so documents of one shape differ
+    only in names and values, and validating each would repeat the same check:
+    at about 1.3 ms a document, minutes for a store of 376,000 images. A value
+    the schema constrains, such as a unit outside its list, is checked only in
+    the document that represents its shape.
+    """
     problems = []
-    for name, image in images(root).items():
+    checked: dict[tuple, list] = {}
+
+    def check(path: str, ome: Mapping, model: str, strict: bool) -> None:
+        key = (model, structure(ome))
+        if key in checked:
+            checked[key][1] += 1
+            return
+        checked[key] = [path, 0, None]
         try:
-            validate(dict(image.attrs)["ome"], version, model="image", strict=True)
+            validate(ome, version, model=model, strict=strict)
         except Exception as exc:
-            problems.append(f"{name}: {type(exc).__name__}: {exc}"[:120])
+            checked[key][2] = f"{type(exc).__name__}: {exc}"
+
+    for name, image in images(root).items():
+        check(name, dict(image.attrs)["ome"], "image", True)
     documents = []
     for path, node in [("", root), *root.members(max_depth=None)]:
         ome = dict(node.attrs).get("ome") if isinstance(node, zarr.Group) else None
@@ -84,10 +115,11 @@ def schema(root, version: str) -> list[str]:
         if "well" in ome:
             documents.append((path, node, "well"))
     for path, node, model in documents:
-        try:
-            validate(dict(node.attrs)["ome"], version, model=model)
-        except Exception as exc:
-            problems.append(f"{path or model}: {type(exc).__name__}: {exc}"[:120])
+        check(path or model, dict(node.attrs)["ome"], model, False)
+    for path, others, error in checked.values():
+        if error:
+            also = f" (and {others:,} more of its shape)" if others else ""
+            problems.append(f"{path}{also}: {error}"[:160])
     return problems
 
 
