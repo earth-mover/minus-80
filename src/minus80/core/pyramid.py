@@ -10,6 +10,8 @@ import tifffile
 import zarr
 from zarr.codecs import BloscCodec
 
+# Upper bound on the bytes of writes queued at once; one write always proceeds.
+PENDING_BYTES = 256 << 20
 IMAGE_CODECS = (BloscCodec(cname="zstd", clevel=5, shuffle="shuffle"),)
 
 
@@ -115,6 +117,7 @@ def write_page(
     """Decode each tile of `page` once and write it at `index`; return the tile count.
 
     With `concurrency > 1` and tiles that match the chunk grid, up to `concurrency` writes run at once.
+    The pending tiles stay under `PENDING_BYTES`, unless one tile exceeds it.
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
@@ -127,13 +130,20 @@ def write_page(
         )
         for channel0, y0, x0, tile in _tiles(page)
     )
+    tile_bytes = page.tilelength * page.tilewidth * page.samplesperpixel * array.dtype.itemsize
     return _write_all(
-        array, writes, concurrency if _tiles_match_chunks(array, page) else 1
+        array,
+        writes,
+        concurrency if _tiles_match_chunks(array, page) else 1,
+        tile_bytes,
     )
 
 
-def _write_all(array: zarr.Array, writes, concurrency: int) -> int:
-    """Write each `(region, data)` pair; return the count. Up to `concurrency` writes run at once."""
+def _write_all(array: zarr.Array, writes, concurrency: int, write_bytes: int) -> int:
+    """Write each `(region, data)` pair of at most `write_bytes`; return the count.
+
+    Up to `concurrency` writes run at once. The pending writes stay under `PENDING_BYTES`.
+    """
     count = 0
     if concurrency <= 1:
         for region, data in writes:
@@ -141,11 +151,12 @@ def _write_all(array: zarr.Array, writes, concurrency: int) -> int:
             count += 1
         return count
     # Decoding stays in this thread; the pending cap bounds the tiles held in memory.
+    limit = max(1, min(2 * concurrency, PENDING_BYTES // write_bytes))
     pending: deque = deque()
     pool = ThreadPoolExecutor(concurrency)
     try:
         for region, data in writes:
-            if len(pending) >= 2 * concurrency:
+            if len(pending) >= limit:
                 pending.popleft().result()
             pending.append(pool.submit(array.__setitem__, region, data))
             count += 1
@@ -158,9 +169,11 @@ def _write_all(array: zarr.Array, writes, concurrency: int) -> int:
 
 
 def _check_stack(
-    array: zarr.Array, pages: Sequence[tifffile.TiffPage]
+    array: zarr.Array, pages: Sequence[tifffile.TiffPage], index: tuple[int, ...]
 ) -> tifffile.TiffPage:
     """Raise `ValueError` unless `pages` fill the plane axis and each tile position is one whole shard."""
+    if not pages:
+        raise ValueError("no pages to write")
     first = pages[0]
     for page in pages:
         _require_tiled(page)
@@ -171,7 +184,12 @@ def _check_stack(
             raise ValueError(f"tile size of {page} differs from {first}")
     if len(pages) != array.shape[-3]:
         raise ValueError(f"{len(pages)} pages for {array.shape[-3]} planes")
-    unit = tuple((array.shards or array.chunks)[-3:])
+    if len(index) != array.ndim - 3:
+        raise ValueError(f"index {index} must have {array.ndim - 3} entries")
+    shard = tuple(array.shards or array.chunks)
+    if any(length != 1 for length in shard[:-3]):
+        raise ValueError(f"shard shape {shard} must have length 1 before the last three axes")
+    unit = shard[-3:]
     if unit != (len(pages), first.tilelength, first.tilewidth):
         raise ValueError(
             f"shard shape {unit} is not (planes, tile height, tile width)"
@@ -187,22 +205,25 @@ def write_stack(
     *,
     concurrency: int = 1,
 ) -> int:
-    """Write one plane per page at `index`, one whole shard per tile position; return the shard count.
+    """Write one plane per page at `index`, one region per tile position; return the region count.
 
-    Each shard is written once, so the sharding codec does not rewrite it for every plane.
+    A region is one whole shard, so the codec writes it once, not once per plane.
+    A cropped edge region is a partial shard, so zarr reads that shard once before it writes.
+    A tile with no stored bytes reads as the fill value.
+    The pending regions stay under `PENDING_BYTES`, unless one region exceeds it.
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
-    first = _check_stack(array, pages)
+    first = _check_stack(array, pages, index)
     height, width = array.shape[-2:]
     tile_h, tile_w = first.tilelength, first.tilewidth
 
     def writes():
         for y0 in range(0, height, tile_h):
             for x0 in range(0, width, tile_w):
-                # A tile with no stored bytes stays zero, as in an unwritten chunk.
-                stack = np.zeros(
+                stack = np.full(
                     (len(pages), min(tile_h, height - y0), min(tile_w, width - x0)),
+                    array.fill_value,
                     array.dtype,
                 )
                 for z, page in enumerate(pages):
@@ -215,7 +236,8 @@ def write_stack(
                 )
                 yield region, stack
 
-    return _write_all(array, writes(), concurrency)
+    region_bytes = len(pages) * tile_h * tile_w * array.dtype.itemsize
+    return _write_all(array, writes(), concurrency, region_bytes)
 
 
 def check_page(

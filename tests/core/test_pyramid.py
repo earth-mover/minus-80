@@ -503,3 +503,75 @@ def test_write_stack_refuses_an_array_not_sharded_by_stack(tmp_path):
         )
         with pytest.raises(ValueError, match="shard"):
             write_stack(flat, pages, (0,))
+
+
+def test_write_stack_bounds_pending_writes_by_bytes(tmp_path, monkeypatch):
+    in_flight = []
+
+    class TrackingPool(ThreadPoolExecutor):
+        def submit(self, *args, **kwargs):
+            future = super().submit(*args, **kwargs)
+            in_flight.append(future)
+            in_flight[:] = [f for f in in_flight if not f.done()]
+            peak.append(len(in_flight))
+            return future
+
+    peak = []
+    monkeypatch.setattr(pyramid, "ThreadPoolExecutor", TrackingPool)
+    # One region is 3 x 256 x 256 x 2 bytes; the bound allows two of them.
+    monkeypatch.setattr(pyramid, "PENDING_BYTES", 2 * 3 * 256 * 256 * 2 + 1)
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        assert write_stack(array, pages, (0,), concurrency=8) == 18
+        assert max(peak) <= 2
+        np.testing.assert_array_equal(array[0, 1], pages[1].asarray())
+
+
+def test_write_stack_refuses_pages_of_different_tile_size(tmp_path):
+    tif, pages, array = _stack(tmp_path, planes=1)
+    with tif, _one_page(
+        tmp_path, _picture((700, 1300)), tile=(128, 128)
+    ) as other:
+        wide = zarr.group(MemoryStore()).create_array(
+            "w", shape=(1, 2, 700, 1300), chunks=(1, 1, 256, 256), dtype="uint16"
+        )
+        with pytest.raises(ValueError, match="tile size"):
+            write_stack(wide, [pages[0], other.pages[0]], (0,))
+
+
+def test_write_stack_refuses_empty_pages(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        with pytest.raises(ValueError, match="no pages"):
+            write_stack(array, [], (0,))
+
+
+def test_write_stack_refuses_a_wrong_index_length(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        with pytest.raises(ValueError, match="index"):
+            write_stack(array, pages, (0, 0))
+
+
+def test_write_stack_refuses_a_shard_longer_than_one_before_the_last_three(tmp_path):
+    tif, pages, _ = _stack(tmp_path, planes=2)
+    with tif:
+        array = zarr.group(MemoryStore()).create_array(
+            "s", shape=(2, 2, *pages[0].shape), chunks=(1, 1, 256, 256),
+            shards=(2, 2, 256, 256), dtype="uint16",
+        )
+        with pytest.raises(ValueError, match="shard"):
+            write_stack(array, pages, (0,))
+
+
+def test_write_stack_fills_a_missing_tile_with_the_fill_value(tmp_path):
+    tif, pages, _ = _stack(tmp_path, planes=2)
+    with tif:
+        array = zarr.group(MemoryStore()).create_array(
+            "f", shape=(1, 2, *pages[0].shape), chunks=(1, 1, 256, 256),
+            shards=(1, 2, 256, 256), dtype="uint16", fill_value=7,
+        )
+        pages[1].databytecounts = (0, *pages[1].databytecounts[1:])
+        write_stack(array, pages, (0,))
+        assert (array[0, 1, :256, :256] == 7).all()
+        np.testing.assert_array_equal(array[0, 0], pages[0].asarray())
