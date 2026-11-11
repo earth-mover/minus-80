@@ -2,19 +2,26 @@
 
 The problem
 -----------
-An ingest sometimes stores part of a source image as an image of its own: one
-field of view out of a well-sized mosaic, one core out of a tissue microarray
-slide. Level 0 is easy, a window of the full-resolution array. The coarser
-levels are not, if they are to be copied rather than recomputed:
+Some sources hold many objects in one large image. S-BIAD3228 pastes every
+embryo of a well into one well-sized image, and a tissue microarray slide
+holds dozens of tissue cores. An ingest that stores each object as an
+OME-Zarr image of its own has to cut that object out of every level of the
+source's pyramid.
 
-- A level-0 window rarely starts on a coarse pixel. With 2 x 2 downsampling, a
-  field starting at level-0 x = 6655 starts half way through coarse pixel
-  3327 of level 1.
-- So the window on a coarse level must cover every coarse pixel the field
-  touches. It can be one pixel wider than the level-0 size divided by the
-  factor, and its first pixel can start before the field does.
-- A viewer can only line the levels up again if each level's metadata says
-  exactly where its first pixel sits.
+At level 0 the cut is a plain slice: the object's bounding box, in
+full-resolution pixels. The coarser levels are harder when the ingest copies
+the source's own coarse pixels rather than computing new ones from the cut.
+Each coarse pixel stands for a block of level-0 pixels, and an object's edge
+rarely falls on a block boundary. With 2 x 2 blocks, an embryo whose level-0
+window starts at x = 6655 starts halfway through level-1 pixel 3327, which
+also holds x = 6654, a pixel outside the embryo. Two things follow:
+
+- The coarse window must include every coarse pixel the object touches. It
+  can be one pixel wider than the level-0 width divided by the block size,
+  and its first pixel can begin before the object does.
+- Because each coarse window starts somewhere other than level 0's window,
+  each level needs its own translation. Without one, a viewer draws the
+  levels out of register.
 
 What this computes
 ------------------
