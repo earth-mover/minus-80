@@ -15,6 +15,7 @@ to a copy of :data:`GATES` and passes the whole table to :func:`run_gates`.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 
 import numpy as np
@@ -306,7 +307,10 @@ def provenance(root) -> list[str]:
     if session is None:
         return [f"the store is {type(root.store).__name__}, not Icechunk; "
                 f"virtual chunk locations cannot be listed"]
-    located = set(session.all_virtual_chunk_locations())
+    # Listed only once a virtual array turns up: the listing reads every
+    # manifest in the store, and a store copied rather than referenced has
+    # nothing to list.
+    located: set[str] | None = None
     problems = []
     for name, image in images(root).items():
         groups = [("", image)] + [(p, g) for p, g in image.members(max_depth=None)
@@ -319,6 +323,8 @@ def provenance(root) -> list[str]:
                 declared = _declared_sources(array) or _declared_sources(group)
                 if not declared:
                     problems.append(f"{where}: virtual, but neither it nor its group names a source_url")
+                if located is None:
+                    located = set(session.all_virtual_chunk_locations())
                 for url in declared:
                     if url not in located:
                         problems.append(f"{where}: source_url {url} is not among the store's "
@@ -346,9 +352,10 @@ GATES: dict[str, Callable[..., list[str]]] = {
 
 
 def run_gates(root, gates: Mapping[str, Callable[..., list[str]]], context: Mapping) -> int:
-    """Run every gate against ``root``, print a line each, and return how many failed."""
+    """Run every gate against ``root``, print a line each with its time, and return how many failed."""
     failures = 0
     for label, gate in gates.items():
+        started = time.monotonic()
         try:
             problems = gate(root, context)
         except Exception as exc:
@@ -356,7 +363,7 @@ def run_gates(root, gates: Mapping[str, Callable[..., list[str]]], context: Mapp
             # remaining gates still have something to say about the store.
             problems = [f"the check itself raised {type(exc).__name__}: {exc}"[:120]]
         failures += bool(problems)
-        print(f"  {'FAIL' if problems else 'pass'}  {label}")
+        print(f"  {'FAIL' if problems else 'pass'}  {label} ({time.monotonic() - started:.1f} s)", flush=True)
         for problem in problems[:5]:
             print(f"          {problem}")
     return failures
