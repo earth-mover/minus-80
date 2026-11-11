@@ -347,38 +347,28 @@ class WellPlan:
 # Streaming a well
 
 
-#: Range requests in flight when reading the staged copy in R2, about 100 ms
-#: away from a VM in the same region; 64 at once measured 584 MB/s.
+#: R2 answers a VM in its own region in about 100 ms; 64 requests at once
+#: read the staged copy at 584 MB/s.
 READ_CONCURRENCY = 64
 
-#: The same, when reading straight from EBI. EBI starts refusing requests at
-#: about 25 connections from one address (PLAN.md), so stay well below that.
+#: EBI starts refusing requests at about 25 connections from one address (PLAN.md).
 EBI_READ_CONCURRENCY = 16
 
-#: Range requests asked for and not yet cut into members: one slow request
-#: holds back cutting, but not fetching, until this many are out. 64 of
-#: 64 MiB is 4 GiB.
+#: 64 requests of 64 MiB hold 4 GiB.
 READ_WINDOW = 64
 
-#: The most compressed bytes that channel runs may hold while they wait for
-#: metadata. The first round's runs hold about 2 GB until level 0's first
-#: ``.zarray`` arrives; without a limit, a document that is missing or late
-#: would buffer the whole well, up to 27 GB.
+#: Without a limit, a document that is missing or late would buffer the whole
+#: well, up to 27 GB.
 WAITING_LIMIT = 4 * 10**9
 
 #: The largest compressed channel run of any well: channel 3 of B/05's
 #: round-3 level 0, 1.44 GB, from the central directory.
 LARGEST_RUN = 1_500_000_000
 
-#: The most compressed bytes of channel runs handed over by the fetching
-#: thread and not yet decoded, counting the runs waiting for metadata. Below
-#: it, the fetch never waits for decoding or uploads. It must exceed
-#: :data:`WAITING_LIMIT` by :data:`LARGEST_RUN`, or runs waiting for metadata
-#: could fill it and stop the fetch before the metadata arrives.
 FETCH_AHEAD = 8 * 10**9
 
-#: A level shape larger than any image, for placing fields on a level before
-#: its real shape is known; the real shapes are checked before the commit.
+#: Stands in for the shape of a level whose ``.zarray`` has not arrived, so
+#: fields can be placed on the levels that have; check_well checks the real shapes.
 UNKNOWN_EXTENT = 1 << 40
 
 
@@ -400,12 +390,15 @@ def fetch_runs(
 ) -> None:
     """Stream the well's members, handing metadata over one by one and chunks as whole channel runs.
 
-    Runs on its own thread. Each channel run is handed over only when the
-    next one starts, because only then is it complete. Handing a run over
-    takes its compressed bytes from ``fetched``, which waits only while the
-    runs handed over and not yet decoded hold :data:`FETCH_AHEAD`, so the
-    fetching holds those runs, the one it is assembling, the requests
-    in flight and the cutter's buffer.
+    Runs on its own thread.
+
+    - A channel run is complete only once the next one starts, so each run
+      is handed over then.
+    - Handing a run over takes its compressed bytes from ``fetched``, which
+      waits only while the runs handed over and not yet decoded hold
+      :data:`FETCH_AHEAD`.
+    - So the fetch holds those runs, the run it is assembling, the requests
+      in flight and the cutter's buffer.
     """
     run, finished = None, set()
     for member in stream_members(url, members, **read):
@@ -503,11 +496,19 @@ class WellState:
     def spec_for(self, array: SourceArray) -> ArraySpec | None:
         """The encoding to decode an array's chunks with: its own, else that of the first array of the same level and kind.
 
-        A borrowed encoding is a guess until the array's own ``.zarray``
-        arrives, and :func:`check_well` confirms it before the commit.
-        Borrowing only within a level and kind keeps the guess to arrays
-        made the same way, so a level whose chunks differ waits for its own
-        ``.zarray`` instead of failing the well at the check.
+        Why it is needed:
+
+        - The zip stores each array's ``.zarray`` half way through its
+          chunks, so without a borrowed encoding the chunks before it would
+          wait in memory.
+
+        What it does:
+
+        - A borrowed encoding is a guess until the array's own ``.zarray``
+          arrives. :func:`check_well` confirms it before the commit.
+        - Borrowing only within a level and kind keeps the guess to arrays
+          made the same way. A level whose chunks differ waits for its own
+          ``.zarray`` instead of failing the well at the check.
         """
         if array.path in self.specs:
             return self.specs[array.path]
@@ -572,18 +573,23 @@ def copy_well(
 ) -> None:
     """Stream one well's members and copy every channel run into the well's images.
 
-    Four things run at once, each on its own thread: fetching ranges and
-    cutting members out of them; this thread, which reads the metadata as it
-    arrives and passes on each channel run once its metadata is in; decoding
-    channel runs, each on a pool of ``decode_threads``; and starting zarr
-    assignments, one per field, on a pool of ``upload_workers`` shared by
-    every run. Each stage waits for the next only when the bytes between
-    them reach a limit: ``fetch_ahead`` compressed bytes handed over and not
-    yet decoded, ``decoded_limit`` bytes decoded and not yet uploaded.
+    Four stages run at once, each on its own thread:
 
-    A channel run that arrives before the metadata it needs waits until that
-    metadata arrives; if the runs waiting hold more than ``waiting_limit``
-    compressed bytes, the well fails, naming the metadata still missing.
+    - fetching ranges and cutting members out of them (:func:`fetch_runs`);
+    - this thread, which reads the metadata as it arrives and passes on each
+      channel run once its metadata is in;
+    - decoding channel runs, each on a pool of ``decode_threads``
+      (:func:`decode_runs`);
+    - starting zarr assignments, one per field, on a pool of
+      ``upload_workers`` shared by every run (:func:`write_runs`).
+
+    Three limits hold the stages back:
+
+    - ``fetch_ahead``: compressed bytes handed over and not yet decoded;
+    - ``decoded_limit``: bytes decoded and not yet uploaded;
+    - ``waiting_limit``: compressed bytes of channel runs that arrived before
+      the metadata they need. Past it, the well fails, naming the metadata
+      still missing.
 
     Channel runs in ``finished``, which earlier commits hold, are not
     fetched; the metadata documents always are. The writer commits every
@@ -673,9 +679,8 @@ def copy_well(
 # Decoding
 
 
-#: The most bytes of decoded pixels not yet uploaded. A level-0 channel run of
-#: seven fields decodes to about 3.8 GB (7 x 271 planes x 1000 x 1000 x 2
-#: bytes), so this holds about four of them.
+#: A level-0 channel run of seven fields decodes to about 3.8 GB
+#: (7 x 271 planes x 1000 x 1000 x 2 bytes), so this holds about four.
 DECODED_LIMIT = 16 * 10**9
 
 
@@ -791,11 +796,14 @@ def decode_chunk_into_fields(
 ) -> tuple[str, str, list[str]] | None:
     """Decode one chunk and copy each field's part of it into that field's buffer.
 
-    Runs on a worker thread; each chunk writes a different part of each
-    buffer, so the chunks of one channel run decode in parallel. Returns None,
-    or ``(name, reason, fields)`` for a chunk that cannot be decoded: a member
-    damaged in the source (:func:`inflate_or_read_again`) or a Blosc frame cut
-    short.
+    Runs on a worker thread. Each chunk writes a different part of each
+    buffer, so the chunks of one channel run decode in parallel.
+
+    Returns None, or ``(name, reason, fields)`` for a chunk that cannot be
+    decoded:
+
+    - a member damaged in the source (:func:`inflate_or_read_again`);
+    - a Blosc frame cut short.
     """
     depth, chunk_z, chunk_y, chunk_x = next(iter(buffers.values())).shape[0], *spec.chunks[-3:]
     z_index, y_index, x_index = key.index[-3:]
@@ -830,10 +838,17 @@ def decode_chunk_into_fields(
 def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMember], bytes]) -> bytes:
     """A member's contents, fetching the member a second time if its bytes do not inflate or fail the CRC.
 
-    A transfer can deliver the right number of wrong bytes, and only the
-    inflate and the CRC see it. If the second copy is good, the first was
-    damaged on the way and the copy goes on with the second. If it fails too,
-    the source member itself is damaged, and the ``ValueError`` says so.
+    Why it is needed:
+
+    - A transfer can deliver the right number of wrong bytes, and only the
+      inflate and the CRC see it.
+
+    What it does:
+
+    - If the second copy is good, the first was damaged on the way, and the
+      copy goes on with the second.
+    - If the second copy fails too, the source member itself is damaged, and
+      the ``ValueError`` says so.
     """
     try:
         return inflate_member(member.stored, member.entry)
@@ -849,32 +864,25 @@ def inflate_or_read_again(member: StoredMember, read_again: Callable[[StoredMemb
 # Writing fields
 
 
-#: How many planes one image shard holds. See decision 5 in PLAN.md. Because
-#: a chunk is one plane of one channel, showing one plane needs only one small
-#: read. With 32 planes per shard, one channel of a whole embryo takes 9
-#: requests of about 15 MB each.
+#: Planes per image shard (PLAN.md, decision 5). One channel of a whole embryo
+#: then takes 9 requests of about 15 MB each.
 SHARD_DEPTH = 32
 
-#: See decision 6 in PLAN.md. Blosc with zstd decodes fast, and the Zarr v3
-#: specification defines it, so every Zarr reader can open the store.
+#: PLAN.md, decision 6: zstd decodes fast, and the Zarr v3 specification
+#: defines Blosc, so every Zarr reader can open the store.
 CODEC = BloscCodec(cname="zstd", clevel=5, shuffle="bitshuffle")
 
-#: How many fields are assigned through zarr at once, across every channel
-#: run being uploaded.
 UPLOAD_WORKERS = 8
 
-#: zarr's ``async.concurrency``: how many shards one assignment encodes and
-#: uploads at once. zarr's own default is 10.
+#: zarr's own default is 10. In the copy REPORT.md describes, uploads set the
+#: pace with 10 to 26 shard writes in flight, and the report recommends about 32.
 ZARR_CONCURRENCY = 32
 
-#: Seconds between the commits made while a well is copied. A failure loses
-#: at most this much uploading, and each commit pauses the uploads only while
-#: the assignments already running finish.
+#: A well that fails loses at most this much uploading.
 CHECKPOINT_SECONDS = 300
 
-#: The attribute of a well's group that records which channel runs earlier
-#: commits hold, so that a later run resumes after them. It is removed when
-#: the well is complete.
+#: The well group's attribute that lists the channel runs earlier commits
+#: hold. It is removed once the well is complete.
 PROGRESS = "copy_progress"
 
 
@@ -906,18 +914,24 @@ def write_runs(writes: queue.Queue, out: queue.Queue, stop: threading.Event, wri
 class WellWriter:
     """Writes decoded channel runs into the well's images, creating each array the first time it is written.
 
-    Each field of a run is one zarr assignment, started on ``pool``;
-    ``write`` returns once they are started, so the assignments of several
-    runs run at once, up to the pool's size. Each finished assignment gives
-    its buffer's bytes back to ``decoded`` and drops the buffer. Each array is
-    opened or created once per session and kept.
+    Writing:
 
-    Every ``checkpoint_seconds`` the writer lets the running assignments
-    finish, records in the well's group which channel runs are complete
-    (:data:`PROGRESS`, with the unreadable chunks found so far) and commits.
-    A run counts as complete once all its fields are written and its array's
-    own ``.zarray`` has confirmed the encoding it was decoded with; a run
-    still unconfirmed is copied again by a later run of the ingest.
+    - Each field of a run is one zarr assignment, started on ``pool``.
+      ``write`` returns once they are started, so the assignments of several
+      runs run at once, up to the pool's size.
+    - Each finished assignment gives its buffer's bytes back to ``decoded``
+      and drops the buffer.
+    - Each array is opened or created once per session and kept.
+
+    Checkpoints:
+
+    - Every ``checkpoint_seconds`` the writer lets the running assignments
+      finish, records in the well's group which channel runs are complete
+      (:data:`PROGRESS`, with the unreadable chunks found so far) and
+      commits.
+    - A run counts as complete once all its fields are written and its
+      array's own ``.zarray`` has confirmed the encoding it was decoded with.
+      A run still unconfirmed is copied again by a later run of the ingest.
     """
 
     def __init__(
@@ -1042,9 +1056,13 @@ def check_well(plan: WellPlan, state: WellState, src: zarr.Group, plate: Plate) 
 
     Returns the fields, from :func:`~minus80.parsers.fractal.plate.read_fields`,
     which checks every round's ``FOV_ROI_table`` against the first and every
-    level's shape. Raises if the copy placed any field differently, if any
-    array's chunks were decoded with an encoding other than its own, or if
-    the output's channels would not match the source's rounds.
+    level's shape.
+
+    Raises if:
+
+    - the copy placed any field differently;
+    - any array's chunks were decoded with an encoding other than its own;
+    - the output's channels would not match the source's rounds.
     """
     if plate.acquisitions != plan.rounds:
         raise ValueError(f"{plan.well}: rounds {plate.acquisitions}, the zip's members hold {plan.rounds}")
@@ -1111,8 +1129,7 @@ def round_channels(plate: Plate, src: zarr.Group, well: str) -> list[dict]:
 #: The name of the coordinate system that each well's scene defines.
 SCENE = "well"
 
-#: Tables that describe the whole well rather than one field. Their rows are
-#: kept in the well's attributes, so nothing the source recorded is lost.
+#: The source's tables that describe the whole well rather than one field.
 WELL_TABLES = ("well_ROI_table", "embryoRaw_ROI_table")
 
 
@@ -1493,21 +1510,23 @@ def convert(
     well on the branch. Returns the wells this run converted, or raises
     :class:`WellsFailed` after the plate's metadata if any well failed.
 
-    ``directory_cache`` is the Parquet file that keeps the zip's central
-    directory. Keep a copy of it: it records exactly what the zip held.
+    The options:
 
-    ``read_concurrency`` is how many range requests are in flight. Use
-    ``EBI_READ_CONCURRENCY`` when ``url`` is EBI's own copy of the zip.
-    ``upload_workers`` is how many fields are assigned through zarr at once,
-    and ``zarr_concurrency`` sets zarr's ``async.concurrency`` for the run.
-    ``waiting_limit`` caps the compressed bytes of channel runs waiting for
-    metadata; ``fetch_ahead`` and ``decoded_limit`` cap the bytes between
-    the stages (:func:`copy_well`), and ``read_window`` the range requests
-    asked for and not yet cut into members. Each well commits every
-    ``checkpoint_seconds`` as it is copied. When the copy stops moving for a
-    minute, every thread's stack is printed, with the end of ``stall_log``
-    if given (such as Icechunk's log). ``registry`` decides how ``url`` is read, as for any minus80
-    reader.
+    - ``directory_cache`` is the Parquet file that keeps the zip's central
+      directory. Keep a copy of it: it records exactly what the zip held.
+    - ``read_concurrency`` is how many range requests are in flight. Use
+      ``EBI_READ_CONCURRENCY`` when ``url`` is EBI's own copy of the zip.
+    - ``read_window`` is how many range requests may be asked for and not
+      yet cut into members.
+    - ``upload_workers`` is how many fields are assigned through zarr at once.
+    - ``zarr_concurrency`` sets zarr's ``async.concurrency``: how many shards
+      one assignment encodes and uploads at once.
+    - ``waiting_limit``, ``fetch_ahead`` and ``decoded_limit`` cap the bytes
+      between the stages (:func:`copy_well`).
+    - ``checkpoint_seconds`` is how often each well commits as it is copied.
+    - ``stall_log`` is a log file, such as Icechunk's, whose end is printed
+      with every thread's stack when the copy stops moving for a minute.
+    - ``registry`` decides how ``url`` is read, as for any minus80 reader.
     """
     started = time.monotonic()
     say(
