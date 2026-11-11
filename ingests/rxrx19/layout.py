@@ -100,6 +100,9 @@ DATASETS = {
 #: named w1–w6.
 README_COMMIT = "19883e707d"
 
+#: The Arraylake repo that holds both datasets, each as a top-level group.
+REPO = "arraylake://earthmover-biology/RxRx19"
+
 #: Every row and column of a 1536-well plate.
 ROWS, COLUMNS = plate_grid(1536)
 

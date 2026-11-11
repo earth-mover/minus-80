@@ -45,9 +45,10 @@ records what the bucket holds and the source's errors.
 | 8 | One resolution level, no overview levels | Proposed |
 | 9 | Sites keep the source's numbers, 1 to 4 | Proposed |
 
-**Approvals needed**, each before it runs: creating the repo
-`earthmover-biology/rxrx19` with a virtual chunk container for `gs://rxrx/`,
-the one-plate trial on a branch, and the full ingest.
+The repo `earthmover-biology/RxRx19` exists, with a virtual chunk container
+for `gs://rxrx/` backed by an anonymous bucket config, `rxrx`, and a public
+virtual chunk access policy (set up 2026-11-11). **Approvals still needed**,
+each before it runs: the one-plate trial on a branch, and the full ingest.
 
 ## The archive
 
@@ -162,7 +163,7 @@ copying 916 GB into new chunks. The copy would buy one GET per site instead of
 5 or 6, and a faster decode, for an image set whose RxRx19a half is already an
 8-bit downsampled derivative. Recommendation: virtual.
 
-**2. One repo, `earthmover-biology/rxrx19`, with `rxrx19a/` and `rxrx19b/` as
+**2. One repo, `earthmover-biology/RxRx19`, with `rxrx19a/` and `rxrx19b/` as
 top-level groups.** A reader browses both screens from one root, as the Cell
 Painting Gallery ingest does with its datasets. The cost is the snapshot:
 about 902,000 nodes and 57 MB, which every reader fetches on open and which is
@@ -223,9 +224,8 @@ Painting Gallery ingest, rather than renumbering from 0.
    through a normal session, references to Parquet, ice-pack to commit them;
    embeddings and the Iceberg tables. A test runs it end to end on a small
    fixture zip built in the test.
-2. **Trial, needs approval.** Create `earthmover-biology/rxrx19` with a virtual
-   chunk container for `gs://rxrx/`, and write one plate of each dataset on a
-   branch. Measure: the commit's time, ice-pack against S3, a chunk read from
+2. **Trial, needs approval.** Write one plate of each dataset to a branch of
+   `earthmover-biology/RxRx19`. Measure: the commit's time, ice-pack against S3, a chunk read from
    the Arraylake region, the snapshot's open time, and how a viewer shows a
    plate.
 3. **Full ingest, needs approval.** RxRx19a first, its 57 plates and its

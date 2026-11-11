@@ -338,7 +338,7 @@ def store_summary(surveys: list[Survey]) -> list[str]:
 def store_figure(surveys: list[Survey]) -> Canvas:
     experiment, plate, well, site = EXAMPLE
     canvas = Canvas(WIDTH)
-    y = d.heading(canvas, "RxRx19 in Icechunk: proposed layout", "one repo; OME-Zarr 0.6 HCS plates; every PNG referenced in place as one chunk")
+    y = d.heading(canvas, "RxRx19 in Icechunk: proposed layout", f"{layout.REPO.removeprefix('arraylake://')}; OME-Zarr 0.6 HCS plates; every PNG referenced in place as one chunk")
     for line in store_summary(surveys):
         y = canvas.text(canvas.margin, y + 21, line, size=13, color=d.MUTED)
     y = canvas.text(canvas.margin, y + 21, f"Example values: rxrx19a {experiment} Plate{plate}, well {well}, site {site}.", size=13, color=d.MUTED)
