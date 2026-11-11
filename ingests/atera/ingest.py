@@ -28,6 +28,7 @@ from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
 from minus80.ome import channel_omero, image_attrs, label_attrs
 from minus80.ome.spatialdata import points_attrs, raster_attrs, scale, shapes_attrs, table_attrs
 from pyiceberg.catalog.sql import SqlCatalog
+from pyiceberg.schema import index_by_name
 
 from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle, read_v2_array
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
@@ -46,6 +47,8 @@ REGION_KEY, INSTANCE_KEY = "region", "instance"
 #: The unit of the global coordinate system; PLAN.md, judgement call 4.
 UNIT = "micrometer"
 MIB = 1 << 20
+#: The elements ``--rewrite`` can write again; ``tables/table:attrs`` is the ``obs`` and ``var`` attributes.
+REWRITABLE = ("points/transcripts", "shapes/nucleus_boundaries", "tables/table:attrs")
 
 FIXTURE = (
     "This branch is a fixture, not the full store. It holds one level of images/morphology (s6), "
@@ -134,11 +137,21 @@ class Writer:
         print(f"{path}: {read / MIB:,.1f} MiB read, {elapsed:,.1f} s, commit {snapshot}", flush=True)
 
 
+def drop_index_column(frame: zarr.Group) -> None:
+    """Remove the index from the data frame's ``column-order``; the index array stays.
+
+    The source lists the index in ``column-order`` too, so a reader sees the field twice.
+    """
+    frame.attrs["column-order"] = [c for c in frame.attrs["column-order"] if c != frame.attrs["_index"]]
+
+
 def write_table(writer: Writer, bundle: Bundle) -> None:
     zf = bundle.member_zip(MATRIX)
     with writer.element("tables/table", member_bytes(zf, "")) as root:
         group = root.require_group("tables").create_group("table")
         copy_group(zf, "", group)
+        drop_index_column(group["obs"])
+        drop_index_column(group["var"])
         obs = group["obs"]
         n = group["X"].attrs["shape"][0]
         # SpatialData needs a region column and the mask label as the instance key; the source has neither.
@@ -149,6 +162,13 @@ def write_table(writer: Writer, bundle: Bundle) -> None:
         # SpatialData reads the keys from uns; the group attributes only mirror them.
         write_elem(group, "uns", {"spatialdata_attrs": keys})
         group.attrs.update(table_attrs(keys["region"], region_key=REGION_KEY, instance_key=INSTANCE_KEY))
+
+
+def write_table_index(writer: Writer) -> None:
+    """Write the ``obs`` and ``var`` attributes of a held ``tables/table`` again, index only."""
+    with writer.element("tables/table obs and var attributes", None) as root:
+        drop_index_column(root["tables/table/obs"])
+        drop_index_column(root["tables/table/var"])
 
 
 def _single_level(ome: dict, path: str) -> dict:
@@ -209,18 +229,18 @@ def local_catalog(directory: Path) -> SqlCatalog:
     return SqlCatalog("local", uri=f"sqlite:///{directory}/catalog.db", warehouse=directory.as_uri())
 
 
-def write_local(io, url: str, table, *, geo) -> None:
+def write_local(io, url: str, table, *, geo, field_ids=None) -> None:
     """Write ``table`` at the ``file://`` URL ``url``."""
     path = file_path(url)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_parquet(table, str(path), index_column="instance", geo=geo)
+    write_parquet(table, str(path), index_column="instance", geo=geo, field_ids=field_ids)
 
 
-def write_through_io(io, url: str, table, *, geo) -> None:
+def write_through_io(io, url: str, table, *, geo, field_ids=None) -> None:
     """Write ``table`` to a temporary file, then copy it to ``url`` through the table's FileIO."""
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "part.parquet"
-        write_parquet(table, str(path), index_column="instance", geo=geo)
+        write_parquet(table, str(path), index_column="instance", geo=geo, field_ids=field_ids)
         with path.open("rb") as source, io.new_output(url).create(overwrite=True) as target:
             shutil.copyfileobj(source, target, 16 * MIB)
 
@@ -248,14 +268,19 @@ class Tables:
         """The URL prefix that holds the table's Parquet files; it creates the table when absent."""
         return f"{self.require(name, **spec).location()}/data/"
 
-    def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None):
+    def write(self, name: str, table, *, schema, properties, geo=None, partition_by=None, replace=False):
+        """Write ``table`` as the table's file, with the table's field ids, and register it.
+
+        With ``replace``, the file name carries the table's snapshot count, so it is not a registered
+        file's name, and the file replaces every file the table holds.
+        """
         spec = {"schema": schema, "properties": properties, "partition_by": partition_by}
         iceberg = self.require(name, **spec)
-        url = f"{self.data_prefix(name, **spec)}{name}-0.parquet"
+        url = f"{iceberg.location()}/data/{name}-{len(iceberg.snapshots()) if replace else 0}.parquet"
         # A rerun leaves a registered file as it is, so the table's statistics still describe it.
         if url not in {task.file.file_path for task in iceberg.scan().plan_files()}:
-            self.write_file(iceberg.io, url, table, geo=geo)
-        ref = register_files(self.catalog, f"{self.namespace}.{name}", [url], **spec)
+            self.write_file(iceberg.io, url, table, geo=geo, field_ids=index_by_name(iceberg.schema()))
+        ref = register_files(self.catalog, f"{self.namespace}.{name}", [url], replace=replace, **spec)
         attr = iceberg_table_attr(ref, catalog=self.kind, org=self.org, namespace=self.namespace, table=name,
                                   index_column="instance", geometry_column="geometry" if geo else None)
         return ref, attr
@@ -276,25 +301,25 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
     }
 
 
-def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict) -> None:
+def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
     zf = bundle.member_zip(CELLS)
     path = f"polygon_sets/{NUCLEUS_SET}/"
     with writer.element("shapes/nucleus_boundaries", member_bytes(zf, path) + member_bytes(zf, "cell_id/")) as root:
         cell_id = read_v2_array(zf, "cell_id")
         table = polygon_table(zf, NUCLEUS_SET, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
-        ref, attr = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, **spec)
-        group = root.require_group("shapes").create_group("nucleus_boundaries")
+        ref, attr = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, replace=replace, **spec)
+        group = root.require_group("shapes").create_group("nucleus_boundaries", overwrite=replace)
         group.attrs.update({**shapes_attrs("POLYGON", scale([1.0, 1.0], ("x", "y"), unit=UNIT)), "iceberg_table": attr})
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_transcripts(writer, bundle, tables: Tables, spec: dict) -> None:
+def write_transcripts(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
     zf = bundle.member_zip(TRANSCRIPTS)
     total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
     with writer.element("points/transcripts", total) as root:
         table = tile_table(zf, FIXTURE_TILE, codeword_table(zf), first_instance=0)
-        ref, attr = tables.write("transcripts", table, **spec)
-        group = root.require_group("points").create_group("transcripts")
+        ref, attr = tables.write("transcripts", table, replace=replace, **spec)
+        group = root.require_group("points").create_group("transcripts", overwrite=replace)
         transform = scale([1.0, 1.0, 1.0], ("x", "y", "z"), unit=UNIT)
         group.attrs.update({**points_attrs(("x", "y", "z"), transform, instance_key="cell_id",
                                            feature_key="feature_name"), "iceberg_table": attr})
@@ -317,16 +342,26 @@ def check_bundle_size(bundle: Bundle, sample, layouts: str) -> None:
         raise ValueError(f"{recorded['url']} is {size} bytes; LAYOUTS.md records {recorded['size']}")
 
 
+def rewrite_elements(text: str) -> set[str]:
+    """The comma-separated elements of ``--rewrite``; each must be in :data:`REWRITABLE`."""
+    elements = set(text.split(","))
+    if unknown := elements - set(REWRITABLE):
+        raise ValueError(f"cannot rewrite {', '.join(sorted(unknown))}; rewritable: {', '.join(REWRITABLE)}")
+    return elements
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", action="store_true", required=True)
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
-    parser.add_argument("--repo", required=True, help="a new local directory, or arraylake://<org>/<repo>")
+    parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
     parser.add_argument("--catalog", required=True,
                         help="a local directory for the catalog and its warehouse, or arraylake:<org>")
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--branch", default="fixture")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
+    parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
+                        help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")
     args = parser.parse_args()
     on_arraylake = args.catalog.startswith("arraylake:")
     if on_arraylake != args.repo.startswith(ARRAYLAKE):
@@ -356,12 +391,23 @@ def main() -> None:
     if on_arraylake:
         repo = arraylake_repository(args.repo, source_prefixes=prefixes)
     else:
-        repo = create_repo(args.repo, [], prefixes=prefixes)
+        repo = create_repo(args.repo, [], prefixes=prefixes, open_existing=True)
     if args.branch not in repo.list_branches():
         repo.create_branch(args.branch, repo.lookup_branch("main"))
     writer = Writer(repo, args.branch, counter)
 
     started = time.monotonic()
+    if args.rewrite:
+        # A rewrite touches only the named elements; the tables keep their UUIDs.
+        if "tables/table:attrs" in args.rewrite:
+            write_table_index(writer)
+        if "shapes/nucleus_boundaries" in args.rewrite:
+            write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"], replace=True)
+        if "points/transcripts" in args.rewrite:
+            write_transcripts(writer, bundle, tables, specs["transcripts"], replace=True)
+        print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
+        print(f"rewritten: {', '.join(sorted(args.rewrite))}")
+        return
     if not writer.skips("tables/table"):
         write_table(writer, bundle)
     write_labels(writer, bundle, pixel_size)

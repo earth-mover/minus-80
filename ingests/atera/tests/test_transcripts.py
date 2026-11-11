@@ -55,6 +55,7 @@ def test_codeword_table_maps_codewords_to_features(codewords):
 def test_tile_table_has_the_schema_and_the_xenium_cell_ids(zf, codewords):
     t = tile_table(zf, "0,0", codewords, first_instance=100)
     assert t.schema.equals(TRANSCRIPT_SCHEMA)
+    assert not TRANSCRIPT_SCHEMA.field("instance").nullable
     assert t["instance"].to_pylist() == [100, 101, 102, 103, 104]
     assert t["grid_tile"].to_pylist() == ["0,0"] * 5
     assert t["cell_id"][0].as_py() == "aaaaaaab-1"  # prefix 1, suffix 1

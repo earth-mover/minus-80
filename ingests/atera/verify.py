@@ -15,6 +15,8 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import scipy.sparse
 import shapely
 import zarr
@@ -22,6 +24,7 @@ from anndata.io import read_elem
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repo
 from minus80.core.progress import Progress
 from minus80.core.pyramid import check_page
+from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
@@ -129,6 +132,53 @@ def gate_tables(root, catalog, cells, transcripts) -> list[str]:
         print(f"  tables: {path} has {rows:,} rows, the source {expected[path]:,}")
         if rows != expected[path]:
             errors.append(f"{path}: {rows} rows, source {expected[path]}")
+    return errors
+
+
+def _footer_ids(fields, prefix=""):
+    """(dotted name, field id or None) for each Parquet column, struct children included."""
+    for f in fields:
+        found = (f.metadata or {}).get(b"PARQUET:field_id")
+        yield f"{prefix}{f.name}", None if found is None else int(found)
+        if pa.types.is_struct(f.type):
+            yield from _footer_ids(f.type, f"{prefix}{f.name}.")
+
+
+def gate_field_ids(root, catalog) -> list[str]:
+    """Each data file states the table's field ids, and the index column is required."""
+    errors = []
+    for path, attr in element_tables(root).items():
+        table, index = load(catalog, attr), attr["index_column"]
+        expected = index_by_name(table.schema())
+        if not table.schema().find_field(index).required:
+            errors.append(f"{path}: {index} is optional in the table schema")
+        files = [task.file.file_path for task in table.scan().plan_files()]
+        for f in files:
+            with table.io.new_input(f).open() as stream:
+                footer = pq.read_schema(stream)
+            wrong = [n for n, i in _footer_ids(footer) if i != expected.get(n)]
+            if wrong:
+                errors.append(f"{path}: {f} has no field id, or another, for {', '.join(wrong)}")
+            if footer.field(index).nullable:
+                errors.append(f"{path}: {f} has a nullable {index}")
+        print(f"  field_ids: {path}: {len(files)} files, {len(expected)} fields")
+    return errors
+
+
+def gate_table_index(root) -> list[str]:
+    """``obs`` and ``var`` list their index array only as ``_index``, and anndata reads them."""
+    errors = []
+    for name in ("obs", "var"):
+        group = root[f"tables/table/{name}"]
+        index = group.attrs["_index"]
+        if index in group.attrs["column-order"]:
+            errors.append(f"{name}: index {index!r} is also in column-order")
+        try:
+            frame = read_elem(group)
+        except Exception as e:  # The gate reports any reader failure as a mismatch.
+            errors.append(f"{name}: read_elem raised {type(e).__name__}: {e}")
+            continue
+        print(f"  table_index: {name} reads as {frame.shape[0]:,} rows, {frame.shape[1]} columns, index {index!r}")
     return errors
 
 
@@ -283,6 +333,8 @@ def main() -> None:
         "polygons": lambda: gate_polygons(root, catalog),
         "copies": lambda: gate_copies(root, catalog),
         "attrs": lambda: gate_attrs(root, catalog),
+        "field_ids": lambda: gate_field_ids(root, catalog),
+        "table_index": lambda: gate_table_index(root),
     }
     failed = []
     for name in args.gates or gates:

@@ -4,7 +4,7 @@ import pyarrow.parquet as pq
 from ingest import Tables, local_catalog, write_local
 from minus80.core.registry import file_path
 
-SCHEMA = pa.schema([("instance", pa.int64()), ("grid_tile", pa.string())])
+SCHEMA = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string())])
 
 
 def _tables(directory):
@@ -12,7 +12,31 @@ def _tables(directory):
 
 
 def _table():
-    return pa.table({"instance": pa.array([1, 2], pa.int64()), "grid_tile": ["0,0", "0,0"]})
+    return pa.table({"instance": pa.array([1, 2], pa.int64()), "grid_tile": ["0,0", "0,0"]}, schema=SCHEMA)
+
+
+def test_tables_write_gives_the_file_the_table_field_ids_and_a_required_instance(tmp_path):
+    from pyiceberg.schema import index_by_name
+
+    tables = _tables(tmp_path)
+    ref, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+    iceberg = tables.catalog.load_table("ns.t")
+    footer = pq.read_schema(file_path(ref.files[0][0]))
+    assert {f.name: int(f.metadata[b"PARQUET:field_id"]) for f in footer} == index_by_name(iceberg.schema())
+    assert not footer.field("instance").nullable
+    assert iceberg.schema().find_field("instance").required
+
+
+def test_tables_write_with_replace_swaps_the_file_and_keeps_the_table(tmp_path):
+    tables = _tables(tmp_path)
+    first, _ = tables.write("t", _table(), schema=SCHEMA, properties={})
+    ref, attr = tables.write("t", _table().slice(1), schema=SCHEMA, properties={}, replace=True)
+    iceberg = tables.catalog.load_table("ns.t")
+    assert [f for f, _ in ref.files] == [f"{iceberg.location()}/data/t-1.parquet"]
+    assert [t.file.file_path for t in iceberg.scan().plan_files()] == [ref.files[0][0]]
+    assert iceberg.scan().to_arrow()["instance"].to_pylist() == [2]
+    assert ref.table_uuid == first.table_uuid and attr["snapshot_id"] == ref.snapshot_id != first.snapshot_id
+    assert file_path(first.files[0][0]).exists()
 
 
 def test_tables_writes_the_file_in_the_table_location_and_pins_the_snapshot(tmp_path):
@@ -111,9 +135,9 @@ def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
 
     writes = []
 
-    def counted_write(io, url, table, *, geo):
+    def counted_write(io, url, table, *, geo, field_ids):
         writes.append(url)
-        write_local(io, url, table, geo=geo)
+        write_local(io, url, table, geo=geo, field_ids=field_ids)
 
     tables = Tables(local_catalog(tmp_path / "catalog"), "ns", kind="local", org="local", write_file=counted_write)
     prefix = tables.data_prefix("t", schema=SCHEMA, properties={})
@@ -140,3 +164,30 @@ def test_a_rerun_reuses_a_written_table_and_commits_the_element(tmp_path):
     assert len(writes) == 1
     assert stored.attrs["iceberg_table"]["snapshot_id"] == first.snapshot_id
     assert tables.catalog.load_table("ns.t").scan().to_arrow().num_rows == 2
+
+
+def test_drop_index_column_leaves_the_index_array_and_reads_with_anndata(tmp_path):
+    import pandas as pd
+    import zarr
+    from anndata.io import read_elem, write_elem
+    from ingest import drop_index_column
+
+    group = zarr.open_group(tmp_path / "t.zarr", mode="w")
+    write_elem(group, "obs", pd.DataFrame({"n": [1, 2]}, index=pd.Index(["a", "b"], name="barcode")))
+    obs = group["obs"]
+    # The source lists the index in column-order too.
+    obs.attrs["column-order"] = ["barcode", *obs.attrs["column-order"]]
+    drop_index_column(obs)
+    assert obs.attrs["column-order"] == ["n"]
+    assert "barcode" in obs
+    frame = read_elem(obs)
+    assert list(frame.columns) == ["n"] and list(frame.index) == ["a", "b"]
+
+
+def test_rewrite_elements_accepts_only_the_rewritable_elements():
+    import pytest
+    from ingest import rewrite_elements
+
+    assert rewrite_elements("points/transcripts,tables/table:attrs") == {"points/transcripts", "tables/table:attrs"}
+    with pytest.raises(ValueError, match="labels/cell_labels"):
+        rewrite_elements("labels/cell_labels")

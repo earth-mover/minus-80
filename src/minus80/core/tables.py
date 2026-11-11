@@ -2,6 +2,7 @@
 
 The ingest writes each Parquet file itself, so the footer carries GeoParquet
 ``geo`` and pandas index metadata, and registers the files with ``add_files``.
+Each column can carry the field id of the table's schema, so a reader needs no name mapping.
 :func:`declare_copy` then references the same files from the repo, so a Python
 reader sees the file and a reader of the ``iceberg_table`` attribute uses the table.
 
@@ -40,18 +41,35 @@ def declare_file(array: zarr.Array, name: str) -> None:
     )
 
 
+def _with_field_id(field: pa.Field, field_ids: Mapping[str, int], prefix: str = "") -> pa.Field:
+    """``field`` with ``PARQUET:field_id`` set from ``field_ids``, struct children included."""
+    name = f"{prefix}{field.name}"
+    if name not in field_ids:
+        raise KeyError(f"column {name} has no field id")
+    type_ = field.type
+    if pa.types.is_struct(type_):
+        type_ = pa.struct([_with_field_id(child, field_ids, f"{name}.") for child in type_])
+    metadata = {**(field.metadata or {}), b"PARQUET:field_id": str(field_ids[name]).encode()}
+    return pa.field(field.name, type_, field.nullable, metadata)
+
+
 def write_parquet(
     table: pa.Table,
     path: str,
     *,
     index_column: str,
     geo: Mapping | None = None,
+    field_ids: Mapping[str, int] | None = None,
     row_group_size: int = 1_000_000,
 ) -> int:
     """Write ``table`` to ``path`` with pandas index and optional ``geo`` footer metadata.
 
-    Returns the file size in bytes.
+    ``field_ids`` maps each dotted column name to its Iceberg field id, as
+    ``pyiceberg.schema.index_by_name`` gives it. Returns the file size in bytes.
     """
+    if field_ids is not None:
+        schema = pa.schema([_with_field_id(f, field_ids) for f in table.schema], table.schema.metadata)
+        table = table.cast(schema)
     # pyarrow describes the columns from an empty frame, so no data is copied.
     frame = table.schema.empty_table().to_pandas()
     pandas_meta = json.loads(pa.Schema.from_pandas(frame, preserve_index=False).metadata[b"pandas"])
@@ -83,9 +101,20 @@ def require_table(
     properties: Mapping[str, str],
     partition_by: str | None = None,
 ):
-    """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``."""
+    """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``.
+
+    A column that ``schema`` marks non-nullable becomes required in an existing table too.
+    """
     if catalog.table_exists(identifier):
-        return catalog.load_table(identifier)
+        table = catalog.load_table(identifier)
+        loose = [f.name for f in schema if not f.nullable and not table.schema().find_field(f.name).required]
+        if loose:
+            # pyiceberg refuses optional to required by default; the caller states the column holds no null.
+            with table.update_schema(allow_incompatible_changes=True) as update:
+                for name in loose:
+                    update.update_column(name, required=True)
+            table = catalog.load_table(identifier)
+        return table
     table = catalog.create_table(identifier, schema=schema, properties=dict(properties))
     if partition_by is not None:
         with table.update_spec() as spec:
@@ -101,17 +130,30 @@ def register_files(
     schema: pa.Schema,
     properties: Mapping[str, str],
     partition_by: str | None = None,
+    replace: bool = False,
 ) -> TableRef:
     """Add ``files`` to the table ``identifier``, creating it when absent.
 
     A new table is partitioned by identity on ``partition_by``. A file the current snapshot
-    already holds is not added again, so a rerun returns the same snapshot.
+    already holds is not added again, so a rerun returns the same snapshot. With ``replace``,
+    one overwrite snapshot also removes every other file from the table; the objects stay.
     """
+    from pyiceberg.io.pyarrow import parquet_file_to_data_file
+
     table = require_table(catalog, identifier, schema=schema, properties=properties,
                           partition_by=partition_by)
-    held = {task.file.file_path for task in table.scan().plan_files()}
+    held = {task.file.file_path: task.file for task in table.scan().plan_files()}
     new = [f for f in files if f not in held]
-    if new:
+    stale = [data_file for path, data_file in held.items() if path not in files] if replace else []
+    if stale:
+        with table.transaction() as transaction:
+            with transaction.update_snapshot().overwrite() as overwrite:
+                for data_file in stale:
+                    overwrite.delete_data_file(data_file)
+                for f in new:
+                    overwrite.append_data_file(parquet_file_to_data_file(table.io, transaction.table_metadata, f))
+        table = catalog.load_table(identifier)
+    elif new:
         table.add_files(new)
         table = catalog.load_table(identifier)
     sizes = [(f, len(table.io.new_input(f))) for f in files]

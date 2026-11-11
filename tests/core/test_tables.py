@@ -15,6 +15,7 @@ from minus80.core.tables import (
     declare_file,
     iceberg_table_attr,
     register_files,
+    require_table,
     write_parquet,
 )
 
@@ -90,6 +91,76 @@ def test_register_files_skips_a_file_the_table_already_holds(tmp_path):
     again = register_files(catalog, "ns.t", [path], schema=table.schema, properties={})
     assert again == first
     assert catalog.load_table("ns.t").scan().to_arrow().num_rows == table.num_rows
+
+
+_BBOX = pa.struct([("xmin", pa.float64()), ("xmax", pa.float64())])
+_NESTED = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("bbox", _BBOX)])
+
+
+def _nested():
+    return pa.table({"instance": [1, 2], "bbox": [{"xmin": 0.0, "xmax": 1.0}] * 2}, schema=_NESTED)
+
+
+def _parquet_ids(path) -> dict[str, int]:
+    """Field id by dotted column name, as the Parquet footer states it."""
+    def walk(fields, prefix=""):
+        for f in fields:
+            yield f"{prefix}{f.name}", int(f.metadata[b"PARQUET:field_id"])
+            if pa.types.is_struct(f.type):
+                yield from walk(f.type, f"{prefix}{f.name}.")
+    return dict(walk(pq.read_schema(path)))
+
+
+def test_write_parquet_gives_every_column_the_table_field_id(tmp_path):
+    from pyiceberg.schema import index_by_name
+
+    catalog = _catalog(tmp_path)
+    table = catalog.create_table("ns.t", schema=_NESTED)
+    ids = index_by_name(table.schema())
+    path = str(tmp_path / "a.parquet")
+    write_parquet(_nested(), path, index_column="instance", field_ids=ids)
+    assert _parquet_ids(path) == ids
+    assert not pq.read_schema(path).field("instance").nullable
+    assert json.loads(pq.read_schema(path).metadata[b"pandas"])["index_columns"] == ["instance"]
+    register_files(catalog, "ns.t", [path], schema=_NESTED, properties={})
+    assert catalog.load_table("ns.t").scan().to_arrow()["instance"].to_pylist() == [1, 2]
+
+
+def test_write_parquet_refuses_a_column_without_a_field_id(tmp_path):
+    with pytest.raises(KeyError, match="bbox.xmax"):
+        write_parquet(_nested(), str(tmp_path / "a.parquet"), index_column="instance",
+                      field_ids={"instance": 1, "bbox": 2, "bbox.xmin": 3})
+
+
+def test_a_new_table_makes_a_non_nullable_column_required(tmp_path):
+    table = require_table(_catalog(tmp_path), "ns.t", schema=_NESTED, properties={})
+    assert table.schema().find_field("instance").required
+
+
+def test_an_existing_table_makes_a_non_nullable_column_required(tmp_path):
+    catalog = _catalog(tmp_path)
+    loose = pa.schema([("instance", pa.int64()), ("bbox", _BBOX)])
+    created = catalog.create_table("ns.t", schema=loose)
+    table = require_table(catalog, "ns.t", schema=_NESTED, properties={})
+    assert table.schema().find_field("instance").required
+    assert not table.schema().find_field("bbox").required
+    assert str(table.metadata.table_uuid) == str(created.metadata.table_uuid)
+
+
+def test_register_files_with_replace_swaps_the_files_in_one_snapshot(tmp_path):
+    catalog = _catalog(tmp_path)
+    old, new = str(tmp_path / "old.parquet"), str(tmp_path / "new.parquet")
+    write_parquet(_table(), old, index_column="instance")
+    first = register_files(catalog, "ns.t", [old], schema=_table().schema, properties={})
+    write_parquet(pa.table({"instance": [7], "grid_tile": [0]}), new, index_column="instance")
+    ref = register_files(catalog, "ns.t", [new], schema=_table().schema, properties={}, replace=True)
+    table = catalog.load_table("ns.t")
+    assert ref.table_uuid == first.table_uuid and ref.snapshot_id != first.snapshot_id
+    assert [t.file.file_path for t in table.scan().plan_files()] == [new]
+    assert table.scan().to_arrow()["instance"].to_pylist() == [7]
+    assert table.current_snapshot().summary.operation.value == "overwrite"
+    assert table.current_snapshot().parent_snapshot_id == first.snapshot_id
+    assert os.path.exists(old)
 
 
 def test_iceberg_table_attr_has_the_contract_keys():

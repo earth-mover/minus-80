@@ -26,7 +26,7 @@ _BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 # Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
 TRANSCRIPT_SCHEMA = pa.schema(
     [
-        ("instance", pa.int64()),
+        pa.field("instance", pa.int64(), nullable=False),
         ("grid_tile", pa.string()),
         ("x", pa.float32()),
         ("y", pa.float32()),
