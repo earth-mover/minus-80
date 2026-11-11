@@ -93,6 +93,14 @@ def test_iceberg_table_attr_has_the_contract_keys():
     ]
     bare = iceberg_table_attr(ref, org="o", namespace="n", table="t", index_column="instance")
     assert "geometry_column" not in bare
+    assert attr["catalog"] == "arraylake"
+
+
+def test_iceberg_table_attr_names_the_catalog_it_is_given():
+    attr = iceberg_table_attr(
+        TableRef("u", 7, []), catalog="local", org="o", namespace="n", table="t", index_column="instance",
+    )
+    assert attr["catalog"] == "local"
 
 
 def test_declare_copy_reads_back_the_file_bytes(tmp_path):

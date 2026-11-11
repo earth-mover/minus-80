@@ -75,6 +75,24 @@ class TableRef(NamedTuple):
     files: list[tuple[str, int]]
 
 
+def require_table(
+    catalog,
+    identifier: str,
+    *,
+    schema: pa.Schema,
+    properties: Mapping[str, str],
+    partition_by: str | None = None,
+):
+    """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``."""
+    if catalog.table_exists(identifier):
+        return catalog.load_table(identifier)
+    table = catalog.create_table(identifier, schema=schema, properties=dict(properties))
+    if partition_by is not None:
+        with table.update_spec() as spec:
+            spec.add_identity(partition_by)
+    return table
+
+
 def register_files(
     catalog,
     identifier: str,
@@ -88,13 +106,8 @@ def register_files(
 
     A new table is partitioned by identity on ``partition_by``.
     """
-    if catalog.table_exists(identifier):
-        table = catalog.load_table(identifier)
-    else:
-        table = catalog.create_table(identifier, schema=schema, properties=dict(properties))
-        if partition_by is not None:
-            with table.update_spec() as spec:
-                spec.add_identity(partition_by)
+    table = require_table(catalog, identifier, schema=schema, properties=properties,
+                          partition_by=partition_by)
     table.add_files(list(files))
     table = catalog.load_table(identifier)
     sizes = [(f, len(table.io.new_input(f))) for f in files]
@@ -106,6 +119,7 @@ def register_files(
 def iceberg_table_attr(
     ref: TableRef,
     *,
+    catalog: str = "arraylake",
     org: str,
     namespace: str,
     table: str,
@@ -114,7 +128,7 @@ def iceberg_table_attr(
 ) -> dict:
     """The ``iceberg_table`` attribute that pins ``ref``'s table and snapshot."""
     attr = {
-        "catalog": "arraylake",
+        "catalog": catalog,
         "org": org,
         "namespace": namespace,
         "table": table,
