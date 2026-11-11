@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from ome_zarr_models.v06 import coordinate_transforms as v06_ct
 from ome_zarr_models.v06.scene import SceneAttrs
 
-from .image import _DISCRETE, INTRINSIC, VERSIONS, _document, axis_types, check_axis_types, validate
+from .image import _DISCRETE, INTRINSIC, VERSIONS, _document, axis_types, check_axis_types
 
 VERSION = "0.6"
 
@@ -70,5 +70,4 @@ def scene_attrs(
         coordinateTransformations=tuple(transforms),
     )
     document = {"version": VERSIONS[VERSION], "scene": _document(scene)}
-    validate(document, VERSION, model="scene")
     return {"ome": document}

@@ -13,8 +13,13 @@ the same chunk references.
 ome-zarr-models builds each document: it models ``multiscales``, ``omero``,
 ``image-label`` and ``labels`` for both versions, and its ``omero`` models allow
 the transitional ``label``, ``active`` and ``rdefs`` fields a viewer reads.
-ngff-zarr then validates the result against its vendored copy of the published
-JSON schema.
+:func:`validate` checks a document against ngff-zarr's vendored copy of the
+published JSON schema. The builders do not call it. A document's structure is
+fixed by this code; only names and values change from call to call, and tests
+validate every shape the builders produce. Validating each call would repeat
+the same check at about 1.3 ms a document, eight minutes for a store of 376,000
+images. The finished store is validated by the ``schema`` gate of
+:mod:`minus80.ome.verify`.
 """
 
 from __future__ import annotations
@@ -336,7 +341,7 @@ def image_attrs(
     level_scales: Sequence[Mapping[str, float]] | None = None,
     level_translations: Sequence[Mapping[str, float]] | None = None,
 ) -> dict:
-    """Build the validated ``ome`` attributes for a multiscale image.
+    """Build the ``ome`` attributes for a multiscale image.
 
     ``scale`` is the size of one pixel of the *full-resolution* level, per axis,
     in ``units``.
@@ -376,9 +381,7 @@ def image_attrs(
         omero = Omero.model_validate(omero)
     attrs = _BUILDERS[version].image(version=VERSIONS[version], multiscales=[multiscale],
                                      **({"omero": omero} if omero else {}))
-    document = _document(attrs)
-    validate(document, version, model="image", strict=True)
-    return document
+    return _document(attrs)
 
 
 def label_attrs(
@@ -432,9 +435,7 @@ def label_attrs(
     attrs = models.image_label(
         version=VERSIONS[version], multiscales=[multiscale],
         image_label=models.label.model_validate(label))
-    document = _document(attrs)
-    validate(document, version, model="label", strict=colors is not None)
-    return document
+    return _document(attrs)
 
 
 def labels_attrs(names: Sequence[str], version: str = DEFAULT_VERSION) -> dict:

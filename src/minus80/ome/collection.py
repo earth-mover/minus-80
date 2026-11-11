@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .image import DEFAULT_VERSION, VERSIONS, validate
+from .image import DEFAULT_VERSION, VERSIONS
 
 #: The layout version the spec defines. OME-Zarr 0.6 marks the whole mechanism
 #: transitional, so this is the sanctioned container today rather than forever.
@@ -25,7 +25,6 @@ LAYOUT = 3
 def root_attrs(version: str = DEFAULT_VERSION) -> dict:
     """Attributes for the group that holds the images."""
     attrs = {"version": VERSIONS[version], "bioformats2raw.layout": LAYOUT}
-    validate(attrs, version, model="bf2raw")
     return {"ome": attrs}
 
 

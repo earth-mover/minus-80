@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from ome_zarr_models.v05.plate import Acquisition, Column, Plate, Row, WellInPlate
 from ome_zarr_models.v05.well_types import WellImage, WellMeta
 
-from .image import DEFAULT_VERSION, VERSIONS, _document, validate
+from .image import DEFAULT_VERSION, VERSIONS, _document
 
 #: Row and column names of the standard plate formats, by well count.
 FORMATS = {
@@ -61,7 +61,6 @@ def plate_attrs(*, name: str, rows: Sequence[str], columns: Sequence[str],
     )
     document = {"version": VERSIONS[version], "plate": _document(plate)}
     document["plate"].pop("version", None)
-    validate(document, version, model="plate")
     return {"ome": document}
 
 
@@ -78,5 +77,4 @@ def well_attrs(images: Sequence[str], *, acquisitions: Sequence[int] | None = No
         WellImage(path=p, acquisition=None if acquisitions is None else acquisitions[i])
         for i, p in enumerate(images)])
     document = {"version": VERSIONS[version], "well": _document(well)}
-    validate(document, version, model="well")
     return {"ome": document}
