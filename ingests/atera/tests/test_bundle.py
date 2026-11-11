@@ -7,11 +7,12 @@ import pytest
 
 from bundle import Bundle, read_v2_array
 from .stores import zip_v2_store
-from sources import SAMPLES
+from sources import S3, SAMPLES
 
 
 def test_sample_urls():
     assert SAMPLES["kidney"].url("_outs.zip").endswith("/1.0.4/Atera_v1_WTA_Kidney_non_diseased_FFPE/Atera_v1_WTA_Kidney_non_diseased_FFPE_outs.zip")
+    assert SAMPLES["kidney"].url("_outs.zip", S3).startswith("s3://10x.files/samples/atera/1.0.4/")
     assert [s.published for s in SAMPLES.values()] == ["2026-10-15", "2026-11-03", "2026-11-05", "2026-11-05"]
 
 

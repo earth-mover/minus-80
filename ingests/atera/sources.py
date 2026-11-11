@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import NamedTuple
 
 BASE = "https://s3-us-west-2.amazonaws.com/10x.files/samples/atera"
+#: The same objects as an S3 URL. obstore cannot parse the path-style HTTPS form, and
+#: refuses the CDN's answer to a range read of a bundle, so reads use this one.
+S3 = "s3://10x.files/samples/atera"
 
 
 class Sample(NamedTuple):
@@ -16,9 +19,9 @@ class Sample(NamedTuple):
     published: str
     software: str
 
-    def url(self, suffix: str) -> str:
-        """The URL of the sample's object whose name ends in ``suffix``."""
-        return f"{BASE}/{self.version}/{self.name}/{self.name}{suffix}"
+    def url(self, suffix: str, base: str = BASE) -> str:
+        """The URL of the sample's object whose name ends in ``suffix``, under ``base``."""
+        return f"{base}/{self.version}/{self.name}/{self.name}{suffix}"
 
 
 _PAGES = "https://www.10xgenomics.com/datasets"

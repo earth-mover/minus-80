@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Copy 10x Atera WTA samples (s3://10x.files/samples/atera) into native Icechunk repos on Arraylake, with Iceberg tables beside them."
 requires-python = ">=3.12"
 dependencies = [
+    "anndata>=0.12",
     "arraylake[iceberg]>=1.8.0",
     "minus-80[tables,tiff]",
     "pyarrow",

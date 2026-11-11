@@ -64,7 +64,8 @@ and "Cells" for cells or nuclei. The root attributes carry these under
 
 All under `https://s3-us-west-2.amazonaws.com/10x.files/samples/atera/<version>/<sample>/`,
 also at the matching key on `https://cf.10xgenomics.com/`. Sizes and ETags
-from HEAD requests on 2026-11-10.
+from HEAD requests on 2026-11-10. The ingest reads them as `s3://10x.files/...`, unsigned:
+obstore cannot parse the path-style HTTPS URL, and refuses the CDN's answer to a range read of a bundle.
 
 | Repo | Object | Size | ETag | Last modified |
 |---|---|---|---|---|
@@ -96,3 +97,102 @@ report from the bundle.
 | `atera-brain` | `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF_analysis_summary.html` | 9,387,928 | `3bc5393fa0247f3ac2881bcffdec91d8-2` | 2026-11-03 |
 | `atera-colorectal` | `Atera_v1_WTA_S4B_Colorectal_Cancer_FF_analysis_summary.html` | 9,227,516 | `2b1cbe0fc7dc0450bd5af267c99c1f56-2` | 2026-11-04 |
 | `atera-breast` | `Atera_v1_WTA_S4C_Breast_Cancer_FF_analysis_summary.html` | 9,225,158 | `75da29c5332603ba398a1ba22bd87da8-2` | 2026-11-04 |
+
+## Files
+
+The fixture branch, `fixture`, of a local repo and a local catalog, written on 2026-11-10 from the
+kidney bundle (Atera Onboard Analysis 1.0.4). It holds one element of each kind. `main` holds
+only the repo's first commit.
+
+| Element | Source member | Arrays and codecs |
+|---|---|---|
+| `tables/table` | `cell_feature_matrix.zarr.zip`, the whole store | `X` CSR (`data` int32, `indices` int64, 1,000,000 values per chunk, `indptr`), `obs`, `var`, `obsm`; blosc-blosclz chunks copied byte for byte. The ingest adds `obs/region`, `obs/instance` and `uns/spatialdata_attrs`. |
+| `labels/nucleus_labels/s0` | `cells.zarr.zip`, `masks/0` | `(33139, 56644)` uint32, chunks `(518, 1771)`, blosc-zstd level 1, 2,048 chunks copied byte for byte |
+| `labels/cell_labels/s0` | `cells.zarr.zip`, `masks/1` | as `nucleus_labels` |
+| `images/morphology/s6` | `morphology_2d/ch000{0..3}_*.ome.tif`, level 6 of each | `(4, 517, 885)` uint16, chunks `(1, 1024, 1024)`, blosc-zstd level 5 with shuffle, decoded from lossless JPEG 2000 |
+| `shapes/nucleus_boundaries` | `cells.zarr.zip`, `polygon_sets/0` and `cell_id` | Iceberg table `nucleus_boundaries`; `shapes.parquet` is a `uint8` array of virtual references into the table's data file |
+| `points/transcripts` | `transcripts.zarr.zip`, `grid/0,0` and `codeword_category` | Iceberg table `transcripts`, partitioned by `grid_tile`; `points.parquet` is a `uint8` array of virtual references into the table's data file |
+| root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB |
+
+The `s6` image level carries a scale of 1 in its dataset. The element transform maps it into
+`global` with `0.21249222 x 33139 / 517` on y and `0.21249222 x 56644 / 885` on x.
+The labels map with `0.21249222` on y and x. Points and shapes map with a scale of 1.
+The output axes of `global` carry the unit `micrometer`. The input axes carry `unit`, SpatialData's placeholder.
+
+### What the fixture showed
+
+- **Mask order.** `masks/0` is the nucleus mask and `masks/1` the cell mask, as `polygon_set_names` orders them.
+  At 50 sampled nucleus centroids, the `masks/0` label areas equal `cell_summary.nucleus_area` with a median
+  relative error of 0.000, and the `masks/1` label areas equal `cell_area` with 0.000. The crossed pairs
+  differ by 0.502 and 1.009.
+- **Instance key.** The mask label at a cell's centroid is the `cell_summary` row position plus one, on 50
+  of 50 sampled rows. `obs` rows follow the same order.
+- **`obs.cell_id`.** It packs the cells store's `cell_id` pair as `prefix + suffix * 2**32`. Row 0 holds
+  4294992761, which is the pair (25465, 1). So it is not the mask label. The ingest adds `obs/instance`,
+  row position plus one, as the instance key and `obs/region` as the region key.
+- **Cells without a nucleus.** `polygon_sets/0` has 398,197 rows for 399,120 cells, so 923 cells have no
+  nucleus polygon. `instance = cell_index + 1` still applies to the rows that exist. `cell_summary` has NaN
+  nucleus columns on 5,044 rows.
+- **Invalid nucleus polygons.** 1,180 of the 398,197 nucleus polygons are not valid and not simple:
+  802 ring self-intersections and 378 self-intersections. The metrics CSV leaves
+  `number_of_nucleus_non_simple_polygons` empty, so the count cannot be checked against 10x's. The tables
+  keep the polygons as published.
+- **Unsigned integers.** Iceberg has no unsigned type, and pyiceberg maps `uint32` to the signed `int`.
+  The transcripts' unassigned pair, 4294967295 and 4294967295, overflows it, so every uint32 column is
+  int64 in the tables. `feature_name` is an Arrow dictionary; Iceberg stores it as a string.
+
+### The fixture run
+
+From a laptop, reading the bundle by range requests through 64 KiB blocks. One commit per element;
+the commit message is `Write <element>`.
+
+| Element | Read from the bundle | Wall time |
+|---|---|---|
+| `tables/table` | 1,168.1 MiB | 1,122.8 s |
+| `labels/nucleus_labels` | 120.1 MiB | 454.0 s |
+| `labels/cell_labels` | 151.7 MiB | 484.5 s |
+| `images/morphology/s6` | 3.3 MiB | 12.6 s |
+| `shapes/nucleus_boundaries` | 55.6 MiB | 99.7 s |
+| `points/transcripts` | 32.6 MiB | 84.2 s |
+| root attributes | 0.1 MiB | 0.7 s |
+| total | 1,537.2 MiB | 2,272.7 s |
+
+The `X` copy and the masks read at 0.3 to 1 MiB/s, because each chunk is a separate request
+from a laptop. The table read 1,168.1 MiB for 1,030.2 MiB of members: the reader fetches whole
+64 KiB blocks and its cache drops some before reuse.
+
+### The verification
+
+`verify.py` on the fixture branch read 307.7 MiB of the bundle in 994.8 s. It exits 1, on `polygons` only.
+
+| Gate | Result | What it measured |
+|---|---|---|
+| `images` | PASS | Level 6 has one tile per channel; all 4 equal tifffile's decode. |
+| `labels` | PASS | All 2,048 chunks of each mask equal the member bytes. |
+| `matrix` | PASS | `X` reads as `scipy.sparse.csr_matrix`, `(399120, 24674)`, 599,212,411 stored values; 20 sampled chunks equal the members. |
+| `tables` | PASS | `transcripts` 2,633,912 rows; `nucleus_boundaries` 398,197 rows; both equal the source arrays. |
+| `masks` | PASS | See "What the fixture showed". |
+| `instances` | PASS | 50 rows: the cell mask at the centroid is row + 1, `obs.instance` is row + 1, and `obs.cell_id` decodes to the cells store's pair. |
+| `polygons` | FAIL | 1,180 invalid nucleus polygons. The metrics CSV value is empty, which the gate counts as 0. |
+| `copies` | PASS | Each `uint8` copy's bytes equal its registered Parquet file. |
+| `attrs` | PASS | Each `iceberg_table` attribute's `table_uuid` and `snapshot_id` equal the catalog's. |
+
+### Reading the fixture with SpatialData
+
+In the virtual_omics `spatial` environment, on 2026-11-10. The repo opens with
+`icechunk.Repository.open(icechunk.local_filesystem_storage(path))`, and `sd.read_zarr` reads
+`readonly_session("fixture").store`.
+
+| SpatialData | Shim | Result |
+|---|---|---|
+| 0.8.0, released | no | `TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union`, in `_resolve_zarr_store`. The release cannot take an Icechunk store. |
+| 0.8.0, released | `parquet_in_store()` | `RuntimeError: this needs spatialdata's _store module, added in PR #1107` |
+| PR #1107 with the four patches | no | `ValueError: Cannot derive a filesystem for store of type IcechunkStore`, in the points reader. It raises; it does not skip points and shapes. |
+| PR #1107 with the four patches | `parquet_in_store()` | `icechunk.InvalidInputError`: the `uint8` copies' chunks resolve to the warehouse's `file://` prefix, and the repo was opened without authorizing that container. |
+| PR #1107 with the four patches | `parquet_in_store()`, container authorized | Opens all six elements in `global`. Images `morphology (4, 517, 885)` at scale 13.62 and 13.60; labels `(33139, 56644)` at 0.21249222; points `transcripts` 2,633,912 rows, 3D; shapes `nucleus_boundaries` 398,197 rows, index `instance`, first geometry a valid Polygon; table `(399120, 24674)` with region `cell_labels`, region key `region`, instance key `instance`. |
+
+The shim reads the rectilinear `uint8` copies with `array.rectilinear_chunks` set. Two attributes
+were missing on the first run, and SpatialData showed both. A space axis without a `unit` raised
+`ValueError: Each axis is either of type channel either MUST have a unit.` So every space axis now
+has one. A table without `uns/spatialdata_attrs` opened with no region and no instance key.
+So the ingest now writes `uns`.
