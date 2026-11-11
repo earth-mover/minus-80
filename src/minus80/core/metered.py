@@ -49,10 +49,12 @@ class MeteredStore(WrapperStore[Store]):
     """Wraps a store, adding each ``set`` to ``meter``: its stored bytes and the seconds it took.
 
     A write that takes longer than ``slow`` seconds is reported on its own
-    line. ``str()`` returns ``name`` without asking the wrapped store: zarr
+    line. ``str()`` returns ``name`` without asking the wrapped store. zarr
     formats the store's name each time it opens or creates an array, on its
-    event loop, and Icechunk's store takes a blocking lock on its session,
-    holding the GIL, to describe itself.
+    event loop, and Icechunk's store describes itself with a blocking read of
+    its session (``icechunk-python/src/store.rs``). That was suspected of
+    stalling array creation during the S-BIAD3228 copy, but no stall ever
+    reproduced; returning ``name`` avoids the read either way.
     """
 
     def __init__(self, store: Store, meter: Meter, *, name: str = "store", slow: float = 20.0) -> None:
