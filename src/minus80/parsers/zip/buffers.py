@@ -1,4 +1,4 @@
-"""Zip structures read from a buffer of bytes, without a central directory.
+"""Zip members read from a window of bytes, without a central directory.
 
 ``virtualizarr.parsers.zarr.zip.parse_zip_index`` indexes an archive by reading
 its whole central directory. That is the right tool until the directory is too
@@ -6,8 +6,6 @@ large to fetch (1.49 GB for 7.7M members), or when only a sample of members is
 wanted. This module answers the same questions from a window of the archive that
 the caller has already read:
 
-- :func:`end_of_central_directory`: how many members, and where the central
-  directory sits, from the archive's last bytes (ZIP64 included).
 - :func:`walk_local_headers`: the members of a window that starts at a local
   header, each located by the one before it.
 - :func:`scan_local_headers`: the members whose local headers appear in a window
@@ -18,46 +16,24 @@ the caller has already read:
 archive, fetching it in order in pieces (:func:`fetch_pieces`), for when every
 member is wanted but the central directory is not.
 
-Members are returned as ``virtualizarr`` ``ZipEntry`` records, with
-``data_offset`` counted from the start of the archive, so they can be used for
-virtual references directly. A buffer's own position in the archive is passed as
-``offset``.
-
-Two private functions are imported because nothing public does their job:
-``zipfile._EndRecData`` (the standard library's end-record reader, which handles
-ZIP64) and VirtualiZarr's ``_parse_zip64_extra`` (resolves the sizes of a ZIP64
-local header).
+The byte structures themselves (local headers, end records, inflating) are
+parsed in :mod:`minus80.parsers.zip.structures`. Members are returned as
+``virtualizarr`` ``ZipEntry`` records, with ``data_offset`` counted from the
+start of the archive, so they can be used for virtual references directly. A
+buffer's own position in the archive is passed as ``offset``.
 """
 from __future__ import annotations
 
-import io
 import re
-import struct
-import zipfile
 from collections import deque
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
 import obstore
-from virtualizarr.parsers.zarr.zip import ZipEntry, _parse_zip64_extra
+from virtualizarr.parsers.zarr.zip import ZipEntry
 
-from minus80.parsers.zip.members import member_bytes
-
-_LOCAL_HEADER = struct.Struct("<IHHHHHIIIHH")
-_LOCAL_SIGNATURE = b"PK\x03\x04"
-_ZIP64_SENTINEL = 0xFFFFFFFF
-_DATA_DESCRIPTOR = 0x08
-
-
-class EndRecord(NamedTuple):
-    """The members of an archive and where its central directory starts."""
-
-    entries: int
-    #: Size of the central directory in bytes.
-    size: int
-    #: Offset of the central directory from the start of the archive.
-    offset: int
+from .structures import DATA_DESCRIPTOR_FLAG, LOCAL_HEADER, LOCAL_SIGNATURE, inflate, parse_local_header
 
 
 class LocalMember(NamedTuple):
@@ -68,22 +44,6 @@ class LocalMember(NamedTuple):
     entry: ZipEntry
     #: The general-purpose bit flags of the local header.
     flags: int
-
-
-def end_of_central_directory(tail: bytes, archive_size: int) -> EndRecord:
-    """The central directory's member count, size and offset, from the last bytes of an archive.
-
-    ``tail`` must end at the end of the archive and be long enough to hold the end
-    record, the ZIP64 end record and its locator (64 KiB is ample unless the
-    archive has a long comment). The directory itself is not needed.
-    ``archive_size`` is the length of the whole archive.
-
-    Raises ``zipfile.BadZipFile`` if no end record is found.
-    """
-    record = zipfile._EndRecData(_TailFile(tail, archive_size - len(tail)))
-    if not record:
-        raise zipfile.BadZipFile("no end-of-central-directory record in the buffer")
-    return EndRecord(record[zipfile._ECD_ENTRIES_TOTAL], record[zipfile._ECD_SIZE], record[zipfile._ECD_OFFSET])
 
 
 def walk_local_headers(buf: bytes, offset: int = 0) -> Iterator[LocalMember]:
@@ -99,13 +59,13 @@ def walk_local_headers(buf: bytes, offset: int = 0) -> Iterator[LocalMember]:
     its data, since the walk cannot tell where such a member ends.
     """
     i = 0
-    while i + _LOCAL_HEADER.size < len(buf):
-        if buf[i:i + 4] != _LOCAL_SIGNATURE:
+    while i + LOCAL_HEADER.size < len(buf):
+        if buf[i:i + 4] != LOCAL_SIGNATURE:
             return
-        member = _local_header(buf, i, offset)
+        member = _local_member(buf, i, offset)
         if member is None:
             return
-        if member.flags & _DATA_DESCRIPTOR:
+        if member.flags & DATA_DESCRIPTOR_FLAG:
             raise ValueError(f"{member.name} has its sizes in a data descriptor, so the walk cannot step over it")
         yield member
         i = member.entry.data_offset + member.entry.compressed_length - offset
@@ -119,11 +79,11 @@ def scan_local_headers(buf: bytes, offset: int = 0) -> Iterator[LocalMember]:
     must check the names it gets. Members whose data does not fit in ``buf`` are
     skipped.
     """
-    for found in re.finditer(re.escape(_LOCAL_SIGNATURE), buf):
+    for found in re.finditer(re.escape(LOCAL_SIGNATURE), buf):
         i = found.start()
-        if i + _LOCAL_HEADER.size > len(buf):
+        if i + LOCAL_HEADER.size > len(buf):
             return
-        member = _local_header(buf, i, offset)
+        member = _local_member(buf, i, offset)
         if member is not None:
             yield member
 
@@ -134,7 +94,7 @@ def read_member(buf: bytes, member: LocalMember, offset: int = 0) -> bytes:
     Handles STORED and DEFLATE members.
     """
     start = member.entry.data_offset - offset
-    return member_bytes(buf[start:start + member.entry.compressed_length], member.entry)
+    return inflate(buf[start:start + member.entry.compressed_length], member.entry.method)
 
 
 class WalkedMember(NamedTuple):
@@ -175,7 +135,7 @@ def walk_archive(store, key: str, end: int, *, piece: int = 16 << 20, threads: i
     Reads ``[0, end)`` in GETs of ``piece`` bytes (see :func:`fetch_pieces`) and
     locates each local header where the member before it ends, so data offsets
     are exact without the central directory. Pass the central directory's
-    offset (:func:`end_of_central_directory`) as ``end`` to walk the whole
+    offset (:func:`~minus80.parsers.zip.structures.end_of_central_directory`) as ``end`` to walk the whole
     archive; ending exactly there shows the members tile the data region.
 
     A member that spans pieces is carried into the next one. Raises
@@ -201,47 +161,14 @@ def walk_archive(store, key: str, end: int, *, piece: int = 16 << 20, threads: i
         raise ValueError(f"walk stopped at offset {buf_offset}, short of {end}")
 
 
-class _TailFile(io.BytesIO):
-    """The last bytes of an archive, seekable at their positions in the whole archive.
-
-    ``zipfile._EndRecData`` checks the ZIP64 locator's absolute offset against
-    the position it was read from, so a bare buffer of the tail fails that check.
-    """
-
-    def __init__(self, tail: bytes, start: int) -> None:
-        super().__init__(tail)
-        self._start = start
-
-    def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
-        if whence == io.SEEK_SET:
-            pos -= self._start
-        return super().seek(pos, whence) + self._start
-
-    def tell(self) -> int:
-        return super().tell() + self._start
-
-
 def _get(store, key: str, start: int, length: int) -> bytes:
     return bytes(obstore.get_range(store, key, start=start, length=length))
 
 
-def _local_header(buf: bytes, i: int, offset: int) -> LocalMember | None:
-    """The member whose local header starts at ``buf[i]``, or None if it cannot be read from ``buf``.
-
-    None when the name is not UTF-8, the ZIP64 extra field is unreadable, or the
-    data runs past the end of ``buf``.
-    """
-    (_, _, flags, method, _, _, _, csize, usize, nlen, xlen) = _LOCAL_HEADER.unpack_from(buf, i)
-    try:
-        name = buf[i + 30:i + 30 + nlen].decode()
-    except UnicodeDecodeError:
+def _local_member(buf: bytes, position: int, offset: int) -> LocalMember | None:
+    """The member whose local header starts at ``buf[position]``, or None if its header or data is not all in ``buf``."""
+    header = parse_local_header(buf, position, offset)
+    if header is None or header.data_offset - offset + header.compressed > len(buf):
         return None
-    if _ZIP64_SENTINEL in (csize, usize):
-        try:
-            usize, csize, _ = _parse_zip64_extra(buf[i + 30 + nlen:i + 30 + nlen + xlen], usize, csize, 0)
-        except struct.error:
-            return None
-    start = i + 30 + nlen + xlen
-    if start + csize > len(buf):
-        return None
-    return LocalMember(name, ZipEntry(offset + start, csize, usize, method), flags)
+    entry = ZipEntry(header.data_offset, header.compressed, header.uncompressed, header.method)
+    return LocalMember(header.name, entry, header.flags)

@@ -212,11 +212,57 @@ A reader fetches the whole snapshot on open, and Icechunk's snapshot cache
 holds 500,000 nodes by default, about 45 Cell Painting plates. Ingest one file
 from each new source to a branch and inspect it before writing to `main`.
 
+### Keep enough writes in flight
+
+A copy into an object store is often limited by its uploads, not its
+decoding. The S-BIAD3228 converter kept 10 to 26 shard writes in flight, and
+decoding waited on uploads for minutes in every well, while a separate test
+reached 522 MB/s to R2 with 128 writes in flight. Measure the store's
+throughput at several concurrencies before choosing one.
+
 ### Launch cloud workers from a clean environment
 
 Coiled copies your local environment, so a macOS wheel or an editable checkout
 breaks Linux workers. It also reattaches to a live cluster of the same name,
 old code included, so name each launch's cluster uniquely.
+
+For a job that runs longer than a minute, use `coiled batch run`, and these
+rules keep it alive and visible:
+
+- **Use `coiled batch run`, not `coiled run --detach`.** A detached
+  `coiled run` stops its job about 20 s after the launching session
+  disconnects: Docker sends the container SIGTERM, then kills it 10 s later,
+  with nothing in the job's own output. A batch job runs until its command
+  exits. A two-minute counting script showed the difference: killed after
+  four lines under `coiled run --detach`, finished under `coiled batch run`.
+- **Upload one directory.** `coiled batch run` keeps only the last of several
+  `--upload` options, so stage every file in one directory and upload that.
+  The files land beside the script, in the job's working directory.
+- **Ship a built wheel and the scripts, in a plain container.** A pure-Python
+  package builds a wheel that installs on Linux; pin any git dependency the
+  workspace pins, since a wheel cannot carry the pin.
+- **Count cores with `nproc --all` or `os.cpu_count()`.** Coiled sets
+  `OMP_NUM_THREADS=1`, which makes `nproc` report one core on a 16-core VM,
+  and limits any library that reads that variable.
+- **Put the command in a script file.** Coiled can garble an inline
+  `bash -c` string with several statements.
+- **Never run a second command on a VM that is running a job.** The second
+  command disrupted the first and shut the VM down when it finished. Probe on
+  a separate VM.
+- **Pass a secret from a variable set first,** with `--secret-env
+  "NAME=$VALUE"`. Written as `NAME=$(...) coiled ... -e NAME="$NAME"`, the
+  variable expands before the assignment and the job receives an empty value.
+- **Print a timed line before and after every step, a heartbeat at a fixed
+  interval within every step, and memory from a separate loop.** A heartbeat
+  only from inside the job's own loop goes quiet exactly when the job blocks.
+  Set an expected time for each step before launching.
+- **Treat silence as a signal, and read the right logs.** `coiled batch logs`
+  arrives one to two minutes late, so check the job's state with
+  `coiled batch status` before calling it stalled. When a job stops without
+  saying why, `coiled cluster logs <id> --system` shows the machine's view,
+  such as Docker stopping the container. The VM's SSH port was not reachable
+  from outside, so build the diagnostics into the job rather than plan to
+  attach to it.
 
 ## Data beyond the images
 

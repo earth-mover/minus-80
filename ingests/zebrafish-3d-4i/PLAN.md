@@ -1,0 +1,736 @@
+# 3D-4i zebrafish embryos (BioImage Archive S-BIAD3228): ingest plan
+
+## Summary
+
+The plan brings the 3D-4i zebrafish embryo dataset into Icechunk as a native
+OME-Zarr 0.6 HCS plate, by way of a staged copy of the source zip in our R2
+bucket.
+
+The dataset ([S-BIAD3228](https://www.ebi.ac.uk/biostudies/bioimages/studies/S-BIAD3228),
+CC0) is whole-mount, four-round multiplexed immunofluorescence of 212 early
+zebrafish embryos from the Pelkmans lab ([Hess et al.
+2025](https://www.biorxiv.org/content/10.1101/2025.10.27.684723v1)). It is
+published as one 591 GB zip of an OME-Zarr 0.4 plate, served by EBI over
+HTTPS, FTP, Aspera and Globus. Every member of the zip is Deflate-compressed,
+and no copy of the data sits in an object store. Both facts rule out
+referencing the archive's bytes in place from Arraylake, so this ingest is a
+copy.
+
+- **Stage.** Copy the zip, unchanged, from EBI to R2 once, from a VM in AWS
+  London. From there EBI serves 170 to 380 MB/s over parallel HTTPS, so the
+  copy takes about an hour; from a laptop in the United States it managed
+  1.5 MB/s. Every later step reads from R2.
+- **Convert.** Read the staged zip on Coiled and write a native Icechunk store:
+  an OME-Zarr 0.6 plate with one image per embryo (field of view) holding all
+  16 channels of its four rounds, blosc zstd
+  with bitshuffle, sharded so that a single z-plane is one small read. Cutting
+  each field out of its well image leaves the filler behind: the all-zero
+  padding chunks, 57% of the zip's members, are never read.
+- **ROI tables.** The source's three AnnData ROI tables become structure: each field becomes its own image, positioned in its well, and the tables' values are kept as attributes.
+
+**Decisions.** Each is argued in full under "Judgment calls", by number.
+
+| # | Decision | Context | Status |
+|---|---|---|---|
+| 1 | Stage the zip in R2 before converting | Any rerun of the conversion reads R2, where egress is free, instead of pulling 591 GB from EBI again | Decided |
+| 2 | Transfer over parallel HTTPS from AWS London | 8 connections into a resumable multipart upload, with backoff and an MD5 check on every part; EBI's Aspera and Globus routes need credentials or an endpoint we do not have | Decided; the transfer itself awaits approval |
+| 3 | One image per embryo, with every round's channels on its channel axis | The source pastes a well's 5 to 9 embryo photos onto one well-sized image per round, 96% zeros, with a chunk grid that cuts across the embryos. The HCS spec says a well's images are its fields of view. Rounds cannot be an axis of their own, because an image allows only one axis that is neither space nor time; the published rounds are already registered, so they share one image as 16 channels. Field `FOV_n` is image `n - 1` | Decided 2026-10-27; the trial also builds one image per field and round, on a branch, for comparison |
+| 4 | Include round 3 | Every well holds four rounds (0 to 3), but the plate lists acquisitions 0 to 2 and each well lists images 0 to 2, so HCS readers never find round 3. Round 3's markers differ between wells (Nanog, YAP, XRN2 in 21; three earlier markers restained in 9), so every image takes its channel names from its own well's metadata, and the plate's attributes record each well's round-3 markers | Decided; channel names per well added 2026-10-28; telling the authors is optional |
+| 5 | Chunks are whole xy planes, shards run along z | Images: `1 × 1 × 1000 × 1000` chunks in 32-plane shards. Labels: `1 × 1000 × 1000` chunks in full-depth shards | Decided; step 3 times 32- against 10-plane shards |
+| 6 | blosc zstd level 5 with bitshuffle | Decodes at about 5.8 GB/s; pcodec compresses field pixels 11 to 21% smaller but decodes at 1.4 GB/s, and on fast connections decode speed counts for more. blosc is a codec the Zarr v3 core spec defines; pcodec is not | Decided |
+| 7 | Fold the ROI tables into the layout | Each `FOV_ROI_table` row becomes an image placed by a 0.6 translation; the other two tables are kept as well attributes; no Iceberg tables | Decided |
+| 8 | No virtual store over the staged zip | It would need a custom codec and be replaced by the native store | Decided |
+| 9 | Delete the staged zip once the store is verified | EBI remains the archive of record | Decided |
+| 10 | Destination | Repo `earthmover-biology/zebrafish-3d-4i` on Arraylake managed storage; the zip at `files/ingest-staging/` in the same bucket | Decided 2026-10-27 |
+| 11 | OME-Zarr 0.6 | 0.6 scenes place each field image in its well | Decided 2026-10-27 |
+| 12 | Copy pyramid levels 1 to 3 from the source, rebuild later | Most field origins fall between coarse pixels, so each field's copied level is a pixel larger than half, a quarter or an eighth of 1000, with a per-level offset; a later commit rebuilds the levels from level 0 | Decided |
+| 13 | Read damaged source chunks as missing, and record them | 1,244 chunk members are empty files and some are cut short; no reader can decode them. Each reads as the fill value, 0, and each image lists the damaged chunks inside its field | Decided 2026-10-28 |
+| 14 | Convert by streaming each well's bytes once, in file order | Reading each member as its own request through zarr would take about 1.5 hours a well from EBI (estimated from a partial run), with the network idle most of the time. Each well is one contiguous region of the zip that holds its own metadata, so the converter reads it in file order as 64 MiB ranges and processes one channel of one array at a time. Fetching and parsing stay apart: zip streaming and zipped-Zarr chunk decoding in `minus80`, the plate's own logic in the ingest; the zip's central directory is the only index, and no VirtualiZarr code is involved | Sequence approved 2026-10-28; to build and measure |
+| 15 | Improve the store in commits on top of the copy, each described in its own metadata | `main` at tag `source-copy` is the faithful copy, with the source's own metadata. Each improvement below is its own commit, whose message and metadata say what changed, why and how it was checked; only major checkpoints get a tag | Proposed 2026-11-02 |
+| 16 | Distinct channel colors | Each round's four channels become blue (DAPI), green, magenta and yellow; the source's color is kept as `source_color` in each channel's annotation | Proposed 2026-11-02 |
+| 17 | Correct the label levels' translations | Coarse label levels keep the bottom-right pixel of each block, while image levels average the block, but both carry the image's translations. Shifting each label level by (2^k − 1)/2 level-0 pixels places it exactly; metadata only | Proposed 2026-11-02 |
+| 18 | A `missing_source` label image on every image | One label value per damaged source chunk, with `properties` naming the channel, the source member and the reason, from the image's existing `empty_source_chunks` and `unreadable_source_chunks` lists | Proposed 2026-11-02 |
+| 19 | Rebuild levels 1 to 3 from level 0, with full-depth shards at the coarsest levels | Exact 500, 250 and 125 pixel levels, one translation per level, no fringe of zero filler; level 3 (and level 2 if measurement favors it) as one shard per channel | Proposed 2026-11-02; shard sizes to measure |
+
+**Settled by the step 3 trial, by measurement:**
+
+- whether 32-plane shards beat 10-plane shards on real reads, in-region and
+  from London;
+- whether one 16-channel image per embryo, or one image per embryo and round,
+  suits the people who use these data; the trial builds both on separate
+  Icechunk branches, for a domain expert to open side by side;
+- whether one group can carry both the HCS `well` metadata and a 0.6 `scene`;
+- whether viewers apply the scene's translations and the per-level offsets;
+- what each field's `x_micrometer_original` means; it is about half its
+  `x_micrometer`.
+
+**Approvals still needed**, each before it runs: the transfer of the zip,
+creating the repo for the step 3 trial, and the full conversion.
+
+## The archive
+
+**The experiment.** Embryos were fixed every 15 minutes from 2 to 4 hours
+post-fertilization (cell cycles 7 to 12, during zygotic genome activation),
+deyolked, mounted in wells (the field-of-view tables hold 5 to 9 per well; the preprint says 7 to 9), and imaged on a Yokogawa CV8000 spinning-disk
+confocal with a 20×/1.0 NA water objective. Each well was stained, imaged and
+eluted four times. Every round images DAPI plus three markers:
+
+| Round | Channels (source names) |
+|---|---|
+| 0 | DAPI_0, Pol-II-S2P, FLAG, PCNA |
+| 1 | DAPI_1, H3K27Ac, bCatenin, pH3 |
+| 2 | DAPI_2, H2B, ALYREF, Pol-II-S5P |
+| 3 | DAPI_3, Nanog, YAP, XRN2 in 21 wells; in 9 wells, three earlier markers restained (below) |
+
+FLAG reports Pou5f3 in a `pou5f3-3xflag` line. YAP and XRN2 are not in the
+preprint's ten-plex panel.
+
+Round 3 differs between wells. In 9 of the 30 wells its markers are three
+earlier markers stained again, named with a `_restained` suffix in each
+image's `omero` channels:
+
+| Round 3 markers | Wells |
+|---|---|
+| Nanog, YAP, XRN2 | the other 21 |
+| H3K27Ac, bCatenin, pH3, restained (round 1's) | C/06, F/06, G/06 |
+| Pol-II-S2P, FLAG, PCNA, restained (round 0's) | B/06, E/06, G/05 |
+| H2B, ALYREF, Pol-II-S5P, restained (round 2's) | D/06, F/07, G/07 |
+
+Rounds 0 to 2 have the same channels in every well.
+
+**What is in the zip.** Surveyed 2026-10-27 by reading the zip's whole
+central directory (2,036,714 members) and all 8,648 metadata documents.
+
+- **One plate**, `AssayPlate_Greiner_#655090`, OME-Zarr 0.4 HCS in Zarr v2,
+  written by Fractal. 30 wells in rows B to G, columns 02 to 07.
+- **Four images per well**, one per round, each `(c, z, y, x)` = `(4, 271, y,
+  x)` uint16, with a well extent that differs in every well: y from 11,282 to 16,816
+  pixels and x from 13,026 to 18,039, the same in all four rounds of a well. Pixels are 0.65 µm in y and x, 1 µm in z. Four pyramid levels,
+  downsampled 2× in y and x each time.
+- **Each image is a well-sized image holding 5 to 9 fields of view (211 in all).** The
+  `FOV_ROI_table` places each 650 × 650 µm field (1000 × 1000 pixels) at
+  its stage position. Level 0 stores only the chunks the fields touch:
+  324,352 of the 3,144,512 chunks its grid allows.
+- **Segmentations** on round 1 of every well: `nucleiRaw`, `cells`, `cyto`,
+  `membrane`, `embryoRaw` and `Pol-II-S2P_foci`, uint32, on the same grid as
+  the images.
+- **AnnData ROI tables** on every image: `well_ROI_table` and `FOV_ROI_table`,
+  plus `embryoRaw_ROI_table` on round 1.
+
+| | Chunks | Deflated in the zip | blosc-lz4 frames |
+|---|---|---|---|
+| Image chunks | 1,474,368 | 570.1 GB | 910.5 GB |
+| Label chunks | 552,888 | 20.8 GB | 118.0 GB |
+| of which all-zero padding | 1,155,683 | 0.85 GB | |
+| Metadata and table members | 9,458 | | |
+
+The non-empty image chunks hold about 13.6 TB of raw uint16 pixels.
+
+**How the source is packed.** Each chunk is `1 × 10 × 1000 × 1000`
+(channel, z, y, x), compressed with blosc-lz4, and then compressed again by the
+zip with Deflate. The second pass shrinks the blosc frames by about 40%,
+because lz4 compresses weakly.
+
+**How people use it.** The preprint's analysis segments nuclei and cells,
+measures per-object intensities across all rounds and aggregates them per
+embryo. Rounds are aligned on DAPI with elastix, using round 1 as the
+reference. That alignment is already applied to the published images (see
+"What has been tested").
+
+## Proposed layout
+
+```
+zebrafish-3d-4i/                     OME-Zarr 0.6 HCS plate, AssayPlate_Greiner_#655090
+  B/02/                              well: one image per embryo, and a scene placing them
+    0/                               field FOV_1, all four rounds
+      0/ 1/ 2/ 3/                    pyramid levels, (c, z, y, x) uint16, (16, 271, 1000, 1000) at
+                                     level 0; levels 1 to 3 copied from the source (judgment call 12)
+                                     c = DAPI_0, Pol-II-S2P, FLAG, PCNA,      round 0
+                                         DAPI_1, H3K27Ac, bCatenin, pH3,      round 1
+                                         DAPI_2, H2B, ALYREF, Pol-II-S5P,     round 2
+                                         DAPI_3, Nanog, YAP, XRN2             round 3
+      labels/                        nucleiRaw, cells, cyto, membrane, embryoRaw, Pol-II-S2P_foci,
+                                     from round 1, cut to this field
+    1/                               field FOV_2
+    ...                              5 to 9 embryos per well, 211 images in all
+  B/05/ ...                          30 wells
+```
+
+- **Axes and units** come from the source: `c` channel; `z`, `y`, `x` in
+  micrometers; scale `[1, 1, 0.65, 0.65]` at level 0, doubling in y and x per
+  level, plus a translation at levels 1 to 3 (judgment call 12). Channel names, colors and display windows come from the source's
+  `omero` block, in the source's order.
+- **One image per embryo** (judgment call 3). Each image is the field's
+  1000 × 1000 pixels cut from the source well image, every channel of every
+  round in round order. Field `FOV_n` is image `n - 1`. Each channel keeps its
+  source name, display color, window and `wavelength_id`, and the image's
+  annotations record each channel's round. The well's scene translates each
+  image to its field's position on the stage, in micrometers, from the
+  `FOV_ROI_table`, so a viewer can lay a well out as the source did.
+- **The plate** declares no acquisitions, because each image holds all four
+  rounds. Its attributes record each round's channels, round 3 included, and
+  the acquisitions the source's own plate listed (judgment call 4).
+- **Chunks and shards** (judgment call 5), as (c, z, y, x):
+  - **Images:** chunks of `1 × 1 × 1000 × 1000`, one whole plane of one
+    channel of one field, in shards of `1 × 32 × 1000 × 1000`, about 15 MB.
+    Showing one plane fetches the shard index and one chunk, about 0.5 MB; an
+    embryo volume fetches 9 to 10 whole shards in parallel.
+    At levels 1 to 3 the chunk is that level's whole plane, in the same
+    32-plane shards.
+  - **Labels:** chunks of `1 × 1000 × 1000`, in shards of `271 × 1000 × 1000` that
+    span every plane. A label plane compresses to about 6 KB, so a 10-plane
+    shard would make a label volume cost 28 requests per field for almost no
+    data; a full-depth shard is about 1.6 MB and costs one.
+- **Codec:** blosc zstd level 5 with bitshuffle (judgment call 6).
+- **Empty chunks:** within a field almost nothing is empty. Image planes hold
+  camera noise (values 0 to 8) even outside the embryo, and only label planes
+  above and below the embryo are all zero: 6 of 271 for `nucleiRaw` in one
+  C/02 field. zarr skips writing an all-zero chunk, and it reads back as the
+  fill value, 0.
+- **Root attributes** name the source study, the zip, the preprint and the
+  license, so the store can be traced without this document.
+
+**ROI tables, folded into the layout** (judgment call 7). The source's three
+AnnData tables become structure and attributes rather than tables:
+
+| Source table | Holds | In the store |
+|---|---|---|
+| `FOV_ROI_table` | each field's rectangle on the well image, 5 to 9 rows per well | one image per row; its position becomes the image's translation in the well's scene |
+| `well_ROI_table` | one row: the well image's extent | a provenance attribute on the well group |
+| `embryoRaw_ROI_table` | one row per well: the bounding box of label 1 in `embryoRaw`, which marks every embryo in the well with the same value, so the box spans the well | kept as a well attribute, so nothing the source said is lost; per field, the cut `embryoRaw` label shows where the embryo is |
+
+Each field image keeps, as attributes, the field's source name (`FOV_1` to
+`FOV_9`) and both source positions, `x/y_micrometer` and
+`x/y_micrometer_original`.
+
+**Layouts considered and rejected.**
+
+- **Reference the zip in place.** Each chunk would need a custom codec that
+  inflates raw Deflate, and Arraylake cannot hold virtual references to an
+  HTTPS-only host. The staged copy in R2 fixes the second problem, which is why
+  a virtual store remains an option (judgment call 8).
+- **Copy the blosc-lz4 frames unchanged.** No pixel decode, but the store
+  would be about 1.03 TB, nearly twice the zip.
+- **The source's well image, one image per round.** Each well image is about 96%
+  filler (well C/02 at level 3), and the chunk grid cuts across the fields, so
+  reading one embryo reads two to four partly empty grid cells. In the
+  well-image layout an embryo volume takes about 2.0 s from London even in
+  32-plane shards, against 1.3 s per field (judgment call 3).
+- **pcodec.** On field pixels it compresses 11 to 21% smaller than blosc
+  zstd 5 with bitshuffle, but decodes four times slower (judgment call 6).
+- **Other chunk and shard shapes.** Each layout was costed for six reads
+  (one plane, a whole well at level 3, an xz slice, an embryo volume at
+  levels 0 and 1, all 16 channels of an embryo, and a training patch), from
+  in-region and EU readers, by simulating zarr-python's requests on measured
+  chunk sizes and request times. Small single-plane chunks without shards
+  make volumes and slices 11 to 22 times slower and write 18.8 million
+  objects. Shards of `20 × 2000 × 2000` on the well image fetch parts of
+  neighboring fields: 448 MB for one embryo volume instead of 244 MB. 10-plane
+  shards need three times the requests of 32-plane shards for a volume;
+  full-depth shards turn a volume into one 128 MB request on one connection.
+  Blocks of `8 × 250 × 250` match 32-plane shards for volumes and fetch seven
+  times the bytes to show a plane.
+
+## What has been tested
+
+All measurements were taken on 2026-10-27. Unless the row says otherwise, they
+ran on a laptop in the United States.
+
+| Test | Result |
+|---|---|
+| EBI throughput from AWS London (`eu-west-2`, m6i.2xlarge), 64 MB ranges | 1 connection 17.5 MB/s; 8 connections 170 MB/s; 32 connections 383 MB/s, with 7 of the 32 requests failing; 64 connections 242 MB/s, with 39 of 64 failing. Time to first byte 0.37 s |
+| Aspera from AWS London | Both `fasp.ebi.ac.uk` and `fasp-beta.ebi.ac.uk` reject the public key shipped with the Aspera 3.9.6 client ("failed to authenticate") |
+| Opening the zip with `fsspec`'s zip filesystem and `zarr` | Works with no custom code. Python's `zipfile` inflates each member and zarr reads ordinary blosc chunks. |
+| Fetching the zip's index (the last 200 MB of the file) | 185 to 216 s with 8 parallel ranged requests; a single request timed out |
+| Reading one 1000 × 1000 plane after opening | 28.7 s |
+| EBI throughput, one connection | about 136 KB/s on a 20 MB range |
+| EBI throughput, 8 parallel connections | 16 MB in 11 s, about 1.5 MB/s; individual connections 180 to 875 KB/s |
+| Raw-Deflate codec (earlier prototype) | A codec that calls `zlib.decompress(data, -15)` decodes a real chunk identically to inflate followed by blosc |
+| Are the rounds aligned? | Yes. Each round's DAPI against round 1, at pyramid level 3, on wells C/02 and E/05: zero shift, pixel correlation 0.975 to 0.999 |
+| Padding | 1,155,683 chunks have the all-zero frame size (80,897 B for images, 161,455 B for labels); one decoded chunk is all zeros |
+
+**Compression on 12 level-0 chunks from well C/02** (240 MB raw):
+
+| Codec | Ratio | Encode speed |
+|---|---|---|
+| blosc lz4 with shuffle (the source's chunks) | 10.7× | |
+| The zip as published (Deflate over blosc-lz4) | 15.6× | |
+| **blosc zstd 5, bitshuffle** | **17.7×** | **1,410 MB/s** |
+| blosc zstd 9, bitshuffle | 18.6× | 84 MB/s |
+| zstd 19 | 17.6× | 17 MB/s |
+| pcodec 8 | 16.4× | 474 MB/s |
+| pcodec 12 | 16.7× | 440 MB/s |
+
+All 12 chunks come from one well, and 11 of them are at least 64% zeros.
+Inside a field of view, where the embryo is, the data compresses much less:
+
+**Codecs on field pixels** (31 planes of one field of view, well C/02,
+round 1, every ninth plane; embryo pixels, no filler):
+
+| Codec | DAPI | β-catenin | Encode | Decode |
+|---|---|---|---|---|
+| blosc lz4, shuffle (the source's) | 2.7× | 2.7× | 1.5–3.6 GB/s | 4.5–4.7 GB/s |
+| blosc zstd 3, bitshuffle | 4.4× | 4.5× | 1.6–2.2 GB/s | 3.8–4.7 GB/s |
+| **blosc zstd 5, bitshuffle** | **4.4×** | **4.6×** | 0.9–1.2 GB/s | 5.8 GB/s |
+| blosc zstd 9, bitshuffle | 4.6× | 4.7× | 17 MB/s | 1.2–1.4 GB/s |
+| pcodec 8 | 5.6× | 5.1× | 0.3 GB/s | 1.4 GB/s |
+| pcodec 12 | 5.7× | 5.1× | 0.3 GB/s | 1.5–1.6 GB/s |
+
+**Compression of one whole field of view** (well C/02, round 1, all 271
+planes, 1000 × 1000 pixels):
+
+| Array | blosc lz4 (source) | blosc zstd 5, bitshuffle |
+|---|---|---|
+| DAPI | 2.6× | 4.3× |
+| β-catenin | 2.7× | 4.6× |
+| `nucleiRaw` label (uint32) | 127× | 622× (656× with byte shuffle) |
+
+The zstd ratio is the same, 4.3 to 4.6×, for every chunk shape tried except
+single planes of 250 × 250, which drop to 3.8 to 3.9× and encode 10 to 40 times
+slower. The store-size estimate follows from these: field data shrinks 1.65×
+against the source's lz4, so about 850 GB of non-empty lz4 image frames become
+about 515 GB, and the labels about 11 GB.
+
+**Read latency from the managed bucket** (median of 12 ranged GETs):
+
+| Reader | 256 KiB | 4 MiB | 64 requests of 4 MiB at once |
+|---|---|---|---|
+| AWS us-east-1 | 96 ms | 125 ms | 584 MB/s |
+| AWS London | 235 ms | 390 ms | 259 MB/s |
+| A laptop in the United States | 132 ms | 382 ms | 57 MB/s |
+
+EU readers pay 250 to 400 ms per request, so the request count of a read
+matters more than its bytes. zarr-python keeps 10 requests in flight by
+default; from London, 64 in flight doubled throughput.
+
+**Not yet tested:**
+
+- Sustained transfer speed. The London test ran for seconds per setting;
+  whether EBI holds 170 MB/s or more for an hour is unmeasured.
+- Read times on the real store. The layout comparison is a simulation of
+  zarr-python's requests on measured chunk sizes and latencies.
+- Conversion throughput on Coiled, and the cost of committing about 5,908
+  arrays to Arraylake.
+- That every field's level-0 chunks are present. Only one image's chunk
+  pattern has been compared against its `FOV_ROI_table`.
+
+## Judgment calls
+
+1. **Stage the zip in R2 first.** Converting straight from EBI would avoid
+   storing the zip, but any rerun of the conversion (a bug, a different chunk
+   shape or codec) would pull 591 GB from EBI again. R2 charges nothing for
+   egress, so reruns from R2 cost only compute. *Decided: stage.*
+
+2. **Transfer method.** EBI offers HTTPS, FTP, Aspera and Globus. HTTPS and
+   FTP run over TCP, whose throughput per connection falls with distance: one
+   connection gives about 136 KB/s to the United States and 17.5 MB/s to AWS
+   London, the region nearest EBI's Hinxton site. Aspera rejected the public
+   client key, and Globus needs an interactive login and an endpoint of our
+   own, so neither is needed once HTTPS is this fast. *Decided: one VM in
+   AWS London fetches 64 MiB ranges over 8 connections and uploads each as one
+   part of an S3 multipart upload, with no local disk.* The design follows
+   from three requirements:
+   - **Resume.** The upload's state lives in the bucket. A rerun finds the
+     unfinished upload, lists the parts already stored and sends the rest.
+   - **Be kind to EBI.** 8 connections, about a third of the point where EBI
+     starts refusing requests and enough for about 170 MB/s. Failures back off
+     exponentially with random jitter up to 5 minutes and honor
+     `Retry-After`; five consecutive failures pause every request for 5
+     minutes. Requests carry a User-Agent naming the copy and Earthmover.
+   - **Check every byte.** R2 rejects a part whose `Content-MD5` does not
+     match, and each part's ETag must equal the MD5 that was sent.
+   Progress prints every minute, and a `--status` mode reads the stored parts
+   from the bucket from anywhere.
+
+3. **Plate layout.** The source stores each round as a
+   well-sized image holding the well's 5 to 9 fields of view at their stage
+   positions; everything between them was never imaged and is exactly 0. The
+   chunk grid starts at the well image's corner, so each field straddles two to four
+   grid cells. *Decided: one image per embryo, the structure OME-Zarr's HCS
+   layout provides for fields, holding every round's channels.* An image allows
+   only one axis that is neither space nor time, so rounds cannot be an axis
+   of their own; the published rounds are already registered to each other, so
+   they share one image as 16 channels, in round order. Every chunk is one plane
+   of one channel, so the same chunks could also serve one image per round, if
+   Icechunk gains a way to share chunk references between arrays
+   (icechunk#2507). Each embryo becomes exactly one
+   grid cell, so every embryo read needs a third of the requests: an embryo
+   volume from London drops from about 2.0 s to 1.3 s (in 32-plane shards),
+   all 16 channels from 29 s to 20 s; the bytes fetched are the same. The cost: Fractal's tools expect one well image per
+   round and will not work on the store as written; the labels must be cut
+   per field and shifted to each field's origin, and the cut verified against
+   the well image; and laying a whole well out depends on the
+   viewer applying each image's translation, which is untested. The
+   rejected alternative keeps the source's well image, with the same chunk
+   and shard shapes.
+
+4. **Round 3.** Every well holds four images, but the plate lists
+   acquisitions 0 to 2 and each well lists images 0 to 2. A reader that
+   follows the HCS metadata never finds round 3. Round 3 is also not the
+   same experiment in every well: in 21 wells it stains Nanog, YAP and XRN2,
+   and in 9 it restains three markers from an earlier round (the table under
+   "The archive"). *Decided: every image holds all four rounds' channels,
+   named from its own well's `omero` metadata, never from a plate-wide list;
+   the plate's attributes record each well's round-3 markers; record the
+   omission and the per-well round 3 in `LAYOUTS.md` for the authors.*
+
+5. **Chunks and shards.** Object stores bill per object written: R2 charges
+   $4.50 per million writes, so one-plane chunks without sharding would write
+   about 5.0 million objects, about $23, and would leave millions of small objects to list and garbage-collect. Sharding packs many chunks
+   into one object with an index at its end, so a reader still fetches one
+   small chunk by byte range. The deciding criterion is how reads feel to the
+   tutorial's users, in molab next to the data and on laptops in Europe; write
+   cost is under $4 for any sharded layout. *Decided: for images,
+   `1 × 1 × 1000 × 1000` chunks, one whole plane, in shards of
+   `1 × 32 × 1000 × 1000`; for labels, `1 × 1000 × 1000` chunks in shards that
+   span all 271 planes.* Single-plane chunks keep viewing a plane to two small requests;
+   32-plane shards make an embryo volume 9 to 10 requests of about 15 MB that
+   download in parallel. Shallower 10-plane shards need three times the
+   requests; full-depth shards would make a volume one 128 MB request on one
+   connection, about 5 s from London; 3D blocks of `8 × 250 × 250` match
+   32-plane shards for volumes and fetch seven times the bytes to show a plane.
+   With one image per field the store writes about 126,600 objects. Step 3
+   builds one well in this layout and again in 10-plane shards, and times real reads from in-region and from London before the
+   full run. The tutorial should set
+   `zarr.config.set({"async.concurrency": 64})`, which helps EU readers more
+   than any layout does.
+
+6. **Codec.** *Decided: blosc zstd 5 with bitshuffle.* On field pixels
+   pcodec 8 compresses better (5.6× against 4.4× for DAPI, 5.1× against 4.6×
+   for β-catenin) but decodes at 1.4 GB/s against 5.8 GB/s, and on fast
+   connections decode speed matters more than the bytes saved. blosc is also
+   one of the codecs the Zarr v3 core specification defines, so every Zarr
+   implementation reads it, including browser viewers; pcodec is not. Higher
+   zstd levels gain little: level 9 reaches 4.6× and 4.7× and encodes at
+   17 MB/s. Measure the label arrays before
+   the full run; they may compress better with a different setting.
+
+7. **ROI tables.** The source's three tables describe the layout rather than
+   the biology: where fields sit on the well image, the well image's extent,
+   and one bounding box per well around a mask in which every embryo has the
+   same label value. Once each field is its own image positioned by a 0.6
+   scene, each table is either structure or derivable. *Decided: fold
+   them into the layout and keep their values as attributes*, so no Iceberg
+   tables are written. The repository's rule for tabular data does not apply,
+   because no table remains.
+
+8. **A virtual store over the staged zip.** With the zip in R2 and the
+   raw-Deflate codec, a virtual Icechunk store could reference it within a day,
+   before the conversion. It would need the custom codec to read, and it would
+   be replaced by the native store. *Decided: not now; explore the staged
+   zip directly with `fsspec` and `zarr`, which works today.*
+
+9. **The staged zip after conversion.** *Decided: keep it until the
+    native store passes verification, then delete it.* EBI remains the
+    archive of record.
+
+10. **Destination.** The store goes to `earthmover-biology/zebrafish-3d-4i`
+    on the org's Arraylake managed storage, a Cloudflare R2 bucket. The zip is
+    staged in the same bucket at
+    `files/ingest-staging/bioimage-archive/S-BIAD3228/AssayPlate_Greiner_655090.zarr.zip`,
+    which Arraylake addresses as
+    `arraylake://earthmover-biology/bucket/earthmover-managed/files/ingest-staging/...`.
+    Repos live under `{id}_{name}/` prefixes, so `files/` cannot collide with
+    one, and Icechunk's garbage collection never leaves a repo's prefix.
+
+11. **OME-Zarr 0.6.** This ingest writes 0.6 (decided 2026-10-27), because cutting each well image
+    into per-field images needs a way to keep each field's position, and 0.6's
+    coordinate transformations provide one. Each field image keeps its own
+    `intrinsic` coordinate system; a `scene` above a well's images declares a
+    `well` coordinate system, listed first so viewers display it by default,
+    and maps each image into it with a translation: the field's position on the
+    source well image, from its `FOV_ROI_table` row. All four rounds of a field
+    get the same translation, which records that the published rounds are
+    aligned. Open before the trial: whether one group may carry both the HCS
+    `well` metadata and a `scene`, which viewers display a scene, and why each
+    field's `x_micrometer_original` is about half its `x_micrometer`.
+    `minus80.ome` already builds and validates 0.6 image and label metadata.
+
+12. **Pyramid levels 1 to 3.** The source computed its lower levels on the
+    whole well image, and most field origins do not fall on a whole pixel
+    there: of 211 fields, 129 (x) and 120 (y) do at level 1, 57 and 48 at
+    level 3. A field cut from a lower level therefore cannot be exactly half,
+    a quarter or an eighth of 1000 pixels. *Decided: copy the source's
+    pixels unchanged for the first commit*, so every value in the store is
+    the authors'. Each field's level-k array spans the source pixels its
+    level-0 field touches, `floor(origin / 2^k)` to `ceil((origin + 1000) / 2^k)`:
+    500 or 501 pixels at level 1, 250 or 251 at level 2, 125 or 126 at level 3,
+    and no window runs past its well image's edge. Each level's
+    multiscales entry adds a translation of up to one coarse pixel, so it lines
+    up with level 0. The edge pixels average the field with the zero filler
+    around it, as they do in the source. A later commit rebuilds levels 1 to 3
+    from each field's level 0, with exact shapes and no fringe; the first
+    commit stays in the history.
+
+13. **Damaged source chunks.** The zip holds 1,244 chunk members as empty
+    files, in every well (14 to 94 per well), 139 of them level-0 image
+    chunks inside embryos; and some chunks are cut short, such as
+    `C/02/1/labels/Pol-II-S2P_foci/1/6/0/3`, which holds 16,384 bytes of a
+    162,569-byte Blosc frame. *Decided: read each as the fill value, 0, as
+    the repository's rule for a unit with no stored bytes requires, and list
+    it on the image whose field it falls in
+    (`annotations.empty_source_chunks`, `annotations.unreadable_source_chunks`).*
+    Report both to the authors and the BioImage Archive, with round 3.
+
+14. **How the converter reads the source.** *Decided 2026-10-28: read each
+    well's region of the zip once, in file order, as 64 MiB range requests;
+    parse each member from the bytes as they arrive; and process one channel
+    of one array at a time while the next ones download.*
+
+    **Why.** The first one-well runs read each zip member with its own
+    request, through zarr, one field, level and channel at a time: 30,184
+    requests for well C/02, 10 to 30 s per level-0 channel, about 1.5 hours a
+    well, with the network idle between bursts. Before that, a metadata walk
+    read 9,458 documents one at a time (160 to 246 s), 6,720 of them the
+    empty skeletons of AnnData tables.
+
+    **What the zip's layout allows.** Each well is one contiguous region of
+    the zip (C/02 is bytes 0 to 20.3 GB), and every metadata document a well
+    needs lies inside that region. Within a well the members come one array
+    at a time (a *run*), in the order rounds 2, 3, 0, 1; within a run, one
+    channel at a time, in the order 2, 3, 0, 1; within a channel, z indices
+    in a fixed order that is neither numeric nor alphabetical (19, 17, 25, 6,
+    …). The same order holds in all 120 level-0 image runs.
+
+    **The index.** The zip's central directory (the last 178.7 MB of the file)
+    is the only index: one row per member with its name, the offset of its
+    local header, its compressed and uncompressed sizes, its method and its
+    CRC. It is read once and kept as a Parquet file. The converter does not
+    need each member's exact data offset in advance, because it reads every
+    member's local header from bytes it has already fetched. The VirtualiZarr
+    zip parser and `index_with_data_descriptors` (which computed exact data
+    offsets from the gaps between members, a need only virtual references
+    have) are removed from this path.
+
+    **Fetching and parsing stay apart.** Fetching is obstore's job, through
+    `minus80.core.fetch` (`object_size`, `read_range`, `iter_ranges`), with
+    the URL and an `ObjectStoreRegistry`, the same pair VirtualiZarr parsers
+    receive; the R2 copy, EBI and a local fixture differ only in the registry.
+    Code that fetches never looks inside the bytes, and code that parses never
+    fetches. On top of that, three layers, each knowing only its own format:
+
+    | Layer | Where | Does |
+    |---|---|---|
+    | Zip streaming | `minus80.parsers.zip` | Turns fetched ranges into (member name, bytes) as they arrive, including a member cut by a range's end, reading each member's local header from the bytes. Generic for any zip. |
+    | Zipped-Zarr chunks | `minus80` | Turns a member's name into an array path and chunk index, and decodes its bytes with that array's `.zarray` settings; checks each `.zarray` against what the caller expects. Generic for any zipped Zarr v2 store. |
+    | This dataset | the ingest | Knows the plate: which grid cells the fields need, the rounds' shared field positions, cropping into per-field buffers, mapping each round's channels, writing through zarr and committing per well. The pipeline that overlaps fetching, decoding and uploading also lives here until a second archive needs it. |
+
+    **One well, in order.** Numbers are for C/02 (7 fields, 20.3 GB) from R2
+    in-region, measured where marked and modeled otherwise.
+
+    1. *Plan from the index.* Before the first well, read the plate's own
+       documents (a few small requests), because the list of wells comes
+       from them. Then cut the well's region into 303 ranges of 64 MiB, in
+       file order.
+    2. *Fetch.* 64 range requests in flight from R2 (16 from EBI, its limit),
+       in file order. The fetcher queues at most two finished channel runs
+       that processing has not taken. All 303 requests: about 35 s at the
+       measured 584 MB/s.
+    3. *Parse as ranges arrive.* Read members from their local headers.
+       Metadata is decoded at once: each round's `.zattrs` (channel names,
+       colors, scales) arrives just before that round's chunks. Field
+       positions come from the first round's `FOV_ROI_table`, 0.23 to 0.41 GB
+       into the well, inside the first wave of requests. Placing fields also
+       needs each level's real shape, because a field's window is clipped at
+       the level's edge, and each array's `.zarray` arrives halfway through
+       its chunks. So the first round's runs wait in memory, compressed,
+       until level 0's first `.zarray` arrives partway through the first
+       level-0 run: about 2 GB. Runs that wait are capped at 4 GB
+       compressed (configurable); past the cap the well fails with an error
+       naming the metadata still missing. All four rounds use the first
+       table's positions, because the rounds' tables agree field by field.
+       Before the commit, every round's table is compared with the first,
+       matching rows by field name since their order differs, and the fields
+       each run was cut into are compared with them; a mismatch stops the
+       well. An array's chunks may be decoded with the encoding of another
+       array of the same level and kind before its own `.zarray` arrives;
+       each array's own `.zarray` is checked against the encoding used, and
+       an image chunk must hold exactly one channel.
+    4. *Process each channel run* (one channel of one array; a label array is
+       one unit) once its last member has arrived. Waiting for the whole run
+       costs nothing: because of the z order, no destination shard is
+       complete before 69% of its run has arrived (median 88%, measured on
+       `C/02/2/0`, channel 2). On a thread pool, for each chunk in a grid cell
+       a field touches: inflate, check, Blosc-decode, and copy each field's
+       window into that field's buffer. Empty members read as 0 and are
+       recorded (decision 13). Per well: 26,675 chunks decoded, 658 GB of
+       source pixels to keep 141 GB, about 300 CPU-seconds on one M5 core.
+    5. *Write.* One zarr assignment per field and channel, which zarr encodes
+       as 9 shards of 32 planes (labels: one full-depth shard) and uploads:
+       4,200 shards, about 18.5 GB, about 345 CPU-seconds on one M5 core.
+       Four fields are assigned at once and zarr's `async.concurrency` is
+       32 (zarr's default is 10); both are options, to be tuned on the
+       first one-well VM run.
+       The pool processes channel run *n* while run *n − 1* uploads and runs
+       *n + 1* and *n + 2* download.
+    6. *Commit.* One Icechunk commit per well, with the well's metadata, as
+       now. The plate's metadata comes last, built from the plate documents
+       read in step 1. A heartbeat line every 30 s names the stage (streaming,
+       checking, writing metadata, committing) with bytes fetched and the
+       rate, chunks decoded, fields uploaded and memory.
+
+    **Peak memory** (modeled) about 24 GB for C/02 and about 29 GB for a
+    9-field well. At the peak the copy holds four compressed channel runs
+    (up to 1.3 GB each): one decoding, up to two queued and one being
+    assembled. It also holds two channel runs' field buffers, one decoding
+    and one uploading, largest for a level-0 label array (9.8 GB for 9
+    fields); the 64 range requests in flight (64 MiB each, 4.3 GB); and the
+    cutter's buffer, under one range. The runs waiting for metadata add up
+    to 2 GB at the start of a well, when the field buffers are small, and
+    never more than the 4 GB cap. A 16-vCPU m6i has 64 GB.
+
+    **Time.** About 650 M5-core-seconds of CPU per well, so the conversion
+    is limited by CPU, not the network: roughly 2 minutes a well on 16
+    vCPUs, under a minute on 64, if a cloud vCPU does about 0.6 of an M5
+    core's work. Unmeasured: cloud core speed, upload rate to R2, and commit
+    cost; the first one-well VM run measures all three. From EBI the fetch
+    takes about as long as the CPU work (55 to 120 s a well at the measured
+    170 to 383 MB/s).
+
+    **Failure.** A well is one commit, so a failure costs at most one well
+    (about 2 minutes). The run reports the failed well with its error and
+    time, goes on to the next, writes the plate's metadata listing only the
+    committed wells, and exits nonzero listing the failed ones. A failed
+    well's uploaded shards stay in storage, uncommitted, until garbage
+    collection, and a rerun starts at the first uncommitted well.
+
+    **Rejected:**
+
+    - *One request per member, through zarr*: estimated at 1.5 hours a well
+      from a run that copied one embryo in 13 minutes before its VM stopped.
+    - *Fetching the ranges that hold metadata first*: file order already puts
+      the first round's field table in the first wave of requests, and one
+      table serves all four rounds.
+    - *A separate metadata cache or walk*: every document a well needs is
+      inside its own region, so the stream carries it at no extra request.
+    - *Writing each shard as soon as its chunks arrive*: the z order makes
+      every shard complete late, so tracking readiness per shard buys
+      nothing.
+    - *Exact data offsets from the gaps between members*: only a virtual
+      reference needs them; a copy reads the local headers it has fetched.
+    - *Building shard bytes directly instead of writing through zarr*: kept
+      in reserve if measurement shows zarr's encode and upload cannot keep
+      the pool busy.
+
+    **Later, if CPU dominates:** Blosc can decode only the blocks that cover
+    a field's rows, which could roughly halve the decoding.
+
+15. **Improvements after the copy.** The first commit on `main`, tagged
+    `source-copy`, is a faithful copy: every pixel is the authors', and every
+    piece of metadata the source gives is kept as the source gives it,
+    including colors that are hard to tell apart. *Proposed: add each
+    improvement in decisions 16 to 19 as its own commit on `main`, in that
+    order.* Decisions 16 to 18 change metadata or add small derived arrays
+    and copy no pixels; decision 19 rewrites levels 1 to 3. Alongside them,
+    the repository gets a description on Arraylake, which is empty today.
+
+    Only major checkpoints get a tag: `source-copy` now, and one after
+    decision 19, when the store has its rebuilt levels. Every commit instead
+    describes itself, so the history alone says what happened. The message's
+    first line names the change; its body says what changed, why, and how it
+    was checked. The commit's metadata holds the same facts as fields under
+    `change`:
+
+    | Field | Example (decision 17) |
+    |---|---|
+    | `plan_decision` | `17` |
+    | `summary` | one sentence: what changed |
+    | `reason` | one sentence: why |
+    | `kind` | `metadata` (no chunks written) or `pixels` |
+    | `scope` | which nodes it touched, as a pattern and a count: `*/*/*/labels/*`, 1,266 label images |
+    | `chunks_written` | `0` |
+    | `details` | change-specific values: the shift added to each label level's y and x, in micrometers |
+    | `checked` | what was read back and what it showed |
+    | `parent_tag` | the last tag below this commit: `source-copy` |
+    | `code` | the git commit of the script that made the change, and the script's path |
+
+
+16. **Channel colors.** The source gives each channel an `omero` color, and
+    several channels in a round share similar ones, so a viewer that applies
+    them shows the four stains of a round as hard-to-separate shades.
+    *Proposed: within each round, DAPI is blue and the other three are
+    green, magenta and yellow,* so any one round displays with four
+    distinguishable colors. The source's color stays in each channel's
+    annotation as `source_color`. Display windows are unchanged.
+
+17. **Label level translations.** Image levels 1 to 3 are 2 × 2 means, so
+    coarse image pixel `j` stands for the center of its block. Label levels
+    keep one pixel of each block instead: on B/02/0 and E/04/3, `cells` levels
+    1 to 3 match the block's bottom-right pixel exactly on every labeled
+    pixel of plane 135, and no other choice does. The labels now carry the
+    image's translations, which places level k (2^k − 1)/2 level-0 pixels off:
+    0.33 µm at level 1, 0.98 µm at level 2 and 2.3 µm, about half a coarse
+    pixel, at level 3. *Proposed: add (2^k − 1)/2 × 0.65 µm to each label
+    level's y and x translation.* Only the metadata changes; the label
+    pixels stay the source's.
+
+18. **A label image for missing source data.** Each image already lists the
+    damaged source chunks inside its field (decision 13), but a viewer
+    cannot show a list. *Proposed: a label image `missing_source` under each
+    image's `labels`, (z, y, x) uint16 with the image's levels and
+    transforms, in which each damaged source chunk's footprint inside the
+    field carries its own label value; `image-label.properties` gives each
+    value's channel, source member and reason (empty or truncated).* The
+    label spec allows this: a label image is any integer image in its
+    parent's coordinate system, and `properties` takes any keys per label
+    value. It is built from the existing lists and reads no pixels.
+
+19. **Rebuilt levels and their shards.** Decision 12 copied the source's
+    coarse pixels, so each field's level is a pixel wider than 1000 / 2^k
+    in most fields, carries its own offset, and has an edge that averages the
+    field with the zero filler around it. *Proposed: rebuild levels 1 to 3 of
+    every image from its level 0, as 2 × 2 means, giving exactly 500, 250
+    and 125 pixels and one translation per level shared by every image;
+    rebuild the label levels by keeping one pixel per block, as the source
+    does, with that pixel's translation.* The commit also changes the coarse
+    levels' shards. A 32-plane shard at level 3 holds about 1 MB before
+    compression, so reading an embryo volume takes 9 small requests; one
+    full-depth shard per channel holds about 8.5 MB and takes one. At level
+    2 a full-depth shard holds about 34 MB, so whether it beats 32-plane
+    shards is measured first, with the reads of decision 5. The cost: the
+    coarse pixels are ours rather than the authors', and `source-copy` keeps
+    theirs.
+
+## Steps, scope and risk
+
+| Step | What it does | Writes | Approval |
+|---|---|---|---|
+| 1 | Speed test from AWS London: parallel HTTPS and Aspera | Nothing kept | **Done** 2026-10-27 |
+| 2 | Write and delete a one-byte test object to confirm the token can write outside a repo; then transfer the zip, checking each part's MD5, and the final size against EBI's | Managed bucket: one 591 GB object | Yes |
+| 3 | Convert one well three times, reading the staged zip with the streaming converter (decision 14): `main` (16 channels per embryo, 32-plane shards), `per-round` (one image per embryo and round), `shards-10` (10-plane shards); time the six reads from in-region and from London; open all three in napari, with a domain expert | Arraylake branches | Yes (repo creation) |
+| 4 | Full conversion on Coiled, reading R2 | Arraylake `main` | Yes |
+| 5 | Verify: metadata gates on every array; pixels against the zip on a sample of chunks from every well, round and level, levels 1 to 3 compared exactly | Nothing | |
+| 6 | Write `REPORT.md` and `LAYOUTS.md`; delete the staged zip | R2 delete | Yes |
+
+**Costs** (R2 prices from [Cloudflare](https://developers.cloudflare.com/r2/pricing/)):
+
+| Item | Estimate |
+|---|---|
+| Speed test | under $1 (2 minutes of an m6i.2xlarge at $0.38 an hour) |
+| Transfer VM | about $1 (an hour or two of the same VM) |
+| AWS egress, transfer: the VM uploads the 591 GB zip to R2, outside AWS | about $53 (at about $0.09/GB) |
+| AWS egress, conversion: Coiled workers write the 520 GB store to R2 | about $47; reading the zip from R2 into AWS is free |
+| R2 writes: one zip upload, about 126,600 shards | under $1 |
+| R2 storage while both exist (591 GB zip plus about 520 GB store) | about $17 a month |
+| R2 storage after the zip is deleted | about $8 a month |
+| Coiled conversion | unmeasured; priced after step 3 |
+
+**Scope.** In: all 30 wells, four rounds, four levels, the six segmentations
+and the values of the three ROI tables, as structure and attributes. Out: the per-object feature tables the preprint
+describes, which are not in this deposit, and any re-registration of the
+rounds.
+
+**Risks.**
+
+- **EBI throughput.** The London rates come from seconds-long bursts. EBI may
+  throttle a sustained transfer. The transfer backs off, logs its rate every
+  minute, and resumes from the parts already stored if it stops.
+- **An abandoned upload.** Parts of an unfinished multipart upload are billed
+  as storage until the upload completes or is aborted. If the transfer is
+  given up, abort the upload.
+- **The 520 GB estimate** comes from one field of view's compression applied
+  to the zip's lz4 frames. Step 3 measures a whole well.
+- **Commit cost.** One image per embryo means about 5,908 arrays, each with
+  its own manifest: 844 image arrays (211 images × 4 levels) and 5,064 label
+  arrays (211 fields × 6 labels × 4 levels). The well-image layout would have
+  1,200. Time a commit against Arraylake in step 3.

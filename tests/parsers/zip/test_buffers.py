@@ -6,9 +6,8 @@ import numpy as np
 import pytest
 from obstore.store import MemoryStore
 
-from minus80.parsers.zip.buffers import (end_of_central_directory, read_member, scan_local_headers, walk_archive,
-                                 walk_local_headers)
-from minus80.parsers.zip.members import member_bytes
+from minus80.parsers.zip.buffers import read_member, scan_local_headers, walk_archive, walk_local_headers
+from minus80.parsers.zip.structures import end_of_central_directory, inflate
 
 
 def _archive(members: dict[str, bytes], compression=zipfile.ZIP_STORED, force_zip64=False) -> bytes:
@@ -120,7 +119,7 @@ def test_walk_archive_across_pieces(compression):
     with zipfile.ZipFile(io.BytesIO(archive)) as zf:
         assert [w.header_offset for w in walked] == [i.header_offset for i in zf.infolist()]
     for w in walked[1:]:
-        assert member_bytes(bytes(w.data), w.member.entry) == MEMBERS[w.member.name]
+        assert inflate(bytes(w.data), w.member.entry.method) == MEMBERS[w.member.name]
 
 
 def test_walk_archive_refuses_an_end_inside_a_member():

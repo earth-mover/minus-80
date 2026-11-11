@@ -131,3 +131,24 @@ def test_label_axis_types_come_from_dimensions():
                            scale={"fov": 1, "y": 1, "x": 1},
                            dimensions={"fov": {"type": "fov"}})
     assert _axes(attrs, vo.DEFAULT_VERSION)[0] == ("fov", "fov")
+
+
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+def test_levels_given_outright_are_written_as_given(version):
+    shapes = [(3, 1000, 2000), (3, 501, 1001)]
+    attrs = vo.image_attrs(**{**PYRAMID, "level_shapes": shapes}, version=version,
+                           level_scales=[{"c": 1, "y": 0.25, "x": 0.25}, {"c": 1, "y": 0.5, "x": 0.5}],
+                           level_translations=[{"c": 0, "y": 0, "x": 0}, {"c": 0, "y": -0.125, "x": 0.125}])
+    level = _transforms(attrs, 1)
+    if version == "0.6":
+        (sequence,) = level
+        level = sequence["transformations"]
+    assert level[0]["scale"] == [1, 0.5, 0.5]
+    assert list(level[1]["translation"]) == [0, -0.125, 0.125]
+
+
+def test_level_scales_must_start_at_scale():
+    with pytest.raises(ValueError, match="level 0's scale"):
+        vo.image_attrs(**PYRAMID, level_scales=[{"c": 1, "y": 1, "x": 1}, {"c": 1, "y": 1, "x": 1}])
+    with pytest.raises(ValueError, match="1 level scales for 2 levels"):
+        vo.image_attrs(**PYRAMID, level_scales=[{"c": 1, "y": 0.25, "x": 0.25}])

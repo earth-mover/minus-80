@@ -277,15 +277,35 @@ _BUILDERS = {
 }
 
 
+def _per_level(dims, level_shapes, values, what):
+    """``values``, one per-axis mapping per level, as lists in ``dims`` order."""
+    if len(values) != len(level_shapes):
+        raise ValueError(f"{len(values)} level {what}s for {len(level_shapes)} levels")
+    for i, v in enumerate(values):
+        if missing := set(dims) - set(v):
+            raise ValueError(f"level {i}: no {what} given for axes {sorted(missing)}")
+    return [[v[d] for d in dims] for v in values]
+
+
 def _multiscale(*, name, dims, level_shapes, scale, units, downsampling,
-                description, version, translation=None, dimensions=None):
+                description, version, translation=None, dimensions=None,
+                level_scales=None, level_translations=None):
     if version not in VERSIONS:
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, not {version!r}")
     missing = set(dims) - set(scale)
     if missing:
         raise ValueError(f"no scale given for axes {sorted(missing)}")
-    scales = list(_level_scales(dims, level_shapes, scale))
-    if translation is None:
+    if level_scales is None:
+        scales = list(_level_scales(dims, level_shapes, scale))
+    else:
+        scales = _per_level(dims, level_shapes, level_scales, "scale")
+        if scales[0] != [scale[d] for d in dims]:
+            raise ValueError(f"level 0's scale {scales[0]} is not scale {dict(scale)}")
+    if translation is not None and level_translations is not None:
+        raise ValueError("give translation or level_translations, not both")
+    if level_translations is not None:
+        translations = _per_level(dims, level_shapes, level_translations, "translation")
+    elif translation is None:
         translations = [None] * len(scales)
     else:
         missing = set(dims) - set(translation)
@@ -313,6 +333,8 @@ def image_attrs(
     version: str = DEFAULT_VERSION,
     translation: Mapping[str, float] | None = None,
     dimensions: Mapping[str, Mapping] | None = None,
+    level_scales: Sequence[Mapping[str, float]] | None = None,
+    level_translations: Sequence[Mapping[str, float]] | None = None,
 ) -> dict:
     """Build the validated ``ome`` attributes for a multiscale image.
 
@@ -327,6 +349,14 @@ def image_attrs(
     ``dimensions`` is level 0's ``dimensions`` attribute, which states each
     axis's type; :func:`axis_types` says how an axis it leaves out is typed.
 
+    ``level_scales`` and ``level_translations`` give each level's pixel size
+    and first pixel center outright, one per-axis mapping per level, for levels
+    whose geometry does not follow from their shapes: a window cut from a
+    coarser level of a larger image can be a pixel wider than level 0 divided
+    by the factor, and start part of a pixel off level 0's corner. Level 0's
+    entry in ``level_scales`` must equal ``scale``. ``level_translations``
+    replaces ``translation``.
+
     ``downsampling`` and ``description`` record how the levels were produced;
     for a referenced pyramid they describe the source file's own levels.
 
@@ -340,7 +370,8 @@ def image_attrs(
     multiscale = _multiscale(name=name, dims=dims, level_shapes=level_shapes,
                              scale=scale, units=units, downsampling=downsampling,
                              description=description, version=version,
-                             translation=translation, dimensions=dimensions)
+                             translation=translation, dimensions=dimensions,
+                             level_scales=level_scales, level_translations=level_translations)
     if omero is not None:
         omero = Omero.model_validate(omero)
     attrs = _BUILDERS[version].image(version=VERSIONS[version], multiscales=[multiscale],
@@ -364,6 +395,8 @@ def label_attrs(
     colors: Sequence[Mapping] | None = None,
     properties: Sequence[Mapping] | None = None,
     dimensions: Mapping[str, Mapping] | None = None,
+    level_scales: Sequence[Mapping[str, float]] | None = None,
+    level_translations: Sequence[Mapping[str, float]] | None = None,
 ) -> dict:
     """The ``ome`` attributes for a label image beside the image it segments.
 
@@ -382,12 +415,14 @@ def label_attrs(
     value. Pass them only when the source states them, such as a DICOM
     segment's recommended display colour and its coded name.
 
-    ``dimensions`` states each axis's type, as for :func:`image_attrs`.
+    ``dimensions``, ``level_scales`` and ``level_translations`` are as for
+    :func:`image_attrs`.
     """
     multiscale = _multiscale(name=name, dims=dims, level_shapes=level_shapes,
                              scale=scale, units=units, downsampling="unknown",
                              description=description, version=version,
-                             translation=translation, dimensions=dimensions)
+                             translation=translation, dimensions=dimensions,
+                             level_scales=level_scales, level_translations=level_translations)
     models = _BUILDERS[version]
     label = {"source": models.label_source(image=source_image)}
     if colors is not None:

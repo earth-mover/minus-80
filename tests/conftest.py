@@ -12,7 +12,9 @@ class RangeServer:
     per request. ``short`` drops that many bytes from the end of every ranged
     response, to stand in for a server that answers short. A GET whose range
     starts at or past ``stall_from`` gets no answer until the test ends, to stand
-    in for a server that has stopped responding.
+    in for a server that has stopped responding. The first GET of a range that
+    starts at an offset in ``stall_once`` gets no answer either, while later
+    GETs of it are answered: a server that leaves one request hanging.
     """
 
     def __init__(self):
@@ -20,6 +22,7 @@ class RangeServer:
         self.requests: list[tuple[str, str, str | None]] = []
         self.short = 0
         self.stall_from: int | None = None
+        self.stall_once: set[int] = set()
         self.released = threading.Event()
         self.url = ""
 
@@ -53,6 +56,10 @@ def _handler(server: RangeServer):
                 lo, hi = rng.removeprefix("bytes=").split("-")
                 start, end = int(lo), min(int(hi), len(data) - 1)
                 if server.stall_from is not None and start >= server.stall_from:
+                    server.released.wait()
+                    return
+                if start in server.stall_once:
+                    server.stall_once.discard(start)
                     server.released.wait()
                     return
             body = data[start:end + 1]

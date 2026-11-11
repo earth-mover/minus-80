@@ -15,6 +15,7 @@ to a copy of :data:`GATES` and passes the whole table to :func:`run_gates`.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 
 import numpy as np
@@ -108,6 +109,17 @@ def dimension_names(root) -> list[str]:
     return problems
 
 
+def _level_scale(dataset: Mapping) -> list[float]:
+    """A level's scale, from 0.5's list of transforms or 0.6's single transform or sequence."""
+    transforms = dataset["coordinateTransformations"]
+    for t in transforms:
+        steps = t["transformations"] if t["type"] == "sequence" else [t]
+        for step in steps:
+            if step["type"] == "scale":
+                return list(step["scale"])
+    raise ValueError(f"level {dataset.get('path')} has no scale")
+
+
 def physical_size(root) -> list[str]:
     """Level 0 states a pixel size that is real, and could be a microscope's.
 
@@ -122,7 +134,7 @@ def physical_size(root) -> list[str]:
         axes = ms.get("axes") or ms["coordinateSystems"][0]["axes"]
         if not ms.get("datasets"):
             continue
-        scale = ms["datasets"][0]["coordinateTransformations"][0]["scale"]
+        scale = _level_scale(ms["datasets"][0])
         spatial = [(a, s) for a, s in zip(axes, scale) if a["type"] == "space"]
         if all(s == 1.0 for _, s in spatial):
             if any(a.get("unit") for a, _ in spatial):
@@ -206,8 +218,10 @@ def levels_aligned(root, sample: int) -> list[str]:
     """Coarse levels describe the same object in the same place as finer ones.
 
     Two checks. The declared scale of every level must match its shape: a
-    level half the size of level 0 has pixels twice as large, to within a
-    pixel of rounding. That is exact, cheap, and catches a mis-stated scale.
+    level half the size of level 0 has pixels twice as large, to within one of
+    its own pixels. That allows a scanner rounding a level's size, and a level
+    cut from a coarser pyramid that covers one more coarse pixel than its
+    base divides into; a mis-stated scale is off by a factor, not a pixel.
     And each level small enough to read whole must be what the next finer one
     averages down to. That catches a level whose *pixels* are not what its
     metadata says, such as the wrong page or directory, which no arithmetic on
@@ -217,8 +231,7 @@ def levels_aligned(root, sample: int) -> list[str]:
     problems = []
     for name, image in list(images(root).items())[:sample]:
         ms = dict(image.attrs)["ome"]["multiscales"][0]
-        by_path = {d["path"]: d["coordinateTransformations"][0]["scale"]
-                   for d in ms.get("datasets", [])}
+        by_path = {d["path"]: _level_scale(d) for d in ms.get("datasets", [])}
         paths = levels(image)
         if len(paths) < 2:
             continue
@@ -226,8 +239,8 @@ def levels_aligned(root, sample: int) -> list[str]:
         for p in paths[1:]:
             for axis in (-2, -1):
                 expected = base_scale[axis] * base_shape[axis] / image[p].shape[axis]
-                # One pixel of rounding at this level, in physical units.
-                if abs(by_path[p][axis] - expected) > expected / image[p].shape[axis]:
+                # One of this level's pixels, in physical units, as declared.
+                if abs(by_path[p][axis] - expected) > by_path[p][axis] / image[p].shape[axis] * (1 + 1e-9):
                     problems.append(f"{name}/{p}: scale {by_path[p][axis]:.4g} on axis "
                                     f"{axis} but shape implies {expected:.4g}")
         small = [p for p in paths if max(image[p].shape) <= 2048]
@@ -294,7 +307,10 @@ def provenance(root) -> list[str]:
     if session is None:
         return [f"the store is {type(root.store).__name__}, not Icechunk; "
                 f"virtual chunk locations cannot be listed"]
-    located = set(session.all_virtual_chunk_locations())
+    # Listed only once a virtual array turns up: the listing reads every
+    # manifest in the store, and a store copied rather than referenced has
+    # nothing to list.
+    located: set[str] | None = None
     problems = []
     for name, image in images(root).items():
         groups = [("", image)] + [(p, g) for p, g in image.members(max_depth=None)
@@ -307,6 +323,8 @@ def provenance(root) -> list[str]:
                 declared = _declared_sources(array) or _declared_sources(group)
                 if not declared:
                     problems.append(f"{where}: virtual, but neither it nor its group names a source_url")
+                if located is None:
+                    located = set(session.all_virtual_chunk_locations())
                 for url in declared:
                     if url not in located:
                         problems.append(f"{where}: source_url {url} is not among the store's "
@@ -334,9 +352,10 @@ GATES: dict[str, Callable[..., list[str]]] = {
 
 
 def run_gates(root, gates: Mapping[str, Callable[..., list[str]]], context: Mapping) -> int:
-    """Run every gate against ``root``, print a line each, and return how many failed."""
+    """Run every gate against ``root``, print a line each with its time, and return how many failed."""
     failures = 0
     for label, gate in gates.items():
+        started = time.monotonic()
         try:
             problems = gate(root, context)
         except Exception as exc:
@@ -344,7 +363,7 @@ def run_gates(root, gates: Mapping[str, Callable[..., list[str]]], context: Mapp
             # remaining gates still have something to say about the store.
             problems = [f"the check itself raised {type(exc).__name__}: {exc}"[:120]]
         failures += bool(problems)
-        print(f"  {'FAIL' if problems else 'pass'}  {label}")
+        print(f"  {'FAIL' if problems else 'pass'}  {label} ({time.monotonic() - started:.1f} s)", flush=True)
         for problem in problems[:5]:
             print(f"          {problem}")
     return failures

@@ -25,18 +25,19 @@ from minus80.core.fetch import iter_ranges, read_range
 from minus80.core.manifest import manifest_array
 from minus80.core.registry import store_and_key
 
-STORED = 0
-DEFLATE = 8
-
-#: A negative window size tells zlib the stream has no header or trailer.
-RAW_WBITS = -15
+from .structures import DEFLATE, RAW_WBITS, STORED, inflate
 
 
 def zip_index(url: str) -> dict[str, ZipEntry]:
-    """Every file member of the archive at ``url``, by name, in central directory order.
+    """Every file member of the archive at ``url``, by name, in central directory order, with its data offset.
 
-    Reads only the archive's tail, its central directory, and at worst each
-    member's 30-byte local header; no member data.
+    For a virtual array (:func:`member_array`), which must point at each
+    member's data. VirtualiZarr's ``parse_zip_index`` reads the archive's
+    tail, its central directory, and each member's local header when the
+    directory alone cannot place its data, as for members with data
+    descriptors. A copy of an archive needs none of that:
+    :func:`minus80.parsers.zip.reading.read_central_directory` reads the
+    directory alone.
     """
     store, name = store_and_key(url)
     return run_sync(parse_zip_index(store, name))
@@ -45,19 +46,12 @@ def zip_index(url: str) -> dict[str, ZipEntry]:
 def read_member(url: str, entry: ZipEntry) -> bytes:
     """One member's uncompressed bytes, fetched by a single range request."""
     data = read_range(url, entry.data_offset, entry.data_offset + entry.compressed_length)
-    return member_bytes(data, entry)
+    return inflate(data, entry.method)
 
 
-def member_bytes(data: bytes, entry: ZipEntry) -> bytes:
-    """A member's uncompressed bytes from its stored bytes, the ``entry.compressed_length`` bytes at ``entry.data_offset``."""
-    if entry.method == STORED:
-        return data
-    if entry.method == DEFLATE:
-        return zlib.decompress(data, RAW_WBITS)
-    raise NotImplementedError(f"zip method {entry.method_name}")
-
-
-def inflate_prefix(url: str, entry: ZipEntry, size: int, *, block: int = 1 << 20) -> tuple[bytes, int]:
+def inflate_prefix(
+    url: str, entry: ZipEntry, size: int, *, block: int = 1 << 20
+) -> tuple[bytes, int]:
     """At least the first ``size`` uncompressed bytes of a Deflate member, and the compressed bytes it took.
 
     Range-reads the member ``block`` bytes at a time and inflates as it goes,
@@ -88,7 +82,9 @@ def member_codecs(entries: Sequence[ZipEntry], serializer: Mapping) -> list[dict
     """
     methods = {e.method_name for e in entries if e.method != STORED}
     if methods:
-        raise NotImplementedError(f"members use {sorted(methods)}; only STORED members can be chunks")
+        raise NotImplementedError(
+            f"members use {sorted(methods)}; only STORED members can be chunks"
+        )
     return [dict(serializer)]
 
 
@@ -131,6 +127,14 @@ def member_array(
             offsets[position] = index[name].data_offset
             lengths[position] = index[name].compressed_length
     return manifest_array(
-        paths, offsets, lengths, shape=shape, chunk_shape=chunk_shape, dtype=dtype,
-        codecs=member_codecs(entries, serializer), dimension_names=dimension_names,
-        fill_value=fill_value, attributes=attributes)
+        paths,
+        offsets,
+        lengths,
+        shape=shape,
+        chunk_shape=chunk_shape,
+        dtype=dtype,
+        codecs=member_codecs(entries, serializer),
+        dimension_names=dimension_names,
+        fill_value=fill_value,
+        attributes=attributes,
+    )
