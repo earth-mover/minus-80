@@ -441,8 +441,45 @@ class TableWriter:
                           field_ids=index_by_name(iceberg.schema()))
             return self._register(iceberg, name, [path], replace)
 
+    def _partition_files(self, name: str) -> tuple:
+        """The table ``name`` and its current data files, each with its identity partition value."""
+        identifier = f"{self.namespace}.{name}"
+        table = self.catalog.load_table(identifier)
+        if len(table.spec().fields) != 1:
+            raise ValueError(f"{identifier} is not partitioned by one column")
+        # The plan reads manifests only, never data files.
+        return table, [(task.file.partition[0], task.file) for task in table.scan().plan_files()]
+
+    def partitions(self, name: str) -> dict:
+        """The record count of each partition value in the current snapshot of ``name``, from the manifests."""
+        counts: dict = {}
+        for value, file in self._partition_files(name)[1]:
+            counts[value] = counts.get(value, 0) + file.record_count
+        return counts
+
+    def ref(self, name: str, *, partition_order: Sequence | None = None) -> TableRef:
+        """The current snapshot of ``name`` with all its files, ordered by ``partition_order`` when given.
+
+        A file whose partition value is not in ``partition_order`` raises ``ValueError``.
+        """
+        table, held = self._partition_files(name)
+        if table.current_snapshot() is None:
+            raise ValueError(f"{self.namespace}.{name} has no snapshot")
+        if partition_order is not None:
+            rank = {value: i for i, value in enumerate(partition_order)}
+            if missing := sorted({str(v) for v, _ in held if v not in rank}):
+                raise ValueError(f"{self.namespace}.{name} holds partitions outside the order: {', '.join(missing)}")
+            held.sort(key=lambda item: rank[item[0]])
+        return TableRef(
+            str(table.metadata.table_uuid), table.current_snapshot().snapshot_id,
+            [data_file(table.io, file.file_path) for _, file in held],
+        )
+
     def write_parts(self, name: str, paths: Sequence[Path], *, replace=False) -> TableRef:
         """Write each Parquet file of ``paths`` into the table ``name``, and register all in one snapshot.
+
+        Without ``replace`` the files are added to the table and its earlier files stay.
+        The returned :class:`TableRef` lists only ``paths``' files; :meth:`ref` lists all of the table's.
 
         A file name holds a hash of the file's bytes, so other bytes never take an existing name.
         A complete object under that name is reused. A remote object of another size raises ``ValueError``.

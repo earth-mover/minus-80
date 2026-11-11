@@ -8,10 +8,12 @@ The bundle is read in place by range requests.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +35,7 @@ from bundle import CELLS, MATRIX, MORPHOLOGY_2D, TRANSCRIPTS, Bundle
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
 from sources import S3, SAMPLES
-from transcripts import TRANSCRIPT_SCHEMA, codeword_table, write_tile, xenium_cell_id
+from transcripts import TRANSCRIPT_SCHEMA, codeword_table, tile_order, write_tile, xenium_cell_id
 
 LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 
@@ -199,16 +201,46 @@ def write_nucleus_boundaries(writer, bundle, tables: TableWriter, *, replace=Fal
         declare_copy(group, "shapes.parquet", ref.files)
 
 
-def write_transcripts(writer, bundle, tables: TableWriter, *, replace=False) -> None:
+def write_transcripts(
+    writer, bundle, tables: TableWriter, *, tiles: Sequence[str] | None = None, replace=False,
+    scratch: Path | None = None,
+) -> None:
+    """Write ``tiles`` of the transcripts, or every tile when ``None``, one table snapshot per tile.
+
+    ``instance`` counts the rows of ``tiles`` in the order given. A tile that the table holds is skipped;
+    a held tile with another row count raises. With ``replace`` the first tile replaces the table's files.
+    """
     zf = bundle.member_zip(TRANSCRIPTS)
-    total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
-    with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _):
-        # The tile goes to a local file slice by slice, so memory holds one slice.
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "tile.parquet"
-            write_tile(zf, FIXTURE_TILE, codeword_table(zf), path, first_instance=0,
-                       field_ids=tables.field_ids("transcripts"))
-            ref = tables.write_parts("transcripts", [path], replace=replace)
+    grid = json.loads(zf.read("grid/.zattrs"))
+    counts = dict(zip(grid["grid_keys"], grid["grid_number_objects"], strict=True))
+    plan = tile_order(grid) if tiles is None else tile_order(
+        {"grid_keys": list(tiles), "grid_number_objects": [counts[t] for t in tiles]}
+    )
+    total = sum(member_bytes(zf, f"grid/{t}/") for t, _ in plan) + member_bytes(zf, "codeword_category/")
+    with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _), \
+            contextlib.ExitStack() as stack:
+        directory = scratch or Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        codewords, field_ids = codeword_table(zf), tables.field_ids("transcripts")
+        held = {} if replace else tables.partitions("transcripts")
+        all_rows, done, started = sum(counts[t] for t, _ in plan), 0, time.monotonic()
+        replacing = replace
+        for index, (tile, first_instance) in enumerate(plan):
+            rows = counts[tile]
+            if tile in held and held[tile] != rows:
+                raise ValueError(f"tile {tile}: the table holds {held[tile]} rows, the source has {rows}")
+            if tile in held or rows == 0:
+                print(f"tile {tile}: {'in the table already' if rows else 'no rows'}, skipped", flush=True)
+                done += rows
+                continue
+            path = directory / f"tile-{index}.parquet"
+            write_tile(zf, tile, codewords, path, first_instance=first_instance, field_ids=field_ids)
+            tables.write_parts("transcripts", [path], replace=replacing)
+            replacing = False
+            path.unlink()
+            done += rows
+            print(f"tile {tile}: {rows:,} rows, {done:,} of {all_rows:,}, "
+                  f"{done / (time.monotonic() - started):,.0f} rows/s", flush=True)
+        ref = tables.ref("transcripts", partition_order=[t for t, _ in plan if counts[t]])
         attr = table_attr(tables, "transcripts", ref)
         group = root.require_group("points").create_group("transcripts", overwrite=replace)
         transform = scale([1.0, 1.0, 1.0], ("x", "y", "z"), unit=UNIT)
@@ -296,7 +328,7 @@ def main() -> None:
         if "shapes/nucleus_boundaries" in args.rewrite:
             write_nucleus_boundaries(writer, bundle, tables, replace=True)
         if "points/transcripts" in args.rewrite:
-            write_transcripts(writer, bundle, tables, replace=True)
+            write_transcripts(writer, bundle, tables, tiles=[FIXTURE_TILE], replace=True)
         print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
         print(f"rewritten: {', '.join(sorted(args.rewrite))}")
         return
@@ -308,7 +340,7 @@ def main() -> None:
     if not skip_held(writer, "shapes/nucleus_boundaries"):
         write_nucleus_boundaries(writer, bundle, tables)
     if not skip_held(writer, "points/transcripts"):
-        write_transcripts(writer, bundle, tables)
+        write_transcripts(writer, bundle, tables, tiles=[FIXTURE_TILE])
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
     print("fixture written: 1 image level, 2 labels, 1 shapes, 1 points, 1 table")

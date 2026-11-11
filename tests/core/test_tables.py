@@ -543,6 +543,66 @@ def test_write_parts_registers_several_files_in_one_snapshot(tmp_path):
     assert sorted(iceberg.scan().to_arrow()["instance"].to_pylist()) == [0, 1, 2]
 
 
+def _tile_file(writer, tmp_path, tile, *instances):
+    table = pa.table({"instance": pa.array(instances, pa.int64()), "grid_tile": [tile] * len(instances)},
+                     schema=WRITER_SCHEMA)
+    path = tmp_path / f"{tile}.parquet"
+    write_parquet(table, str(path), index_column="instance", field_ids=writer.field_ids("t"))
+    return path
+
+
+def _tiled_writer(tmp_path):
+    return _writer(tmp_path / "catalog", partition_by="grid_tile")
+
+
+def test_write_parts_without_replace_adds_to_the_table_and_returns_only_its_files(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    first = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    second = writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)])
+    assert [f.location for f in second.files] != [f.location for f in first.files]
+    assert len(second.files) == 1
+    table = writer.catalog.load_table("ns.t")
+    assert sorted(table.scan().to_arrow()["instance"].to_pylist()) == [0, 1, 2]
+    assert len(table.metadata.snapshots) == 2
+    assert second.snapshot_id == table.current_snapshot().snapshot_id
+
+
+def test_partitions_counts_the_records_of_each_partition_value(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    assert writer.partitions("t") == {}
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)])
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)])
+    assert writer.partitions("t") == {"a": 2, "b": 1}
+
+
+def test_partitions_refuses_a_table_that_is_not_partitioned_by_one_column(tmp_path):
+    with pytest.raises(ValueError, match="partition"):
+        _writer(tmp_path / "catalog").partitions("t")
+
+
+def test_ref_holds_every_file_of_the_current_snapshot_in_the_order_given(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    a = writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0, 1)]).files[0]
+    b = writer.write_parts("t", [_tile_file(writer, tmp_path, "b", 2)]).files[0]
+    ref = writer.ref("t", partition_order=["b", "a"])
+    assert ref.files == [b, a]
+    assert ref.snapshot_id == writer.catalog.load_table("ns.t").current_snapshot().snapshot_id
+    assert ref.table_uuid == str(writer.catalog.load_table("ns.t").metadata.table_uuid)
+    assert writer.ref("t", partition_order=["a", "b"]).files == [a, b]
+
+
+def test_ref_refuses_a_partition_value_outside_the_order(tmp_path):
+    writer = _tiled_writer(tmp_path)
+    writer.write_parts("t", [_tile_file(writer, tmp_path, "a", 0)])
+    with pytest.raises(ValueError, match="a"):
+        writer.ref("t", partition_order=["b"])
+
+
+def test_ref_refuses_a_table_with_no_snapshot(tmp_path):
+    with pytest.raises(ValueError, match="no snapshot"):
+        _tiled_writer(tmp_path).ref("t")
+
+
 def test_write_parts_with_replace_swaps_every_file_in_one_snapshot(tmp_path):
     writer = _writer(tmp_path)
     ids = index_by_name(writer.catalog.load_table("ns.t").schema())
