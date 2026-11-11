@@ -264,9 +264,12 @@ The ingest stops when the bundle has no such member or has more than one. It doe
   `<script id="ws-data" type="application/json">` and ends before `</script>`.
   An earlier occurrence of that text is inside an HTML comment and is not JSON.
   The ingest parses the bag with `json.JSONDecoder().raw_decode` from that position.
-- **The keys.** `bag["density_plot"]` holds `bins`, `mean_q_score_80um`, `dimensions`
-  (`height` 7060.0 and `width` 12060.0, in micrometres), `horizontal_bin_count` (603),
-  `origin_data` (`[-10.0, -10.0]`, as `x, y`) and `unit` (`µm`). The ingest does not use `image_sizes` or `large_image`.
+- **The keys.** `bag["density_plot"]` holds `bins` and `mean_q_score_80um`.
+  It holds `dimensions`: `height` 7060.0 and `width` 12060.0, in micrometres.
+  It holds `horizontal_bin_count`: 603.
+  It holds `origin_data`: `[-10.0, -10.0]`, as `x, y`.
+  It holds `unit`: `µm`.
+  The ingest does not use `image_sizes` or `large_image`.
 - **The resources.** A value such as `_resources_density_plot_genomic_controls` refers to
   `bag["_resources"]["density_plot_genomic_controls"]`.
   A resource is the string `data:<dtype>/zip;base64,<payload>`. The payload is one zlib stream.
@@ -300,7 +303,8 @@ The ingest stops when the bundle has no such member or has more than one. It doe
   The report states 1,083,799,964 high quality transcripts. The transcript store holds 1,186,813,834 transcripts.
   The ingest does not claim what the map counts.
 - **Orientation.** The ingest stores the rows as y, with no flip.
-  Measured on 2026-11-11: each 2000 µm tile's sum in the density map is 0.90 to 0.92 of that tile's transcript count.
+  A check on 2026-11-11 compared the map with the 2000 µm transcript tiles.
+  The map's sum in each tile is 0.90 to 0.92 of that tile's transcript count.
   The 80 µm map is aligned with the 20 µm quality map.
   The density-weighted mean of the 20 µm quality map fits it best with offset zero.
 - **Gate.** The `qc` gate decodes the rasters from the bundle again. It compares each stored array
