@@ -268,6 +268,82 @@ def panel_height(rows: int, *, source: bool = False) -> float:
 
 
 @dataclass(frozen=True)
+class Line:
+    """One line of an :func:`attributes` panel: monospace text, an optional comment, status and tag.
+
+    ``comment`` is drawn muted after the text, as a ``# ...`` note on the
+    line it explains. A line with no ``text`` is a comment on its own.
+    """
+
+    text: str = ""
+    comment: str | None = None
+    status: str | None = None
+    tag: str | None = None
+
+
+ATTRIBUTE_LINE = 17
+ATTRIBUTE_SIZE = 12
+
+
+def attributes(
+    canvas: Canvas,
+    x: float,
+    y: float,
+    width: float,
+    title: str,
+    lines: Sequence[Line],
+    *,
+    accent: str = ACCENTS["store"],
+    kind: str = "zarr.json attributes",
+) -> float:
+    """A node's document as it would be written: a bold path, then one monospace line per field.
+
+    For showing what a group or array holds with real values, indented the
+    way the JSON nests, rather than as key and value columns (:func:`panel`).
+    ``kind`` names the document at the top right. A line with a ``status``
+    gets that status's band and its ``tag`` at the right.
+    """
+    height = 34 + len(lines) * ATTRIBUTE_LINE + 10
+    parts = [
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" rx="6" '
+        f'fill="{PANEL_FILL}" stroke="{RULE}"/>',
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="4" height="{height:.1f}" rx="2" fill="{accent}"/>',
+        text(x + 16, y + 22, fit(title, width - 200, PANEL_TITLE, mono=True), size=PANEL_TITLE, weight="bold", mono=True),
+        text(x + width - 14, y + 22, kind, size=11, color=MUTED, anchor="end"),
+    ]
+    for i, line in enumerate(lines):
+        top = y + 34 + i * ATTRIBUTE_LINE
+        baseline = top + 13
+        room = width - 32
+        if line.status:
+            status = STATUS[line.status]
+            parts.append(
+                f'<rect x="{x + 6:.1f}" y="{top:.1f}" width="{width - 12:.1f}" height="{ATTRIBUTE_LINE}" '
+                f'fill="{status.fill}"/>'
+            )
+            if line.tag:
+                parts.append(text(x + width - 14, baseline, line.tag, size=11, weight="bold", color=status.ink, anchor="end"))
+                room -= text_width(line.tag, 11, bold=True) + 14
+        # The comment is a tspan of the same text element, so it follows the text however wide the font draws it.
+        body = fit(line.text, room, ATTRIBUTE_SIZE, mono=True)
+        comment = ""
+        if line.comment:
+            gap = "  " if body else ""
+            note = fit(f"# {line.comment}", room - text_width(body + gap, ATTRIBUTE_SIZE, mono=True), ATTRIBUTE_SIZE, mono=True)
+            comment = f'<tspan fill="{MUTED}">{escape(gap + note)}</tspan>'
+        parts.append(
+            f'<text x="{x + 16:.1f}" y="{baseline:.1f}" font-family="{FONT_MONO}" font-size="{ATTRIBUTE_SIZE}" '
+            f'fill="{INK}" xml:space="preserve">{escape(body)}{comment}</text>'
+        )
+    return canvas.add("\n".join(parts), y + height)
+
+
+def attributes_height(lines: int) -> float:
+    """The height :func:`attributes` gives a panel of ``lines`` lines, for laying out before drawing."""
+    return 34 + lines * ATTRIBUTE_LINE + 10
+
+
+@dataclass(frozen=True)
 class TreeNode:
     """One node of a hierarchy: its name, the y of its line, its depth, and what it holds.
 
