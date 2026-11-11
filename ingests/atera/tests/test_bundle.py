@@ -50,3 +50,15 @@ def test_read_v2_array_assembles_chunks_in_the_stored_order(tmp_path):
     )
     assert np.array_equal(read_v2_array(zf, "g/f"), fortran)
     assert np.array_equal(read_v2_array(zf, "g/v"), np.arange(10, dtype="<u4"))
+
+
+def test_open_bundle_counts_the_bytes_it_reads(tmp_path):
+    from ingest import open_bundle
+
+    path = tmp_path / "outs.zip"
+    path.write_bytes(_outs_zip())
+    bundle, counter = open_bundle(str(path))
+    assert counter.bytes > 0
+    before = counter.bytes
+    bundle.experiment()
+    assert counter.bytes >= before

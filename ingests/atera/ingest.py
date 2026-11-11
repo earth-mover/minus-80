@@ -14,16 +14,16 @@ import os
 import shutil
 import tempfile
 import time
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import zarr
 from anndata.io import write_elem
-from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, commit, create_repo
-from minus80.core.progress import Progress
-from minus80.core.registry import file_path
+from minus80.core.elements import ElementWriter
+from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
+from minus80.core.registry import as_url, file_path
+from minus80.core.remote import ReadCounter, counting_reader
 from minus80.core.pyramid import channel_names, create_level, write_page
 from minus80.core.tables import declare_copy, iceberg_table_attr, register_files, require_table, write_parquet
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy
@@ -69,74 +69,21 @@ MISSING_FROM_FIXTURE = [
 ]
 
 
-class ReadCounter:
-    """An obstore store that counts the bytes it fetches and advances the current progress line."""
-
-    def __init__(self, store):
-        self.store, self.bytes, self.progress = store, 0, None
-
-    def get_ranges(self, path, *, starts, lengths):
-        size = sum(lengths)
-        self.bytes += size
-        if self.progress is not None:
-            self.progress.advance(size)
-        return self.store.get_ranges(path, starts=starts, lengths=lengths)
-
-    def __getattr__(self, name):
-        return getattr(self.store, name)
-
-
 def open_bundle(location: str) -> tuple[Bundle, ReadCounter]:
-    bundle = Bundle(location)
-    # BlockStoreReader fetches every block through its store, so this counts all network reads.
-    counter = ReadCounter(bundle.file._store)
-    bundle.file._store = counter
-    return bundle, counter
+    file, counter = counting_reader(as_url(location))
+    return Bundle(location, file), counter
 
 
 def member_bytes(zf, prefix: str) -> int:
     return sum(i.compress_size for i in zf.infolist() if i.filename.startswith(prefix))
 
 
-class Writer:
-    """One writable session and one commit per element, with bytes read and wall time printed."""
-
-    def __init__(self, repo, branch: str, counter: ReadCounter):
-        self.repo, self.branch, self.counter = repo, branch, counter
-
-    def holds(self, path: str) -> bool:
-        """True when the branch has a node at ``path``, so a rerun skips that element.
-
-        An element is held only when its commit exists. An element that raised was never committed.
-        """
-        try:
-            root = zarr.open_group(self.repo.readonly_session(branch=self.branch).store, mode="r")
-        except zarr.errors.GroupNotFoundError:  # A branch with no commit beyond the first has no root group.
-            return False
-        return path in root
-
-    def skips(self, path: str) -> bool:
-        """True, with a printed line, when the branch holds ``path`` from an earlier run."""
-        if self.holds(path):
-            print(f"{path}: on branch {self.branch} already, skipped", flush=True)
-            return True
-        return False
-
-    @contextmanager
-    def element(self, path: str, total: int | None):
-        """A writable root for ``path``; it commits only when the body returns without an exception."""
-        session = self.repo.writable_session(self.branch)
-        root = zarr.open_group(session.store, mode="a")
-        start, before = time.monotonic(), self.counter.bytes
-        with Progress(f"{path}: reading the bundle", total=total, unit="MiB", scale=MIB) as progress:
-            self.counter.progress = progress
-            try:
-                yield root
-            finally:
-                self.counter.progress = None
-        snapshot = commit(session, f"Write {path}")
-        read, elapsed = self.counter.bytes - before, time.monotonic() - start
-        print(f"{path}: {read / MIB:,.1f} MiB read, {elapsed:,.1f} s, commit {snapshot}", flush=True)
+def skip_held(writer: ElementWriter, path: str) -> bool:
+    """True, with a printed line, when the branch holds ``path`` from an earlier run."""
+    if writer.has(path):
+        print(f"{path}: on branch {writer.branch} already, skipped", flush=True)
+        return True
+    return False
 
 
 def drop_index_column(frame: zarr.Group) -> None:
@@ -147,9 +94,9 @@ def drop_index_column(frame: zarr.Group) -> None:
     frame.attrs["column-order"] = [c for c in frame.attrs["column-order"] if c != frame.attrs["_index"]]
 
 
-def write_table(writer: Writer, bundle: Bundle) -> None:
+def write_table(writer: ElementWriter, bundle: Bundle) -> None:
     zf = bundle.member_zip(MATRIX)
-    with writer.element("tables/table", member_bytes(zf, "")) as root:
+    with writer.unit("tables/table", "Write tables/table", total=member_bytes(zf, "")) as (root, _):
         group = root.require_group("tables").create_group("table")
         copy_group(zf, "", group)
         drop_index_column(group["obs"])
@@ -163,9 +110,9 @@ def write_table(writer: Writer, bundle: Bundle) -> None:
         write_table_keys(group, "cell_labels", region_key=REGION_KEY, instance_key=INSTANCE_KEY)
 
 
-def write_table_index(writer: Writer) -> None:
+def write_table_index(writer: ElementWriter) -> None:
     """Write the ``obs`` and ``var`` attributes of a held ``tables/table`` again, index only."""
-    with writer.element("tables/table obs and var attributes", None) as root:
+    with writer.unit("tables/table obs and var attributes", "Write tables/table obs and var attributes") as (root, _):
         drop_index_column(root["tables/table/obs"])
         drop_index_column(root["tables/table/var"])
 
@@ -176,12 +123,12 @@ def _single_level(ome: dict, path: str) -> dict:
     return ome
 
 
-def write_labels(writer: Writer, bundle: Bundle, pixel_size: float) -> None:
+def write_labels(writer: ElementWriter, bundle: Bundle, pixel_size: float) -> None:
     zf = bundle.member_zip(CELLS)
     for name, mask in MASKS.items():
-        if writer.skips(f"labels/{name}"):
+        if skip_held(writer, f"labels/{name}"):
             continue
-        with writer.element(f"labels/{name}", member_bytes(zf, f"{mask}/")) as root:
+        with writer.unit(f"labels/{name}", f"Write labels/{name}", total=member_bytes(zf, f"{mask}/")) as (root, _):
             group = root.require_group("labels").create_group(name)
             array = create_copy(group, "s0", json.loads(zf.read(f"{mask}/.zarray")), dimension_names=("y", "x"))
             copy_chunks(zf, mask, array)
@@ -190,9 +137,9 @@ def write_labels(writer: Writer, bundle: Bundle, pixel_size: float) -> None:
             group.attrs.update(raster_attrs(_single_level(ome, "s0"), scale([pixel_size] * 2, ("y", "x"), unit=UNIT)))
 
 
-def write_morphology(writer: Writer, bundle: Bundle, pixel_size: float) -> None:
+def write_morphology(writer: ElementWriter, bundle: Bundle, pixel_size: float) -> None:
     tiffs = [bundle.tiff(name) for name in MORPHOLOGY_2D]
-    with writer.element(f"images/morphology/s{FIXTURE_LEVEL}", None) as root:
+    with writer.unit(f"images/morphology/s{FIXTURE_LEVEL}", f"Write images/morphology/s{FIXTURE_LEVEL}") as (root, _):
         names = channel_names(tiffs[0].pages.first.description)
         full = tiffs[0].series[0].levels[0].shape
         pages = [tif.series[0].levels[FIXTURE_LEVEL].pages[0] for tif in tiffs]
@@ -316,7 +263,8 @@ def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
 def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
     zf = bundle.member_zip(CELLS)
     path = f"polygon_sets/{NUCLEUS_SET}/"
-    with writer.element("shapes/nucleus_boundaries", member_bytes(zf, path) + member_bytes(zf, "cell_id/")) as root:
+    total = member_bytes(zf, path) + member_bytes(zf, "cell_id/")
+    with writer.unit("shapes/nucleus_boundaries", "Write shapes/nucleus_boundaries", total=total) as (root, _):
         cell_id = read_v2_array(zf, "cell_id")
         table = polygon_table(zf, NUCLEUS_SET, xenium_cell_id(cell_id[:, 0], cell_id[:, 1]))
         ref, attr = tables.write("nucleus_boundaries", table, geo=GEO_POLYGONS, replace=replace, **spec)
@@ -328,7 +276,7 @@ def write_nucleus_boundaries(writer, bundle, tables: Tables, spec: dict, *, repl
 def write_transcripts(writer, bundle, tables: Tables, spec: dict, *, replace=False) -> None:
     zf = bundle.member_zip(TRANSCRIPTS)
     total = member_bytes(zf, f"grid/{FIXTURE_TILE}/") + member_bytes(zf, "codeword_category/")
-    with writer.element("points/transcripts", total) as root:
+    with writer.unit("points/transcripts", "Write points/transcripts", total=total) as (root, _):
         table = tile_table(zf, FIXTURE_TILE, codeword_table(zf), first_instance=0)
         ref, attr = tables.write("transcripts", table, replace=replace, **spec)
         group = root.require_group("points").create_group("transcripts", overwrite=replace)
@@ -340,7 +288,7 @@ def write_transcripts(writer, bundle, tables: Tables, spec: dict, *, replace=Fal
 
 def write_root(writer, bundle, sample, layouts: str, experiment: dict) -> None:
     metrics_name = next(n for n in bundle.names if n.startswith("metrics_summary_"))
-    with writer.element("root attributes", None) as root:
+    with writer.unit("root attributes", "Write root attributes") as (root, _):
         with bundle.member_file(metrics_name) as f:
             metrics = parse_metrics(f.read().decode())
         root.attrs.update(root_attrs(sample, layouts, experiment, metrics,
@@ -407,7 +355,7 @@ def main() -> None:
         repo = create_repo(args.repo, [], prefixes=prefixes, open_existing=True)
     if args.branch not in repo.list_branches():
         repo.create_branch(args.branch, repo.lookup_branch("main"))
-    writer = Writer(repo, args.branch, counter)
+    writer = ElementWriter(repo, args.branch, counter=counter, protected=("main",) if args.rewrite else ())
 
     started = time.monotonic()
     if args.rewrite:
@@ -421,14 +369,14 @@ def main() -> None:
         print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")
         print(f"rewritten: {', '.join(sorted(args.rewrite))}")
         return
-    if not writer.skips("tables/table"):
+    if not skip_held(writer, "tables/table"):
         write_table(writer, bundle)
     write_labels(writer, bundle, pixel_size)
-    if not writer.skips(f"images/morphology/s{FIXTURE_LEVEL}"):
+    if not skip_held(writer, f"images/morphology/s{FIXTURE_LEVEL}"):
         write_morphology(writer, bundle, pixel_size)
-    if not writer.skips("shapes/nucleus_boundaries"):
+    if not skip_held(writer, "shapes/nucleus_boundaries"):
         write_nucleus_boundaries(writer, bundle, tables, specs["nucleus_boundaries"])
-    if not writer.skips("points/transcripts"):
+    if not skip_held(writer, "points/transcripts"):
         write_transcripts(writer, bundle, tables, specs["transcripts"])
     write_root(writer, bundle, sample, layouts, experiment)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")

@@ -1,6 +1,6 @@
 import numpy as np
 import tifffile
-from ingest import ReadCounter
+from minus80.core.remote import ReadCounter
 from measure import check_mask, check_plane, measure_mask, measure_plane, sampled
 from minus80.core.icechunk_io import create_repo
 from numcodecs import Blosc
@@ -25,7 +25,7 @@ def test_measure_plane_writes_each_tile_once_and_reads_no_chunk_back(tmp_path):
     page = tifffile.TiffFile(tmp_path / "plane.tif").pages.first
     repo = _repo(tmp_path)
 
-    result = measure_plane(repo, "measure", "measure/run", page, ReadCounter(None))
+    result = measure_plane(repo, "measure", "measure/run", page, ReadCounter())
 
     # Tiles match chunks, so the edge tiles fill their chunks too and zarr never reads one back.
     assert (result["tiles"], result["store_sets"], result["store_gets"]) == (12, 12, 0)
@@ -39,7 +39,7 @@ def test_measure_mask_copies_the_chunk_bytes_unchanged(tmp_path):
     zf = zip_v2_store(tmp_path, "cells", {"masks/0": (mask, {"chunks": (16, 16), "compressors": Blosc("zstd")})})
     repo = _repo(tmp_path)
 
-    result = measure_mask(repo, "measure", "measure/run", zf, "masks/0", ReadCounter(None), 3)
+    result = measure_mask(repo, "measure", "measure/run", zf, "masks/0", ReadCounter(), 3)
 
     assert (result["chunks"], result["store_sets"], result["store_gets"]) == (3, 3, 0)
     assert check_mask(repo, result, zf, "masks/0") == []

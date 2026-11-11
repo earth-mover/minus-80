@@ -38,7 +38,7 @@ CACHED_BLOCKS = 256
 
 
 def reader(url: str, *, registry: ObjectStoreRegistry | None = None, block: int = BLOCK_SIZE,
-           cached_blocks: int = CACHED_BLOCKS) -> BlockStoreReader:
+           cached_blocks: int = CACHED_BLOCKS, wrap=None) -> BlockStoreReader:
     """A seekable file object over the remote file that caches the blocks it fetches.
 
     A parser walking a file's structures seeks back into regions it has already
@@ -47,7 +47,63 @@ def reader(url: str, *, registry: ObjectStoreRegistry | None = None, block: int 
 
     Reads go through ``registry``'s store for ``url`` when one is given, so
     its timeouts and retries are the caller's; otherwise through the patient
-    store :func:`~minus80.core.registry.store_and_key` builds.
+    store :func:`~minus80.core.registry.store_and_key` builds. ``wrap``, when
+    given, takes that store and returns the store the reader reads through.
     """
     store, key = resolve(registry, url) if registry is not None else store_and_key(url, patient=True)
-    return BlockStoreReader(store, key, block_size=block, max_cached_blocks=cached_blocks)
+    return BlockStoreReader(wrap(store) if wrap else store, key, block_size=block, max_cached_blocks=cached_blocks)
+
+
+class ReadCounter:
+    """The bytes and requests a reader's store served, and the progress line those bytes advance."""
+
+    def __init__(self):
+        self.bytes, self.requests, self.progress = 0, 0, None
+
+    def wrap(self, store) -> _CountedStore:
+        return _CountedStore(store, self)
+
+    def _count(self, size: int) -> None:
+        self.requests += 1
+        self.bytes += size
+        if size and self.progress is not None:
+            self.progress.advance(size)
+
+
+class _CountedStore:
+    """A store that reports each read it serves to a :class:`ReadCounter`."""
+
+    def __init__(self, store, counter: ReadCounter):
+        self._store, self._counter = store, counter
+
+    def get(self, path, **kwargs):
+        result = self._store.get(path, **kwargs)
+        start, end = result.range
+        self._counter._count(end - start)
+        return result
+
+    def get_range(self, path, **kwargs):
+        data = self._store.get_range(path, **kwargs)
+        self._counter._count(len(data))
+        return data
+
+    def get_ranges(self, path, **kwargs):
+        data = self._store.get_ranges(path, **kwargs)
+        self._counter._count(sum(len(d) for d in data))
+        return data
+
+    def head(self, path):
+        self._counter._count(0)
+        return self._store.head(path)
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+
+def counting_reader(url: str, *, registry: ObjectStoreRegistry | None = None) -> tuple[BlockStoreReader, ReadCounter]:
+    """:func:`reader` and the :class:`ReadCounter` for every read it makes.
+
+    The counter wraps the store before the reader is built, so it sees every block the reader fetches.
+    """
+    counter = ReadCounter()
+    return reader(url, registry=registry, wrap=counter.wrap), counter
