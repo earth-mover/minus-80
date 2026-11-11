@@ -5,8 +5,9 @@
 This ingest copies four 10x Atera whole-transcriptome samples into Arraylake as
 native Icechunk repos, one repo per sample, in the `earthmover-biology` org. It
 is the first native ingest in minus-80. Every other ingest references the
-archive's bytes in place. This one copies them, so that readers hit our bucket
-and never 10x's public bucket.
+archive's bytes in place. This one copies them. 10x publishes these bundles as
+downloads in a public bucket. A store of references would send every reader's
+range reads to that bucket.
 
 Each repo is a SpatialData store. Images and labels are OME-Zarr 0.5 pyramids.
 The counts are an AnnData table. Transcripts and cell polygons go to Arraylake
@@ -37,9 +38,11 @@ scope and risk").
 
 Decisions already made, in discussion on 2026-11-10:
 
-- Native copy, not virtual references, so that readers never hit `s3://10x.files`.
+- Native copy, not virtual references. 10x publishes the bundles as downloads
+  in `s3://10x.files`, and a store of references would send every reader's
+  range reads there.
 - Four samples, smallest bundle first: kidney, brain, colorectal, breast.
-- Org `earthmover-biology`, default bucket `earthmover-managed` (Cloudflare R2).
+- Org `earthmover-biology`, with the org's default managed bucket (Cloudflare R2).
 - Points and shapes in Iceberg tables, with the `iceberg_table` attribute
   contract agreed with the zax-spatialdata project, and `uint8` copies in the
   repo. No `file:` arrays anywhere else.
@@ -328,8 +331,9 @@ The fixture's table annotates `cell_labels`. "Stage two" lists the change to
 
 ### Layouts considered and rejected
 
-- **Virtual references into `s3://10x.files`.** Rejected: the stated goal is
-  to take load off 10x's bucket. The virtual repos in `earthmover-demos` stay
+- **Virtual references into `s3://10x.files`.** Rejected: 10x publishes the
+  bundles there as downloads. A store of references would send every
+  reader's range reads to that bucket. The virtual repos in `earthmover-demos` stay
   as they are.
 - **Points and shapes as `uint8` arrays only.** Rejected: zax reads such an
   array whole and refuses one above 256 MiB. The transcripts are 13 to 49 GB.
@@ -449,8 +453,8 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
     bucket, not a public one, so the repo's virtual chunk container needs
     Arraylake's credentials. The copies are never real chunks. Decided: keep
     the copies as virtual references. Evidence: an org admin added a private
-    Virtual Chunk Access Policy on `earthmover-managed` for the namespace's
-    location. The repo's container is that location, so it sits at or under
+    Virtual Chunk Access Policy on the org's managed bucket for the
+    namespace's storage location. The repo's container is that location, so it sits at or under
     the policy's location. Without the policy, Arraylake refuses to open the
     repo, with HTTP 400. With it, the fixture's `copies` gate passed: each
     copy's bytes equal its Parquet file. The shim read both copies through
@@ -537,7 +541,7 @@ Each step needs approval before it writes to a shared resource.
    rate per tile, 911.2 s / 1,848. A shorter run needs concurrent chunk
    writes inside a process, and no run measured that. Several writer
    sessions on one branch need a merge or one branch per writer, also not
-   measured. Peak memory is not measured. The disk must hold the 45.7 GB
+   measured. Peak memory is not measured. The checksum on the R2 bucket is not measured. The disk must hold the 45.7 GB
    bundle and the 2.8 GB H&E. Download the bundle and the H&E once, and verify their ETags. Read
    members in place. Write the tables, then the elements. "Stage two", item 4,
    sets the commit unit. Verify per `docs/ingest.md`: every image level against tifffile
@@ -674,6 +678,10 @@ Each item gives the problem, the fix and the check.
    - Check: the measurement gives the time per chunk and the peak memory.
      It sets the machine size for step 4.
 9. **The full kidney ingest** to the Arraylake branch `main`, as step 4.
+   It keeps the fixture's two tables, `transcripts` and `nucleus_boundaries`,
+   and their UUIDs. It replaces their data with one overwrite snapshot each.
+   It adds `cell_boundaries` as a new table. The branch `fixture` keeps its
+   pinned snapshots. The ingest never overwrites their files.
 10. **Deferred minor items.** These smaller items may wait:
     - `minus80.parsers.zip.nested`: `Window.seek` and its tests, and the zip
       that stays open.
@@ -689,3 +697,17 @@ Each item gives the problem, the fix and the check.
     - `ingest.py` and `verify.py`: `ReadCounter`, the lambdas, and repeated
       checks.
     - Prose fixes in this file and in `docs/upstream.md`.
+11. **Small fixes.**
+    - Use one form for an Arraylake org: `--repo arraylake://<org>/<repo>`
+      and `--catalog arraylake:<org>` differ.
+    - State which virtual chunk container the full ingest uses: the table's
+      `data/` prefix, or the namespace's storage location.
+    - `require_table` adds the partition spec in a second commit. Pass
+      `partition_spec` to `create_table` instead.
+    - Run the full ingest with a service token, or a token limited to the
+      repo, not a personal token. `REPORT.md` records which.
+    - `check_bundle_size` takes the first source object as the bundle. Match
+      the object by its `_outs.zip` suffix.
+    - `gate_copies` reads each file and array whole. Hash them in blocks.
+    - `verify.chunk_members` does not handle the `/` chunk separator that
+      `zarr_copy` handles.

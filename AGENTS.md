@@ -60,8 +60,9 @@ ingest, the work is not done. That rules out:
 
 ### Native ingests
 
-An ingest copies the source's bytes only when the source's access policy asks for it.
-A publisher that does not want its bucket read by every user is such a case.
+An ingest copies the source's bytes only when reads in place would put a load on
+the source that its owner did not provide for. A public bucket that serves
+downloads, not range reads from every user, is such a case.
 Our convenience is not a reason. The ingest's `PLAN.md` states the reason.
 
 A native ingest relaxes two rules:

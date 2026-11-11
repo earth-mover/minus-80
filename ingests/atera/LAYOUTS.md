@@ -261,11 +261,10 @@ All of it ran on a laptop outside us-west-2.
   The policy must cover the repo's virtual chunk container.
   The container must sit at or under the policy's location.
   Without the policy, Arraylake refuses to open the repo at all, with HTTP 400:
-  `Virtual chunk container prefix 's3://<bucket>/' is not covered by any
+  `Virtual chunk container prefix '<the managed bucket>' is not covered by any
   Virtual Chunk Access Policy on org 'earthmover-biology'.`
-  The repo's container is the namespace's location,
-  `s3://<bucket>/<prefix>/`.
-  A private policy on `earthmover-managed` has that location as its subprefix.
+  The repo's container is the namespace's storage location.
+  A private policy on the org's managed bucket has that location as its subprefix.
   With the policy, the repo opens. The `copies` gate PASS: each table has 1 `uint8` array and 1
   registered file. Each copy's bytes equal its Parquet file.
 - **(d) zax on the S3-compatible endpoint.** PASS on 2026-11-11. The zax-spatialdata project ran
@@ -384,10 +383,10 @@ elements again on the same branch, from the laptop. It read 92.2 MiB of the bund
 | `JG1J6WZA68NE0JWKC4Y0` | `shapes/nucleus_boundaries` |
 | `BF52XEQ53GH7JRBE4F30` | `points/transcripts` |
 
-| Table | UUID | Snapshot | Data file |
+| Table | UUID | Snapshot | Data file, relative to the table |
 |---|---|---|---|
-| `transcripts` | `9c8ad66e-9714-441a-a64c-47717a6df18e` | 5371144533979842643 | `s3://<bucket>/<prefix>/transcripts/data/transcripts-1.parquet` |
-| `nucleus_boundaries` | `92d035bd-24ee-43a6-aad6-e459230a552c` | 3733681804133973613 | `s3://<bucket>/<prefix>/nucleus_boundaries/data/nucleus_boundaries-1.parquet` |
+| `transcripts` | `9c8ad66e-9714-441a-a64c-47717a6df18e` | 5371144533979842643 | `data/transcripts-1.parquet` |
+| `nucleus_boundaries` | `92d035bd-24ee-43a6-aad6-e459230a552c` | 3733681804133973613 | `data/nucleus_boundaries-1.parquet` |
 
 `verify.py` against Arraylake after the rewrite, on the laptop: gates `tables`, `polygons`,
 `copies`, `attrs`, `field_ids`, `table_index` and `instances` PASS. It read 14.2 MiB of the
