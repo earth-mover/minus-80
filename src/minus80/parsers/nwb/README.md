@@ -1,94 +1,70 @@
 # minus80.parsers.nwb
 
-Reference the arrays in NWB (Neurodata Without Borders) files from Icechunk
-without copying them. NWB is HDF5, so the parsing is VirtualiZarr's
-`HDFParser`; this package decides which datasets can be referenced, carries the
-rest natively, and maps NWB's schema onto named, indexed axes.
+NWB (Neurodata Without Borders) files as VirtualiZarr references, with every
+dataset and link in the file carried into the store.
 
 ```bash
 uv sync --extra nwb
 ```
 
-## Two layouts
-
-| Function | Output | Axes |
-| --- | --- | --- |
-| `open_collection(sources, names=None)` | one `ManifestGroup`, a group per file at `<name>/<nwb path>` | unnamed; every array keeps its own |
-| `file_datasets(source)` | `{parent_path: xr.Dataset}` for one file, plus its native metadata | shared and indexed: `time`, table row ids, electrode ids |
+NWB is HDF5, so the parsing is VirtualiZarr's `HDFParser`. Numeric datasets
+become references into the file. Strings, compound tables and object
+references are read at parse time and stored in the repo, and soft links are
+recorded as links rather than copied. The few datasets `HDFParser` cannot
+represent are read with h5py into the `nwb_native` attribute of their group.
 
 ```python
 from minus80.core import icechunk_io
-from minus80.parsers.nwb import open_collection, file_datasets
+from minus80.parsers.nwb import open_collection, file_datatree
 
-group = open_collection(["a.nwb", "b.nwb"])
+group = open_collection(["a.nwb", "s3://bucket/blob"], names=["a", "sub-01/ses-1"])
 icechunk_io.write_manifest_group(group, "repo", source_urls=[...])
 
-datasets, nwb_attrs = file_datasets("a.nwb")
-for parent in sorted(datasets, key=lambda p: p.count("/")):
-    datasets[parent].vz.to_icechunk(session.store, group=f"a/{parent}")
+tree = file_datatree("a.nwb")
+tree.vz.to_icechunk(session.store)
 ```
 
-`open_collection` writes the hierarchy as it is, one array per numeric dataset.
-NWB files carry no HDF5 dimension scales, so the arrays have no dimension names.
+| Function | What it returns |
+| --- | --- |
+| `open_collection(sources, *, urls=None, names=None, attributes=None)` | One `ManifestGroup` with a group per file, mirroring the file's HDF5 hierarchy. Axes are unnamed, because NWB files state no names. |
+| `file_datatree(source, *, url=None, attributes=None)` | One file as an `xr.DataTree`, a node per group, with sibling datasets on shared, indexed axes. |
+| `virtual_arrays(group)` | Every array in an opened repo, keyed `<file>/<nwb path>`. |
 
-`file_datasets` builds one Dataset per NWB parent group, with sibling arrays
-(`data`, `timestamps`) as variables on shared axes, so `.sel(time=…)` and
-`.sel(units=…)` work without knowing NWB:
+A source is a path, a URL or an open binary file. `url=` (`urls=` for a
+collection) is the address the manifest records; an open file has no address
+of its own, so it needs one. A remote source is downloaded to
+`minus80.core.fetch.cache_dir()` and indexed from the copy. `names` defaults to
+each file's stem; for a content-addressed blob URL, pass the archive's asset
+path instead.
 
-- A TimeSeries gets a `time` axis in seconds, taken from its `timestamps` or
-  computed from `starting_time` and `rate`. The axis carries a `monotonic`
-  attribute, because recorded clocks are not always sorted.
+`open_collection` returns a `ManifestGroup` rather than arrays, because its
+output is a hierarchy of files and NWB paths.
+
+`file_datatree` makes the store selectable without knowing NWB:
+
+- A TimeSeries gets a `time` axis in seconds, from its `timestamps` or computed
+  from `starting_time` and `rate`. The axis carries a `monotonic` attribute,
+  because recorded clocks are not always sorted.
 - A DynamicTable's columns share one row axis, indexed by the table's `id`.
 - A 1-D sibling whose length matches another array's non-first axis labels that
-  axis. A `DynamicTableRegion` (an `ElectricalSeries`' `electrodes`) stores row
-  positions, so it is resolved to the ids of the table it points at.
-
-Write each parent shallowest first: some NWB groups hold data and are also
-ancestors of other data groups.
-
-## What is bought
-
-| Job | Library |
-| --- | --- |
-| Chunk references into HDF5 | VirtualiZarr `HDFParser` |
-| Walking the tree, classifying dtypes, reading native values | h5py |
-| Per-parent Datasets and index coordinates | xarray |
-| Reference reader in the tests | pynwb |
-
-## What is referenced and what is copied
-
-| Dataset kind | Example | Handling |
-| --- | --- | --- |
-| Numeric N-D arrays | `ElectricalSeries/data`, `units/spike_times`, `electrodes/id` | referenced, chunked or contiguous |
-| Variable-length strings | `session_description`, `general/subject/*`, `specifications/` | native |
-| Compound dtypes | `intervals` records | native |
-| HDF5 object references | `DynamicTableRegion.table`, `electrodes/group` | native, as strings |
-| Scalars | `starting_time` | native, with the dataset's own attributes |
-
-Native values and every group's attributes travel in an `_nwb` attribute,
-keyed by file, so a store opens and reads without the source files. Index
-coordinates in `file_datasets` are real bytes too, compressed with blosc
-byte-shuffle and zstd.
+  axis. An `ElectricalSeries`' `electrodes` column stores row positions, so it
+  is resolved to the ids of the electrodes table.
 
 ## Limits
 
-- **Native data is stored as JSON attributes.** Large native content (stimulus
-  templates, the embedded spec cache) makes writes slow. `open_collection` puts
-  every file's native data in one root attribute, so the cost grows with the
-  collection.
-- **Contiguous datasets are one chunk.** A multi-GB contiguous array references
-  fine but reads at whole-array granularity.
-- **Remote sources are downloaded once to index.** HDF5's chunk B-tree is
-  scattered through the file, so a remote file is fetched to
-  `minus80.core.fetch.cache_dir()` first; the store still references the
-  remote URL.
-- **A `+`, a space or another percent-encoded character in a local path breaks
-  indexing,** in the file name or in any directory above it. `HDFParser` reads
-  through obspec-utils' `ObjectStoreRegistry`, which neither decodes the key
-  nor matches an encoded path against a decoded store prefix
-  ([docs/upstream.md](../../../../docs/upstream.md)).
-- **Time axes over 50 M samples get no coordinate.** Past `MAX_COORD_POINTS`,
-  `timestamps` stays a referenced variable, and a regular series' `starting_time`
-  and `rate` are only in `_nwb`.
+- **Strings are copied, uncompressed.** `HDFParser` stores each string,
+  compound and object-reference dataset in the repo as plain bytes. A file with
+  large text, such as Allen icephys `general/stimsets`, gives a repo around a
+  tenth of the file's size.
+- **Object references and links follow a draft convention**, VirtualiZarr's
+  `links_and_references` option, which can still change.
+- **Region references, numeric variable-length sequences and compact-layout
+  datasets** are stored as JSON in `nwb_native`.
+- **A contiguous dataset is one chunk**, so it reads at whole-array granularity.
+- **A space or `+` in a local directory breaks reading back.** Indexing works,
+  but Icechunk does not match the encoded chunk location to its container.
+- **Time axes over 50 M samples get no coordinate** (`MAX_COORD_POINTS`); the
+  `timestamps`, or `starting_time` with its `rate`, stay as variables.
 
-[FINDINGS.md](FINDINGS.md) has the detail behind each of these.
+[docs/parsers/nwb.md](../../../../docs/parsers/nwb.md) has the measurements
+behind these.
