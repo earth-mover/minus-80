@@ -46,6 +46,19 @@ ingest, the work is not done. That rules out:
 - **Record every judgement call.** Choices the data does not determine (which
   directory is canonical, whether the file or the paper is right) go in the
   ingest's `LAYOUTS.md`, and in the report to whoever asked for the work.
+- **Write the ingest to be read.** Other people reuse an ingest as a worked
+  example, so its code must be clearly ordered and easy to follow:
+  - `ingest.py` reads top down, in the order the pipeline runs. Each section
+    opens with a block comment that says what the archive publishes there
+    and why the store holds it that way.
+  - `ingest.py` keeps the architecture and the parsing of the data. Shared
+    plumbing, such as IO, path conventions, threading and repo setup, goes
+    in a sibling module.
+  - A helper with one caller folds into its caller. Many one-line functions
+    hide the pipeline's shape.
+  - Docstrings say why, including why not the library feature, with the
+    evidence.
+  - Names are plain words, with no leading underscore.
 - **Long runs report progress.** A job that runs for more than a minute prints
   a line at a steady interval: how far it has got, what is left, the current
   rate. Remote jobs forward those lines to the launching terminal.
