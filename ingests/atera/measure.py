@@ -8,7 +8,6 @@ A store part writes under ``measure/<part>-c<concurrency>/`` of a ``measure-`` b
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import os
 import platform
@@ -18,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -45,7 +45,7 @@ CHECK_TILES = 4
 CHECK_CHUNKS = 20
 PARTS = ("plane", "mask", "stack", "he", "tile")
 #: The work of each part, from the part's source: tiles, chunks, shard positions, tiles.
-LIMITS = {"plane": 400, "mask": 400, "stack": 8, "he": 200}
+LIMITS = {"plane": 300, "mask": 300, "stack": 8, "he": 150}
 BRANCH_PREFIX = "measure-"
 
 
@@ -90,34 +90,61 @@ class Chunks:
         return self.zf.read(name)
 
 
-class FirstTiles:
-    """A page that yields only its first ``tiles`` segments, for ``write_page``, which takes no subset."""
+class TileWindow:
+    """A page that yields only ``tiles`` segments from tile ``start``, for ``write_page``, which takes no subset.
 
-    def __init__(self, page, tiles: int):
-        self._page, self._tiles = page, tiles
-
-    def segments(self, *args, **kwargs):
-        segments = self._page.segments(*args, **kwargs)
-        try:
-            yield from itertools.islice(segments, self._tiles)
-        finally:
-            segments.close()
-
-    def __getattr__(self, name):
-        return getattr(self._page, name)
-
-
-class Corner:
-    """A page cut to its first ``length`` rows and ``width`` columns, for ``write_stack``, which takes no subset.
-
-    ``write_stack`` decodes by tile index. The index is right while the cut keeps the first tile row.
+    It reads and decodes as ``TiffPage.segments`` does, but it never touches the tiles before ``start``.
     """
 
-    def __init__(self, page, length: int, width: int):
-        self._page, self.imagelength, self.imagewidth = page, length, width
+    def __init__(self, page, start: int, tiles: int):
+        self._page, self._start, self._tiles = page, start, tiles
+
+    def segments(self, *args, **kwargs):
+        page, start = self._page, self._start
+        stop, fh = start + self._tiles, page.parent.filehandle
+        options = {"_fullsize": page.is_tiled}
+        if page.keyframe.compression in {6, 7, 34892, 33007}:  # JPEG
+            options |= {"jpegtables": page.jpegtables, "jpegheader": page.keyframe.jpegheader}
+
+        def decode(item):
+            return page.keyframe.decode(*item, **options)
+
+        with ThreadPoolExecutor(max(1, page.maxworkers)) as pool:
+            for batch in fh.read_segments(page.dataoffsets[start:stop], page.databytecounts[start:stop],
+                                          indices=range(start, stop), length=self._tiles, lock=fh.lock,
+                                          sort=False, flat=False):
+                yield from pool.map(decode, batch)
 
     def __getattr__(self, name):
         return getattr(self._page, name)
+
+
+class TileBlock:
+    """``positions`` adjacent tiles of tile row ``row`` from tile column ``column``, as a page of one tile row.
+
+    ``write_stack`` decodes by tile index from the page's own origin, so the block renumbers its tiles.
+    """
+
+    def __init__(self, page, row: int, column: int, positions: int):
+        per_row = -(-page.imagewidth // page.tilewidth)
+        self._page, self._base = page, row * per_row + column
+        self._origin = (row * page.tilelength, column * page.tilewidth)
+        self.imagelength = min(page.tilelength, page.imagelength - self._origin[0])
+        self.imagewidth = min(positions * page.tilewidth, page.imagewidth - self._origin[1])
+        self.dataoffsets = page.dataoffsets[self._base:self._base + positions]
+        self.databytecounts = page.databytecounts[self._base:self._base + positions]
+
+    def decode(self, data, index, **kwargs):
+        segment, indices, shape = self._page.decode(data, index + self._base, **kwargs)
+        return segment, (*indices[:2], indices[2] - self._origin[0], indices[3] - self._origin[1], *indices[4:]), shape
+
+    def __getattr__(self, name):
+        return getattr(self._page, name)
+
+
+def middle_start(total: int, n: int) -> int:
+    """The first of ``n`` consecutive items, out of ``total``, that puts them in the middle."""
+    return max(0, min(total - n, total // 2 - n // 2))
 
 
 def grid_tiles(page) -> int:
@@ -155,9 +182,9 @@ def rated(result: dict, count: int, unit: str) -> dict:
     return result | {"count": count, "unit": unit, "rate": count / result["wall_s"], "rate_unit": f"{unit}/s"}
 
 
-def measure_plane(repo, branch: str, group: str, page, counter, *, tiles: int, concurrency: int = 1,
+def measure_plane(repo, branch: str, group: str, page, counter, *, tiles: int, start: int, concurrency: int = 1,
                   name: str = "morphology") -> dict:
-    """Decode the first ``tiles`` tiles of ``page`` and write them through ``write_page``, in one commit."""
+    """Decode ``tiles`` tiles of ``page`` from tile ``start`` and write them through ``write_page``, in one commit."""
     session = repo.writable_session(branch)
     root, store = counting_root(session)
     samples = page.samplesperpixel
@@ -169,39 +196,49 @@ def measure_plane(repo, branch: str, group: str, page, counter, *, tiles: int, c
     store.counter.clear()
     with Progress(f"{array.path}: decoding {tiles:,} tiles", total=tiles, unit="tiles") as progress:
         target = TimedWrites(array, progress)
-        written = write_page(target, FirstTiles(page, tiles), (0,) if samples == 1 else (), concurrency=concurrency)
+        written = write_page(target, TileWindow(page, start, tiles), (0,) if samples == 1 else (), concurrency=concurrency)
     result = finish(repo, session, store, clock, array.path, counter, before, f"Measure {array.path}")
-    return rated(result | {"write_s": target.seconds}, written, "tiles")
+    # A tile of fill values stores no chunk; ``store_sets`` counts the chunks that were stored.
+    empty = written * samples - result["store_sets"]
+    return rated(result | {"write_s": target.seconds, "start": start, "empty_chunks": empty}, written, "tiles")
 
 
-def first_positions(pages, positions: int) -> list[Corner]:
-    """``pages`` cut to the first ``positions`` shard positions of their first tile row."""
-    first = pages[0]
-    return [Corner(p, min(first.tilelength, first.imagelength), min(positions * first.tilewidth, first.imagewidth))
-            for p in pages]
+def stack_blocks(pages, row: int, column: int, positions: int) -> list[TileBlock]:
+    """Each of ``pages`` cut to ``positions`` adjacent tiles of tile row ``row``, from tile column ``column``."""
+    return [TileBlock(p, row, column, positions) for p in pages]
 
 
-def measure_stack(repo, branch: str, group: str, pages, counter, *, positions: int, concurrency: int = 1) -> dict:
-    """Write the first ``positions`` shard positions of the stack through ``write_stack``, in one commit."""
+def measure_stack(repo, branch: str, group: str, pages, counter, *, row: int, column: int, positions: int,
+                  concurrency: int = 1) -> dict:
+    """Write ``positions`` shard positions of the stack through ``write_stack``, in one commit."""
     session = repo.writable_session(branch)
     root, store = counting_root(session)
-    first, corner = pages[0], first_positions(pages, positions)
+    first, blocks = pages[0], stack_blocks(pages, row, column, positions)
     array = create_level(root.require_group(group), "morphology_3d",
-                         (1, len(pages), corner[0].imagelength, corner[0].imagewidth), first.dtype,
+                         (1, len(pages), blocks[0].imagelength, blocks[0].imagewidth), first.dtype,
                          dims=("c", "z", "y", "x"), chunk=(first.tilelength, first.tilewidth), shard_planes=len(pages))
     before, clock = (counter.bytes, counter.requests), Clock()
     store.counter.clear()
     with Progress(f"{array.path}: {positions} shard positions of {len(pages)} planes", total=positions,
                   unit="positions") as progress:
         target = TimedWrites(array, progress)
-        written = write_stack(target, corner, (0,), concurrency=concurrency)
+        written = write_stack(target, blocks, (0,), concurrency=concurrency)
     result = finish(repo, session, store, clock, array.path, counter, before, f"Measure {array.path}")
-    return rated(result | {"write_s": target.seconds, "planes": len(pages)}, written, "positions")
+    extra = {"write_s": target.seconds, "planes": len(pages), "row": row, "column": column,
+             "empty_chunks": written - result["store_sets"]}
+    return rated(result | extra, written, "positions")
+
+
+def middle_chunks(zf, prefix: str, limit: int) -> tuple[int, list[str]]:
+    """The first index and the names of ``limit`` chunk members from the middle of the array ``prefix``."""
+    members = chunk_members(zf, prefix)
+    start = middle_start(len(members), limit)
+    return start, members[start:start + limit]
 
 
 def measure_mask(repo, branch: str, group: str, zf, prefix: str, counter, *, limit: int, concurrency: int = 1) -> dict:
     """Copy ``limit`` chunks of the v2 array ``prefix`` byte for byte through ``copy_chunks``, in one commit."""
-    names = chunk_members(zf, prefix)[:limit]
+    start, names = middle_chunks(zf, prefix, limit)
     sizes = {i.filename: i.compress_size for i in zf.infolist()}
     session = repo.writable_session(branch)
     root, store = counting_root(session)
@@ -217,7 +254,7 @@ def measure_mask(repo, branch: str, group: str, zf, prefix: str, counter, *, lim
         finally:
             counter.progress = None
     result = finish(repo, session, store, clock, array.path, counter, before, f"Measure {array.path}")
-    return rated(result | {"write_s": None, "chunk_bytes": total}, copied, "chunks")
+    return rated(result | {"write_s": None, "chunk_bytes": total, "start": start}, copied, "chunks")
 
 
 def field_ids(schema: pa.Schema) -> dict[str, int]:
@@ -256,27 +293,27 @@ def tile_counts(zf) -> dict[str, int]:
     return dict(zip(grid["grid_keys"], grid["grid_number_objects"], strict=True))
 
 
-def check_plane(repo, result: dict, page, tiles: int) -> list[str]:
+def check_plane(repo, result: dict, page, tiles: int, start: int) -> list[str]:
     """Compare ``CHECK_TILES`` sampled written tiles of the plane with tifffile's decode."""
     array = zarr.open_array(repo.readonly_session(snapshot_id=result["snapshot"]).store, path=result["path"])
     per_row = -(-page.imagewidth // page.tilewidth)
-    sample = sampled([divmod(i, per_row) for i in range(tiles)], CHECK_TILES)
+    sample = sampled([divmod(i, per_row) for i in range(start, start + tiles)], CHECK_TILES)
     print(f"  check: {len(sample)} of {tiles:,} tiles: {sample}", flush=True)
     return check_page(array, page, (0,) if page.samplesperpixel == 1 else (), sample)
 
 
-def check_stack(repo, result: dict, pages, positions: int) -> list[str]:
+def check_stack(repo, result: dict, pages, row: int, column: int, positions: int) -> list[str]:
     """Compare ``CHECK_TILES`` sampled shard positions, in every plane, with tifffile's decode."""
     array = zarr.open_array(repo.readonly_session(snapshot_id=result["snapshot"]).store, path=result["path"])
     sample = sampled([(0, col) for col in range(positions)], CHECK_TILES)
     print(f"  check: {len(sample)} of {positions} positions in {len(pages)} planes", flush=True)
-    return [f"plane {z}: {e}" for z, page in enumerate(first_positions(pages, positions)) for e in check_page(array, page, (0, z), sample)]
+    return [f"plane {z}: {e}" for z, page in enumerate(stack_blocks(pages, row, column, positions)) for e in check_page(array, page, (0, z), sample)]
 
 
-def check_mask(repo, result: dict, zf, prefix: str) -> list[str]:
+def check_mask(repo, result: dict, zf, prefix: str, limit: int) -> list[str]:
     """Compare ``CHECK_CHUNKS`` sampled chunks of the copied mask with the source members, byte for byte."""
     store = repo.readonly_session(snapshot_id=result["snapshot"]).store
-    names = sampled(chunk_members(zf, prefix)[:result["count"]], CHECK_CHUNKS)
+    names = sampled(middle_chunks(zf, prefix, limit)[1], CHECK_CHUNKS)
     print(f"  check: {len(names)} of {result['count']:,} chunks", flush=True)
     return [f"{n} differs" for n in names if raw(store, chunk_key(result["path"], prefix, n)) != zf.read(n)]
 
@@ -320,6 +357,7 @@ def run_part(args) -> int:
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     affinity = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
+    print(f"part {args.part}: concurrency {args.concurrency}, limit {args.limit}", flush=True)
     print(f"cpus: {os.cpu_count()}, usable by this process: {affinity}", flush=True)
     sample = SAMPLES[args.sample]
     bundle, counter = open_bundle(args.bundle or sample.url("_outs.zip", S3))
@@ -346,42 +384,49 @@ def run_part(args) -> int:
     if args.part == "plane":
         page = bundle.tiff(PLANE).series[0].levels[0].pages[0]
         tiles = min(args.limit, grid_tiles(page))
-        result = measure_plane(repo, args.branch, group, page, counter, tiles=tiles, concurrency=n)
-        errors, source = check_plane(repo, result, page, tiles), f"{PLANE} level 0"
+        start = middle_start(grid_tiles(page), tiles)
+        result = measure_plane(repo, args.branch, group, page, counter, tiles=tiles, start=start, concurrency=n)
+        errors, source = check_plane(repo, result, page, tiles, start), f"{PLANE} level 0"
     elif args.part == "he":
         he_url = args.he_image or sample.url(HE_IMAGE, S3)
         # The object is read as write_he reads it, through the counter.
         page = open_tiff(reader(as_url(he_url), wrap=counter.wrap)).series[0].levels[0].pages[0]
         tiles = min(args.limit, grid_tiles(page))
-        result = measure_plane(repo, args.branch, group, page, counter, tiles=tiles, concurrency=n, name="he_image")
-        errors, source = check_plane(repo, result, page, tiles), f"{HE_IMAGE} level 0"
+        start = middle_start(grid_tiles(page), tiles)
+        result = measure_plane(repo, args.branch, group, page, counter, tiles=tiles, start=start, concurrency=n,
+                               name="he_image")
+        errors, source = check_plane(repo, result, page, tiles, start), f"{HE_IMAGE} level 0"
     elif args.part == "stack":
         pages = list(bundle.tiff(MORPHOLOGY_3D).series[0].levels[0].pages)
         per_row = -(-pages[0].imagewidth // pages[0].tilewidth)
         positions = min(args.limit, per_row)
-        result = measure_stack(repo, args.branch, group, pages, counter, positions=positions, concurrency=n)
-        errors, source = check_stack(repo, result, pages, positions), f"{MORPHOLOGY_3D} level 0"
+        row, column = -(-pages[0].imagelength // pages[0].tilelength) // 2, middle_start(per_row, positions)
+        result = measure_stack(repo, args.branch, group, pages, counter, row=row, column=column, positions=positions,
+                               concurrency=n)
+        errors, source = check_stack(repo, result, pages, row, column, positions), f"{MORPHOLOGY_3D} level 0"
     else:
         zf = bundle.member_zip(CELLS)
         result = measure_mask(repo, args.branch, group, zf, MASK, counter, limit=args.limit, concurrency=n)
-        errors, source = check_mask(repo, result, zf, MASK), f"{CELLS} {MASK}"
+        errors, source = check_mask(repo, result, zf, MASK, args.limit), f"{CELLS} {MASK}"
     report(args, {"source": source, **result}, errors)
     return int(bool(errors))
 
 
 def run_all(args) -> int:
-    """Run each part for each concurrency in its own process; returns 1 if any part fails."""
+    """Run each part for each concurrency in its own process, the tile last; returns 1 if any part fails."""
+    runs = [(part, n) for n in args.concurrencies for part in PARTS[:-1]] + [("tile", None)]
     failed = False
-    for concurrency, part in itertools.product(args.concurrencies, PARTS):
-        if part == "tile" and concurrency != args.concurrencies[0]:
-            continue
+    for part, concurrency in runs:
         command = [sys.executable, __file__, "--part", part, "--branch", args.branch, "--sample", args.sample]
-        if part != "tile":
+        if concurrency is not None:
             command += ["--concurrency", str(concurrency)]
-        for flag in ("local", "repo", "bundle", "he_image", "scratch"):
+        for flag in ("local", "repo", "bundle", "he_image", "scratch", *(["tile"] if part == "tile" else [])):
             if getattr(args, flag):
                 command += [f"--{flag.replace('_', '-')}", getattr(args, flag)]
-        failed |= subprocess.run(command).returncode != 0
+        code = subprocess.run(command).returncode
+        if code:
+            print(f"part {part} failed with exit code {code}", flush=True)
+        failed |= code != 0
     return int(failed)
 
 

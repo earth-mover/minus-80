@@ -72,6 +72,7 @@ def test_a_part_writes_only_its_limit_and_its_check_passes(
     assert result["check"] == "PASS"
     assert result["peak_rss_mib"] > 0 and result["snapshot"] and result["wall_s"] > 0
     assert any(line.startswith(f"{part}: PASS") for line in lines)
+    assert f"part {part}: concurrency 2, limit {limit}" in lines
     repo = create_repo(tmp_path / "repo", [], open_existing=True)
     assert repo.lookup_branch("measure-test") == result["snapshot"]
     assert repo.lookup_branch("main") != result["snapshot"]
@@ -79,7 +80,7 @@ def test_a_part_writes_only_its_limit_and_its_check_passes(
 
 def test_the_limit_defaults_cover_a_whole_small_source(monkeypatch, capsys, sources, tmp_path):
     _, _, result = _run(monkeypatch, capsys, sources, tmp_path, "plane")
-    assert (result["limit"], result["count"]) == (400, 6)
+    assert (result["limit"], result["count"]) == (300, 6)
 
 
 def test_a_part_writes_under_its_own_group_of_the_scratch_branch(monkeypatch, capsys, sources, tmp_path):
@@ -122,23 +123,95 @@ def test_a_wrong_row_count_fails_the_tile_check(tmp_path):
     assert measure.check_tile(file, 4) == ["the file has 3 rows, the source 4", "instance runs 0..5, not 0..3"]
 
 
-def test_all_runs_each_part_in_its_own_process(monkeypatch, capfd, sources, tmp_path):
+def _all(monkeypatch, capfd, sources, tmp_path, *extra):
     argv = ["measure.py", "--local", str(tmp_path / "repo"), "--bundle", str(sources / "outs.zip"),
-            "--he-image", str(sources / "he.ome.tif"), "--branch", "measure-test", "--part", "all"]
+            "--he-image", str(sources / "he.ome.tif"), "--branch", "measure-test", "--part", "all", *extra]
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as raised:
         measure.main()
-    results = [json.loads(line) for line in capfd.readouterr().out.splitlines() if line.startswith("{")]
-    assert raised.value.code == 0
-    assert [(r["part"], r["check"]) for r in results] == [(p, "PASS") for p in measure.PARTS]
+    out = capfd.readouterr().out
+    return raised.value.code, out, [json.loads(line) for line in out.splitlines() if line.startswith("{")]
 
 
-def test_a_subset_page_yields_its_first_tiles_and_closes_its_source(tmp_path):
+def test_all_runs_each_part_in_its_own_process_and_the_tile_last(monkeypatch, capfd, sources, tmp_path):
+    code, _, results = _all(monkeypatch, capfd, sources, tmp_path, "--concurrency", "1", "2")
+    assert code == 0
+    assert [(r["part"], r["concurrency"], r["check"]) for r in results] == [
+        *((p, n, "PASS") for n in (1, 2) for p in measure.PARTS[:-1]), ("tile", None, "PASS")]
+
+
+def test_all_goes_on_after_a_failed_part_and_says_which_failed(monkeypatch, capfd, sources, tmp_path):
+    code, out, results = _all(monkeypatch, capfd, sources, tmp_path, "--tile", "9,9")
+    assert code == 1
+    assert [r["part"] for r in results] == list(measure.PARTS[:-1])
+    assert "part tile failed with exit code 1" in out
+
+
+def test_a_tile_block_numbers_its_tiles_from_its_own_origin(tmp_path):
     import numpy as np
 
-    tifffile.imwrite(tmp_path / "p.tif", np.arange(40 * 50, dtype=np.uint16).reshape(40, 50), tile=(16, 16))
-    with tifffile.TiffFile(tmp_path / "p.tif") as tif:
+    data = np.arange(40 * 50, dtype=np.uint16).reshape(40, 50)
+    with _plane(tmp_path, data) as tif:
         page = tif.pages.first
-        assert len(list(measure.FirstTiles(page, 5).segments())) == 5
-        corner = measure.Corner(page, 16, 32)
-        assert (corner.imagelength, corner.imagewidth, corner.tilelength) == (16, 32, 16)
+        block = measure.TileBlock(page, row=1, column=1, positions=2)
+        assert (block.imagelength, block.imagewidth, block.tilelength) == (16, 32, 16)
+        assert list(block.dataoffsets) == list(page.dataoffsets[5:7])
+        fh = page.parent.filehandle
+        fh.seek(block.dataoffsets[1])
+        segment, indices, _ = block.decode(fh.read(block.databytecounts[1]), 1)
+        assert indices[2:4] == (0, 16)
+        assert np.array_equal(segment[0, :, :, 0], data[16:32, 32:48])
+
+
+def _plane(tmp_path, data):
+    tifffile.imwrite(tmp_path / "plane.tif", data, tile=(16, 16), compression="zlib")
+    return tifffile.TiffFile(tmp_path / "plane.tif")
+
+
+def test_a_window_of_tiles_yields_those_tiles_and_no_others(tmp_path):
+    import numpy as np
+
+    data = np.arange(40 * 50, dtype=np.uint16).reshape(40, 50)
+    with _plane(tmp_path, data) as tif:
+        page = tif.pages.first
+        window = list(measure.TileWindow(page, 5, 3).segments())
+        # The page has 3 rows of 4 tiles; tiles 5, 6 and 7 are the row 1, columns 1 to 3.
+        assert [(r[1][2], r[1][3]) for r in window] == [(16, 16), (16, 32), (16, 48)]
+        assert np.array_equal(window[0][0][0, :, :, 0], data[16:32, 16:32])
+
+
+def test_the_tiles_come_from_the_middle_of_the_level():
+    assert [measure.middle_start(total, n) for total, n in [(1848, 300), (6, 2), (6, 400), (10, 10), (5, 1)]] == [
+        774, 2, 0, 0, 2]
+
+
+def test_a_tile_of_fill_values_stores_no_chunk_and_the_result_counts_it(tmp_path):
+    import numpy as np
+
+    from minus80.core.remote import ReadCounter
+
+    data = np.ones((40, 50), dtype=np.uint16)
+    data[16:32, 16:48] = 0
+    repo = _repo(tmp_path)
+    with _plane(tmp_path, data) as tif:
+        page = tif.pages.first
+        result = measure.measure_plane(repo, "measure-t", "measure/p", page, ReadCounter(), tiles=4, start=4)
+        assert measure.check_plane(repo, result, page, 4, 4) == []
+    assert (result["count"], result["store_sets"], result["empty_chunks"], result["start"]) == (4, 2, 2, 4)
+
+
+def _repo(tmp_path):
+    repo = create_repo(tmp_path / "repo", [])
+    repo.create_branch("measure-t", repo.lookup_branch("main"))
+    return repo
+
+
+def test_the_stack_and_the_mask_come_from_the_middle(monkeypatch, capsys, sources, tmp_path):
+    # The synthetic stack has 2 tile rows of 3 columns, and the mask 4 chunks.
+    _, _, stack = _run(monkeypatch, capsys, sources, tmp_path, "stack", "--limit", "1", repo="a")
+    assert (stack["row"], stack["column"], stack["check"]) == (1, 1, "PASS")
+    _, _, mask = _run(monkeypatch, capsys, sources, tmp_path, "mask", "--limit", "1", repo="b")
+    assert (mask["start"], mask["check"]) == (2, "PASS")
+    _, _, plane = _run(monkeypatch, capsys, sources, tmp_path, "plane", "--limit", "2", repo="c")
+    assert (plane["start"], plane["check"]) == (2, "PASS")
+    assert plane["empty_chunks"] >= 0

@@ -16,6 +16,7 @@ import io
 import re
 import secrets
 import shlex
+import signal
 import subprocess
 import sys
 import tarfile
@@ -33,8 +34,18 @@ TOKEN_VARIABLE = "ARRAYLAKE_TOKEN"
 TAGS = {"BillingCategory": "RnD"}
 #: The exit code that means the launcher ended the run at the time limit; the shell's code for a timeout.
 TIME_LIMIT_CODE = 124
+#: Placeholder for the directory that the call uploads; the directory exists only during the call.
+UPLOAD = "<git archive of HEAD>"
+#: The log service delivers late, and an event can arrive with a timestamp older than the newest one.
+LOG_WINDOW_MS = 120_000
+#: The longest the launcher reads the log after the task ends, and the empty reads in a row that end it earlier.
+DRAIN_SECONDS, DRAIN_EMPTY_READS = 60, 2
 #: Coiled prefixes each line of a batch task's output with this marker.
 BATCH_MARKER = re.compile(r"^__BATCH \d+\.\d+__ ?")
+
+
+class ClusterStopped(Exception):
+    """The cluster ended and the task has no exit code."""
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,8 @@ def read_token(path: Path) -> str:
         token = ""
     if not token:
         raise SystemExit(f"the token file {path} is missing or empty")
+    if re.search(r"\s", token):
+        raise SystemExit(f"the token in {path} holds whitespace; the file must hold the token only")
     return token
 
 
@@ -87,16 +100,32 @@ exec {run}
 """
 
 
-def command_line(job: Job) -> str:
-    """The ``coiled batch run`` command that is equivalent to the launch, with ``***`` for the secret."""
-    arguments = [
-        "coiled", "batch", "run", "--name", job.name, "--workspace", job.workspace, "--vm-type", job.vm_type,
-        *(["--arm"] if is_arm(job.vm_type) else []), "--region", job.region, "--disk-size", str(job.disk),
-        "--container", IMAGE, "--ignore-container-entrypoint", "true",
-        "--secret-env", f"{TOKEN_VARIABLE}=***", *(a for k, v in TAGS.items() for a in ("--tag", f"{k}={v}")),
-        "--job-timeout", f"{job.minutes} minutes", "--upload", "<git archive of HEAD>", "<remote script>",
-    ]
-    return shlex.join(arguments)
+def run_kwargs(job: Job) -> dict:
+    """The keywords of the ``coiled.batch.run`` call, without the secret; the dry run prints the same ones."""
+    return {
+        "command": remote_script(job), "command_as_script": True, "name": job.name, "workspace": job.workspace,
+        "container": IMAGE, "ignore_container_entrypoint": True, "tag": TAGS, "vm_type": [job.vm_type],
+        "arm": is_arm(job.vm_type), "region": job.region, "disk_size": str(job.disk), "local_upload_path": UPLOAD,
+        "job_timeout": f"{job.minutes} minutes",
+        # The server stops the cluster at this age even when the launcher is gone.
+        "cluster_kwargs": {"cluster_timeout": f"{job.minutes} minutes"},
+    }
+
+
+def call_text(job: Job) -> str:
+    """The call as text, with ``***`` for the secret and the script left out."""
+    shown = run_kwargs(job) | {"command": "<remote script, below>", "secret_env": {TOKEN_VARIABLE: "***"}}
+    return "\n".join(["coiled.batch.run(", *(f"    {key}={value!r}," for key, value in shown.items()), ")"])
+
+
+def install_stop_signals() -> None:
+    """Make SIGTERM and SIGHUP end the run as Ctrl-C does, so the ``finally`` that stops the VM runs."""
+
+    def stop(number, frame):
+        raise KeyboardInterrupt
+
+    for number in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, stop)
 
 
 @contextlib.contextmanager
@@ -119,7 +148,7 @@ class CoiledVm:
     """One Coiled batch job on one VM: the task runs on the scheduler's VM, so no second VM starts."""
 
     def __init__(self):
-        self.workspace = self.cluster_id = self.job_id = self.since = None
+        self.workspace = self.cluster_id = self.job_id = self.latest = None
         self.seen: set = set()
 
     def start(self, job: Job, token: str) -> None:
@@ -128,53 +157,75 @@ class CoiledVm:
         self.workspace = job.workspace
         # Coiled scans the script for local files to upload; from the export they are the committed ones.
         with code_export() as directory, contextlib.chdir(directory):
-            found = coiled.batch.run(
-                remote_script(job), command_as_script=True, name=job.name, workspace=job.workspace,
-                container=IMAGE, ignore_container_entrypoint=True, secret_env={TOKEN_VARIABLE: token}, tag=TAGS,
-                vm_type=[job.vm_type], arm=is_arm(job.vm_type), region=job.region, disk_size=str(job.disk),
-                local_upload_path=str(directory), job_timeout=f"{job.minutes} minutes",
-                cluster_kwargs={"timeout": job.minutes * 60},
-            )
+            found = coiled.batch.run(**run_kwargs(job) | {"local_upload_path": str(directory),
+                                                          "secret_env": {TOKEN_VARIABLE: token}})
         self.cluster_id, self.job_id = found["cluster_id"], found["job_id"]
 
     def new_lines(self) -> list[str]:
         """The task's output lines that earlier calls did not return."""
         import coiled
 
+        since = None if self.latest is None else self.latest - LOG_WINDOW_MS
         events = coiled.better_cluster_logs(
             cluster_id=self.cluster_id, workspace=self.workspace, dask=True, system=False,
-            since_ms=self.since, filter=f"__BATCH {self.job_id}.")
+            since_ms=since, filter=f"__BATCH {self.job_id}.")
         lines = []
         for event in events:
             key = (event["timestamp"], event.get("instance_id"), event["message"])
             if key in self.seen:
                 continue
             self.seen.add(key)
-            self.since = max(self.since or 0, event["timestamp"])
+            self.latest = max(self.latest or 0, event["timestamp"])
             lines += [BATCH_MARKER.sub("", line) for line in event["message"].splitlines()]
+        if self.latest is not None:
+            # The next request starts here, so an older key cannot return and need not stay.
+            floor = self.latest - LOG_WINDOW_MS
+            self.seen = {key for key in self.seen if key[0] >= floor}
         return lines
 
     def exit_code(self) -> int | None:
-        """The task's exit code, or ``None`` while it runs."""
+        """The task's exit code, or ``None`` while it runs; ``ClusterStopped`` when the cluster ended without one."""
         import coiled
 
         jobs = coiled.batch.status(cluster=self.cluster_id, workspace=self.workspace)
-        if not jobs or not jobs[0]["tasks"]:
+        if not jobs:
             return None
-        if jobs[0].get("cluster_state") == "error":
-            return 1
-        task = jobs[0]["tasks"][0]
+        task = jobs[0]["tasks"][0] if jobs[0]["tasks"] else {"exit_code": None, "state": None}
         if task["exit_code"] is not None:
             return task["exit_code"]
-        return {"error": 1, "done": 0}.get(task["state"])
+        if task["state"] in ("error", "done"):
+            return {"error": 1, "done": 0}[task["state"]]
+        state = jobs[0].get("cluster_state")
+        if state in ("stopped", "error"):
+            raise ClusterStopped(f"the cluster is {state} and the task has no exit code")
+        return None
 
-    def stop(self, name: str) -> None:
-        import coiled
+    def state(self) -> str:
+        import coiled.v2
 
         try:
-            coiled.delete_cluster(name=name, workspace=self.workspace)
+            return coiled.v2.cluster_details(self.cluster_id, workspace=self.workspace)["current_state"]["state"]
         except Exception as error:
-            print(f"could not stop the cluster {name}: {type(error).__name__}: {error}; stop it by hand", flush=True)
+            return f"unknown ({type(error).__name__})"
+
+    def stop(self, name: str) -> None:
+        """Stop the cluster by id, or by name when the start failed; print the name and the state after."""
+        import coiled
+        from coiled.errors import DoesNotExist
+
+        failure = None
+        try:
+            target = {"cluster_id": self.cluster_id} if self.cluster_id else {"name": name}
+            coiled.delete_cluster(**target, workspace=self.workspace)
+        except DoesNotExist:
+            pass
+        except Exception as error:
+            failure = error
+        state = self.state() if self.cluster_id else "unknown (no cluster id)"
+        if failure is not None and state != "stopped":
+            print(f"could not stop the cluster {name}: {type(failure).__name__}: {failure}; stop it by hand",
+                  flush=True)
+        print(f"cluster {name}: {state}", flush=True)
 
 
 def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock=time.monotonic, sleep=time.sleep,
@@ -185,16 +236,29 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
         for line in lines:
             out(line.replace(token, "***"))
 
+    def drain():
+        # The log lags the task, so read until it stays empty before the VM, and its log, go.
+        began, empty = clock(), 0
+        while empty < DRAIN_EMPTY_READS and clock() - began < DRAIN_SECONDS:
+            lines = vm.new_lines()
+            forward(lines)
+            empty = 0 if lines else empty + 1
+            if empty < DRAIN_EMPTY_READS:
+                sleep(interval)
+
     started = clock()
     try:
         vm.start(job, token)
         while True:
             forward(vm.new_lines())
-            code = vm.exit_code()
+            try:
+                code, note = vm.exit_code(), None
+            except ClusterStopped as stopped:
+                code, note = 1, str(stopped)
             if code is not None:
-                # The log lags the task, so read once more after it ends.
-                sleep(interval)
-                forward(vm.new_lines())
+                drain()
+                if note:
+                    out(note)
                 return code
             if clock() - started >= job.minutes * 60:
                 out(f"the time limit of {job.minutes} minutes passed; stopping the VM")
@@ -228,9 +292,10 @@ def main(argv: list[str] | None = None) -> int:
     job = Job(unique_name(args.name), args.vm_type, args.region, args.workspace, args.disk, args.max_minutes,
               command[0], command[1:])
     if args.dry_run:
-        print(command_line(job))
+        print(call_text(job))
         print(remote_script(job), end="")
         return 0
+    install_stop_signals()
     print(f"launching {job.name}: {job.vm_type} in {job.region}, at most {job.minutes} minutes", flush=True)
     return run(CoiledVm(), job, token, out=lambda line: print(line, flush=True))
 
