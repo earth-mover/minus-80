@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Reference Recursion's RxRx19a and RxRx19b Cell Painting screens, PNGs stored in zips on gs://rxrx, as OME-Zarr 0.6 HCS plates in Icechunk."
 requires-python = ">=3.12"
 dependencies = [
+    "arraylake>=1.7.0",
     "imagecodecs>=2026.1",
     "imagecodecs-zarr",
     "minus-80[zip]",

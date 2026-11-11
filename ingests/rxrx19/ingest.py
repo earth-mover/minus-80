@@ -145,14 +145,37 @@ def set_references(store, references: pa.Table) -> None:
 
 
 def pack_references(repo_location: str, branch: str, references: pa.Table, message: str) -> None:
-    """Commit ``references`` with ice-pack, one manifest per plate (``<dataset>/<experiment>/Plate<n>``)."""
-    if repo_location.startswith(ARRAYLAKE):
-        raise SystemExit("ice-pack opens a local or s3:// repo, not an arraylake:// one; run without --packed")
+    """Commit ``references`` with ice-pack, one manifest per plate (``<dataset>/<experiment>/Plate<n>``).
+
+    ice-pack is a separate Rust process, so it cannot use the arraylake
+    client's storage object. For an ``arraylake://`` repo it is pointed at the
+    repo's own prefix of the org's bucket, with temporary credentials scoped
+    to that prefix, which the client mints but exposes only through a private
+    method; they are passed in ice-pack's environment and never written down.
+    """
     path = Path(cache_dir()) / "rxrx19" / "references.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(references, path)
-    subprocess.run([os.environ.get("ICE_PACK", "ice-pack"), repo_location, "--branch", branch, "--refs", str(path),
-                    "--group-depth", "3", "--message", message], check=True)
+    command = [os.environ.get("ICE_PACK", "ice-pack"), repo_location, "--branch", branch, "--refs", str(path),
+               "--group-depth", "3", "--message", message]
+    environment = None
+    if repo_location.startswith(ARRAYLAKE):
+        from arraylake import Client
+        from minus80.core.aio import run_sync
+
+        name = repo_location.removeprefix(ARRAYLAKE)
+        org, repo = name.split("/")
+        client = Client()
+        model = client.get_repo_object(name).model_dump()
+        bucket = model["bucket"]
+        credentials = run_sync(client.aclient._get_s3_delegated_credentials_from_repo(org, repo))
+        command[1] = f"s3://{bucket['name']}/{model['prefix']}"
+        command += ["--endpoint", bucket["extra_config"]["endpoint_url"],
+                    "--region", bucket["extra_config"].get("region_name", "auto")]
+        environment = {**os.environ, "AWS_ACCESS_KEY_ID": credentials.aws_access_key_id,
+                       "AWS_SECRET_ACCESS_KEY": credentials.aws_secret_access_key,
+                       "AWS_SESSION_TOKEN": credentials.aws_session_token}
+    subprocess.run(command, check=True, env=environment)
 
 
 # The embeddings

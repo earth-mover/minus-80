@@ -2561,6 +2561,7 @@ name = "rxrx19-ingest"
 version = "0.0.0"
 source = { virtual = "ingests/rxrx19" }
 dependencies = [
+    { name = "arraylake" },
     { name = "imagecodecs" },
     { name = "imagecodecs-zarr" },
     { name = "minus-80", extra = ["zip"] },
@@ -2575,6 +2576,7 @@ notebook = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
     { name = "imagecodecs", specifier = ">=2026.1" },
     { name = "imagecodecs-zarr" },
     { name = "minus-80", extras = ["zip"], editable = "." },
