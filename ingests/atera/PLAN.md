@@ -367,9 +367,9 @@ table through `add_files` on Arraylake's catalog; virtual references from an
 Arraylake repo into the R2 bucket; the shim reading the `uint8` copies on
 Icechunk. `LAYOUTS.md`, "Fixture findings", gives the results.
 
-Not tested: zax reading an Iceberg table on an S3-compatible endpoint, which
-the zax-spatialdata project checks; decode and write throughput on a Coiled
-VM, which step 2 measures.
+Tested on 2026-11-11: zax reads the fixture's Iceberg tables on the R2
+endpoint (`LAYOUTS.md`, check (d)). Decode and write throughput on a Coiled
+VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
 
 ## Judgement calls
 
@@ -468,16 +468,41 @@ Each step needs approval before it writes to a shared resource.
    `column-order`, and an `instance` column that may be null. The rewrite on
    2026-11-11 fixed all three on branch `fixture`. `LAYOUTS.md`, "The
    rewrite", gives the new coordinates.
-2. **Throughput on Coiled.** On a Coiled VM in us-west-2, decode and write
-   one full-resolution morphology plane, and copy one label mask. Write to
-   a scratch branch, not `fixture` or `main`. Time each. These two numbers give the expected runtime for
-   step 4. Approval needed: the Coiled spend.
+2. **Throughput on Coiled.** Done on 2026-11-11 with `measure.py`, on one
+   `m7i.xlarge` (4 vCPU) in us-west-2, on the scratch branch
+   `measure-2026-11-11`. All numbers below are from that VM.
+   - One full-resolution DAPI plane, 1,848 tiles, pinned to 1 core:
+     1,204.8 s wall, 284.5 s CPU, 1.53 tiles/s, 2.97 MiB/s decoded.
+   - The same plane on 4 vCPU: 911.2 s wall, 2.03 tiles/s.
+   - One label mask, 2,048 chunks, 1 core: 968.3 s, 2.12 chunks/s,
+     0.12 MiB/s.
+   - The serial chunk writes take about 0.5 s each and are most of the
+     time: 955.3 s of the 1-core plane. Decode takes 0.15 s of CPU per tile.
+
+   Expected time for one kidney sample, derived from the 1-core rates. The
+   images are 4 2D planes and 13 3D planes. This assumes that the 3D planes
+   have the 2D planes' size. Each plane then has 1,848 tiles at level 0 and 655 tiles at levels 1 to 7, so 42,551 tiles in all. At
+   0.652 s per tile, the images take 27,740 s, 7.7 hours, on one core. The
+   two masks take 2 x 968.3 s, 0.5 hours. So the images and the masks take
+   about 8.2 hours on one core with serial writes. They need about 1.8 hours
+   of CPU time. These figures leave out the table, the transcripts, the H&E
+   image and the download. The 3D stack goes into shards of 13 planes. A
+   plane-by-plane write of a shard can rewrite the shard; step 2 did not
+   measure that.
 3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
    `imagecodecs`; Booth cannot read the codec. Approval needed: the rules
    change.
-4. **Kidney, full.** On a Coiled VM in us-west-2 with 32 cores and 200 GB of
-   disk. Download the bundle and the H&E once, and verify their ETags. Read
+4. **Kidney, full.** On a Coiled VM in us-west-2. The machine size depends
+   on whether the chunk writes run in parallel. With serial writes, as
+   `write_page` does them, more cores do not help: 4 vCPU cut the plane by
+   24 percent only, so the images take about 6 hours on any machine. With
+   the writes in parallel, for example one process per plane, the 1.8 CPU
+   hours bound the run: about 14 minutes on 8 vCPU, or 7 minutes on 16 vCPU,
+   if the bucket accepts that many writes. Proposed: 16 vCPU and 64 GB of
+   memory (for example `m7i.4xlarge`), one writer process per plane, and
+   100 GB of disk for the 45.7 GB bundle and the 2.8 GB H&E. The bucket's
+   limit on parallel writes is not measured. Download the bundle and the H&E once, and verify their ETags. Read
    members in place. Write the tables, then the elements, with one commit per
    element. Verify per `docs/ingest.md`: every image level against tifffile
    on a sample of tiles, every copied chunk by checksum, every table's row
@@ -500,19 +525,21 @@ Each step needs approval before it writes to a shared resource.
 | Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
 
 Expected runtime per sample has three parts. The download takes minutes at
-an estimated 1 GB/s inside the region. The JPEG 2000 decode of 17 to 19
-planes is not measured; step 2 measures it. The fixture's laptop times do
-not predict it. The transcript table write is one pass over 1 to 5 billion
-rows. A run that is well past its expected time stops.
+an estimated 1 GB/s inside the region. The JPEG 2000 decode and the
+writes of the 17 kidney planes and two masks take about 8.2 hours on one
+core with serial writes, from step 2's rates on an `m7i.xlarge` in
+us-west-2. Parallel writes bring them near 1.8 CPU hours. The transcript
+table write is one pass over 1 to 5 billion rows. A run that is well past its expected time stops.
 
 Risks:
 
 - **Access policy per repo** (call 12). Each sample's repo opens only when
   an org admin's Virtual Chunk Access Policy covers its container. Each
   sample's step needs that policy before the ingest starts.
-- **zax on an S3-compatible endpoint.** zax's Iceberg storage is written for
-  S3 and GCS. R2 speaks S3 with an endpoint URL. The zax-spatialdata
-  project answers this from the fixture's coordinates.
+- **Nucleus join.** The AnnData table annotates `cell_labels` only. So no
+  table row joins to a `nucleus_boundaries` row in the fixture. The full
+  ingest must decide how a reader goes from a nucleus to its cell's row.
+  zax reads the tables on the R2 endpoint: `LAYOUTS.md`, check (d).
 - **The Python read path** rests on unreleased spatialdata patches and the
   virtual_omics shim. The fixture showed it: released SpatialData 0.8.0
   cannot open an Icechunk store, and PR #1107 with its patches and the shim

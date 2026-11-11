@@ -245,11 +245,43 @@ All of it ran on a laptop outside us-west-2.
   A private policy on `earthmover-managed` has that location as its subprefix.
   With the policy, the repo opens. The `copies` gate PASS: each table has 1 `uint8` array and 1
   registered file. Each copy's bytes equal its Parquet file.
-- **(d) zax on the S3-compatible endpoint.** Pending. The check is handed to the
-  zax-spatialdata project, which reads the tables from the coordinates in this section.
-- **(e) Throughput.** NOT MEASURED. The fixture ran from a laptop outside the source region, so the
-  times below are laptop times only. They do not predict the ingest. A separate step measures one
-  full-resolution plane and one label copy on a Coiled VM in us-west-2.
+- **(d) zax on the S3-compatible endpoint.** PASS on 2026-11-11. The zax-spatialdata project ran
+  its live check on branch `fixture`, snapshot `BF52XEQ53GH7JRBE4F30`. All elements open.
+  The check reads through the Arraylake catalog, with vended credentials on the R2 endpoint.
+  Both table UUIDs pass. Both snapshot pins pass: transcripts 5371144533979842643,
+  nucleus_boundaries 3733681804133973613.
+  zax reads 2,633,912 transcripts and 398,197 nucleus polygons.
+  zax counts 1,180 invalid polygons, the same count as `verify.py`.
+  A box query of 100 by 100 micrometres returns 4,721 transcripts, 3,143 genes and 124 nuclei.
+  The check takes 23.7 s wall time and 2.1 GB of memory on a laptop.
+  zax reads the `feature_name` categories from the Parquet dictionary.
+  zax also reads name-mapped files, so a table that another tool registers with `add_files` works.
+  Open item for the full ingest: the AnnData table annotates `cell_labels` only.
+  So the fixture has no join from `nucleus_boundaries` to the table rows.
+- **(e) Throughput.** Measured on 2026-11-11 by `measure.py`, on one Coiled VM: `m7i.xlarge`, 4
+  vCPU, 15 GiB, AWS us-west-2, Coiled workspace `earthmover-devs`. The VM read the bundle from
+  10x's bucket and wrote to branch `measure-2026-11-11` of `earthmover-biology/atera-kidney`.
+  The VM used a personal Arraylake ID token, passed as a secret environment variable.
+  The table below gives the results. The laptop times further down do not predict the ingest.
+
+| Part, `m7i.xlarge`, us-west-2 | Cores | Wall | CPU | In array writes | Commit | Rate | Snapshot |
+|---|---|---|---|---|---|---|---|
+| `ch0000_dapi` level 0, 33139 x 56644, 1,848 tiles | 1 | 1,204.8 s | 284.5 s | 955.3 s | 2.4 s | 1.53 tiles/s, 2.97 MiB/s decoded | `H7KJHS5C0R1ZCF9CQJH0` |
+| the same plane | 4 | 911.2 s | 294.4 s | 880.1 s | 2.3 s | 2.03 tiles/s, 3.93 MiB/s decoded | `X14XX29WVGB1HN1SK4Z0` |
+| `cells.zarr.zip` `masks/0`, 2,048 chunks | 1 | 968.3 s | 5.8 s | | 2.1 s | 2.12 chunks/s, 0.12 MiB/s | `Q8HNM2ZZ0K5C3XF48ZR0` |
+
+  - Bytes, on the VM. The plane read 1,130.6 MiB of JPEG 2000 and decoded 3,580.3 MiB. It stored
+    1,729.0 MiB as blosc-zstd in 1,731 chunks. The other 117 tiles hold only the fill value, so
+    zarr stores no chunk for them. The mask read 120.1 MiB and stored 120.0 MiB of chunks.
+  - Checks, on the VM. Both plane runs: `check_page` PASS on 4 tiles, (0, 0), (10, 55), (21, 55)
+    and (32, 55). The mask: 20 sampled chunks equal the source members, byte for byte.
+  - Partial chunks. Zarr read no chunk back during any write: 0 store `get` calls. The tile is the
+    chunk, so each tile write fills its chunk.
+  - Where the time goes. The writes are serial and take about 0.5 s per chunk: 955.3 s for 1,731
+    plane chunks, and 968.3 s for 2,048 mask chunks. Decode takes 0.15 s of CPU per tile.
+  - Decode threads. tifffile decodes the tiles in a thread pool of `TIFF.MAXWORKERS` threads. That
+    is 1 thread on one core and 2 threads on 4 vCPU. On 4 vCPU the decode runs beside the
+    writes. So 4 cores cut the plane by 24 percent only, because the writes stay serial.
 - **Categorical columns.** pyiceberg warns `Iceberg does not have a dictionary type. <class
   'pyarrow.lib.DictionaryType'> will be inferred as string on read.` So `feature_name` reads back
   as a plain string, not a dictionary.
