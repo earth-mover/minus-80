@@ -228,9 +228,14 @@ Painting Gallery ingest, rather than renumbering from 0.
    branch. Measure: the commit's time, ice-pack against S3, a chunk read from
    the Arraylake region, the snapshot's open time, and how a viewer shows a
    plate.
-3. **Full ingest, needs approval.** All 110 plates, one batch script under
+3. **Full ingest, needs approval.** RxRx19a first, its 57 plates and its
+   embeddings, then RxRx19b's 53 plates: one batch script per dataset under
    `runs/`, on Coiled. Building the plates reads no image data; the
-   embeddings copy reads 1.5 GB.
+   embeddings copy reads 1.5 GB. RxRx19a goes first because it is the one
+   people will want to look at: its stains are named, and its infected wells
+   sit beside mock and UV-inactivated controls on every plate. It is also
+   the larger snapshot, about 689,000 nodes, so its run measures the
+   snapshot's open time on the real store.
 4. **Verify and report.** `verify.py` checks the node and reference counts
    against the central directories, the attributes against the schemas, and a
    handful of chunks against the PNGs decoded straight from the zips;
