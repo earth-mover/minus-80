@@ -270,3 +270,17 @@ def test_channel_names_from_ome_xml():
         "18S",
         "alphaSMA/Vimentin",
     ]
+
+
+@pytest.mark.parametrize("tile", [(0, 6), (3, 0), (-1, 0)])
+def test_check_page_refuses_a_tile_outside_the_grid(tmp_path, tile):
+    # 700 x 1300 in 256-pixel tiles is 3 rows of 6 tiles.
+    with _one_page(
+        tmp_path, _picture((700, 1300)), tile=(256, 256), compression="adobe_deflate"
+    ) as tif:
+        page = tif.pages[0]
+        array = create_level(
+            _root(tmp_path), "s0", (1, 700, 1300), "uint16", dims=("c", "y", "x"), chunk=(256, 256)
+        )
+        with pytest.raises(IndexError, match=rf"tile \({tile[0]}, {tile[1]}\) is outside the 3 x 6 tile grid"):
+            check_page(array, page, (0,), [tile])

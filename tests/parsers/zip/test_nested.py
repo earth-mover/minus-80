@@ -50,3 +50,16 @@ def test_member_zip_over_a_remote_outer_file(range_server, outer):
     with member_zip(reader(f"{range_server.url}/outer.zip"), "inner.zarr.zip") as zf:
         assert zf.read("a/0.0") == b"chunk"
     assert all(r is not None for r in range_server.gets())
+
+
+def test_an_encrypted_member_is_refused(tmp_path):
+    path = tmp_path / "encrypted.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("secret.bin", b"ciphertext")
+    data = bytearray(path.read_bytes())
+    # Set bit 0, "encrypted", in the central directory entry's general purpose flags.
+    central = data.index(b"PK\x01\x02")
+    data[central + 8] |= 0x1
+    path.write_bytes(bytes(data))
+    with open(path, "rb") as archive, pytest.raises(NotImplementedError, match="encrypted"):
+        member_file(archive, "secret.bin")

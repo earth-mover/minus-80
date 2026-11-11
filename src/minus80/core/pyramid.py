@@ -56,7 +56,11 @@ def _decode_tile(
 ) -> Iterator[tuple[int, int, int, np.ndarray]]:
     """Decode only tile `(row, col)`: one segment, or one per sample on a planar page."""
     per_row = -(-page.imagewidth // page.tilewidth)
-    per_plane = per_row * -(-page.imagelength // page.tilelength)
+    rows = -(-page.imagelength // page.tilelength)
+    per_plane = per_row * rows
+    # Without this check, a column past the row's end reads the next row's tile.
+    if not (0 <= row < rows and 0 <= col < per_row):
+        raise IndexError(f"tile ({row}, {col}) is outside the {rows} x {per_row} tile grid of {page}")
     planar = page.planarconfig == tifffile.PLANARCONFIG.SEPARATE
     fh = page.parent.filehandle
     for sample in range(page.samplesperpixel if planar else 1):

@@ -43,6 +43,9 @@ class Window(io.RawIOBase):
 def member_file(archive: BinaryIO, name: str) -> io.BufferedReader:
     """A seekable file over the data of the STORED member ``name`` of ``archive``."""
     info = zipfile.ZipFile(archive).getinfo(name)
+    # Flag bit 0 marks encrypted data; its bytes are ciphertext.
+    if info.flag_bits & 0x1:
+        raise NotImplementedError(f"zip member {name} is encrypted; only unencrypted members open")
     if info.compress_type != zipfile.ZIP_STORED:
         method = {zipfile.ZIP_DEFLATED: "deflate"}.get(info.compress_type, info.compress_type)
         raise NotImplementedError(f"zip member {name} uses method {method}; only stored members open")
