@@ -20,7 +20,7 @@ judgement calls below. Each has a recommended default.
 | # | Decision | Recommended |
 |---|---|---|
 | 1 | Which mask is the cell mask and which the nucleus mask | Decided: `masks/0` nucleus, `masks/1` cell, as `polygon_set_names` orders them. The fixture confirmed it by area. |
-| 2 | The table's instance key | Decided: the integer label in the masks, which is the row position plus one. `obs` keeps `barcode` and `cell_id`. |
+| 2 | The table's instance key and region | Decided: the integer label in the masks, which is the row position plus one. On `main`, the table annotates `cell_boundaries` only. `obs` keeps `barcode` and `cell_id`. |
 | 3 | Transcript `quality_score` is `float16` | Write `float32` in the Iceberg tables. Record the widening. |
 | 4 | The global coordinate system | Micrometres, as `spatialdata_io.xenium` does. Each image carries `Scale(pixel_size)`. |
 | 5 | The H&E image | Keep its pixels. Place it with the affine from the alignment CSV. Do not resample. |
@@ -100,7 +100,7 @@ reader finds them in the same place in every repo of the org:
 | `title` | the dataset's title as the 10x dataset page gives it |
 | `description` | what the store holds and how it is laid out |
 | `source` | the four objects: URL, size, ETag and last-modified date of each |
-| `documentation` | the dataset page URL and the Atera Onboard Analysis output documentation URL |
+| `documentation` | three URLs: the dataset page, the Atera Onboard Analysis output documentation, and the software documentation |
 | `license` | `"Creative Commons Attribution 4.0 International (CC BY 4.0)"` and its URL |
 | `citation` | `text`: the rendered citation in 10x's format, as `LAYOUTS.md` gives it; `dataset_title`; `product`: `"Atera In Situ"`; `software`: `"10x Genomics Atera Onboard Analysis v1.0.4"`, the version as the page states it; `software_version_full`: `analysis_sw_version`, such as `atera-1.0.4.1`; `instrument_software`: `instrument_sw_version`; `publisher`: `"10x Genomics"`; `published`: the dataset page's date; `url`: the dataset page; `doi`: `null`, with a note that 10x lists none |
 | `reading` | which readers open which elements, and what the shim is for |
@@ -187,7 +187,7 @@ shapes/cell_boundaries              iceberg_table + shapes.parquet as a uint8 ar
 shapes/nucleus_boundaries           iceberg_table + shapes.parquet as a uint8 array
 shapes/region_outline               the ROI outline from the overview scan, one polygon (call 6)
 points/transcripts                  iceberg_table + points.parquet/part.<i>.parquet, one part per source tile
-tables/table                        AnnData: X CSR int32, obs, var, obsm; region cell_labels
+tables/table                        AnnData: X CSR int32, obs, var, obsm; region cell_boundaries, instance key instance
 ```
 
 Iceberg tables in `<repo>-tables`: `transcripts`, `cell_boundaries`,
@@ -260,11 +260,13 @@ Polygons, one row per cell or nucleus, from `polygon_sets/<i>`:
 | `geometry` | binary, WKB polygon | `vertices[:num_vertices]`, in micrometres |
 | `bbox` | struct of four float64 | the polygon's bounds |
 
-Every table carries the `geo` property with GeoParquet 1.1 metadata. Every
-Parquet file carries the same `geo` key and the pandas index metadata in its
-footer. That is possible because the ingest writes the files with pyarrow and
-registers them with pyiceberg `add_files`. zax reads the footer, and the shim
-reads the index.
+The shapes tables carry the `geo` property with GeoParquet 1.1 metadata.
+Their Parquet files carry the same `geo` key in the footer. The transcripts
+table has no geometry column and no `geo` key. Its rows have plain `x`, `y`,
+`z` and `bbox` columns. Every Parquet file carries the pandas index metadata
+in its footer. That is possible because the ingest writes the files with
+pyarrow and registers them with pyiceberg `add_files`. zax reads the footer,
+and the shim reads the index.
 
 The `iceberg_table` attribute on each element group:
 
@@ -290,6 +292,12 @@ never expires or compacts these tables. A rewrite replaces a table's files in
 one overwrite snapshot, and the old files stay in the bucket. Each table's
 properties name the repo that references its files.
 
+The name of each data file holds a hash of its bytes. The ingest never
+overwrites an object, so other bytes never take a referenced name. A rerun
+that writes the same bytes reuses the object. Each virtual reference also
+carries the file's last-modified time. Icechunk refuses to read a file that
+changed after that time.
+
 Each data file carries the Iceberg field ids of the table schema, so a reader
 needs no name mapping. The `instance` column is required in each table.
 
@@ -303,10 +311,20 @@ dropped, points and shapes are Iceberg-only, and the shim scans the table.
 The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
 
-Shapes tables carry an `instance` column that equals the mask label. It is the
-`index_column`. The source's `cell_index` stays as a column. The table element
-uses the same label as its instance key. So a join from the table to the
-shapes or the labels never shifts by one.
+Shapes tables carry an `instance` column that equals the cell mask label. It
+is the `index_column`. The source's `cell_index` stays as a column.
+
+The owner decided the table's region on 2026-11-11. On the Arraylake branch
+`main`, `tables/table` annotates `cell_boundaries` only. It has one row per
+cell: 399,120 rows for the kidney. Its `region_key` is `region` and its
+`instance_key` is `instance`. `instance` equals the cell mask label.
+`labels/cell_labels` and `shapes/nucleus_boundaries` join to a table row by
+the same `instance`. So a join from the table to the shapes or the labels
+never shifts by one. A SpatialData table row annotates one instance of one
+element. So a table on two elements would need every row twice.
+
+The fixture's table annotates `cell_labels`. "Stage two" lists the change to
+`cell_boundaries` and its verify gate.
 
 ### Layouts considered and rejected
 
@@ -322,8 +340,12 @@ shapes or the labels never shifts by one.
   JPEG 2000 codec. The cellpainting repo has this problem today with LZW.
 - **One Iceberg namespace `atera` for all samples.** Rejected for the org's
   precedent of one namespace per repo.
-- **The HTML reports as `file:` arrays.** Rejected: the convention is
-  unpublished. Their data bag reduces to attributes and the QC rasters.
+- **The HTML reports as `file:` arrays.** Rejected: the owner decided that
+  `file:` arrays hold only the Parquet copies. The reports' data bag reduces
+  to attributes and the QC rasters.
+- **One table that annotates `cell_labels` and `cell_boundaries`.** Rejected:
+  a SpatialData table row annotates one instance of one element. Two elements
+  would need every row twice.
 - **Stacking the four 2D channels from four files into one array.** Adopted:
   the four files are one OME-TIFF series, and `(c, y, x)` is the spec's shape.
 
@@ -362,10 +384,13 @@ All on 2026-11-10, from a laptop, with range requests only.
   and chunking; the cellpainting repo fails to open without `imagecodecs`.
 
 Tested in the fixture step, on 2026-11-10 and 2026-11-11, from a laptop:
-decoding a JPEG 2000 tile with `imagecodecs` against tifffile; writing a
-table through `add_files` on Arraylake's catalog; virtual references from an
-Arraylake repo into the R2 bucket; the shim reading the `uint8` copies on
-Icechunk. `LAYOUTS.md`, "Fixture findings", gives the results.
+the JPEG 2000 decode; writing a table through `add_files` on Arraylake's
+catalog; virtual references from an Arraylake repo into the R2 bucket; the
+shim reading the `uint8` copies on Icechunk. `LAYOUTS.md`, "Fixture
+findings", gives the results. `write_page` and the `images` gate both decode
+with tifffile, which calls `imagecodecs`. So the gate shows
+that the stored pixels equal tifffile's decode. It does not compare two
+decoders.
 
 Tested on 2026-11-11: zax reads the fixture's Iceberg tables on the R2
 endpoint (`LAYOUTS.md`, check (d)). Decode and write throughput on a Coiled
@@ -388,7 +413,9 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
    is the row position plus one. `obs.cell_id` is not the label. It packs the
    pair as `prefix + suffix * 2**32`. So the ingest adds `obs/instance`, the
    row position plus one, and `obs/region`. `obs` keeps `cell_id` and
-   `barcode`.
+   `barcode`. Decided on 2026-11-11: on `main`, the table annotates
+   `cell_boundaries` only, and the labels and nuclei join by `instance`.
+   "The tables" gives the reason.
 3. **`float16` quality scores.** Parquet's FLOAT16 type is young, and zax's
    Arrow support for it is unverified. Recommended: `float32` in the tables,
    recorded in the table properties and in `LAYOUTS.md`.
@@ -437,12 +464,12 @@ Each step needs approval before it writes to a shared resource.
 1. **Fixture, kidney, branch `fixture`.** Create the repo `atera-kidney` and the
    namespace `atera-kidney-tables`. Write level 6 of `images/morphology`, the
    two masks' lowest pyramid level, one transcript tile as a table and a
-   `uint8` copy, the nucleus polygons as a table and a copy, and the AnnData
-   `obs` and `var`. Then: open it with the virtual_omics shim, in that
+   `uint8` copy, the nucleus polygons as a table and a copy, and the whole
+   AnnData table, `X` included. Then: open it with the virtual_omics shim, in that
    project's `spatial` environment, and with stock SpatialData 0.8; send its
    coordinates to the zax-spatialdata project for its Iceberg source and
    tests; check the R2 virtual references; check `add_files` on the
-   catalog; decode one JPEG 2000 tile against tifffile. Pass criteria: the
+   catalog; compare the stored tiles with tifffile's decode. Pass criteria: the
    shim opens every element; stock SpatialData opens the images, the labels
    and the table, and reports the points and shapes as absent, which is the
    expected limit. Approval needed: creating one repo and one namespace in
@@ -512,8 +539,8 @@ Each step needs approval before it writes to a shared resource.
    sessions on one branch need a merge or one branch per writer, also not
    measured. Peak memory is not measured. The disk must hold the 45.7 GB
    bundle and the 2.8 GB H&E. Download the bundle and the H&E once, and verify their ETags. Read
-   members in place. Write the tables, then the elements, with one commit per
-   element. Verify per `docs/ingest.md`: every image level against tifffile
+   members in place. Write the tables, then the elements. "Stage two", item 4,
+   sets the commit unit. Verify per `docs/ingest.md`: every image level against tifffile
    on a sample of tiles, every copied chunk by checksum, every table's row
    count against the source arrays, and the shim and zax reads. Write
    `REPORT.md`. Approval needed: the Coiled spend and about 100 GB of R2
@@ -526,10 +553,10 @@ Each step needs approval before it writes to a shared resource.
 
 | Need | Reuse | Add |
 |---|---|---|
-| Arraylake repos as targets | `minus80.core.icechunk_io`, with the `cellpainting-gallery` branch's `arraylake://` support | nothing |
+| Arraylake repos as targets | `minus80.core.icechunk_io.arraylake_repository`, on `main` | nothing |
 | OME-Zarr 0.5 image, label and multiscale metadata | `minus80.ome.image_attrs`, `label_attrs` | the SpatialData element attributes: `spatialdata_attrs` and `coordinateTransformations` |
 | A native pyramid whose every level comes from the source | `minus80.core.multiscale`, which writes a virtual level 0 and computed levels | a path that writes decoded source levels as real chunks, with shards |
-| JPEG 2000 tiles out of an OME-TIFF | `minus80.parsers.tiff`, which indexes tiles and pages | a decode of one tile through `imagecodecs`, verified against tifffile |
+| JPEG 2000 tiles out of an OME-TIFF | tifffile's `page.decode`, which calls `imagecodecs` | `minus80.core.pyramid`: it decodes each tile once and writes it. It is in `core`, not `parsers.tiff`, because it writes real chunks and builds no references. |
 | Zarr v2 chunks inside a stored zip, inside a stored zip | `minus80.parsers.zip`, which addresses members as chunks | a v2-to-v3 metadata translation and a byte copy of each chunk |
 | Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
 
@@ -547,21 +574,118 @@ Risks:
 - **Access policy per repo** (call 12). Each sample's repo opens only when
   an org admin's Virtual Chunk Access Policy covers its container. Each
   sample's step needs that policy before the ingest starts.
-- **Nucleus join.** The AnnData table annotates `cell_labels` only. So no
-  table row joins to a `nucleus_boundaries` row in the fixture. The full
-  ingest must decide how a reader goes from a nucleus to its cell's row.
-  zax reads the tables on the R2 endpoint: `LAYOUTS.md`, check (d).
+- **Table region.** The fixture's table annotates `cell_labels`. The decision
+  for `main` is `cell_boundaries`, joined to the labels and nuclei by
+  `instance`. "Stage two" lists the change and its gate. zax reads the tables
+  on the R2 endpoint: `LAYOUTS.md`, check (d).
 - **The Python read path** rests on unreleased spatialdata patches and the
   virtual_omics shim. The fixture showed it: released SpatialData 0.8.0
   cannot open an Icechunk store, and PR #1107 with its patches and the shim
   opens every element. Readers outside our notebooks need those until
   spatialdata PR #1107 or the `parquet_fs_fallback` hook lands.
-- **Shared-package additions** this ingest needs from the unmerged
-  `cellpainting-gallery` branch, `arraylake://` locations in
-  `minus80.core.icechunk_io`, land before this ingest starts, or it rebases
-  onto that branch.
 - **Booth and OME-Zarr 0.5.** Whether Booth serves a SpatialData image
-  element as tiles is untested. It does not change the store.
-- **Node count.** About 15 images with 8 levels, 2 labels, 5 points parts,
-  2 shapes and one table: a few hundred nodes per repo, far under the
-  500,000-node snapshot cache.
+  element as tiles is untested. It does not change the store. The elements declare
+  `ome.version` `0.5-dev-spatialdata`. "Stage two", item 6, tests one element.
+- **Node count.** About 15 images with 8 levels, 2 labels, 2 shapes and one
+  table. The points have one part per source tile, 28 to 32 parts. That is a
+  few hundred nodes per repo, far under the 500,000-node snapshot cache.
+
+## Stage two
+
+Stage two continues on the git branch `atera-ingest-plan`. It does the work
+below, in this order. Then it runs the full kidney ingest to the Arraylake
+branch `main`. The owner approved that write for the repo `atera-kidney`.
+Each item gives the problem, the fix and the check.
+
+1. **The table's region.**
+   - Problem: the fixture's table annotates `cell_labels`. The decision in
+     "The tables" is `cell_boundaries`.
+   - Fix: `write_table` writes `cell_boundaries` to `obs/region` and to
+     `write_table_keys`.
+   - Check: a new verify gate. The set of `obs.instance` equals the set of
+     `cell_boundaries.instance`. `cell_id` agrees for each instance. The
+     `instances` gate checks only the mask.
+2. **The 3D stack in shards.**
+   - Problem: `write_page` writes one plane at a time. zarr's sharding codec
+     reads, merges and writes the whole shard on each partial write. So each
+     shard of 13 planes is written 13 times. Each write also leaves an orphan
+     object in the Icechunk session. Two writers on planes of one shard
+     conflict.
+   - Fix: decode one `(row, col)` tile from every plane, then write its shard
+     once. The other choice is no shards for the 3D stack. A measurement of
+     both decides. Judgement call 7 records the decision.
+   - Check: a test counts the writes of each shard. `check_page` compares
+     sampled tiles on every plane.
+3. **Transcript tiles in memory.**
+   - Problem: `tile_table` builds a whole tile in memory. The largest kidney
+     tile has about 90 million rows. An estimate puts its peak memory well
+     above the 15 GiB of an `m7i.xlarge`. No run measured it.
+   - Fix: build each tile in row slices of a few million rows. Write the
+     slices as row groups with one `ParquetWriter`. Build `cell_id` with
+     Arrow compute, not with NumPy string arrays.
+   - Check: a test compares a sliced tile with a whole tile. A run on the VM
+     measures the peak memory of the largest tile.
+4. **The commit unit and the resume key.**
+   - Problem: `Writer.element` commits once per element.
+     `images/morphology` and `images/morphology_3d` take hours each. A
+     failure loses the whole element. `holds()` tests only that the
+     element's group exists. So with partial commits, a rerun skips
+     unfinished levels.
+   - Fix: commit per level or per plane. Write a completion attribute last,
+     and resume on it. Several writers use the fork-and-merge method of
+     `docs/ingest.md`, "Commit often, and merge parallel writers once".
+   - Check: a test stops a run after one level and runs it again. The result
+     equals one run without a stop.
+5. **Shared code into `minus80`.**
+   - Problem: `AGENTS.md` says that code a second archive could use moves
+     into `minus80`. A Xenium ingest needs these parts of `ingest.py` and
+     `bundle.py`.
+   - Fix: move `Tables`, with its FileIO writer and `local_catalog`, into
+     `minus80`. Also move the Zarr v2 read helper `read_v2_array`, `Writer`
+     and the read counter `ReadCounter`. Replace the hand-written v2 decoder with
+     zarr's own reader if zarr can read a zip member.
+   - Check: the moved tests pass under `tests/`, and the ingest imports the
+     code from `minus80`.
+6. **The OME version of the raster elements.**
+   - Problem: the image and label elements declare `ome.version`
+     `0.5-dev-spatialdata`. SpatialData requires that string. `AGENTS.md`
+     asks for OME-Zarr 0.5 metadata. A 0.5 reader that checks the string can
+     refuse the element.
+   - Fix: record the version as a judgement call here and in `LAYOUTS.md`.
+   - Check: open one element with `ome-zarr-models` and with Booth before
+     the full ingest. Record both results.
+7. **The H&E image.**
+   - Problem: the kidney H&E has Deflate tiles. The brain H&E has
+     uncompressed planar tiles. Every Zarr reader has a codec for both. The
+     "Native ingests" rule says to copy a chunk's bytes unchanged when one
+     can.
+     `write_page` always decodes. Its default chunk is `(1024, 1024)`,
+     whatever the H&E tile size is.
+   - Fix: copy the tiles unchanged or decode them. The "Native ingests" rule
+     decides, and judgement call 5 records the reason. The ingest passes the
+     page's tile size as the chunk, as `measure.py` does.
+   - Check: the `images` gate on every H&E level, against tifffile. A copy
+     is also compared byte for byte with the source tiles.
+8. **Concurrent chunk writes and a second measurement.**
+   - Problem: each written chunk took 0.55 s on the VM. The cause is not
+     measured. Step 2 measured no concurrent chunk writes.
+   - Fix: write chunks concurrently inside one process. Measure again on a
+     Coiled VM in us-west-2, with the machine token, not a personal one.
+   - Check: the measurement gives the time per chunk and the peak memory.
+     It sets the machine size for step 4.
+9. **The full kidney ingest** to the Arraylake branch `main`, as step 4.
+10. **Deferred minor items.** These smaller items may wait:
+    - `minus80.parsers.zip.nested`: `Window.seek` and its tests, and the zip
+      that stays open.
+    - `minus80.core.zarr_copy`: the refusals and their tests.
+    - `minus80.core.pyramid`: `write_page` skips a missing tile silently;
+      `_check_shape` checks only `y` and `x`; no test checks a planar page.
+    - `minus80.ome.spatialdata`: checks on the input of a transform.
+    - `minus80.core.tables`: partial references after a failed write, and
+      `require_table` on a table with no snapshot.
+    - The ingest's tests: the conftest, and a close on `Bundle`.
+    - `bundle.py` and `polygons.py`: tests of `read_v2_array`, and the loop
+      over polygons.
+    - `ingest.py` and `verify.py`: `ReadCounter`, the lambdas, and repeated
+      checks.
+    - Prose fixes in this file and in `docs/upstream.md`.

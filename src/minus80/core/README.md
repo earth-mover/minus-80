@@ -5,7 +5,7 @@ and ingests call it; nothing in it is specific to one file format or one
 archive. For a format VirtualiZarr already parses (HDF5, NetCDF, TIFF, Zarr,
 GRIB), call VirtualiZarr's parser directly instead.
 
-There is no extra to install: the dependencies of `minus-80` cover every module.
+The dependencies of `minus-80` cover every module except two. `pyramid` needs the `tiff` extra, and `tables` needs the `tables` extra.
 
 ## Modules
 
@@ -18,7 +18,7 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 | `builders.flat_binary` | `flat_manifest_array` builds a `ManifestArray` for an uncompressed, C-ordered array from its shape, dtype, byte order and data offset. Each chunk is one slab along one axis; `stride` handles a format that puts a header before each slab. |
 | `icechunk_io` | `create_repo` creates or reopens a repo with one virtual chunk container per source prefix. `write_manifest_group` writes a `ManifestGroup` and commits. `open_repo` and `open_repository` reopen a repo and authorize the prefixes stored in its config. `commit` rebases onto commits that landed first. |
 | `multiscale` | `write_multiscale` writes an OME-Zarr 0.5 image whose full-resolution level is virtual and whose downsampled levels are computed by ngff-zarr and stored as real chunks. |
-| `pyramid` | `create_level` makes a blosc-zstd array with one chunk per tile, optionally sharded along z. `write_page` decodes each tile of a TIFF page once with tifffile and writes it, samples on the axis before `y`. `check_page` compares named tiles with the array. `channel_names` reads the channel names of an OME-XML string. |
+| `pyramid` | Needs the `tiff` extra. `create_level` makes a blosc-zstd array with one chunk per tile, optionally sharded along z. `write_page` decodes each tile of a TIFF page once with tifffile and writes it, samples on the axis before `y`. `check_page` compares named tiles with the array. `channel_names` reads the channel names of an OME-XML string. |
 | `decisions` | `Decision` records a value or interpretation that the source files do not state, with the evidence for it, and renders it as a sentence or as a record. |
 | `progress` | `Progress` prints a status line at a fixed time interval while a long job runs. |
 | `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |

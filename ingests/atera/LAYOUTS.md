@@ -114,10 +114,33 @@ only the repo's first commit.
 | `points/transcripts` | `transcripts.zarr.zip`, `grid/0,0` and `codeword_category` | Iceberg table `transcripts`, partitioned by `grid_tile`; `points.parquet` is a `uint8` array of virtual references into the table's data file |
 | root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB |
 
+On the Arraylake branch `main`, `tables/table` annotates `cell_boundaries`, not `cell_labels`; see "The table's region".
+
 The `s6` image level carries a scale of 1 in its dataset. The element transform maps it into
 `global` with `0.21249222 x 33139 / 517` on y and `0.21249222 x 56644 / 885` on x.
 The labels map with `0.21249222` on y and x. Points and shapes map with a scale of 1.
 The output axes of `global` carry the unit `micrometer`. The input axes carry `unit`, SpatialData's placeholder.
+
+### The table's region
+
+The owner decided on 2026-11-11. On the Arraylake branch `main`, `tables/table` annotates
+`cell_boundaries` only. It has one row per cell, 399,120 rows for the kidney. Its `region_key`
+is `region` and its `instance_key` is `instance`, which equals the cell mask label.
+`labels/cell_labels` and `shapes/nucleus_boundaries` join to a table row by the same `instance`.
+A SpatialData table row annotates one instance of one element.
+So a table on two elements would need every row twice.
+The fixture's table annotates `cell_labels`, as this file records.
+PLAN.md, "Stage two", lists the code change and its verify gate.
+
+### `instance` in each table
+
+The column `instance` has two meanings.
+
+| Table | `instance` |
+|---|---|
+| `transcripts` | The row position in the element, 0-based. It names no cell. `cell_id` names the cell, and it is the points' `instance_key`. |
+| `nucleus_boundaries`, `cell_boundaries` | The cell mask label, 1-based: `cell_index + 1`. |
+| `obs` of `tables/table` | The cell mask label, 1-based: the row position plus one. |
 
 ### What the fixture showed
 
@@ -178,7 +201,7 @@ The `polygons` gate fails only when the metrics CSV states a count that differs.
 | `tables` | PASS | `transcripts` 2,633,912 rows; `nucleus_boundaries` 398,197 rows; both equal the source arrays. |
 | `masks` | PASS | See "What the fixture showed". |
 | `instances` | PASS | 50 rows: the cell mask at the centroid is row + 1, `obs.instance` is row + 1, and `obs.cell_id` decodes to the cells store's pair. |
-| `polygons` | FINDING | 1,180 invalid nucleus polygons. The metrics CSV value is empty, so the gate has no count to compare. |
+| `polygons` | PASS | FINDING: 1,180 invalid nucleus polygons. The metrics CSV value is empty, so the gate has no count to compare. |
 | `copies` | PASS | Each `uint8` copy's bytes equal its registered Parquet file. |
 | `attrs` | PASS | Each `iceberg_table` attribute's `table_uuid` and `snapshot_id` equal the catalog's. |
 
@@ -256,8 +279,8 @@ All of it ran on a laptop outside us-west-2.
   On a laptop, outside the source region, the check takes 23.7 s wall time and 2.1 GB of memory.
   zax reads the `feature_name` categories from the Parquet dictionary.
   zax also reads name-mapped files, so a table that another tool registers with `add_files` works.
-  Open item for the full ingest: the AnnData table annotates `cell_labels` only.
-  So the fixture has no join from `nucleus_boundaries` to the table rows.
+  The fixture's AnnData table annotates `cell_labels` only. So it has no join from `nucleus_boundaries`
+  to the table rows. The owner decided the join for `main`; see "The table's region".
 - **(e) Throughput.** `measure.py` measured it on 2026-11-11 on one Coiled VM.
   The VM is an `m7i.xlarge`: 4 vCPU and 15 GiB, in AWS us-west-2, Coiled workspace `earthmover-devs`.
   The VM read the bundle from 10x's bucket.
