@@ -1,7 +1,11 @@
-"""Run one script of this ingest on one Coiled VM, from a clean copy of the committed code and the lockfile.
+"""Run a script, or the full ingest and its verification, on one Coiled VM from a clean copy of the committed code.
 
-    uv run --package atera-ingest --extra launch python ingests/atera/launch.py --vm-type m7g.xlarge \\
-        --region us-west-2 --workspace earthmover-devs --disk 100 --name atera-measure -- measure.py --part all ...
+    launch.py --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --disk 100 --name atera-measure \
+        -- measure.py --part all ...
+    launch.py --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-kidney --ingest \
+        --sample kidney --repo arraylake://<org>/atera-kidney --catalog arraylake://<org> --namespace <ns> \
+        --branch main --concurrency 8 --max-minutes 600
+    launch.py --attach <cluster id or name> --workspace earthmover-devs
 
 The VM builds its own environment from ``uv.lock`` inside a Linux container, never from the laptop's environment.
 The launcher stops the VM when the script ends, fails or passes the time limit, or when the launcher is interrupted.
@@ -28,6 +32,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
+import fetch
+from sources import SAMPLES
+
 HERE = Path(__file__).parent
 #: The container that builds the environment: uv and git on Debian, for x86 and ARM.
 IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm"
@@ -48,6 +55,12 @@ MAX_FAILURES = 30
 RUNNING_TASK = ("assigned", "running")
 #: The longest the launcher waits for the cluster to report ``stopping`` or ``stopped`` after the stop request.
 STOP_SECONDS = 60
+#: The disk beyond the downloads, in GiB: 10 for the scratch Parquet file of the largest transcript tile (not yet
+#: measured), 10 for the uv environment and its cache, 10 for the image and the system, 10 of margin.
+OVERHEAD_GIB = 40
+#: The default disk of the ingest form is the requirement rounded up to a multiple of this.
+DISK_STEP_GIB = 25
+GIB = 1 << 30
 #: Coiled prefixes each line of a batch task's output with this marker.
 BATCH_MARKER = re.compile(r"^__BATCH \d+\.\d+__ ?")
 
@@ -65,17 +78,39 @@ class Status(NamedTuple):
 
 
 @dataclass(frozen=True)
+class IngestPlan:
+    """What ``ingest.py --mode full`` and ``verify.py --mode full`` take."""
+
+    sample: str
+    repo: str
+    catalog: str
+    namespace: str
+    branch: str
+    concurrency: int
+    elements: str | None
+    gates: str | None
+
+
+@dataclass(frozen=True)
 class Job:
-    """One launch. The token is not part of it."""
+    """One launch. The token is not part of it.
+
+    ``minutes`` is the launcher's time limit, ``None`` for none. ``status_failures`` is the number of failed status
+    calls in a row, while the task runs, that end the run; ``None`` means never, so a lost network does not end the job.
+    ``stop_on_interrupt`` is False for a launcher that attached to a job that it did not start.
+    """
 
     name: str
     vm_type: str
     region: str
     workspace: str
     disk: int
-    minutes: int
+    minutes: int | None
     script: str
     arguments: list[str]
+    ingest: IngestPlan | None = None
+    status_failures: int | None = MAX_FAILURES
+    stop_on_interrupt: bool = True
 
 
 def unique_name(prefix: str) -> str:
@@ -101,18 +136,87 @@ def is_arm(vm_type: str) -> bool:
     return re.match(r"^[a-z]+\d+[a-z]*g[a-z]*\.", vm_type) is not None
 
 
+def required_disk_gib(sample: str) -> int:
+    """The disk, in GiB, that the ingest of ``sample`` needs: its downloads, rounded up, and ``OVERHEAD_GIB``."""
+    return -(-sum(o["size"] for o in fetch.wanted(SAMPLES[sample])) // GIB) + OVERHEAD_GIB
+
+
+def default_disk_gib(sample: str) -> int:
+    return -(-required_disk_gib(sample) // DISK_STEP_GIB) * DISK_STEP_GIB
+
+
+ENVIRONMENT = """test -f uv.lock || { echo "the uploaded code is missing from $PWD"; exit 2; }
+# The environment lives outside the working directory, which Coiled syncs.
+export UV_PROJECT_ENVIRONMENT=/opt/venv UV_CACHE_DIR=/tmp/uv-cache
+"""
+
+
 def remote_script(job: Job) -> str:
-    """The shell script that the VM runs: build the environment from the lockfile, then run the ingest script."""
+    """The shell script that the VM runs: build the environment from the lockfile, then run the job's steps."""
+    if job.ingest:
+        return ingest_script(job.ingest)
     run = shlex.join(["uv", "run", "--frozen", "--package", "atera-ingest", "python",
                       f"ingests/atera/{job.script}", *job.arguments])
     return f"""#!/bin/bash
 set -euo pipefail
-test -f uv.lock || {{ echo "the uploaded code is missing from $PWD"; exit 2; }}
-# The environment lives outside the working directory, which Coiled syncs.
-export UV_PROJECT_ENVIRONMENT=/opt/venv UV_CACHE_DIR=/tmp/uv-cache
-echo "machine: $(uname -m)"
+{ENVIRONMENT}echo "machine: $(uname -m)"
 uv sync --frozen --package atera-ingest
 exec {run}
+"""
+
+
+def ingest_script(plan: IngestPlan) -> str:
+    """The shell script of the ingest form: environment, download, check, ingest, verification.
+
+    Each step prints a start line and its wall time. The first failed step ends the script with its exit code and
+    prints its last 40 lines again, so a failed check never reaches the ingest and a failed ingest never reaches the
+    verification.
+    """
+    files = {kind: f"$DATA/{o['name']}" for kind, suffix in (("bundle", "_outs.zip"), ("image", "_he_image.ome.tif"),
+                                                          ("alignment", "_he_imagealignment.csv"))
+             for o in fetch.wanted(SAMPLES[plan.sample]) if o["name"].endswith(suffix)}
+    quote = shlex.quote
+    python = "uv run --frozen --package atera-ingest python ingests/atera"
+    common = f"--sample {quote(plan.sample)} --repo {quote(plan.repo)} --catalog {quote(plan.catalog)}"
+    ingest = (f'{python}/ingest.py {common} --namespace {quote(plan.namespace)} --mode full '
+              f'--branch {quote(plan.branch)} --concurrency {plan.concurrency} --bundle "{files["bundle"]}" '
+              f'--he-image "{files["image"]}" --he-alignment "{files["alignment"]}"'
+              + (f" --elements {quote(plan.elements)}" if plan.elements else ""))
+    verify = (f'{python}/verify.py {common} --mode full --branch {quote(plan.branch)} --bundle "{files["bundle"]}" '
+              f'--he-image "{files["image"]}" --head-source' + (f" --gates {quote(plan.gates)}" if plan.gates else ""))
+    return f"""#!/bin/bash
+set -uo pipefail
+{ENVIRONMENT}DATA="${{ATERA_DATA:-/tmp/atera-data}}"
+LOGS="${{ATERA_LOGS:-/tmp/atera-steps}}"
+mkdir -p "$DATA" "$LOGS"
+
+# step NAME DESCRIPTION COMMAND...: print a start line, run, print the wall time; on failure print the last 40 lines and exit.
+step() {{
+  local name=$1 description=$2
+  shift 2
+  echo "=== step $name: start: $description"
+  local began=$SECONDS
+  "$@" 2>&1 | tee "$LOGS/$name.log"
+  local code=${{PIPESTATUS[0]}}
+  if [ "$code" -ne 0 ]; then
+    echo "=== step $name: FAILED with exit code $code after $((SECONDS - began)) s"
+    echo "=== last 40 lines of step $name"
+    tail -n 40 "$LOGS/$name.log"
+    exit "$code"
+  fi
+  echo "=== step $name: done in $((SECONDS - began)) s"
+}}
+
+echo "machine: $(uname -m)"
+step environment "build the environment from uv.lock" uv sync --frozen --package atera-ingest
+step download "one streaming GET for each object of the sample, anonymous, resumed up to 5 times" \
+  uv run --frozen --package atera-ingest python ingests/atera/fetch.py download --sample {quote(plan.sample)} --directory "$DATA"
+step check "size of each file, and its ETag where the MD5 of the file or of its parts can be recomputed" \
+  uv run --frozen --package atera-ingest python ingests/atera/fetch.py check --sample {quote(plan.sample)} --directory "$DATA"
+step ingest "the full ingest from the local files; the first write to Arraylake" {ingest}
+echo "=== note: the verification reads the local files; its source gate sends HEAD requests to the real objects"
+step verify "the full verification" {verify}
+echo "=== all steps passed"
 """
 
 
@@ -255,6 +359,30 @@ class CoiledVm:
             self.sleep(2)
 
 
+class AttachedVm(CoiledVm):
+    """A batch job that another launcher started: it serves the last ``tail`` lines of its log, then the new ones."""
+
+    def __init__(self, ref: str, tail: int, **kwargs):
+        super().__init__(**kwargs)
+        self.ref, self.tail, self.backlog = ref, tail, None
+
+    def start(self, job: Job, token: str) -> None:
+        import coiled
+
+        self.workspace = job.workspace
+        jobs = coiled.batch.status(cluster=int(self.ref) if self.ref.isdigit() else self.ref, workspace=self.workspace)
+        if not isinstance(jobs, list) or not jobs:
+            raise StatusError(f"no batch job for {self.ref}: {str(jobs)[:200]}")
+        self.cluster_id, self.job_id = jobs[0]["cluster_id"], jobs[0]["id"]
+        self.backlog = super().new_lines()[-self.tail:] if self.tail else []
+
+    def new_lines(self) -> list[str]:
+        lines = super().new_lines()
+        if self.backlog is not None:
+            lines, self.backlog = [*self.backlog, *lines], None
+        return lines
+
+
 def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock=time.monotonic, sleep=time.sleep,
         interval: float = 10) -> int:
     """Start ``job`` on ``vm``, forward its lines, and return its exit code; the VM stops whatever happens.
@@ -267,7 +395,8 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
 
     def failed(what, error, streak):
         if streak == 1 or streak % 10 == 0:
-            say(f"{what}: {type(error).__name__}: {error}")
+            more = f" ({streak} in a row; the job runs on)" if what == "status" and job.status_failures is None else ""
+            say(f"{what}: {type(error).__name__}: {error}{more}")
 
     def drain():
         # The log lags the task, so read until it stays empty before the VM, and its log, go.
@@ -286,6 +415,7 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
 
     started, status, shown = clock(), Status(None, None, None), {}
     poll_streak = log_streak = 0
+    interrupted = False
     try:
         vm.start(job, token)
         while True:
@@ -313,41 +443,109 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
                     log_streak += 1
                     failed("logs", error, log_streak)
             # A failed log read never ends the run: the lines stay in Coiled's logs.
-            if running and poll_streak >= MAX_FAILURES:
+            if running and job.status_failures is not None and poll_streak >= job.status_failures:
                 say(f"giving up: {poll_streak} status calls in a row failed while the task runs")
                 return 1
-            if clock() - started >= job.minutes * 60:
+            if job.minutes is not None and clock() - started >= job.minutes * 60:
                 say(f"the time limit of {job.minutes} minutes passed; stopping the VM")
                 return TIME_LIMIT_CODE
             sleep(interval)
+    except KeyboardInterrupt:
+        interrupted = True
+        raise
     except Exception as error:
         say(f"{type(error).__name__}: {error}")
         return 1
     finally:
-        vm.stop(job.name)
+        if job.stop_on_interrupt or not interrupted:
+            vm.stop(job.name)
+
+
+def plan_text(job: Job) -> str:
+    """What the ingest form downloads, with the recorded facts, and the disk arithmetic."""
+    objects = fetch.wanted(SAMPLES[job.ingest.sample])
+    lines = [f"download {o['name']}: {o['size']:,} bytes, ETag {o['etag']}" for o in objects]
+    total = sum(o["size"] for o in objects)
+    lines.append(f"disk: {total:,} bytes of downloads are {-(-total // GIB)} GiB, plus {OVERHEAD_GIB} GiB of overhead "
+                 f"is {required_disk_gib(job.ingest.sample)} GiB at least; this launch has {job.disk} GiB")
+    return "\n".join(lines)
+
+
+def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
+    """The options and the command after ``--``; each form's missing or conflicting option exits."""
+    own, command = (argv[: argv.index("--")], argv[argv.index("--") + 1:]) if "--" in argv else (argv, [])
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=NOTE)
+    for flag in ("vm-type", "region", "workspace", "name", "sample", "repo", "catalog", "namespace", "branch",
+                 "elements", "gates", "attach"):
+        parser.add_argument(f"--{flag}")
+    parser.add_argument("--disk", type=int, help="GiB; the ingest form defaults to its requirement, rounded up")
+    parser.add_argument("--max-minutes", type=int, help="the VM stops when the run passes this; 90 for a script")
+    parser.add_argument("--concurrency", type=int)
+    parser.add_argument("--status-failures", type=int,
+                        help="failed status calls in a row that end the run while the task runs; 30 for a script, "
+                             "never for --ingest")
+    parser.add_argument("--tail", type=int, default=40, help="with --attach, the last log lines to show first")
+    parser.add_argument("--token-file", default="~/.arraylake/atera-ingest-token")
+    parser.add_argument("--ingest", action="store_true", help="run ingest.py and verify.py, both --mode full")
+    parser.add_argument("--dry-run", action="store_true", help="print the command and contact nothing")
+    args = parser.parse_args(own)
+
+    def fail(message):
+        raise SystemExit(f"launch.py: error: {message}")
+
+    def need(*flags):
+        for flag in flags:
+            if getattr(args, flag.replace("-", "_")) is None:
+                fail(f"--{flag} is needed" + (" for --ingest" if args.ingest else ""))
+
+    if args.attach:
+        need("workspace")
+    elif args.ingest:
+        if command:
+            fail("--ingest takes no script; the script form is: options -- script arguments")
+        need("vm-type", "region", "workspace", "name", "max-minutes", "sample", "repo", "catalog", "namespace", "branch",
+             "concurrency")
+        if args.sample not in SAMPLES:
+            fail(f"--sample is one of {', '.join(sorted(SAMPLES))}")
+        if args.disk is not None and args.disk < required_disk_gib(args.sample):
+            fail(f"--disk {args.disk} is below the {required_disk_gib(args.sample)} GiB that the ingest of "
+                         f"{args.sample} needs: its downloads and {OVERHEAD_GIB} GiB of overhead")
+    else:
+        need("vm-type", "region", "workspace", "name", "disk")
+        if not command or not (HERE / command[0]).is_file():
+            fail(f"{command[0] if command else 'no script'} is not a script in {HERE.name}/; "
+                         "give the script and its arguments after --")
+    return args, command
+
+
+NOTE = (
+    "With --ingest a dead launcher does not stop the job: the VM runs on and the job ends by itself, at "
+    "--max-minutes on the server, or when a person stops the cluster. Status errors never stop it either; "
+    "use --attach to follow a job again."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if "--" not in argv:
-        raise SystemExit("give the script and its arguments after --")
-    own, command = argv[: argv.index("--")], argv[argv.index("--") + 1:]
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--vm-type", required=True)
-    parser.add_argument("--region", required=True)
-    parser.add_argument("--workspace", required=True)
-    parser.add_argument("--disk", type=int, required=True, help="GiB")
-    parser.add_argument("--name", required=True, help="a prefix; each launch adds a timestamp and a random suffix")
-    parser.add_argument("--max-minutes", type=int, default=90, help="the VM stops when the run passes this")
-    parser.add_argument("--token-file", default="~/.arraylake/atera-ingest-token")
-    parser.add_argument("--dry-run", action="store_true", help="print the command and contact nothing")
-    args = parser.parse_args(own)
-    if not command or not (HERE / command[0]).is_file():
-        raise SystemExit(f"{command[0] if command else 'no script'} is not a script in {HERE.name}/")
+    args, command = parse(sys.argv[1:] if argv is None else argv)
     token = read_token(Path(args.token_file).expanduser())
-    job = Job(unique_name(args.name), args.vm_type, args.region, args.workspace, args.disk, args.max_minutes,
-              command[0], command[1:])
+    if args.attach:
+        job = Job(args.attach, "", "", args.workspace, 0, None, "", [], status_failures=None, stop_on_interrupt=False)
+        install_stop_signals()
+        print(f"attaching to {args.attach}; the last {args.tail} lines first", flush=True)
+        return run(AttachedVm(args.attach, args.tail), job, token, out=lambda line: print(line, flush=True))
+    name = unique_name(args.name)
+    if args.ingest:
+        plan = IngestPlan(args.sample, args.repo, args.catalog, args.namespace, args.branch, args.concurrency,
+                          args.elements, args.gates)
+        job = Job(name, args.vm_type, args.region, args.workspace, args.disk or default_disk_gib(args.sample),
+                  args.max_minutes, "ingest", [], plan, args.status_failures)
+    else:
+        job = Job(name, args.vm_type, args.region, args.workspace, args.disk, args.max_minutes or 90, command[0],
+                  command[1:], None, MAX_FAILURES if args.status_failures is None else args.status_failures)
     if args.dry_run:
+        if job.ingest:
+            print(plan_text(job))
         print(call_text(job))
         print(remote_script(job), end="")
         return 0

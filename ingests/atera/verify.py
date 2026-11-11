@@ -839,6 +839,8 @@ def main() -> None:
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
+    parser.add_argument("--head-source", action="store_true",
+                        help="run the source gate, which sends HEAD requests, although --bundle is a local file")
     args = parser.parse_args()
     require_same_place(args.repo, args.catalog)
 
@@ -883,7 +885,7 @@ def main() -> None:
         names = select_gates(args.gates, gates)
     except ValueError as e:
         raise SystemExit(str(e))
-    failed = run_gates(gates, without_source(names, local=bool(args.bundle)))
+    failed = run_gates(gates, without_source(names, local=bool(args.bundle) and not args.head_source))
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {counter.requests:,} requests")
     sys.exit(1 if failed else 0)
 

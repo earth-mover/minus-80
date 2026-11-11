@@ -1,4 +1,5 @@
 import inspect
+import os
 import signal
 import subprocess
 import sys
@@ -7,6 +8,8 @@ from pathlib import Path
 import pytest
 
 import launch
+from sources import SAMPLES
+from tests.test_verify import _verify, full_store  # noqa: F401
 
 TOKEN = "fake-token-0123456789"
 
@@ -507,3 +510,217 @@ def test_a_failed_stop_of_a_cluster_that_is_stopped_is_not_an_error(monkeypatch,
 
     _, out = _stop(coiled, monkeypatch, capsys, fails, ["stopped"])
     assert out.strip() == "cluster atera-x: stopped"
+
+
+KIDNEY = SAMPLES["kidney"].name
+
+
+def _ingest_argv(token_file, *extra, drop=()):
+    argv = {"--vm-type": "m7g.xlarge", "--region": "us-west-2", "--workspace": "earthmover-devs",
+            "--name": "atera-ingest", "--token-file": str(token_file), "--max-minutes": "600",
+            "--sample": "kidney", "--repo": "arraylake://org/atera-kidney", "--catalog": "arraylake://org",
+            "--namespace": "atera_kidney", "--branch": "main", "--concurrency": "8"}
+    flat = [x for k, v in argv.items() if k not in drop for x in (k, v)]
+    return ["--ingest", *flat, *extra]
+
+
+def test_the_ingest_dry_run_names_the_objects_the_local_files_and_the_full_mode_and_has_no_token(tmp_path, capsys):
+    assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run")) == 0
+    shown = capsys.readouterr()
+    assert TOKEN not in shown.out + shown.err
+    out = shown.out
+    for fact in (f"{KIDNEY}_outs.zip", f"{KIDNEY}_he_image.ome.tif", f"{KIDNEY}_he_imagealignment.csv",
+                 "45,720,445,144", "8c1c07343dbe1b946f5f90a21130782f-5451",
+                 f'--bundle "$DATA/{KIDNEY}_outs.zip"', f'--he-image "$DATA/{KIDNEY}_he_image.ome.tif"',
+                 f'--he-alignment "$DATA/{KIDNEY}_he_imagealignment.csv"', "fetch.py download", "fetch.py check",
+                 "--head-source", "--namespace atera_kidney", "--branch main", "--concurrency 8",
+                 "'ARRAYLAKE_TOKEN': '***'", "'cluster_timeout': '600 minutes'", "disk_size='100'"):
+        assert fact in out, fact
+    assert out.count("--mode full") == 2
+    assert "ingest.py" in out and "verify.py" in out
+
+
+def test_elements_and_gates_reach_their_scripts(tmp_path, capsys):
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--elements", "labels/nucleus_labels",
+                             "--gates", "complete,tables"))
+    out = capsys.readouterr().out
+    assert "--elements labels/nucleus_labels" in out and "--gates complete,tables" in out
+
+
+def test_the_ingest_form_has_no_default_for_max_minutes(tmp_path):
+    with pytest.raises(SystemExit, match="max-minutes"):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", drop=("--max-minutes",)))
+
+
+@pytest.mark.parametrize("missing", ["--sample", "--repo", "--catalog", "--namespace", "--branch", "--concurrency"])
+def test_the_ingest_form_needs_each_of_its_arguments(tmp_path, missing):
+    with pytest.raises(SystemExit, match=missing.removeprefix("--")):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", drop=(missing,)))
+
+
+def test_the_ingest_form_takes_no_script(tmp_path):
+    with pytest.raises(SystemExit, match="script"):
+        launch.main([*_ingest_argv(_token_file(tmp_path), "--dry-run"), "--", "measure.py"])
+
+
+def test_the_disk_of_the_ingest_is_the_downloads_plus_the_overhead_and_a_smaller_disk_is_refused(tmp_path, capsys):
+    # 48,518,883,775 bytes of downloads are 46 GiB, and the overhead is 40 GiB.
+    assert launch.required_disk_gib("kidney") == 86
+    assert launch.default_disk_gib("kidney") == 100
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--disk", "86"))
+    assert "disk_size='86'" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="disk.*86"):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--disk", "85"))
+
+
+def test_the_help_says_that_a_dead_launcher_does_not_stop_the_ingest(capsys):
+    with pytest.raises(SystemExit):
+        launch.main(["--help"])
+    assert "does not stop the job" in " ".join(capsys.readouterr().out.split())
+
+
+def _ingest_job(**changes):
+    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "ns", "main", 8, None, None)
+    return _job(script="ingest", arguments=[], ingest=plan, minutes=600, status_failures=None, **changes)
+
+
+STUB = """#!/bin/bash
+echo "uv $*" >> "$STUB_CALLS"
+fail() { for i in $(seq 1 50); do echo "$1 line $i"; done; echo "the last line of $1"; exit "$2"; }
+case "$*" in
+  *"fetch.py download"*) [ "${STUB_FAIL:-}" = download ] && fail download 7 ;;
+  *"fetch.py check"*) [ "${STUB_FAIL:-}" = check ] && fail check 1 ;;
+  *"ingest.py"*) [ "${STUB_FAIL:-}" = ingest ] && fail ingest 3 ;;
+  *"verify.py"*) [ "${STUB_FAIL:-}" = verify ] && fail verify 4 ;;
+esac
+echo "stub ran: $*"
+exit 0
+"""
+
+
+def _run_script(tmp_path, fail=None, job=None):
+    """Run the generated remote script for real with a stub ``uv`` that records each call."""
+    work, bin_dir = tmp_path / "work", tmp_path / "bin"
+    work.mkdir()
+    bin_dir.mkdir()
+    (work / "uv.lock").write_text("")
+    (bin_dir / "uv").write_text(STUB)
+    (bin_dir / "uv").chmod(0o755)
+    script = work / "remote.sh"
+    script.write_text(launch.remote_script(job or _ingest_job()))
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATERA_DATA": str(tmp_path / "data"),
+           "ATERA_LOGS": str(tmp_path / "logs"), "STUB_CALLS": str(tmp_path / "calls"), **({"STUB_FAIL": fail} if fail else {})}
+    done = subprocess.run(["bash", str(script)], cwd=work, env=env, capture_output=True, text=True, timeout=60)
+    calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
+    return done, calls
+
+
+def test_the_script_runs_the_environment_the_download_the_check_the_ingest_and_the_verification_in_order(tmp_path):
+    done, calls = _run_script(tmp_path)
+    assert done.returncode == 0, done.stdout
+    assert [c.split("python ")[-1].split(" --")[0] if "python" in c else c for c in calls] == [
+        "uv sync --frozen --package atera-ingest", "ingests/atera/fetch.py download", "ingests/atera/fetch.py check",
+        "ingests/atera/ingest.py", "ingests/atera/verify.py"]
+    assert f'--bundle {tmp_path}/data/{KIDNEY}_outs.zip' in calls[3] and "--mode full" in calls[3]
+    assert "--mode full" in calls[4] and "--head-source" in calls[4]
+    for step in ("environment", "download", "check", "ingest", "verify"):
+        assert f"=== step {step}" in done.stdout and f"=== step {step}: done in " in done.stdout
+
+
+@pytest.mark.parametrize("fail, code, ran", [
+    ("download", 7, 2), ("check", 1, 3), ("ingest", 3, 4), ("verify", 4, 5)])
+def test_a_failed_step_stops_the_run_with_its_exit_code_and_the_later_steps_do_not_run(tmp_path, fail, code, ran):
+    done, calls = _run_script(tmp_path, fail)
+    assert done.returncode == code and len(calls) == ran
+    assert f"=== step {fail}: FAILED with exit code {code}" in done.stdout
+
+
+def test_a_failed_size_check_stops_before_the_ingest_and_the_last_forty_lines_print_again(tmp_path):
+    done, calls = _run_script(tmp_path, "check")
+    assert not any("ingest.py" in c or "verify.py" in c for c in calls)
+    repeated = done.stdout.split("=== last 40 lines of step check\n")[1].splitlines()
+    assert repeated[0] == "check line 12" and repeated[-1] == "the last line of check" and len(repeated) == 40
+
+
+def test_the_script_stops_before_any_step_when_the_code_is_missing(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    done = subprocess.run(["bash", "-c", launch.remote_script(_ingest_job())], cwd=work, capture_output=True, text=True)
+    assert done.returncode == 2 and "the uploaded code is missing" in done.stdout
+
+
+def test_the_status_policy_of_the_script_form_ends_the_run_after_the_bound(coiled):
+    errors = [coiled.errors.ServerError("down")] * 100
+    vm = FakeVm(states=[RUNNING, *errors])
+    code, lines = _run(vm, _job(status_failures=5), step=1)
+    assert code != 0 and vm.stopped == ["atera-x"] and any("giving up" in line for line in lines)
+
+
+def test_the_status_policy_of_the_ingest_form_keeps_polling_and_never_stops_the_vm_for_status_errors(coiled):
+    errors = [coiled.errors.ServerError("no network")] * 500
+    vm = FakeVm(states=[RUNNING, *errors, RUNNING, done(0)])
+    code, lines = _run(vm, _ingest_job(), step=1)
+    assert code == 0 and vm.stopped == ["atera-x"]
+    status = [line for line in lines if line.startswith("status:")]
+    assert 1 < len(status) <= 52 and "the job runs on" in status[-1]
+    assert not any("giving up" in line for line in lines)
+
+
+def test_a_job_with_no_launcher_limit_runs_until_the_task_ends():
+    vm = FakeVm(states=[RUNNING] * 200 + [done(0)])
+    assert _run(vm, _job(minutes=None), step=60)[0] == 0
+
+
+def test_an_interrupt_stops_the_vm_of_a_launch_and_leaves_an_attached_job_running():
+    class Interrupted(FakeVm):
+        def poll(self):
+            raise KeyboardInterrupt
+
+    for stop_on_interrupt, stopped in ((True, ["atera-x"]), (False, [])):
+        vm = Interrupted()
+        with pytest.raises(KeyboardInterrupt):
+            _run(vm, _job(stop_on_interrupt=stop_on_interrupt))
+        assert vm.stopped == stopped
+
+
+def test_attach_needs_a_workspace(tmp_path):
+    with pytest.raises(SystemExit, match="workspace"):
+        launch.main(["--attach", "2364116", "--token-file", str(_token_file(tmp_path))])
+
+
+def test_attach_forwards_the_log_with_the_token_replaced_and_ends_as_a_launch_ends(tmp_path, monkeypatch, capsys):
+    vm = FakeVm([[f"progress {TOKEN}", "line two"], [], []], states=[RUNNING, done(0)])
+    made = []
+    monkeypatch.setattr(launch, "AttachedVm", lambda ref, tail: made.append((ref, tail)) or vm)
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    code = launch.main(["--attach", "atera-ingest-1", "--workspace", "earthmover-devs", "--tail", "7",
+                        "--token-file", str(_token_file(tmp_path))])
+    out = capsys.readouterr().out
+    assert code == 0 and made == [("atera-ingest-1", 7)] and vm.stopped == ["atera-ingest-1"]
+    assert "progress ***" in out and "line two" in out and TOKEN not in out
+
+
+def test_an_attached_vm_resolves_the_cluster_and_serves_the_last_lines_first(coiled, monkeypatch):
+    asked = []
+    jobs = [{"id": 8, "cluster_id": 7, "cluster_state": "ready", "tasks": [{"state": "running", "exit_code": None}]}]
+    monkeypatch.setattr(coiled.batch, "status", lambda **k: asked.append(k) or jobs)
+    events = [_event(1_000_000 + i, f"line {i}") for i in range(100)]
+    replies = [events, [_event(1_000_200, "new line")]]
+    monkeypatch.setattr(coiled, "better_cluster_logs", lambda **k: replies.pop(0))
+    vm = launch.AttachedVm("2364116", 5)
+    vm.start(launch.Job("2364116", "", "", "earthmover-devs", 0, None, "", []), TOKEN)
+    assert asked == [{"cluster": 2364116, "workspace": "earthmover-devs"}]
+    assert (vm.cluster_id, vm.job_id) == (7, 8)
+    assert vm.new_lines() == [f"line {i}" for i in range(95, 100)] + ["new line"]
+
+
+def test_verify_runs_the_source_gate_for_a_local_bundle_when_asked_to_head_the_objects(
+        monkeypatch, capsys, full_store):  # noqa: F811
+    import verify
+
+    monkeypatch.setattr(verify, "gate_source", lambda root, sample, layouts: [])
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "source") == 0
+    assert "source: skipped" in capsys.readouterr().out
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "source", "--head-source") == 0
+    out = capsys.readouterr().out
+    assert "source PASS" in out and "skipped" not in out
