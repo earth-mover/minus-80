@@ -1,7 +1,9 @@
 """Native pyramid levels: TIFF pages decoded once per tile and written as zarr chunks."""
 
 import xml.etree.ElementTree as ET
+from collections import deque
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import tifffile
@@ -94,17 +96,50 @@ def _check_shape(array: zarr.Array, page: tifffile.TiffPage) -> None:
         )
 
 
+def _tiles_match_chunks(array: zarr.Array, page: tifffile.TiffPage) -> bool:
+    """True when each tile maps to its own chunks, so no two tiles write one chunk."""
+    return array.shards is None and tuple(array.chunks[-2:]) == (
+        page.tilelength,
+        page.tilewidth,
+    )
+
+
 def write_page(
-    array: zarr.Array, page: tifffile.TiffPage, index: tuple[int, ...]
+    array: zarr.Array,
+    page: tifffile.TiffPage,
+    index: tuple[int, ...],
+    *,
+    concurrency: int = 1,
 ) -> int:
-    """Decode each tile of `page` once and write it at `index`; return the tile count."""
+    """Decode each tile of `page` once and write it at `index`; return the tile count.
+
+    With `concurrency > 1` and tiles that match the chunk grid, up to `concurrency` writes run at once.
+    """
     _require_tiled(page)
     _check_shape(array, page)
+    writes = (
+        (
+            _region(page, index, channel0, y0, x0, tile),
+            tile if page.samplesperpixel > 1 else tile[0],
+        )
+        for channel0, y0, x0, tile in _tiles(page)
+    )
     count = 0
-    for channel0, y0, x0, tile in _tiles(page):
-        region = _region(page, index, channel0, y0, x0, tile)
-        array[region] = tile if page.samplesperpixel > 1 else tile[0]
-        count += 1
+    if concurrency <= 1 or not _tiles_match_chunks(array, page):
+        for region, data in writes:
+            array[region] = data
+            count += 1
+        return count
+    # Decoding stays in this thread; the pending cap bounds the tiles held in memory.
+    pending: deque = deque()
+    with ThreadPoolExecutor(concurrency) as pool:
+        for region, data in writes:
+            if len(pending) >= 2 * concurrency:
+                pending.popleft().result()
+            pending.append(pool.submit(array.__setitem__, region, data))
+            count += 1
+        for future in pending:
+            future.result()
     return count
 
 

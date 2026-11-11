@@ -1,10 +1,13 @@
 """Pages of synthetic TIFFs written into zarr levels, compared with tifffile's own decode."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 import tifffile
 import zarr
 
+from minus80.core import pyramid
 from minus80.core.pyramid import channel_names, check_page, create_level, write_page
 
 XML = """<?xml version="1.0"?>
@@ -284,3 +287,71 @@ def test_check_page_refuses_a_tile_outside_the_grid(tmp_path, tile):
         )
         with pytest.raises(IndexError, match=rf"tile \({tile[0]}, {tile[1]}\) is outside the 3 x 6 tile grid"):
             check_page(array, page, (0,), [tile])
+
+
+def _count_pool_submits(monkeypatch):
+    """Count tasks that write_page submits to its own pool, not tifffile's."""
+    submitted = []
+
+    class CountingPool(ThreadPoolExecutor):
+        def submit(self, *args, **kwargs):
+            submitted.append(args)
+            return super().submit(*args, **kwargs)
+
+    monkeypatch.setattr(pyramid, "ThreadPoolExecutor", CountingPool)
+    return submitted
+
+
+def test_concurrent_write_page_equals_serial(tmp_path):
+    _pyramid_tiff(tmp_path / "p.tif", planes=1)
+    with tifffile.TiffFile(tmp_path / "p.tif") as tif:
+        page = tif.series[0].levels[0].pages[0]
+        array = create_level(
+            _root(tmp_path),
+            "s0",
+            (1, *page.shape),
+            page.dtype,
+            dims=("c", "y", "x"),
+            chunk=(256, 256),
+        )
+        assert write_page(array, page, (0,), concurrency=8) == 18
+        np.testing.assert_array_equal(array[0], page.asarray())
+
+
+def test_unaligned_tiles_are_written_serially(tmp_path, monkeypatch):
+    submitted = _count_pool_submits(monkeypatch)
+    with _one_page(
+        tmp_path, _picture((1500, 1100)), tile=(720, 544), compression="adobe_deflate"
+    ) as tif:
+        page = tif.pages[0]
+        array = create_level(
+            _root(tmp_path),
+            "s0",
+            (1, 1500, 1100),
+            "uint16",
+            dims=("c", "y", "x"),
+            chunk=(1024, 1024),
+        )
+        write_page(array, page, (0,), concurrency=8)
+        assert submitted == []
+        np.testing.assert_array_equal(array[0], page.asarray())
+
+
+def test_sharded_levels_are_written_serially(tmp_path, monkeypatch):
+    submitted = _count_pool_submits(monkeypatch)
+    with _one_page(
+        tmp_path, _picture((512, 512)), tile=(256, 256), compression="adobe_deflate"
+    ) as tif:
+        page = tif.pages[0]
+        array = create_level(
+            _root(tmp_path),
+            "s0",
+            (2, 512, 512),
+            "uint16",
+            dims=("z", "y", "x"),
+            chunk=(256, 256),
+            shard_planes=2,
+        )
+        write_page(array, page, (1,), concurrency=8)
+        assert submitted == []
+        np.testing.assert_array_equal(array[1], page.asarray())

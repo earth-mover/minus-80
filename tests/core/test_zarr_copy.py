@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import zarr
 from zarr.dtype import VariableLengthUTF8
+from zarr.storage import MemoryStore
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
@@ -296,3 +297,45 @@ def test_group_attributes_are_copied(tmp_path):
     np.testing.assert_array_equal(root["X/indptr"][:], [0, 1, 2, 3, 3])
     np.testing.assert_array_equal(root["X/data"][:], [1.0, 2.0, 3.0])
     np.testing.assert_array_equal(root["X/indices"][:], [0, 2, 1])
+
+
+def test_concurrent_copy_chunks_copies_every_member(tmp_path):
+    data = np.arange(600, dtype="<i4").reshape(20, 30)
+    zf = _v2_zip(
+        tmp_path,
+        x=dict(
+            data=data,
+            chunks=(7, 11),
+            compressors=numcodecs.Blosc(cname="zstd", clevel=1, shuffle=1),
+        ),
+    )
+    root = _root(tmp_path)
+    assert copy_group(zf, "", root, concurrency=8) == {"x": 9}
+    stored = sync(root.store.get("x/c/0/0", default_buffer_prototype()))
+    assert stored.to_bytes() == zf.read("x/0.0")
+    np.testing.assert_array_equal(root["x"][:], data)
+
+
+def test_a_failed_concurrent_write_raises(tmp_path):
+    class FailingStore(MemoryStore):
+        sets = 0
+
+        async def set(self, key, value, byte_range=None):
+            if not key.endswith("zarr.json"):
+                self.sets += 1
+                if self.sets == 3:
+                    raise OSError("write failed")
+            await super().set(key, value, byte_range)
+
+    zf = _v2_zip(
+        tmp_path,
+        x=dict(
+            data=np.arange(10, dtype="<i4"),
+            chunks=(1,),
+            compressors=numcodecs.Blosc(cname="lz4"),
+        ),
+    )
+    root = zarr.group(FailingStore())
+    array = create_copy(root, "x", json.loads(zf.read("x/.zarray")))
+    with pytest.raises(OSError, match="write failed"):
+        copy_chunks(zf, "x", array, concurrency=4)

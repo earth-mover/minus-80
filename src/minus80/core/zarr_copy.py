@@ -7,10 +7,11 @@ Only the metadata is rewritten. A v2 feature with no v3 equivalent raises
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -112,24 +113,55 @@ def create_copy(
     )
 
 
-def copy_chunks(zf: zipfile.ZipFile, prefix: str, array: zarr.Array) -> int:
-    """Write each chunk member under ``prefix`` to its v3 key. Returns the count."""
+def copy_chunks(
+    zf: zipfile.ZipFile,
+    prefix: str,
+    array: zarr.Array,
+    *,
+    concurrency: int = 1,
+    names: Collection[str] | None = None,
+) -> int:
+    """Write each chunk member under ``prefix`` to its v3 key. Returns the count.
+
+    Members are read one at a time; at most ``concurrency`` writes run at once.
+    ``names`` is the member set of ``zf``, for a caller that listed the zip already.
+    """
     stem = f"{prefix}/" if prefix else ""
     prototype = default_buffer_prototype()
-    count = 0
-    for member in zf.namelist():
+    keys = {}
+    for member in zf.namelist() if names is None else names:
         index = member.removeprefix(stem)
         if not member.startswith(stem) or not _CHUNK_NAME.fullmatch(index):
             continue
         # A v2 array of zero dimensions has the one chunk "0"; v3 names it "c".
-        key = (
+        keys[member] = (
             f"{array.path}/c"
             if array.ndim == 0
             else f"{array.path}/c/" + index.replace(".", "/")
         )
-        sync(array.store.set(key, prototype.buffer.from_bytes(zf.read(member))))
-        count += 1
-    return count
+
+    async def put_all() -> None:
+        free = asyncio.Semaphore(concurrency)
+        tasks: list[asyncio.Task] = []
+
+        async def put(key: str, data: bytes) -> None:
+            try:
+                await array.store.set(key, prototype.buffer.from_bytes(data))
+            finally:
+                free.release()
+
+        try:
+            for member, key in keys.items():
+                await free.acquire()
+                # A failed write ends the loop before it reads more members.
+                if any(t.done() and (t.cancelled() or t.exception()) for t in tasks):
+                    break
+                tasks.append(asyncio.create_task(put(key, zf.read(member))))
+        finally:
+            await asyncio.gather(*tasks)
+
+    sync(put_all())
+    return len(keys)
 
 
 def copy_group(
@@ -139,6 +171,7 @@ def copy_group(
     *,
     dimension_names: Mapping[str, Sequence[str]] | None = None,
     attributes: bool = True,
+    concurrency: int = 1,
 ) -> dict[str, int]:
     """Copy every v2 array under ``prefix`` into ``group``. Returns chunk counts by path."""
     stem = f"{prefix}/" if prefix else ""
@@ -174,5 +207,7 @@ def copy_group(
             dimension_names=(dimension_names or {}).get(path),
             attributes=attrs,
         )
-        counts[path] = copy_chunks(zf, array_prefix, array)
+        counts[path] = copy_chunks(
+            zf, array_prefix, array, concurrency=concurrency, names=names
+        )
     return counts
