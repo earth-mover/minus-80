@@ -1163,7 +1163,7 @@ def test_each_command_of_the_run_names_the_trial_branch_and_none_names_main(tmp_
     assert len(writers) == 3 and all("--branch trial-20261112" in c for c in writers)
     assert not any(re.search(r"\bmain\b", c) for c in calls)
     assert [c.split("promote.py ")[1] for c in calls if "promote.py" in c] == (
-        ["--repo arraylake://org/atera-kidney --from trial-20261112 --expect SNAPSHOT1"]
+        ["--repo arraylake://org/atera-kidney --from trial-20261112 --expect=SNAPSHOT1"]
         if plan != {"promote": False} else [])
 
 
@@ -1345,7 +1345,10 @@ def test_a_part_of_the_gates_moves_main_only_when_the_caller_says_so(tmp_path, m
     ({**REMOTE_PLAN, "elements": None}, "--remote-bundle needs --elements and --gates"),
     ({**REMOTE_PLAN, "gates": None, "promote_after_gates": False}, "--remote-bundle needs --elements and --gates"),
     ({**REMOTE_PLAN, "elements": "root,images/morphology"}, "images/morphology"),
-    ({**REMOTE_PLAN, "gates": "complete,images"}, "images")])
+    ({**REMOTE_PLAN, "gates": "complete,images"}, "images"),
+    ({"gates": ",", "promote_after_gates": True}, "--gates is names separated by commas"),
+    ({"gates": "complete,", "promote": False}, "--gates is names separated by commas"),
+    ({"elements": "root, labels"}, "--elements is names separated by commas")])
 def test_no_script_is_built_for_a_plan_that_breaks_a_rule_of_the_gates_or_of_the_remote_bundle(plan, message):
     with pytest.raises(ValueError, match=message):
         launch.remote_script(_ingest_job(ingest=_plan(**plan)))
@@ -1392,7 +1395,7 @@ def test_the_verification_writes_its_snapshot_to_a_file_and_the_promote_step_exp
     done, calls = _run_script(tmp_path, snapshot="0123ABCDEF")
     assert done.returncode == 0, done.stdout
     assert f"--snapshot-file {tmp_path}/data/verified-snapshot" in calls[-2]
-    assert calls[-1].endswith("promote.py --repo arraylake://org/atera-kidney --from trial-1 --expect 0123ABCDEF")
+    assert calls[-1].endswith("promote.py --repo arraylake://org/atera-kidney --from trial-1 --expect=0123ABCDEF")
     (tmp_path / "none").mkdir()
     done, calls = _run_script(tmp_path / "none", job=_ingest_job(ingest=_plan(promote=False)))
     assert f"--snapshot-file {tmp_path}/none/data/verified-snapshot" in calls[-1]

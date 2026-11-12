@@ -1777,3 +1777,18 @@ def test_a_failed_verification_writes_no_snapshot_file(monkeypatch, capsys, full
     path = tmp_path / "snapshot"
     assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "complete,transforms", "--snapshot-file", str(path)) == 1
     assert "transforms FAIL" in capsys.readouterr().out and not path.exists()
+
+
+def test_a_verification_that_ran_no_gate_writes_no_snapshot_file(monkeypatch, capsys, full_store, tmp_path):
+    path = tmp_path / "snapshot"
+    # A local bundle without --head-source skips the source gate, so no gate runs.
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "source", "--snapshot-file", str(path)) == 0
+    assert "source: skipped" in capsys.readouterr().out and not path.exists()
+
+
+@pytest.mark.parametrize("gates", [",", ",,"])
+def test_a_gate_list_with_no_name_is_refused(monkeypatch, full_store, tmp_path, gates):
+    path = tmp_path / "snapshot"
+    code = _verify(monkeypatch, full_store, "--mode", "full", "--gates", gates, "--snapshot-file", str(path))
+    assert code == "--gates gives no gate"
+    assert not path.exists()

@@ -61,7 +61,7 @@ def main() -> None:
     parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
     parser.add_argument("--from", dest="source", required=True, help="the trial branch, trial-<name>")
     parser.add_argument("--to", dest="target", default="main", help="the branch to move; only main")
-    parser.add_argument("--expect", help="the snapshot that the trial branch must have; another snapshot is refused")
+    parser.add_argument("--expect", help="the snapshot that the trial branch must have; the script refuses another snapshot")
     parser.add_argument("--dry-run", action="store_true", help="print the move and change nothing")
     args = parser.parse_args()
     try:

@@ -1032,6 +1032,8 @@ def select_gates(requested: list[str] | None, available) -> list[str]:
     if not requested:
         return list(available)
     names = [n for item in requested for n in item.split(",") if n]
+    if not names:
+        raise ValueError("--gates gives no gate")
     if unknown := [n for n in names if n not in available]:
         raise ValueError(f"unknown gates: {', '.join(unknown)}; known: {', '.join(available)}")
     return names
@@ -1126,9 +1128,11 @@ def main() -> None:
         names = select_gates(args.gates, gates)
     except ValueError as e:
         raise SystemExit(str(e))
-    failed = run_gates(gates, without_source(names, local=bool(args.bundle) and not args.head_source))
+    names = without_source(names, local=bool(args.bundle) and not args.head_source)
+    failed = run_gates(gates, names)
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {counter.requests:,} requests")
-    if args.snapshot_file and not failed:
+    # A run of no gate verified nothing, so it records no snapshot.
+    if args.snapshot_file and names and not failed:
         args.snapshot_file.write_text(f"{snapshot}\n")
     sys.exit(1 if failed else 0)
 

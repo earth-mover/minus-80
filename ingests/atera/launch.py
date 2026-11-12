@@ -179,12 +179,22 @@ def default_disk_gib(sample: str, remote_bundle: bool = False) -> int:
     return -(-required_disk_gib(sample, remote_bundle) // DISK_STEP_GIB) * DISK_STEP_GIB
 
 
+def names_fault(flag: str, text: str) -> str | None:
+    """The fault of ``text`` unless it is names with no empty one and no whitespace, comma-separated."""
+    if any(not name or re.search(r"\s", name) for name in text.split(",")):
+        return f"--{flag} is names separated by commas, each non-empty and with no whitespace: {text!r}"
+    return None
+
+
 def plan_fault(elements: str | None, gates: str | None, remote_bundle: bool, promote: bool,
                promote_after_gates: bool) -> str | None:
     """The rule that these options of the ingest form break, or ``None``.
 
     A part of the gates moves ``main`` only when the caller says so. A remote bundle reads few bytes only.
     """
+    for flag, text in (("elements", elements), ("gates", gates)):
+        if text is not None and (fault := names_fault(flag, text)):
+            return fault
     if promote_after_gates and not gates:
         return "--promote-after-gates needs --gates"
     if promote_after_gates and not promote:
@@ -344,7 +354,7 @@ promote_verified() {{
     echo "the verification recorded no snapshot in $SNAPSHOT; main stays as it is"
     return 1
   fi
-  {python}/promote.py --repo {quote(plan.repo)} --from {quote(plan.branch)} --expect "$snapshot"
+  {python}/promote.py --repo {quote(plan.repo)} --from {quote(plan.branch)} --expect="$snapshot"
 }}
 
 step promote {moved} promote_verified
@@ -677,10 +687,6 @@ NOTE = (
 )
 
 
-def split_names(flag: str, text: str, fail) -> None:
-    """Exit unless ``text`` is names with no empty one and no whitespace, comma-separated."""
-    if any(not name or re.search(r"\s", name) for name in text.split(",")):
-        fail(f"--{flag} is names separated by commas, each non-empty and with no whitespace: {text!r}")
 
 
 def check_ingest(args, fail) -> None:
@@ -705,7 +711,8 @@ def check_ingest(args, fail) -> None:
         fail(f"--concurrency is at least 1, not {args.concurrency}")
     for flag in ("elements", "gates", "replace_tables"):
         if (text := getattr(args, flag)) is not None:
-            split_names(flag.replace("_", "-"), text, fail)
+            if fault := names_fault(flag.replace("_", "-"), text):
+                fail(fault)
     if args.elements is not None:
         # Only this check needs the ingest's modules, and their import is slow.
         from ingest import ELEMENTS, select_elements
