@@ -196,9 +196,71 @@ def test_the_docstring_gives_the_exit_code_of_a_check_that_did_not_finish():
     assert "4 for a check that did not finish" in " ".join(check_bundle.__doc__.split())
 
 
-# The check when the ingest opens the bundle
+# The HEAD requests of the source objects
 
 LAYOUTS = ingest.LAYOUTS.read_text()
+RECORDED = ingest.source_objects(LAYOUTS, SAMPLES["kidney"])
+
+
+def _remote(monkeypatch, synthetic, alignment_file, record, head):  # noqa: F811
+    """``main`` without ``--bundle``, with the sample's objects read from the local synthetic files."""
+    real = check_bundle.open_sources
+    monkeypatch.setattr(check_bundle, "open_sources", lambda bundle, he, alignment, max_bytes: real(
+        str(synthetic.path), str(synthetic.he), str(alignment_file), max_bytes))
+    return check_bundle.main(["--sample", "kidney", "--record", str(record)], head=head)
+
+
+def _head(changed_etag=None):
+    """The recorded size and ETag of each object, with the ETag of ``changed_etag`` changed."""
+    answers = {o["url"]: (o["size"], "0" * 32 if o["url"] == changed_etag else o["etag"]) for o in RECORDED}
+    sent = []
+
+    def head(url):
+        sent.append(url)
+        return answers[url]
+    return head, sent
+
+
+def test_a_remote_check_heads_each_source_object_and_passes_when_each_equals_the_record(
+        monkeypatch, capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
+    write_record("kidney", pristine, tmp_path)
+    head, sent = _head()
+    assert _remote(monkeypatch, synthetic, alignment_file, tmp_path / "kidney.json", head) == 0
+    assert sent == [o["url"] for o in RECORDED] and len(sent) == 5
+    assert "bundle check: 0 differences" in capsys.readouterr().out.splitlines()
+
+
+def test_a_remote_check_gives_a_difference_line_for_a_changed_etag(
+        monkeypatch, capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
+    write_record("kidney", pristine, tmp_path)
+    changed = RECORDED[1]
+    head, _ = _head(changed["url"])
+    assert _remote(monkeypatch, synthetic, alignment_file, tmp_path / "kidney.json", head) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert f"{changed['url']}: ETag {'0' * 32}, LAYOUTS.md records {changed['etag']}" in lines
+    assert "bundle check: 1 differences" in lines
+
+
+def test_a_failed_head_request_is_exit_4_with_the_error_type_only(
+        monkeypatch, capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
+    def head(url):
+        raise OSError(url)
+
+    write_record("kidney", pristine, tmp_path)
+    assert _remote(monkeypatch, synthetic, alignment_file, tmp_path / "kidney.json", head) == 4
+    assert capsys.readouterr().err == "the check did not finish (OSError)\n"
+
+
+def test_a_local_check_sends_no_head_request(capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
+    write_record("kidney", pristine, tmp_path)
+    head, sent = _head()
+    code = check_bundle.main(["--sample", "kidney", "--bundle", str(synthetic.path), "--he-image", str(synthetic.he),
+                              "--he-alignment", str(alignment_file), "--record", str(tmp_path / "kidney.json")],
+                             head=head)
+    assert code == 0 and sent == []
+
+
+# The check when the ingest opens the bundle
 
 
 def _inputs(tmp_path, name, change=None):

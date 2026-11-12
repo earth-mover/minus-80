@@ -46,13 +46,11 @@ from facts import bundle_facts, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
 from root_attrs import (
-    LICENSE, ROOT_KEYS, citation_text, element_kind, parse_metrics, root_attrs, root_changes, source_objects,
+    LAYOUTS, LICENSE, ROOT_KEYS, citation_text, element_kind, parse_metrics, root_attrs, root_changes, source_objects,
 )
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table, diffexp_table
 from transcripts import TRANSCRIPT_SCHEMA, tile_order, write_tile, xenium_cell_id
-
-LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 
 #: Label element, then the cells store's mask array; PLAN.md, judgement call 1.
 MASKS = {"nucleus_labels": "masks/0", "cell_labels": "masks/1"}

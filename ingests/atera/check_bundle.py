@@ -4,6 +4,7 @@
                     [--skip-groups a,b] [--max-bytes N]
 
 By default the bundle, the H&E image and the alignment are the sample's objects, read by range request.
+Without ``--bundle``, a HEAD request of each source object compares its size and ETag with LAYOUTS.md.
 A group in ``--skip-groups`` is neither read nor compared. The exit code is 0 for no difference,
 1 for a difference, 2 for a record that cannot serve as a reference, 3 for a bundle that does not open,
 and 4 for a check that did not finish.
@@ -20,6 +21,7 @@ from pathlib import Path
 from bundle import Bundle, he_readers, open_bundle
 from facts import DEFAULT_MAX_BYTES, Ceiling, bundle_facts, compare, load_record
 from minus80.core.remote import ReadCounter
+from root_attrs import LAYOUTS, head_differences, http_head, source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 
 
@@ -57,7 +59,7 @@ def open_sources(
     return bundle, open_he, alignment_text, counters, ceiling
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, head: Callable = http_head) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--bundle", help="a local outs.zip or a URL; by default the sample's object")
@@ -87,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     try:
         lines = check(bundle, open_he, alignment_text, args.sample, record=record, skip=skip)
+        if not args.bundle:
+            lines += head_differences(source_objects(LAYOUTS.read_text(), sample), head)
     except Exception as error:  # Exit code 1 means a difference, and the text of the error can hold a location.
         print(f"the check did not finish ({type(error).__name__})", file=sys.stderr)
         return 4

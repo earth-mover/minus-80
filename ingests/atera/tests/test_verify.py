@@ -46,6 +46,7 @@ from ingest import (
 from polygons import polygon_table
 from root_attrs import KIND_SENTENCES, describe, element_kind
 from sources import SAMPLES
+from transcripts import xenium_cell_id
 from verify import (
     apply_transform, compare_chunks, compare_decoded, element_tables, gate_attrs, gate_complete, gate_copies,
     gate_extra_tables, gate_field_ids, gate_images, gate_labels, gate_matrix, gate_polygons, gate_qc, gate_source,
@@ -297,11 +298,18 @@ def test_polygons_reads_the_pinned_snapshot(tmp_path):
     assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == []
 
 
-def test_polygons_fails_a_count_of_invalid_parts_that_the_metrics_contradict(tmp_path):
+def test_polygons_reports_a_count_of_invalid_parts_that_the_metrics_contradict_and_passes(tmp_path, capsys):
     root, tables, zf = _polygon_root(tmp_path)
     root.attrs["metrics"] = {"number_of_nucleus_non_simple_polygons": 4}
-    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2]))
-    assert errors == ["0 invalid nucleus polygons, the metrics CSV states 4"]
+    assert gate_polygons(root, tables.catalog, zf, *_summary([1, 0, 2])) == []
+    assert f"  polygons: FINDING: {NUCLEUS}: 10x states 4, shapely counts 0" in capsys.readouterr().out.splitlines()
+
+
+def test_polygons_with_a_contradicted_count_still_fails_its_other_checks(tmp_path):
+    root, tables, zf = _polygon_root(tmp_path)
+    root.attrs["metrics"] = {"number_of_nucleus_non_simple_polygons": 4}
+    errors = gate_polygons(root, tables.catalog, zf, *_summary([1, 1, 2]))
+    assert errors == [f"{NUCLEUS}: part_count differs from nucleus_count on 1 cell, first cell_index 1"]
 
 
 def test_tables_counts_the_cells_of_a_polygon_set_not_its_rows(tmp_path):
@@ -1286,20 +1294,20 @@ SUMMARY_COLUMNS = ["nucleus_area", "cell_area", "nucleus_centroid_y", "nucleus_c
                    "cell_centroid_y", "cell_centroid_x"]
 
 
-def _grid_store():
+def _grid_store(cells=CELLS_N):
     """Cell ``i`` is a 10 by 10 square with a 4 by 4 nucleus; a pixel is 1 micrometre."""
-    nucleus, cell = (np.zeros((10 * CELLS_N, 12), dtype="<u4") for _ in range(2))
-    for i in range(CELLS_N):
+    nucleus, cell = (np.zeros((10 * cells, 12), dtype="<u4") for _ in range(2))
+    for i in range(cells):
         cell[10 * i:10 * i + 10, 0:10] = i + 1
         nucleus[10 * i + 3:10 * i + 7, 3:7] = i + 1
     root = zarr.group()
     for name, data in (("nucleus_labels", nucleus), ("cell_labels", cell)):
         root.require_group(f"labels/{name}").create_array("s0", data=data)
     obs = root.require_group("tables/table/obs")
-    obs.create_array("cell_id", data=np.arange(1, CELLS_N + 1, dtype="int64") + 7 * 2**32)
-    obs.create_array("instance", data=np.arange(1, CELLS_N + 1, dtype="int64"))
-    summary = np.array([[16, 100, 10 * i + 4.5, 4.5, 10 * i + 5, 5.0] for i in range(CELLS_N)])
-    pairs = np.array([[i + 1, 7] for i in range(CELLS_N)], dtype="<u4")
+    obs.create_array("cell_id", data=np.arange(1, cells + 1, dtype="int64") + 7 * 2**32)
+    obs.create_array("instance", data=np.arange(1, cells + 1, dtype="int64"))
+    summary = np.array([[16, 100, 10 * i + 4.5, 4.5, 10 * i + 5, 5.0] for i in range(cells)])
+    pairs = np.array([[i + 1, 7] for i in range(cells)], dtype="<u4")
     return root, summary, pairs
 
 
@@ -1333,6 +1341,44 @@ def test_instances_fail_an_instance_that_is_not_the_row_plus_one():
     root["tables/table/obs/instance"][:] = np.arange(1, CELLS_N + 1)
     root["tables/table/obs/cell_id"][:] = 0
     assert all("obs.cell_id" in e for e in verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0))
+
+
+def _missed(cells, missed):
+    """A grid store whose rows ``missed`` have their cell centroid in the next cell."""
+    root, summary, pairs = _grid_store(cells)
+    summary[missed, SUMMARY_COLUMNS.index("cell_centroid_y")] += 10
+    return root, summary, pairs
+
+
+def test_instances_pass_with_3_of_50_centroids_outside_their_label_and_print_each_miss(capsys):
+    root, summary, pairs = _missed(50, [3, 20, 41])
+    assert verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0) == []
+    lines = capsys.readouterr().out.splitlines()
+    assert [line for line in lines if "centroid label" in line] == [
+        f"  instances: cell {xenium_cell_id(pairs[r:r + 1, 0], pairs[r:r + 1, 1])[0]}: centroid label {r + 2}, expected {r + 1}"
+        for r in sorted([3, 20, 41])]
+    assert "  instances: 47 of 50 centroids in their own label" in lines
+
+
+def test_instances_fail_with_6_of_50_centroids_outside_their_label(capsys):
+    root, summary, pairs = _missed(50, [1, 5, 9, 13, 17, 21])
+    assert verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0) == [
+        "44 of 50 sampled centroids hold their own label, fewer than 90 %"]
+    assert "  instances: 44 of 50 centroids in their own label" in capsys.readouterr().out.splitlines()
+
+
+def test_instances_fail_a_shifted_label_image():
+    root, summary, pairs = _grid_store()
+    labels = root["labels/cell_labels/s0"]
+    labels[:] = np.roll(labels[:], 10, axis=0)
+    assert verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0) == [
+        "0 of 50 sampled centroids hold their own label, fewer than 90 %"]
+
+
+@pytest.mark.parametrize("missed, passes", [([2, 7], True), ([2, 7, 11], False)])
+def test_instances_apply_the_same_fraction_to_a_sample_of_fewer_than_50_cells(missed, passes):
+    root, summary, pairs = _missed(20, missed)
+    assert (verify.gate_instances(root, summary, SUMMARY_COLUMNS, pairs, 1.0) == []) == passes
 
 
 # Locations

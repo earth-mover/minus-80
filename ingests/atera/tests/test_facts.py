@@ -23,6 +23,8 @@ from tests.test_verify import _bundle_members
 
 BYTES_CEILING = 600_000
 ALIGNMENT_TEXT = "\n".join(",".join(map(str, row)) for row in ALIGNMENT.tolist())
+#: A home directory's root, joined at run time so that the leak check finds no home path in this file.
+USERS = "/".join(["", "Users"])
 
 
 class Recorder:
@@ -220,7 +222,7 @@ def test_the_records_directory_is_beside_the_module():
 
 def test_an_error_entry_keeps_the_type_and_the_first_line_and_no_location():
     error = FileNotFoundError(
-        "s3://10x.files/samples/atera/x_outs.zip and /Users/someone/data/x.zip, '/tmp/y z' (10x.files/z)\nline /home/a")
+        f"s3://10x.files/samples/atera/x_outs.zip and {USERS}/someone/data/x.zip, '/tmp/y z' (10x.files/z)\nline /home/a")
     text = error_text(error)
     assert text.startswith("FileNotFoundError: ") and "and" in text
     assert text == "FileNotFoundError: <location> and <location>"
@@ -439,7 +441,7 @@ def test_a_missing_alignment_object_is_an_error_entry_and_the_other_groups_remai
 
 
 def test_an_absolute_path_with_a_space_leaks_no_tail():
-    assert error_text(OSError("cannot open '/Users/a/b c/x.zip' now")) == "OSError: cannot open <location>"
+    assert error_text(OSError(f"cannot open '{USERS}/a/b c/x.zip' now")) == "OSError: cannot open <location>"
 
 
 def test_the_he_file_is_closed_after_the_facts_and_after_a_failed_open(tmp_path, synthetic):

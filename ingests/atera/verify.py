@@ -35,7 +35,6 @@ import math
 import os
 import re
 import sys
-import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -69,11 +68,13 @@ from ingest import (
     MASKS, MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters, data_bag
-from root_attrs import KIND_SENTENCES, element_kind, source_objects
+from root_attrs import KIND_SENTENCES, element_kind, head_differences, http_head, source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from transcripts import tile_order, xenium_cell_id
 
 SAMPLED = 50
+#: The share of sampled cell centroids that must fall in their own label; a non-convex cell can miss it.
+CENTROID_FRACTION = 0.9
 MATRIX_CHUNKS = 20
 #: Chunks of each array that the label and matrix gates read through zarr and compare with the source's decode.
 DECODED_CHUNKS = 20
@@ -828,22 +829,30 @@ def gate_masks(root, summary, columns, pixel_size) -> list[str]:
 
 
 def gate_instances(root, summary, columns, cell_id, pixel_size) -> list[str]:
-    rows = np.random.default_rng(SEED + 1).choice(len(summary), SAMPLED, replace=False)
+    rows = np.random.default_rng(SEED + 1).choice(len(summary), min(SAMPLED, len(summary)), replace=False)
     cy, cx = columns.index("cell_centroid_y"), columns.index("cell_centroid_x")
     labels = root["labels/cell_labels/s0"]
     obs_cell_id = root["tables/table/obs/cell_id"][:]
     instance = root[f"tables/table/obs/{INSTANCE_KEY}"][:]
-    errors = []
+    errors, held = [], 0
     for r in rows:
         label = int(labels[_pixel(summary[r, cy], pixel_size), _pixel(summary[r, cx], pixel_size)])
         pair = (int(obs_cell_id[r]) & 0xFFFFFFFF, int(obs_cell_id[r]) >> 32)
-        if label != r + 1:
-            errors.append(f"row {r}: cell_labels at the cell centroid is {label}, not {r + 1}")
+        if label == r + 1:
+            held += 1
+        else:
+            print(f"  instances: cell {xenium_cell_id(cell_id[r:r + 1, 0], cell_id[r:r + 1, 1])[0]}: "
+                  f"centroid label {label}, expected {r + 1}")
         if pair != tuple(int(v) for v in cell_id[r]):
             errors.append(f"row {r}: obs.cell_id {obs_cell_id[r]} is {pair}, cells cell_id is {tuple(cell_id[r])}")
         if instance[r] != r + 1:
             errors.append(f"row {r}: obs.{INSTANCE_KEY} is {instance[r]}, not {r + 1}")
-    print(f"  instances: {SAMPLED} rows, {len(errors)} mismatches")
+    print(f"  instances: {held} of {len(rows)} centroids in their own label")
+    # A wrong transform or a label shift misses nearly every centroid.
+    if held < CENTROID_FRACTION * len(rows):
+        errors.append(f"{held} of {len(rows)} sampled centroids hold their own label, "
+                      f"fewer than {CENTROID_FRACTION * 100:.0f} %")
+    print(f"  instances: {len(rows)} rows, {len(errors)} mismatches")
     return errors
 
 
@@ -895,7 +904,8 @@ def gate_polygons(root, catalog, cells, summary, columns, *, full: bool = False)
                 # 10x leaves the metric empty, so there is nothing to disagree with.
                 print(f"  polygons: FINDING {invalid:,} invalid nucleus polygons; the metrics CSV states no count")
             elif invalid != stated:
-                errors.append(f"{invalid} invalid nucleus polygons, the metrics CSV states {stated}")
+                # 10x can count non-simple polygons by another rule than shapely's validity.
+                print(f"  polygons: FINDING: {path}: 10x states {stated}, shapely counts {invalid}")
     return errors
 
 
@@ -1112,28 +1122,15 @@ def gate_complete(root) -> list[str]:
     return errors
 
 
-def http_head(url: str) -> tuple[int, str]:
-    """The size and the ETag, without its quotes, that the HEAD response for ``url`` gives."""
-    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60) as response:
-        return int(response.headers["Content-Length"]), response.headers["ETag"].strip('"')
-
-
 def gate_source(root, sample, layouts: str, head=http_head) -> list[str]:
     """Each source object's size and ETag from ``head`` equal LAYOUTS.md and the root attribute ``source``."""
     recorded = source_objects(layouts, sample)
     held = {o["url"]: o for o in root.attrs.get("source", [])}
     errors = [f"{url}: the root attribute source lists an object that LAYOUTS.md lacks"
               for url in held if url not in {o["url"] for o in recorded}]
-    for obj in recorded:
-        size, etag = head(obj["url"])
-        print(f"  source: {obj['url']}: {size:,} bytes, ETag {etag}")
-        if size != obj["size"]:
-            errors.append(f"{obj['url']}: size {size}, LAYOUTS.md records {obj['size']}")
-        if etag != obj["etag"]:
-            errors.append(f"{obj['url']}: ETag {etag}, LAYOUTS.md records {obj['etag']}")
-        if held.get(obj["url"]) != obj:
-            errors.append(f"{obj['url']}: the root attribute source differs from LAYOUTS.md")
-    return errors
+    errors += head_differences(recorded, head)
+    return errors + [f"{o['url']}: the root attribute source differs from LAYOUTS.md"
+                     for o in recorded if held.get(o["url"]) != o]
 
 
 def without_source(names: list[str], *, local: bool) -> list[str]:

@@ -25,7 +25,8 @@ pytestmark = pytest.mark.skipif(os.environ.get("ATERA_DRY_RUN") != "1",
 
 SCRIPTS = Path(__file__).parents[1]
 BRANCH = "trial-dry"
-#: The gates that a synthetic bundle serves. ``masks`` and ``instances`` sample 50 cells, and the bundle has 3.
+#: The gates that a synthetic bundle serves. ``masks`` samples 50 cells, and the bundle has 3.
+#: ``instances`` reads a cell centroid outside the bundle's small masks.
 SERVED = [g for g in verify.GATES["full"] if g not in ("masks", "instances")]
 #: The line of the ingest after which the driver sends SIGINT: the start of a level of the stack after the first.
 STOP_LINE = "images/morphology_3d/s1: reading"

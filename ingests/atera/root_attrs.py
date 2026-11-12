@@ -7,11 +7,14 @@ import csv
 import io
 import json
 import math
+import urllib.request
 from collections.abc import Collection, Mapping
+from pathlib import Path
 
 from minus80.ome.spatialdata import container_attrs
 from sources import Sample
 
+LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 PRODUCT = "Atera In Situ"
 #: The software and output-format pages that the dataset pages link to.
 SOFTWARE_DOCS = "https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest"
@@ -137,6 +140,25 @@ def source_objects(text: str, sample: Sample) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def http_head(url: str) -> tuple[int, str]:
+    """The size and the ETag, without its quotes, that the HEAD response for ``url`` gives."""
+    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60) as response:
+        return int(response.headers["Content-Length"]), response.headers["ETag"].strip('"')
+
+
+def head_differences(recorded: list[dict], head=http_head) -> list[str]:
+    """One line for each size and each ETag from ``head`` that differs from the ``recorded`` object."""
+    errors = []
+    for obj in recorded:
+        size, etag = head(obj["url"])
+        print(f"  source: {obj['url']}: {size:,} bytes, ETag {etag}")
+        if size != obj["size"]:
+            errors.append(f"{obj['url']}: size {size}, LAYOUTS.md records {obj['size']}")
+        if etag != obj["etag"]:
+            errors.append(f"{obj['url']}: ETag {etag}, LAYOUTS.md records {obj['etag']}")
+    return errors
 
 
 def citation_text(sample: Sample) -> str:

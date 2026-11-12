@@ -692,8 +692,6 @@ NOTE = (
 )
 
 
-
-
 def check_ingest(args, fail) -> None:
     """Exit unless the ingest form's arguments are consistent; nothing has been uploaded or launched yet."""
     repo = re.fullmatch(rf"{ARRAYLAKE}([^/\s]+)/([^/\s]+)", args.repo)
