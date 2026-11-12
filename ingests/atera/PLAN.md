@@ -924,3 +924,140 @@ Open work, as present facts.
 - **Verification against the ingest's code.** `verify.py` checks three things
   against the ingest's own code: the chunk-key mapping, the copied arrays'
   metadata, the QC rasters' decode.
+
+## Stage three
+
+Stage three prepares the ingest of the brain, colorectal and breast samples.
+It closes each item of "Before the next sample". It does not ingest a sample.
+Each sample's run is a later step with its own approval.
+
+### Intent
+
+The kidney run proved the flow on one bundle of analysis version 1.0.4.
+The three other bundles have version 1.1.1 and are larger.
+A difference between the versions must stop a run at its start, not after hours.
+A reader of `main` must never see a store that the verification did not pass.
+
+### Goals
+
+1. The facts of each 1.1.1 bundle are on record before any write.
+2. A bundle that differs from the record stops the run before the download.
+3. A fault inside a bundle stops the ingest when the bundle opens, before the first write.
+4. The verification checks where each element is in `global`.
+5. `main` of a sample's repo moves only to a snapshot that passed every gate.
+6. The 3D stack takes less time.
+7. The store's own description lists each kind of element it holds.
+
+### Not goals
+
+- A change of the layout of `main`. The kidney's layout stays.
+- A change of the kidney's data. Its `main` gets one commit, for the root attribute `description` only.
+- The overview scan. It stays out.
+- A second measurement run. Each sample's own run gives its times.
+- A move of ingest code into `minus80` beyond what an item below needs.
+
+### Decisions of the owner
+
+- **The survey runs on Coiled.** It does not run on a laptop.
+- **A trial branch first.** Each sample's run writes a branch `trial-<name>`.
+  `main` moves to that snapshot after every gate passes.
+- **The setup on Arraylake.** The plan's author creates each repo, each tables namespace and each access policy with the Python client.
+  The owner approves each one first.
+- **The order.** Brain, then colorectal, then breast: the smallest bundle first.
+
+### Calls of the plan's author
+
+The owner checks each of these.
+
+- The remote script moves `main` by itself when every gate passed. It does not wait for a person.
+- A failed gate leaves `main` at the repo's first commit and keeps the trial branch for a look.
+- The work continues on the git branch `atera-ingest-plan`.
+- The machine stays `m7g.xlarge` with `--concurrency 32`. The launcher sets the disk from the sample's download size.
+- The kidney's `description` commit runs on a VM. The step reads the bundle by range request and writes the root attributes only.
+- The QC rasters' decode has no second decoder. `REPORT.md` keeps that limit.
+
+### The work
+
+**1. The survey.** A script `survey.py` reads metadata from the four bundles and prints one record for each sample.
+It runs on one VM through the launcher's script form. It reads by range request and downloads no bundle.
+It writes nothing to Arraylake.
+The record holds:
+
+- the member names of the bundle, with sizes;
+- the keys of `experiment.spatial` and the analysis version;
+- the name of the metrics member and its keys;
+- for each morphology file and the H&E: levels, shapes, tile size, compression, planar or interleaved, the OME pixel sizes;
+- the plane count of the 3D stack;
+- the transcript grid: the tile keys, the rows of each tile, the chunk rows of each column;
+- the polygon sets: rows, unique cells, the method codes;
+- the `cell_summary` columns;
+- the QC labels, units, bin counts and data types of the analysis summary;
+- the columns of the two differential expression files;
+- the alignment matrix.
+
+The kidney is in the survey as a control. Its record must equal what `LAYOUTS.md` holds.
+`LAYOUTS.md` gets the record of each sample. A difference from the kidney is a finding with its number.
+
+**2. Members by pattern.** The ingest finds the morphology files by `morphology_2d/ch*.ome.tif` and `morphology_3d/ch*.ome.tif`.
+It finds the metrics member and the report by one pattern each. Each pattern must match the expected count, or the open of the bundle fails.
+
+**3. A check when the bundle opens.** One function reads every fact that a later step needs.
+It builds the root attributes and resolves each member.
+It reads the QC labels and the transcript grid, and it opens each TIFF header.
+The ingest calls it before the first write. The verification calls it too.
+The remote script runs it as a step after the file check and before the ingest.
+
+**4. A `transforms` gate.** It compares each element's transform with the source:
+
+- each image and label level's scale, against the `experiment.spatial` pixel size and the level shapes;
+- the stack's z step, against the OME-XML;
+- the H&E affine and the `alignment` attribute, against the CSV, which the gate parses itself;
+- each QC raster's scale and translation, against the report's bins and origin;
+- the result of two pixel points through each stored transform.
+
+**5. A trial branch, then `main`.** The launcher's ingest form writes `trial-<name>`.
+After `=== all steps passed` for the verification, a last step moves `main` to the trial branch's snapshot.
+The step refuses when `main` is not at the repo's first commit.
+A flag can give another snapshot that `main` must hold.
+The verification of a later run can read either branch.
+
+**6. Threads for the stack.** `write_stack` decodes the planes of one position in a thread pool.
+The bound on pending bytes stays. A test compares the result with the one-thread result.
+
+**7. The `description`.** The root attribute names `images/morphology_3d`, `images/he_image`, the QC rasters and `iceberg_tables`.
+The kidney's `main` gets one commit with it. The `complete` gate checks that the text names each element kind that the store holds.
+
+**8. Checks with their own reference.** The chunk-key mapping moves to one function in `minus80.core.zarr_copy`.
+The matrix and label gates also compare decoded values of sampled chunks with the source's decode.
+The gate for copied arrays' metadata reads each source `.zarray` field itself.
+
+**9. The setup on Arraylake.** A script creates, for one sample: the repo, the tables namespace, and the access policy for the namespace's prefix.
+It has a dry run. It prints no bucket name and no prefix. It refuses a repo that exists.
+
+### The run of one sample
+
+Each run needs the owner's approval of the repo, the spend and the storage.
+
+1. The setup script, after approval.
+2. The launcher's ingest form, on one VM: environment, preflight, space check, download, file check, bundle check, ingest to `trial-<name>`, verification, move of `main`.
+3. A check that the cluster stopped.
+4. `REPORT.md` gets a section for the sample: the counts, the times, the findings.
+5. The reader project gets the `main` snapshot and the table pins.
+
+### Sizes
+
+| Sample | Bundle | H&E | Download |
+|---|---|---|---|
+| brain | 48,858,124,574 | 6,519,718,813 | 55.4 GB |
+| colorectal | 75,341,543,536 | 5,067,976,962 | 80.4 GB |
+| breast | 89,305,623,909 | 7,318,928,225 | 96.6 GB |
+
+The kidney's download took 991 s for 48.5 GB, and its ingest 6,829 s.
+The survey gives each sample's transcript rows. The time limit of each run comes from those rows and the kidney's rates.
+
+### Left to the builder
+
+- The names and signatures of functions.
+- The form of the survey's record, if `LAYOUTS.md` can hold it as tables.
+- The thread count of the stack's decode.
+- The test data for a 1.1.1 layout: a planar H&E with 9 levels, 15 planes, other stain names.
