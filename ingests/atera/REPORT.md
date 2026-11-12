@@ -146,7 +146,7 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - The `copies` gate hashes at most five blocks of each data file. It does not find a change in another block.
 - Booth and the Arraylake web app are not checked.
 - The overview scan is not in the store. No gate covers it.
-- No gate checks an element's transform.
+- The run had no gate for an element's transform. `PLAN.md`, "Stage three", item 4, adds the gate `transforms`. It has not run on this store.
 - Two checks use the ingest's own decoders as the reference: the QC rasters' decode and `zarr_copy.read_array`.
   The `tables` and `polygons` gates decode `polygon_sets/*/cell_index` with `read_array`.
   The `masks`, `instances` and `polygons` gates get `cell_summary` and `cell_id` from `read_array`.
