@@ -464,6 +464,11 @@ def _check_size(io, source: Path, url: str) -> None:
         raise ValueError(f"{url} has size {found}, which differs from the size of the source, {expected}: it is partial, so it is not used")
 
 
+#: Attempts of one upload. A vended credential can expire during a long upload, and pyarrow signs each part with it.
+#: The catalog keeps a credential for most of its life, so a load after the failure gets a new one.
+UPLOAD_ATTEMPTS = 3
+
+
 def _put(io, source: Path, url: str) -> None:
     """Make the object at ``url`` hold ``source``'s bytes; a complete object stays as it is.
 
@@ -666,6 +671,19 @@ class TableWriter:
         """
         return self._register(self.require(name, **self._spec(name)), name, paths, replace, replace_partitions)
 
+    def _upload(self, iceberg, name: str, path: Path, url: str) -> None:
+        """:func:`_put` ``path`` at ``url``; an ``OSError`` loads the table again and repeats, up to :data:`UPLOAD_ATTEMPTS`."""
+        for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+            try:
+                return _put(iceberg.io, path, url)
+            except OSError as error:
+                if attempt == UPLOAD_ATTEMPTS:
+                    raise
+                # The text of the error can hold a storage location, so only its type shows.
+                print(f"{name}: an upload failed ({type(error).__name__}); attempt {attempt + 1} of {UPLOAD_ATTEMPTS} "
+                      "loads the table again for new credentials", flush=True)
+                iceberg = self.catalog.load_table(f"{self.namespace}.{name}")
+
     def _register(self, iceberg, name: str, paths: Sequence[Path], replace: bool, replace_partitions: Sequence = (),
                   *, exclusive: bool = False) -> TableRef:
         urls = [f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet" for path in paths]
@@ -676,6 +694,6 @@ class TableWriter:
                 raise HeldFilesError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "
                                      "of other content", name)
         for path, url in zip(paths, urls):
-            _put(iceberg.io, path, url)
+            self._upload(iceberg, name, path, url)
         return register_files(self.catalog, f"{self.namespace}.{name}", urls, replace=replace,
                               replace_partitions=replace_partitions, **self._spec(name))

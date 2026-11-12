@@ -96,6 +96,7 @@ retired in favour of virtual-tiff.
 | --- | --- | --- | --- |
 | pyiceberg maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295. The ingest declares such columns as `int64`. | `ingests/atera/transcripts.py` | Map unsigned integers to a type that holds their range. | not filed |
 | pyiceberg `add_files` leaves files without field ids. It registers each file as written and sets the table's `schema.name-mapping.default`. `write_parquet` gives each column the field id of the table schema, and pyiceberg 0.12.0 `add_files` accepts such a file. The field ids stay the chosen form. | `minus80.core.tables` | zax: read a file without field ids through the table's name mapping, as the Iceberg spec allows. | Done in zax on 2026-11-11: zax reads name-mapped files (`ingests/atera/LAYOUTS.md`, check (d)) |
+| pyiceberg 0.12.0 gives pyarrow the vended storage credentials as static keys, with no refresh. The Arraylake catalog vends write credentials for 1,080 s and keeps one for 972 s. So an upload that starts late in that time outlives its credential, and a part fails with `SignatureDoesNotMatch`. `TableWriter` loads the table again after an `OSError` and repeats the upload, up to `UPLOAD_ATTEMPTS`. | `minus80.core.tables` | Refresh the vended credentials of a FileIO before they expire, from `s3.session-token-expires-at-ms`. | not filed |
 
 ## Python standard library
 

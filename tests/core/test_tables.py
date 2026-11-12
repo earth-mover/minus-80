@@ -22,6 +22,7 @@ from minus80.core.tables import (
     HeldFilesError,
     TableRef,
     TableWriter,
+    UPLOAD_ATTEMPTS,
     _write_local,
     COPY_CHUNK,
     copy_edges,
@@ -1105,3 +1106,74 @@ def test_a_dictionary_column_makes_pyiceberg_log_no_warning(tmp_path, caplog):
                        properties={}, evolve=True)
     assert [r.getMessage() for r in caplog.records] == []
     assert str(table.schema().find_field("name").field_type) == "string"
+
+
+class _ExpiringOutput:
+    """An output file whose upload fails on close and leaves no object, as an expired credential does."""
+
+    def __init__(self, output, fails):
+        self._output, self._fails = output, fails
+
+    def __getattr__(self, attribute):
+        return getattr(self._output, attribute)
+
+    def __len__(self):
+        return len(self._output)
+
+    def create(self, overwrite=False):
+        stream = self._output.create(overwrite=overwrite)
+        if not self._fails:
+            return stream
+        output = self._output
+
+        class Failing:
+            def write(self, data):
+                return stream.write(data)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                stream.close()
+                output._filesystem.delete_file(output._path)
+                raise OSError("AWS Error SIGNATURE_DOES_NOT_MATCH during UploadPart operation")
+
+        return Failing()
+
+
+class ExpiringBucketFileIO(BucketFileIO):
+    """A bucket whose data-file uploads fail while ``failures`` stays above 0; each load of a table counts in ``loads``."""
+
+    failures = 0
+    loads = 0
+
+    def __init__(self, properties=None):
+        super().__init__(properties or {})
+        type(self).loads += 1
+
+    def new_output(self, location):
+        fails = "/data/" in location and type(self).failures > 0
+        type(self).failures -= fails
+        return _ExpiringOutput(super().new_output(location), fails)
+
+
+def test_an_upload_that_fails_loads_the_table_again_and_is_repeated(tmp_path, capsys):
+    writer, bucket = _remote_writer(tmp_path, ExpiringBucketFileIO)
+    ExpiringBucketFileIO.failures, ExpiringBucketFileIO.loads = 1, 0
+    ref = writer.write_parts("t", [_ready_parquet(writer, tmp_path, 1, 2)])
+    assert ExpiringBucketFileIO.failures == 0 and ExpiringBucketFileIO.loads >= 2
+    assert len(list((bucket / "wh/ns/t/data").iterdir())) == 1
+    assert [t.file.file_path for t in writer.catalog.load_table("ns.t").scan().plan_files()] == [ref.files[0].location]
+    out = capsys.readouterr().out
+    assert "t: an upload failed (OSError); attempt 2 of 3 loads the table again for new credentials" in out
+    assert "s3://" not in out
+
+
+def test_an_upload_that_fails_each_attempt_raises_and_registers_nothing(tmp_path):
+    writer, bucket = _remote_writer(tmp_path, ExpiringBucketFileIO)
+    ExpiringBucketFileIO.failures = UPLOAD_ATTEMPTS
+    with pytest.raises(OSError, match="SIGNATURE_DOES_NOT_MATCH"):
+        writer.write_parts("t", [_ready_parquet(writer, tmp_path, 1, 2)])
+    assert ExpiringBucketFileIO.failures == 0
+    assert list((bucket / "wh/ns/t/data").iterdir()) == []
+    assert writer.catalog.load_table("ns.t").current_snapshot() is None
