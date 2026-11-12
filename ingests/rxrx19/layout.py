@@ -48,6 +48,7 @@ class Dataset:
     doi: str
     pixel_size: float
     stains: tuple[str, ...] | None
+    readme: str
 
 
 #: Recursion's public bucket. References record these gs:// URLs; reads go over HTTPS.
@@ -58,6 +59,18 @@ def readable(url: str) -> str:
     """``url`` as this process reads it: a ``gs://rxrx/`` URL over HTTPS, anything else as given."""
     return url.replace(BUCKET, "https://storage.googleapis.com/rxrx/")
 
+
+#: Where the pixel sizes and RxRx19a's stains are stated: each dataset's README in
+#: recursionpharma/rxrx-datasets, at this commit. Both READMEs give "Physical resolution:
+#: 0.65 micron/pixel". RxRx19b's 2048-pixel PNGs are the instrument's images, so 0.65 µm
+#: is their pixel. RxRx19a's 1024-pixel PNGs are, per its dataset page, downsampled from
+#: 2048-pixel originals, so its pixel is taken as 1.30 µm; its README does not say which
+#: images the 0.65 describes, and RxRx1's README gives the same 0.65 for 512-pixel images.
+#: RxRx19a's README maps w1–w5 to stains; RxRx19b's README maps none, so its channels are
+#: named w1–w6.
+README_COMMIT = "19883e707da71da330b97e0a912e20290f87c67e"
+README_URL = "https://github.com/recursionpharma/rxrx-datasets/blob/{commit}/{folder}/README.md"
+README_RAW = "https://raw.githubusercontent.com/recursionpharma/rxrx-datasets/{commit}/{folder}/README.md"
 
 DATASETS = {
     "rxrx19a": Dataset(
@@ -79,6 +92,7 @@ DATASETS = {
             "Syto14 (RNA)",
             "Wheat germ agglutinin (Golgi)",
         ),
+        readme=README_RAW.format(commit=README_COMMIT, folder="rxrx19a"),
     ),
     "rxrx19b": Dataset(
         key="rxrx19b",
@@ -93,18 +107,9 @@ DATASETS = {
         doi="10.1101/2020.08.02.233064",
         pixel_size=0.65,
         stains=None,
+        readme=README_RAW.format(commit=README_COMMIT, folder="rxrx19b"),
     ),
 }
-
-#: Where the pixel sizes and RxRx19a's stains are stated: each dataset's README in
-#: recursionpharma/rxrx-datasets, at this commit. Both READMEs give "Physical resolution:
-#: 0.65 micron/pixel". RxRx19b's 2048-pixel PNGs are the instrument's images, so 0.65 µm
-#: is their pixel. RxRx19a's 1024-pixel PNGs are, per its dataset page, downsampled from
-#: 2048-pixel originals, so its pixel is taken as 1.30 µm; its README does not say which
-#: images the 0.65 describes, and RxRx1's README gives the same 0.65 for 512-pixel images.
-#: RxRx19a's README maps w1–w5 to stains; RxRx19b's README maps none, so its channels are
-#: named w1–w6.
-README_COMMIT = "19883e707d"
 
 #: The Arraylake repo that holds both datasets, each as a top-level group.
 REPO = "arraylake://earthmover-biology/RxRx19"
@@ -143,21 +148,81 @@ def site_path(dataset: str, experiment: str, plate: int, well: str, site: int) -
     return f"{well_path(dataset, experiment, plate, well)}/{site}"
 
 
+LICENSE = {"id": "CC-BY-4.0", "name": "Creative Commons Attribution 4.0 International",
+           "url": "https://creativecommons.org/licenses/by/4.0/"}
+
+#: The papers each dataset's README cites. Both READMEs cite both preprints.
+PAPERS = [
+    {"text": "Heiser et al. 2020, Identification of potential treatments for COVID-19 through artificial "
+             "intelligence-enabled phenomic analysis of human cells infected with SARS-CoV-2",
+     "doi": "10.1101/2020.04.21.054387"},
+    {"text": "Cuccarese et al. 2020, Functional immune mapping with deep-learning enabled phenomics applied to "
+             "immunomodulatory and COVID-19 drug discovery",
+     "doi": "10.1101/2020.08.02.233064"},
+]
+
+
 def root_document() -> dict:
     return {
         "title": "RxRx19: Recursion's COVID-19 Cell Painting screens",
-        "source": "gs://rxrx/",
-        "license": "CC-BY-4.0",
+        "description": "RxRx19a and RxRx19b, published by Recursion Pharmaceuticals on rxrx.ai, with every image "
+                       "referenced in place in Recursion's zips on gs://rxrx. Each dataset's group carries its "
+                       "license, READMEs, citation and the choices this store made.",
+        "license": LICENSE,
+        "attribution": "RxRx19a and RxRx19b by Recursion Pharmaceuticals (https://www.rxrx.ai), CC BY 4.0",
+        "source": BUCKET,
         "datasets": list(DATASETS),
     }
 
 
-def dataset_document(dataset: Dataset) -> dict:
+def dataset_document(dataset: Dataset, texts: dict) -> dict:
+    """The dataset's group: what it is, its license and READMEs verbatim, and every choice the store made.
+
+    ``texts`` holds the zip's ``LICENSE``, the README in the zip and the README
+    in recursionpharma/rxrx-datasets at ``README_COMMIT``, read by
+    ``source.license_and_readmes``.
+    """
+    folder = dataset.csv.split("/")[0].lower()
+    page = f"https://www.rxrx.ai/{folder}"
+    channels = (
+        [{"file": f"w{i + 1}", "stain": stain} for i, stain in enumerate(dataset.stains)]
+        if dataset.stains
+        else "w1 … w6, as named in the file paths; no source maps them to stains"
+    )
+    pixel = (
+        "The README says 0.65 micron/pixel. These PNGs are 1024-pixel images downsampled from 2048-pixel "
+        "originals (per the dataset page), so the store takes their pixels as 1.30 µm; the README does not "
+        "say which images its 0.65 describes."
+        if dataset.pixel_size != 0.65
+        else "The README says 0.65 micron/pixel; these PNGs are the instrument's 2048-pixel images."
+    )
     return {
         "title": dataset.title,
-        "citation": {"text": dataset.citation, "doi": dataset.doi},
-        "license": "CC-BY-4.0",
+        "publisher": "Recursion Pharmaceuticals",
+        "page": page,
+        "citation": PAPERS,
+        "license": {**LICENSE, "text": texts["license"], "source": f"{dataset.images}, member {dataset.folder}/LICENSE"},
+        "attribution": f"{dataset.folder} by Recursion Pharmaceuticals ({page}), CC BY 4.0",
         "source": {"images": dataset.images, "metadata": dataset.metadata, "embeddings": dataset.embeddings},
+        "readme": {
+            "text": texts["readme"],
+            "url": README_URL.format(commit=README_COMMIT, folder=folder),
+            "note": "The current README. It adds the stain table and the pixel size (October 2024) to the "
+                    "README in the zip.",
+        },
+        "readme_in_zip": {"text": texts["readme_in_zip"], "source": f"{dataset.images}, member {dataset.folder}/README.md"},
+        "pixel_size": {"value": dataset.pixel_size, "unit": "micrometer", "basis": pixel},
+        "channels": channels,
+        "known_errors": [{
+            "where": "both READMEs, 'Well location on plate (column AA, row 2)'",
+            "store": "AA02 is row AA, column 2: the letters run B–AE (30) and the numbers 02–47 (46), which fit "
+                     "a 1536-well plate's 32 rows and 48 columns only that way",
+        }],
+        "arrays": {
+            "embeddings": "embeddings.csv's deep-learning embeddings, one row per site, float32 (exact for the "
+                          "CSV's values), rows in metadata.csv's order",
+            "site_id": "the site each row of embeddings belongs to; also each site image's annotations.site_id",
+        },
     }
 
 

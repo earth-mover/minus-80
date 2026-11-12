@@ -48,6 +48,12 @@ def check_store(store, truth):
     plate = store[layout.plate_path("rxrx19a", "HRCE-1", 1)].attrs.asdict()["ome"]["plate"]
     assert len(plate["rows"]) == 32 and len(plate["columns"]) == 48
     assert sorted(w["path"] for w in plate["wells"]) == ["AA/2", "B/2", "B/3"]
+    dataset = store["rxrx19a"].attrs.asdict()
+    assert dataset["license"]["id"] == "CC-BY-4.0" and dataset["license"]["text"].startswith("Creative Commons")
+    assert "rxrx-datasets" in dataset["readme"]["text"] and "as the zip holds it" in dataset["readme_in_zip"]["text"]
+    assert dataset["attribution"].startswith("RxRx19a by Recursion")
+    assert dataset["pixel_size"] == {**dataset["pixel_size"], "value": 1.3, "unit": "micrometer"}
+    assert store.attrs["license"]["id"] == "CC-BY-4.0"
     site = store[layout.site_path("rxrx19a", "VERO-1", 1, "AB05", 3)]
     assert site.attrs["annotations"]["site_id"] == "VERO-1_1_AB05_3"
     assert site.attrs["ome"]["multiscales"][0]["name"] == "VERO-1_1_AB05_3"
@@ -89,3 +95,13 @@ def test_verify_passes_on_the_written_store(tmp_path, bucket, capsys):
     code = verify.main(["--repo", str(tmp_path / "repo"), "--dataset", "rxrx19a", "--sites", "8",
                         "--source-root", root.as_uri(), "--cache", str(tmp_path / "cache")])
     assert code == 0, capsys.readouterr().out
+
+
+def test_attributes_only_rewrites_the_dataset_group(tmp_path, bucket):
+    root, _ = bucket
+    written(tmp_path, bucket)
+    snapshot = ingest.run(str(tmp_path / "repo"), "rxrx19a", attributes_only=True,
+                          source_root=root.as_uri(), cache=tmp_path / "cache")
+    store = zarr.open_group(open_repository(tmp_path / "repo").readonly_session("main").store, mode="r")
+    assert store["rxrx19a"].attrs["license"]["id"] == "CC-BY-4.0"
+    assert "rxrx19a/HRCE-1/Plate1" in store and snapshot

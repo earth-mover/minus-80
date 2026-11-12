@@ -8,6 +8,8 @@ Everything the ingest relies on is reproduced at a smaller size:
   beside a deflated LICENSE;
 - two experiments, plates of different well counts, four sites and five
   channels per well, wells named with one- and two-letter rows;
+- the dataset README in the zip, and a stand-in for its README in
+  recursionpharma/rxrx-datasets at ``rxrx-datasets/rxrx19a/README.md``;
 - a metadata zip with ``RxRx19a/metadata.csv``, one row per site, including a
   blank treatment and a blank condition;
 - an embeddings zip with a deflated ``RxRx19a/embeddings.csv`` whose rows are
@@ -65,6 +67,7 @@ def build(root: Path) -> dict:
     pixels, rows, embeddings = {}, [], {}
     with zipfile.ZipFile(folder / "RxRx19a-images.zip", "w") as zf:
         member(zf, "RxRx19a/LICENSE", b"Creative Commons Attribution 4.0\n" * 20, zipfile.ZIP_DEFLATED)
+        member(zf, "RxRx19a/README.md", b"# RxRx19a\n\nThe README as the zip holds it.\n", zipfile.ZIP_DEFLATED)
         for (experiment, plate), wells in PLATES.items():
             for well in wells:
                 for site in range(1, SITES + 1):
@@ -98,6 +101,9 @@ def build(root: Path) -> dict:
         text.write(",".join([site_id] + [repr(float(v)) for v in embeddings[site_id]]) + "\n")
     with zipfile.ZipFile(folder / "RxRx19a-DL-embeddings.zip", "w") as zf:
         member(zf, "RxRx19a/embeddings.csv", text.getvalue().encode(), zipfile.ZIP_DEFLATED)
+    readme = root / "rxrx-datasets" / "rxrx19a" / "README.md"
+    readme.parent.mkdir(parents=True, exist_ok=True)
+    readme.write_text("# RxRx19a\n\nThe README in recursionpharma/rxrx-datasets.\n")
     return {"pixels": pixels, "rows": {r["site_id"]: r for r in rows}, "embeddings": embeddings}
 
 

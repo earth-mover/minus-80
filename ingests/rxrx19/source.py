@@ -24,7 +24,7 @@ import pyarrow.csv
 
 import layout
 from layout import BUCKET, Dataset
-from minus80.core.fetch import cache_dir, read_range
+from minus80.core.fetch import cache_dir, object_size, read_range
 from minus80.parsers.zip.directory import member_spans
 from minus80.parsers.zip.reading import cached_central_directory, read_members
 
@@ -60,8 +60,10 @@ class Survey:
 def rebased(dataset: Dataset, root: str) -> Dataset:
     """``dataset`` with every URL moved from ``gs://rxrx/`` to ``root``."""
     move = lambda url: root.rstrip("/") + "/" + url.removeprefix(BUCKET)
+    folder = dataset.csv.split("/")[0].lower()
     return dataclasses.replace(dataset, images=move(dataset.images), metadata=move(dataset.metadata),
-                               embeddings=move(dataset.embeddings))
+                               embeddings=move(dataset.embeddings),
+                               readme=root.rstrip("/") + f"/rxrx-datasets/{folder}/README.md")
 
 
 def cached(url: str, cache: Path | None = None) -> pa.Table:
@@ -123,3 +125,12 @@ def survey(dataset: Dataset, cache: Path | None = None) -> Survey:
         embeddings_zip=cached(dataset.embeddings, cache),
         png_header={"signature": data[:8], "width": width, "height": height, "bit_depth": depth, "color_type": color},
     )
+
+
+def license_and_readmes(s: Survey) -> dict[str, str]:
+    """The zip's LICENSE and README.md, and the dataset's README in recursionpharma/rxrx-datasets at the pinned commit."""
+    d = s.dataset
+    names = [f"{d.folder}/LICENSE", f"{d.folder}/README.md"]
+    members = read_members(layout.readable(d.images), names, s.directory)
+    readme = read_range(d.readme, 0, object_size(d.readme)).decode()
+    return {"license": members[names[0]].decode(), "readme_in_zip": members[names[1]].decode(), "readme": readme}

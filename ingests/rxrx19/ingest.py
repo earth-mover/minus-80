@@ -42,7 +42,7 @@ from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_rep
 from minus80.core.nodes import array_document, group_document, write_nodes
 from minus80.parsers.zip.reading import stream_members
 from minus80.parsers.zip.streaming import spans_in_file_order
-from source import Survey, rebased, survey
+from source import Survey, license_and_readmes, rebased, survey
 
 
 # The source
@@ -77,7 +77,7 @@ def plates_to_write(s: Survey, chosen: str | None) -> list[tuple[str, int]]:
 SITE = "@@SITE@@"
 
 
-def node_documents(s: Survey, plates: list[tuple[str, int]]) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
+def node_documents(s: Survey, plates: list[tuple[str, int]], texts: dict) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
     """Every node of ``plates``, as ``{path: zarr.json}``, and each site's array path with its site id."""
     height, width = s.png_header["height"], s.png_header["width"]
     if height != width:
@@ -87,7 +87,7 @@ def node_documents(s: Survey, plates: list[tuple[str, int]]) -> tuple[dict[str, 
     site_template = group_document(layout.site_document(d, SITE, channels)).decode()
     array = array_document(shape=(channels, height, width), chunks=(1, height, width), dtype="uint8",
                            serializer=Png(), compressors=None, fill_value=0, dimension_names=("c", "y", "x"))
-    documents = {"": group_document(layout.root_document()), d.key: group_document(layout.dataset_document(d))}
+    documents = dataset_documents(d, texts)
     arrays = []
     for experiment, plate in plates:
         rows = s.metadata[(s.metadata.experiment == experiment) & (s.metadata.plate == plate)].to_dict("records")
@@ -109,6 +109,11 @@ def node_documents(s: Survey, plates: list[tuple[str, int]]) -> tuple[dict[str, 
                 documents[f"{path}/0"] = array
                 arrays.append((f"{path}/0", r["site_id"]))
     return documents, arrays
+
+
+def dataset_documents(d: Dataset, texts: dict) -> dict[str, bytes]:
+    """The root and the dataset's group: license, READMEs, citation and the store's choices (layout.dataset_document)."""
+    return {"": group_document(layout.root_document()), d.key: group_document(layout.dataset_document(d, texts))}
 
 
 # The references
@@ -255,23 +260,37 @@ def main() -> None:
     parser.add_argument("--packed", action="store_true", help="commit the references with ice-pack, one manifest per plate")
     parser.add_argument("--source-root", help="read the zips from this copy of gs://rxrx/ (the tests' fixture)")
     parser.add_argument("--cache", type=Path, help="where to keep the central directories (default: the minus80 cache)")
+    parser.add_argument("--attributes-only", action="store_true",
+                        help="rewrite only the root and dataset groups' attributes, in their own commit")
     args = parser.parse_args()
 
     run(args.repo, args.dataset, plates=args.plates, branch=args.branch, embeddings=args.embeddings,
-        packed=args.packed, source_root=args.source_root, cache=args.cache)
+        packed=args.packed, source_root=args.source_root, cache=args.cache, attributes_only=args.attributes_only)
 
 
 def run(repo_location: str, dataset: str, *, plates: str | None = None, branch: str = "main",
         embeddings: bool = False, packed: bool = False, source_root: str | None = None,
-        cache: Path | None = None) -> str:
+        cache: Path | None = None, attributes_only: bool = False) -> str:
     """Write ``plates`` of ``dataset`` (all when ``None``) to ``branch`` of the repo, and return the last snapshot id."""
     d = DATASETS[dataset]
     if source_root:
         d = rebased(d, source_root)
     started = time.monotonic()
     s = survey(d, cache)
+    texts = license_and_readmes(s)
+    if attributes_only:
+        repo = open_repo(repo_location, d)
+        session = repo.writable_session(branch)
+        write_nodes(session.store, dataset_documents(d, texts))
+        if not session.has_uncommitted_changes:
+            print(f"{d.key}: the attributes on {branch} are already current", flush=True)
+            return repo.lookup_branch(branch)
+        snapshot = session.commit(f"{d.key}: the license, both READMEs, the citation and the store's choices, "
+                                  f"on the root and the {d.key} group")
+        print(f"committed {snapshot} ({time.monotonic() - started:.1f} s)", flush=True)
+        return snapshot
     plates = plates_to_write(s, plates)
-    documents, arrays = node_documents(s, plates)
+    documents, arrays = node_documents(s, plates, texts)
     references = reference_table(s, arrays)
     print(f"{d.key}: {len(plates)} plates, {len(arrays):,} sites, {len(documents):,} nodes, "
           f"{references.num_rows:,} references ({time.monotonic() - started:.1f} s)", flush=True)
