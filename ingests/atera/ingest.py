@@ -45,7 +45,7 @@ from check_bundle import differences, summary
 from facts import bundle_facts, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
-from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
+from root_attrs import LICENSE, citation_text, element_kind, parse_metrics, root_attrs, source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table, diffexp_table
 from transcripts import TRANSCRIPT_SCHEMA, tile_order, write_tile, xenium_cell_id
@@ -550,12 +550,13 @@ def write_transcripts(
 
 
 def build_root(
-    bundle: Bundle, sample, layouts: str, experiment: dict, *, missing: list, fixture: str | None = None,
+    bundle: Bundle, sample, layouts: str, experiment: dict, mode: str, *, missing: list, fixture: str | None = None,
 ) -> dict:
-    """The root attributes of ``sample`` from the bundle's metrics and ``experiment``."""
+    """The root attributes of ``sample`` from the bundle's metrics and ``experiment``; the description covers ``mode``."""
     with bundle.member_file(bundle.metrics()) as f:
         metrics = parse_metrics(f.read().decode())
-    return root_attrs(sample, layouts, experiment, metrics, missing=missing, fixture=fixture)
+    kinds = {element_kind(e) for e in ELEMENTS[mode]}
+    return root_attrs(sample, layouts, experiment, metrics, kinds=kinds, missing=missing, fixture=fixture)
 
 
 def write_root(writer, root_attributes: dict) -> None:
@@ -596,7 +597,7 @@ def prepare(
     try:
         # The image and label steps read this key.
         experiment["pixel_size"]
-        root = build_root(bundle, sample, layouts, experiment, missing=MISSING_FROM_FULL)
+        root = build_root(bundle, sample, layouts, experiment, "full", missing=MISSING_FROM_FULL)
     except KeyError as error:
         raise ValueError(f"experiment.spatial has no key {error.args[0]!r}, which the ingest needs") from None
     return Prepared(experiment=experiment, root=root, methods=found["polygons"]["method_names"],
@@ -974,7 +975,7 @@ def run() -> None:
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),
         "images/he_image": lambda: write_he(writer, he_image, he_alignment, pixel_size, concurrency=n),
         "root": lambda: write_root(writer, prepared.root if full else build_root(
-            bundle, sample, layouts, experiment, missing=MISSING_FROM_FIXTURE, fixture=FIXTURE)),
+            bundle, sample, layouts, experiment, "fixture", missing=MISSING_FROM_FIXTURE, fixture=FIXTURE)),
     }
     qc_selected = [e for e in selected if e.startswith(QC_PREFIX)]
     for element in selected:

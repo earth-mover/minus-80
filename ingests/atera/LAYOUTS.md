@@ -224,7 +224,7 @@ only the repo's first commit.
 | `images/morphology/s6` | `morphology_2d/ch000{0..3}_*.ome.tif`, level 6 of each | `(4, 517, 885)` uint16, chunks `(1, 1024, 1024)`, blosc-zstd level 5 with shuffle, decoded from lossless JPEG 2000 |
 | `shapes/nucleus_boundaries` | `cells.zarr.zip`, `polygon_sets/0` and `cell_id` | Iceberg table `nucleus_boundaries`; `shapes.parquet` is a `uint8` array of virtual references into the table's data file |
 | `points/transcripts` | `transcripts.zarr.zip`, `grid/0,0` and `codeword_category` | Iceberg table `transcripts`, partitioned by `grid_tile`; `points.parquet` is a `uint8` array of virtual references into the table's data file |
-| root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB |
+| root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB. `description` has one sentence for each kind of element that the store holds. |
 
 On the Arraylake branch `main`, `tables/table` annotates `cell_boundaries`, not `cell_labels`; see "The table's region".
 
@@ -521,6 +521,7 @@ Each long gate prints a progress line every five seconds.
 | `bundle` | The bundle equals the sample's record in `samples/`, in every group except `stores`. It runs first. |
 | `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
+| | The root attribute `description` has the sentence of `KIND_SENTENCES` for each kind of element that the store holds. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
 | `transforms` | The stored axis names of each element have this order: `c, y, x` for a 2D image, `c, z, y, x` for the stack, `y, x` for a label. |
 | | Each level array has the shape that the source gives in that order. Thus each axis name belongs to one array dimension. |

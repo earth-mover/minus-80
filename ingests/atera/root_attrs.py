@@ -6,6 +6,7 @@ import calendar
 import csv
 import io
 import math
+from collections.abc import Collection
 
 from minus80.ome.spatialdata import container_attrs
 from sources import Sample
@@ -29,14 +30,41 @@ PAGE_LABELS = {
 SAMPLE_KEYS = ("sample_type", "region_name", "slide_name", "slide_id", "slide_type")
 PANEL_KEYS = ("panel_config", "panel_wta", "total_num_targets")
 
-DESCRIPTION = (
-    "A SpatialData store of one 10x Atera whole-transcriptome sample. "
-    "images/morphology holds the four morphology stains as (c, y, x) uint16. "
-    "labels holds the nucleus and cell masks. tables/table is the AnnData cell by gene matrix. "
-    "points/transcripts and shapes/*_boundaries are Iceberg tables beside the repo. "
-    "Each of those also holds its Parquet files as uint8 arrays. "
-    "The global coordinate system is in micrometres."
-)
+#: One sentence for each kind of element: what it holds and its source in the 10x bundle.
+KIND_SENTENCES = {
+    "images/morphology": "images/morphology holds the four morphology stains of the morphology_2d OME-TIFF files.",
+    "images/morphology_3d": "images/morphology_3d holds the DAPI z-stack of the morphology_3d OME-TIFF file.",
+    "images/he_image": "images/he_image holds the H&E image of the OME-TIFF beside the bundle, aligned by its CSV.",
+    "images/qc": "Each images/qc_<name> holds one QC raster of the analysis summary HTML.",
+    "labels": "The labels group holds the nucleus and cell masks of cells.zarr.zip.",
+    "shapes": (
+        "The shapes group holds the nucleus and cell polygons of cells.zarr.zip as Iceberg tables "
+        "and uint8 Parquet copies."
+    ),
+    "points/transcripts": (
+        "points/transcripts holds the transcripts of transcripts.zarr.zip as an Iceberg table and uint8 Parquet copies."
+    ),
+    "tables/table": "tables/table holds the AnnData cell by gene matrix of cell_feature_matrix.zarr.zip.",
+    "iceberg_tables": (
+        "The root attribute iceberg_tables pins the codewords table of transcripts.zarr.zip "
+        "and the differential expression tables of diffexp_genes."
+    ),
+}
+
+
+def element_kind(element: str) -> str:
+    """The key of ``KIND_SENTENCES`` for ``element``; the QC rasters, the labels and the shapes share one each."""
+    return next((g for g in ("images/qc", "labels", "shapes") if element.startswith(g)), element)
+
+
+def describe(kinds: Collection[str]) -> str:
+    """The root attribute ``description``: the sentence of each kind in ``kinds``, in the order of ``KIND_SENTENCES``."""
+    return " ".join([
+        "This SpatialData store holds one 10x Atera whole-transcriptome sample.",
+        *(sentence for kind, sentence in KIND_SENTENCES.items() if kind in kinds),
+        "The global coordinate system is in micrometres.",
+    ])
+
 
 READING = {
     "spatialdata": "Released spatialdata 0.8.0 cannot open an Icechunk store.",
@@ -135,9 +163,12 @@ def _value(text: str):
 
 
 def root_attrs(
-    sample: Sample, layouts: str, experiment: dict, metrics: dict, *, missing: list, fixture: str | None = None
+    sample: Sample, layouts: str, experiment: dict, metrics: dict, *, kinds: Collection[str], missing: list, fixture: str | None = None
 ) -> dict:
-    """All root attributes. ``layouts`` is the text of LAYOUTS.md; ``fixture`` says what a fixture branch leaves out."""
+    """All root attributes. ``layouts`` is the text of LAYOUTS.md; ``kinds`` are the kinds of element that the store holds.
+
+    ``fixture`` says what a fixture branch leaves out.
+    """
     page = _rows_for(layouts, {"Repo", "Biomaterials"}, sample.repo)[0]
     citation = {
         "text": citation_text(sample),
@@ -155,7 +186,7 @@ def root_attrs(
     attrs = {
         **container_attrs(),
         "title": sample.title,
-        "description": DESCRIPTION,
+        "description": describe(kinds),
         "source": source_objects(layouts, sample),
         "documentation": {
             "dataset_page": sample.page,

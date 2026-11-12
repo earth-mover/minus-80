@@ -57,7 +57,7 @@ from ingest import (
     MASKS, MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters, data_bag
-from root_attrs import source_objects
+from root_attrs import KIND_SENTENCES, element_kind, source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from transcripts import tile_order, xenium_cell_id
 
@@ -967,11 +967,23 @@ def _element_errors(root, element: str) -> list[str]:
     return []
 
 
+def _description_errors(root) -> list[str]:
+    """The root attribute ``description`` has the sentence of each kind of element that the store holds."""
+    held = {element_kind(e) for e in full_elements() if (e in root.attrs if e == ICEBERG_TABLES else e in root)}
+    description = root.attrs.get("description", "")
+    return [f"description: lacks the sentence for {kind}"
+            for kind, sentence in KIND_SENTENCES.items() if kind in held and sentence not in description]
+
+
 def gate_complete(root) -> list[str]:
-    """Every element of the full tree is on the branch and complete, and ``missing`` lists what the full mode leaves out."""
+    """Every element of the full tree is on the branch and complete, and ``missing`` lists what the full mode leaves out.
+
+    The description has the sentence of each kind of element that the store holds.
+    """
     errors = []
     for element in full_elements():
         errors += _element_errors(root, element)
+    errors += _description_errors(root)
     listed = root.attrs.get("missing", [])
     errors += [f"missing: lacks {m['what']}" for m in MISSING_FROM_FULL if m not in listed]
     errors += [f"missing: lists {m.get('what')}, which the full mode writes" for m in listed if m not in MISSING_FROM_FULL]

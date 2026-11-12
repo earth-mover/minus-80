@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from root_attrs import citation_text, markdown_tables, parse_metrics, root_attrs, source_objects
+import ingest
+from root_attrs import (
+    KIND_SENTENCES, citation_text, describe, element_kind, markdown_tables, parse_metrics, root_attrs,
+    source_objects,
+)
 from sources import SAMPLES
 
 LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
@@ -44,7 +48,7 @@ def test_root_attrs_splits_experiment_and_names_the_fixture():
         "panel_wta": {"panel_organism": "Human"}, "pixel_size": 0.2,
         "analysis_sw_version": "atera-1.0.4.1", "instrument_sw_version": "1.0.0.79",
     }
-    attrs = root_attrs(KIDNEY, LAYOUTS, experiment, {"m": 1}, missing=[], fixture="one tile")
+    attrs = root_attrs(KIDNEY, LAYOUTS, experiment, {"m": 1}, kinds=["labels"], missing=[], fixture="one tile")
     json.dumps(attrs, allow_nan=False)
     assert attrs["spatialdata_attrs"] == {"version": "0.2"}
     assert attrs["title"] == KIDNEY.title
@@ -70,3 +74,31 @@ def test_root_attrs_splits_experiment_and_names_the_fixture():
         "output_formats": "https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest/analysis/output-at-a-glance",
         "software": "https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest",
     }
+    assert attrs["description"] == describe(["labels"])
+
+
+KINDS = ("images/morphology", "images/morphology_3d", "images/he_image", "images/qc", "labels", "shapes",
+         "points/transcripts", "tables/table", "iceberg_tables")
+
+
+def _kinds(mode):
+    return {element_kind(e) for e in ingest.ELEMENTS[mode]}
+
+
+def test_each_kind_sentence_is_short_and_names_its_element():
+    assert tuple(KIND_SENTENCES) == KINDS
+    for kind, sentence in KIND_SENTENCES.items():
+        assert kind in sentence
+        assert len(sentence.split()) <= 20 and sentence.count(". ") == 0 and sentence.endswith(".")
+        assert "\u2014" not in sentence
+
+
+def test_the_full_description_holds_the_sentence_of_each_kind():
+    description = describe(_kinds("full"))
+    assert all(sentence in description for sentence in KIND_SENTENCES.values())
+
+
+def test_the_fixture_description_holds_only_the_sentences_of_the_kinds_that_the_fixture_writes():
+    description = describe(_kinds("fixture"))
+    lacking = ("images/morphology_3d", "images/he_image", "images/qc", "iceberg_tables")
+    assert [k for k in KINDS if KIND_SENTENCES[k] not in description] == list(lacking)

@@ -42,6 +42,7 @@ from ingest import (
     write_labels,
 )
 from polygons import polygon_table
+from root_attrs import KIND_SENTENCES, describe, element_kind
 from sources import SAMPLES
 from verify import (
     apply_transform, chunk_key, chunk_members, element_tables, gate_attrs, gate_complete, gate_copies,
@@ -1792,3 +1793,20 @@ def test_a_gate_list_with_no_name_is_refused(monkeypatch, full_store, tmp_path, 
     code = _verify(monkeypatch, full_store, "--mode", "full", "--gates", gates, "--snapshot-file", str(path))
     assert code == "--gates gives no gate"
     assert not path.exists()
+
+
+def test_a_full_store_describes_each_kind_of_element(full_store):
+    description = full_store.root().attrs["description"]
+    assert all(sentence in description for sentence in KIND_SENTENCES.values())
+
+
+def test_complete_fails_a_description_that_lacks_the_sentence_of_a_held_kind(full_store, tmp_path):
+    def describe_the_fixture(root):
+        root.attrs["description"] = describe({element_kind(e) for e in ingest.ELEMENTS["fixture"]})
+
+    assert _complete_errors(full_store, tmp_path, describe_the_fixture) == [
+        "description: lacks the sentence for images/morphology_3d",
+        "description: lacks the sentence for images/he_image",
+        "description: lacks the sentence for images/qc",
+        "description: lacks the sentence for iceberg_tables",
+    ]
