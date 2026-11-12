@@ -975,12 +975,21 @@ The owner checks each of these.
 - The machine stays `m7g.xlarge` with `--concurrency 32`. The launcher sets the disk from the sample's download size.
 - The kidney's `description` commit runs on a VM. The step reads the bundle by range request and writes the root attributes only.
 - The QC rasters' decode has no second decoder. `REPORT.md` keeps that limit.
+- The survey writes one record file for each sample, `samples/<sample>.json`. The bundle check compares a bundle with that file.
+- The bundle check runs before the download, by range request. It runs again on the local file before the ingest.
+- A rerun on the same trial branch resumes. A fix that changes written arrays uses another trial branch name.
+  A fix that changes a table's rows uses `--replace-tables`. No run deletes a branch, a table or an object.
+- `main` moves only forward: its snapshot must be an ancestor of the trial snapshot.
+- The kidney's `description` commit also goes through a trial branch and the move of `main`. It is the first use of that move.
+- The plan's author runs the setup script with the owner's login. The machine token has no right to set a policy.
 
 ### The work
 
 **1. The survey.** A script `survey.py` reads metadata from the four bundles and prints one record for each sample.
 It runs on one VM through the launcher's script form. It reads by range request and downloads no bundle.
 It writes nothing to Arraylake.
+It reads metadata and the small index arrays: no pixel, no transcript column, no matrix chunk.
+It prints the bytes that it read from each bundle. The kidney's metadata reads were about 42 MB.
 The record holds:
 
 - the member names of the bundle, with sizes;
@@ -996,7 +1005,8 @@ The record holds:
 - the alignment matrix.
 
 The kidney is in the survey as a control. Its record must equal what `LAYOUTS.md` holds.
-`LAYOUTS.md` gets the record of each sample. A difference from the kidney is a finding with its number.
+The survey writes each record as `samples/<sample>.json`. The file is committed.
+`LAYOUTS.md` gets a table of the differences between the samples. A difference from the kidney is a finding with its number.
 
 **2. Members by pattern.** The ingest finds the morphology files by `morphology_2d/ch*.ome.tif` and `morphology_3d/ch*.ome.tif`.
 It finds the metrics member and the report by one pattern each. Each pattern must match the expected count, or the open of the bundle fails.
@@ -1004,8 +1014,9 @@ It finds the metrics member and the report by one pattern each. Each pattern mus
 **3. A check when the bundle opens.** One function reads every fact that a later step needs.
 It builds the root attributes and resolves each member.
 It reads the QC labels and the transcript grid, and it opens each TIFF header.
+It compares each fact with the sample's record file. A difference is one line that gives the fact and both values.
 The ingest calls it before the first write. The verification calls it too.
-The remote script runs it as a step after the file check and before the ingest.
+The remote script runs it twice: by range request before the download, and on the local file before the ingest.
 
 **4. A `transforms` gate.** It compares each element's transform with the source:
 
@@ -1013,26 +1024,36 @@ The remote script runs it as a step after the file check and before the ingest.
 - the stack's z step, against the OME-XML;
 - the H&E affine and the `alignment` attribute, against the CSV, which the gate parses itself;
 - each QC raster's scale and translation, against the report's bins and origin;
-- the result of two pixel points through each stored transform.
+- the result of two pixel points through each stored transform: the first pixel and the last pixel of level 0.
+
+The gate computes each expected value from the source and not from the ingest's functions.
+A stored number must equal its source number within a relative error of 1e-9.
+The alignment CSV is a 3 by 3 matrix in `(x, y)` order. It maps H&E pixels to morphology pixels, as `LAYOUTS.md` records.
 
 **5. A trial branch, then `main`.** The launcher's ingest form writes `trial-<name>`.
 After `=== all steps passed` for the verification, a last step moves `main` to the trial branch's snapshot.
-The step refuses when `main` is not at the repo's first commit.
-A flag can give another snapshot that `main` must hold.
+The step refuses when the snapshot of `main` is not an ancestor of the trial snapshot.
+So `main` moves only forward, and the table pins of the verified snapshot stay as written.
+A trial branch has the name `trial-<date>`, or `trial-<date>-<n>` for a later try.
+A failed gate, or a stop in the ingest, keeps the trial branch. A rerun on that branch resumes.
+The move of a branch on Arraylake with the machine token is not tested. The kidney's `description` commit tests it first.
 The verification of a later run can read either branch.
 
 **6. Threads for the stack.** `write_stack` decodes the planes of one position in a thread pool.
 The bound on pending bytes stays. A test compares the result with the one-thread result.
 
 **7. The `description`.** The root attribute names `images/morphology_3d`, `images/he_image`, the QC rasters and `iceberg_tables`.
-The kidney's `main` gets one commit with it. The `complete` gate checks that the text names each element kind that the store holds.
+The kidney gets one commit with it, on a trial branch. The gates `complete`, `attrs` and `source` run on that branch, then `main` moves.
+The `complete` gate checks that the text names each element kind that the store holds.
 
 **8. Checks with their own reference.** The chunk-key mapping moves to one function in `minus80.core.zarr_copy`.
 The matrix and label gates also compare decoded values of sampled chunks with the source's decode.
 The gate for copied arrays' metadata reads each source `.zarray` field itself.
 
 **9. The setup on Arraylake.** A script creates, for one sample: the repo, the tables namespace, and the access policy for the namespace's prefix.
-It has a dry run. It prints no bucket name and no prefix. It refuses a repo that exists.
+It has a dry run. It prints no bucket name and no prefix.
+It reads the namespace's location from the catalog at run time. No file holds it.
+Each piece that exists and is as wanted is skipped. A piece that exists and differs stops the script.
 
 ### The run of one sample
 
@@ -1053,7 +1074,9 @@ Each run needs the owner's approval of the repo, the spend and the storage.
 | breast | 89,305,623,909 | 7,318,928,225 | 96.6 GB |
 
 The kidney's download took 991 s for 48.5 GB, and its ingest 6,829 s.
-The survey gives each sample's transcript rows. The time limit of each run comes from those rows and the kidney's rates.
+The survey gives each sample's transcript rows, pixels and planes.
+The estimate of a run scales the kidney's times: the download and the file check by bytes, the transcripts by rows, each image by its pixels and planes.
+The estimate assumes no gain from the stack's threads. The time limit is twice the estimate.
 
 ### Left to the builder
 
