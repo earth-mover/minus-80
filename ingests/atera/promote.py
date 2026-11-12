@@ -15,21 +15,28 @@ from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repos
 TRIAL_PREFIX = "trial-"
 
 
+class Refusal(ValueError):
+    """A rule of promote() forbids the move."""
+
+
 def promote(repo, source: str, target: str = "main", *, dry_run: bool = False) -> tuple[str, str]:
-    """Return (old snapshot of target, snapshot of source); move target unless equal or dry_run."""
+    """Return (old snapshot of target, snapshot of source).
+
+    Move target to the snapshot of source, unless the snapshots are equal or dry_run is set.
+    """
     if not source.startswith(TRIAL_PREFIX):
-        raise ValueError(f"the source {source} does not start with {TRIAL_PREFIX}")
+        raise Refusal(f"the source {source} does not start with {TRIAL_PREFIX}")
     if target != "main":
-        raise ValueError("the target must be main")
+        raise Refusal("the target must be main")
     branches = repo.list_branches()
     for name in (source, target):
         if name not in branches:
-            raise ValueError(f"the branch {name} does not exist")
+            raise Refusal(f"the branch {name} does not exist")
     old, new = repo.lookup_branch(target), repo.lookup_branch(source)
     if old == new:
         return old, new
     if old not in (info.id for info in repo.ancestry(snapshot_id=new)):
-        raise ValueError(f"the snapshot {old} of {target} is not an ancestor of the snapshot {new} of {source}")
+        raise Refusal(f"the snapshot {old} of {target} is not an ancestor of the snapshot {new} of {source}")
     if dry_run:
         return old, new
     # from_snapshot_id makes the reset fail if target moved since the read above.
@@ -54,7 +61,7 @@ def main() -> None:
     try:
         repo = arraylake_repository(args.repo) if args.repo.startswith(ARRAYLAKE) else open_repository(args.repo)
         old, new = promote(repo, args.source, args.target, dry_run=args.dry_run)
-    except ValueError as refusal:
+    except Refusal as refusal:
         _fail(str(refusal))
     except Exception as error:
         # A service message can hold a storage prefix, so only the type shows.

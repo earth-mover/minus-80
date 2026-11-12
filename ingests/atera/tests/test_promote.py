@@ -33,12 +33,12 @@ def _read(repo, branch):
     return root["a"][:].tolist()
 
 
-def _unchanged(repo, before):
-    assert {b: repo.lookup_branch(b) for b in repo.list_branches()} == before
-
-
 def _tips(repo):
     return {b: repo.lookup_branch(b) for b in repo.list_branches()}
+
+
+def _unchanged(repo, before):
+    assert _tips(repo) == before
 
 
 def test_main_moves_to_the_trial_snapshot(repo):
@@ -102,8 +102,8 @@ def test_a_dry_run_changes_nothing(repo):
     _unchanged(repo, before)
 
 
-class _OtherWriterAfterAncestry:
-    """The real repo; a second writer commits to main when the ancestry walk ends."""
+class _OtherWriterBeforeReset:
+    """The real repo; a second writer commits to main just before the real reset."""
 
     def __init__(self, repo, other):
         self._repo, self._other = repo, other
@@ -111,17 +111,15 @@ class _OtherWriterAfterAncestry:
     def __getattr__(self, name):
         return getattr(self._repo, name)
 
-    def ancestry(self, **kwargs):
-        try:
-            yield from self._repo.ancestry(**kwargs)
-        finally:
-            self.moved = _write(self._other, "main", 9)
+    def reset_branch(self, *args, **kwargs):
+        self.moved = _write(self._other, "main", 9)
+        return self._repo.reset_branch(*args, **kwargs)
 
 
 def test_a_main_that_moved_after_the_read_is_not_overwritten(repo, tmp_path):
     _trial_ahead(repo)
     other = open_repository(tmp_path / "repo")
-    racing = _OtherWriterAfterAncestry(repo, other)
+    racing = _OtherWriterBeforeReset(repo, other)
     with pytest.raises(icechunk.IcechunkError):
         promote.promote(racing, "trial-x")
     assert repo.lookup_branch("main") == racing.moved
@@ -167,3 +165,31 @@ def test_a_service_error_prints_its_type_only(repo, tmp_path, monkeypatch, capsy
     monkeypatch.setattr(promote, "promote", fail)
     assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x") == 1
     assert capsys.readouterr().err == "IcechunkError\n"
+
+
+def test_an_error_of_the_opener_prints_its_type_only(tmp_path, monkeypatch, capsys):
+    def fail(*args, **kwargs):
+        raise ValueError("s3://secret")
+
+    monkeypatch.setattr(promote, "open_repository", fail)
+    assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x") == 1
+    captured = capsys.readouterr()
+    assert "ValueError" in captured.err
+    assert "secret" not in captured.out + captured.err
+
+
+def test_a_missing_local_repo_is_not_created(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "absent"
+    assert _cli(monkeypatch, path, "--from", "trial-x") == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip().isidentifier()
+    assert not path.exists()
+
+
+def test_the_command_refuses_a_target_other_than_main(repo, tmp_path, monkeypatch, capsys):
+    _trial_ahead(repo)
+    before = _tips(repo)
+    assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x", "--to", "other") == 1
+    assert "main" in capsys.readouterr().err
+    _unchanged(repo, before)
