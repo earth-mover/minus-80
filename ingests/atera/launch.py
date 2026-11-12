@@ -714,6 +714,14 @@ def check_ingest(args, fail) -> None:
             select_elements(args.elements, ELEMENTS["full"])
         except ValueError as error:
             fail(f"--elements: {error}")
+    if args.gates is not None:
+        # Only this check needs the verification's modules, and their import is slow.
+        from verify import GATES, select_gates
+
+        try:
+            select_gates([args.gates], GATES["full"])
+        except ValueError as error:
+            fail(f"--gates: {error}")
     if fault := plan_fault(args.elements, args.gates, args.remote_bundle, not args.no_promote, args.promote_after_gates):
         fail(fault)
 

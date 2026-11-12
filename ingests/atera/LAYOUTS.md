@@ -304,6 +304,8 @@ That table has an int64 `method` column.
 Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
 The gates `images`, `transforms`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
 The `transforms` gate passes on a synthetic store of that layout: one coarse image level and the two label elements.
+It checks the axis order, the shape and the corners of each level that the store holds.
+For each element that the store lacks, it prints `not held, skipped`.
 It did not run on the branch itself.
 The gates `bundle`, `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
 Each `iceberg_table` attribute of the branch pins one snapshot of `nucleus_boundaries` or `transcripts`.
@@ -520,10 +522,19 @@ Each long gate prints a progress line every five seconds.
 | `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
-| `transforms` | Each level of each image and label element maps its first pixel and its last pixel into `global` at the place that the source gives. |
+| `transforms` | The stored axis names of each element have this order: `c, y, x` for a 2D image, `c, z, y, x` for the stack, `y, x` for a label. |
+| | Each level array has the shape that the source gives in that order. Thus each axis name belongs to one array dimension. |
+| | The channel length is the count of morphology files, 1 for the stack, the samples of an H&E pixel, and 1 for a QC raster. |
+| | Each level maps each corner of its array into `global` at the place that the source gives. The channel index of a corner is 0. |
+| | A plane has four corners, and the stack has eight. A far corner is the outer corner of a last pixel. The four corners fix the affine of the H&E. |
+| | Each element has one transform, and its output is `global`. An element that lists no level fails. |
+| | A sequence ends in `global`. Each step starts in the system where the step before it ends, by system name and axis names. |
 | | The source numbers are the pixel size of `experiment.spatial`, the level shapes, the stack's `PhysicalSizeZ`, the alignment CSV, and the report's origin, dimensions and bin sizes. |
+| | The bin size of the coarse raster comes from its key in the bag, `mean_q_score_80um`. |
 | | The gate parses each source itself and does not call the ingest's transform code. A stored number can differ from its source number by a relative 1e-9. |
-| | The `alignment` attribute of the H&E holds the matrix of the CSV and the axes `["x", "y"]`. |
+| | The `alignment` attribute of the H&E holds the matrix of the CSV and the axes `["x", "y"]`. The gate refuses a CSV whose third row is not `0, 0, 1`. |
+| | Limits: the gate does not compare a step of a sequence that states no system. It does not compare the axes of the `input` and the `output` of an element's transform with the stored axes. |
+| | An array with y and x exchanged has the source's shape when the two sides are equal. The `images` gate compares the pixels. |
 | `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. |
 | `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. |
 | `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. The metadata equals the source's `.zarray`. |

@@ -3,9 +3,10 @@
 Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on any failure.
 ``--mode fixture`` checks the fixture branch: a gate skips an element that the branch lacks.
 ``--mode full`` checks every element of the full tree, whatever the branch, and fails on a missing one.
-Each expectation comes from the bundle, except four. Gate `complete` uses the ingest's element list.
-Gate `table_region` uses the ingest's region name. Gate `source` uses the record in LAYOUTS.md.
-Gate `bundle` uses the sample's record of its bundle.
+Each expectation comes from the bundle, the H&E image or the alignment CSV, except five.
+Gate `complete` uses the ingest's element list. Gate `table_region` uses the ingest's region name.
+Gate `source` uses the record in LAYOUTS.md. Gate `bundle` uses the sample's record of its bundle.
+Gate `transforms` uses the axis order that LAYOUTS.md records for each element.
 The script only reads.
 """
 
@@ -15,9 +16,11 @@ import argparse
 import csv
 import hashlib
 import io
+import itertools
 import json
 import math
 import os
+import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -70,6 +73,13 @@ SEED = 0
 TRANSFORM_TOLERANCE = 1e-9
 #: The spellings of the micrometre in OME-XML: the micro sign and the Greek letter.
 MICROMETRE = ("µm", "\u03bcm")
+#: A key of the report's density plot that ends in a bin size, in micrometres; LAYOUTS.md, "The grids".
+BIN_KEY = re.compile(r".*_(\d+)um")
+#: The gates of the fixture mode, in the order of a run.
+FIXTURE_GATES = ("images", "transforms", "qc", "labels", "matrix", "tables", "masks", "instances", "polygons",
+                 "table_region", "copies", "attrs", "extra_tables", "field_ids", "table_index")
+#: The gates of each mode, in the order of a run. The launcher checks ``--gates`` against the full mode.
+GATES = {"fixture": FIXTURE_GATES, "full": ("bundle", "complete", *FIXTURE_GATES, "source")}
 #: The polygon set that each shapes element holds.
 POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundaries": CELL_SET}
 
@@ -198,10 +208,15 @@ def apply_transform(attr: dict, axes: Sequence[str], point: dict[str, float]) ->
 
 
 def parse_alignment(text: str) -> list[list[float]]:
-    """The matrix of the alignment CSV: 3 lines of 3 numbers, with CR LF or LF line ends."""
+    """The matrix of the alignment CSV: 3 lines of 3 numbers, with CR LF or LF line ends.
+
+    The third row must be ``0, 0, 1``: the gate applies the first two rows as an affine.
+    """
     rows = [[float(v) for v in line.split(",")] for line in text.splitlines() if line.strip()]
     if [len(row) for row in rows] != [3, 3, 3]:
         raise ValueError(f"the alignment has rows of {[len(row) for row in rows]} numbers, not 3 by 3")
+    if rows[2] != [0.0, 0.0, 1.0]:
+        raise ValueError(f"the alignment has the third row {rows[2]}, not 0, 0, 1")
     return rows
 
 
@@ -221,33 +236,75 @@ def stack_z_step(ome_xml: str) -> float:
     return float(size)
 
 
-def _placement_errors(root, path: str, sizes: Sequence[dict[str, int]], expected: Callable) -> list[str]:
-    """Each level that ``path`` lists maps its first pixel and its last to the place that the source gives.
+def _system(transform: dict, end: str) -> tuple | None:
+    """The name and the axis names of the system at the ``end`` of ``transform``; ``None`` when it states none."""
+    system = transform.get(end)
+    return system and (system.get("name"), [a["name"] for a in system.get("axes", ())])
 
-    ``sizes`` has the source's size on each space axis, by level. ``expected`` takes a point of level 0, in pixels.
-    The last pixel of level k and the last of level 0 are one place.
+
+def _sequence_errors(path: str, transform: dict) -> list[str]:
+    """A sequence ends in ``global``, and each step starts in the system where the step before it ends.
+
+    A step that states no system is not compared.
+    """
+    if transform["type"] != "sequence":
+        return []
+    steps, errors = transform["transformations"], []
+    if (last := _system(steps[-1], "output")) and last[0] != "global":
+        errors.append(f"{path}: the last step of the sequence ends in {last[0]}, not in global")
+    for n, (step, after) in enumerate(zip(steps, steps[1:])):
+        if (end := _system(step, "output")) and (start := _system(after, "input")) and end != start:
+            errors.append(f"{path}: step {n} of the sequence ends in {end[0]} ({', '.join(end[1])}), "
+                          f"step {n + 1} starts in {start[0]} ({', '.join(start[1])})")
+    return errors
+
+
+def _corners(order: str, shape: Sequence[int]) -> list[dict[str, int]]:
+    """Each corner of an array of ``shape`` on its space axes. A far corner is the outer corner of a last pixel."""
+    space = [(a, n) for a, n in zip(order, shape, strict=True) if a != "c"]
+    return [{a: n * far for (a, n), far in zip(space, bits)} for bits in itertools.product((0, 1), repeat=len(space))]
+
+
+def _placement_errors(root, path: str, order: str, sizes: Sequence[Sequence[int]], expected: Callable) -> list[str]:
+    """Each level that ``path`` lists has the source's axes and shape, and maps its corners to the source's places.
+
+    ``order`` has the axis names of the source, one letter each. ``sizes`` has the source's shape in that order, by level.
+    ``expected`` takes a corner of level 0, in pixels. A corner of level k and that corner of level 0 are one place.
+    Three corners that are not on one line fix an affine of the plane, so the four corners of a plane do.
     """
     multiscale = root[path].attrs["ome"]["multiscales"][0]
-    axes = [a["name"] for a in multiscale["axes"]]
-    element = [t for t in multiscale.get("coordinateTransformations", ()) if t.get("output", {}).get("name") == "global"]
-    if len(element) != 1:
-        return [f"{path}: {len(element)} transforms into global"]
-    errors = []
+    stored = [a["name"] for a in multiscale["axes"]]
+    # The stored names bind to the array dimensions only through the order, so the order must be the source's.
+    if stored != list(order):
+        return [f"{path}: axes {', '.join(stored)}, the source order is {', '.join(order)}"]
+    systems = [t.get("output", {}).get("name", "no stated system")
+               for t in multiscale.get("coordinateTransformations", ())]
+    errors = [f"{path}: a transform into {name}, the layout has only global" for name in systems if name != "global"]
+    if systems.count("global") != 1:
+        errors.append(f"{path}: {systems.count('global')} transforms into global")
+    if not multiscale["datasets"]:
+        errors.append(f"{path}: lists no level")
+    if errors:
+        return errors
+    element = multiscale["coordinateTransformations"][0]
+    errors += _sequence_errors(path, element)
     for dataset in multiscale["datasets"]:
         label, level = f"{path} {dataset['path']}", int(dataset["path"].removeprefix("s"))
         if level >= len(sizes):
             errors.append(f"{label}: the source has {len(sizes)} levels")
             continue
-        for scaled in (0, 1):
-            pixel = {a: sizes[level].get(a, 0) * scaled for a in axes}
+        if (shape := root[f"{path}/{dataset['path']}"].shape) != tuple(sizes[level]):
+            errors.append(f"{label}: shape {shape}, the source has {tuple(sizes[level])}")
+        for corner, source in zip(_corners(order, sizes[level]), _corners(order, sizes[0])):
+            pixel = {a: corner.get(a, 0) for a in order}
             found = pixel
-            for step in (*dataset["coordinateTransformations"], *element):
-                found = apply_transform(step, axes, found)
-            wanted = expected({a: n * scaled for a, n in sizes[0].items()})
-            errors += [f"{label}: pixel ({', '.join(f'{a} {v}' for a, v in pixel.items())}) maps to {a} {found[a]}, "
-                       f"the source gives {value}" for a, value in wanted.items()
+            for step in (*dataset["coordinateTransformations"], element):
+                found = apply_transform(step, order, found)
+            errors += [f"{label}: corner ({', '.join(f'{a} {v}' for a, v in pixel.items())}) maps to {a} {found[a]}, "
+                       f"the source gives {value}" for a, value in expected(source).items()
                        if not math.isclose(found[a], value, rel_tol=TRANSFORM_TOLERANCE)]
-    print(f"  transforms: {path}: {_plural(len(multiscale['datasets']), 'level')}, the first and the last pixel of each")
+    print(f"  transforms: {path}: {_plural(len(multiscale['datasets']), 'level')}, axes {', '.join(order)}, "
+          "the shape and the corners of each")
     return errors
 
 
@@ -263,49 +320,69 @@ def _alignment_errors(group, matrix: list[list[float]]) -> list[str]:
     return errors
 
 
-def gate_transforms(root, bundle, open_he: Callable, alignment_text: Callable, *, full: bool) -> list[str]:
-    """The place in ``global`` of the first and the last pixel of each level of each image and label element.
+def coarse_bins(plot: dict) -> dict[str, float]:
+    """The bin size of each key of the report's density plot that ends in one, in micrometres."""
+    return {key: float(match[1]) for key in plot if (match := BIN_KEY.fullmatch(key))}
 
-    Each expected place comes from the source, and the gate computes it without the ingest's transform code.
+
+def gate_transforms(root, bundle, open_he: Callable, alignment_text: Callable, *, full: bool) -> list[str]:
+    """The axes, the shape and the place in ``global`` of the corners of each level of each image and label element.
+
+    Each expected place and shape comes from the source, and the gate computes it without the ingest's transform code.
     ``open_he`` and ``alignment_text`` are called only when the store has the H&E element.
-    A full store must hold each element; a fixture skips an element that it lacks.
+    A full store must hold each element; a fixture skips an element that it lacks, with a printed line.
     """
     errors, pixel_size = [], bundle.experiment()["pixel_size"]
+
+    def held(path: str) -> bool:
+        if _present(root, path, full, errors):
+            return True
+        if not full:
+            print(f"  transforms: {path}: not held, skipped")
+        return False
 
     def plane(point):
         return {a: n * pixel_size for a, n in point.items()}
 
-    if _present(root, "images/morphology", full, errors):
-        levels = bundle.tiff(bundle.morphology_2d()[0]).series[0].levels
-        errors += _placement_errors(root, "images/morphology", [dict(zip("yx", lv.shape[-2:])) for lv in levels], plane)
-    if _present(root, "images/morphology_3d", full, errors):
+    if held("images/morphology"):
+        # One file for each channel; a level of a file is rows by columns, so (y, x).
+        files = bundle.morphology_2d()
+        sizes = [(len(files), *lv.shape[-2:]) for lv in bundle.tiff(files[0]).series[0].levels]
+        errors += _placement_errors(root, "images/morphology", "cyx", sizes, plane)
+    if held("images/morphology_3d"):
         tif = bundle.tiff(bundle.morphology_3d())
         z_step = stack_z_step(tif.pages.first.description)
-        sizes = [{"z": len(lv.pages), **dict(zip("yx", lv.shape[-2:]))} for lv in tif.series[0].levels]
-        errors += _placement_errors(root, "images/morphology_3d", sizes,
+        # One file of one channel; a level has one page for each plane, and a page is (y, x).
+        sizes = [(1, len(lv.pages), *lv.shape[-2:]) for lv in tif.series[0].levels]
+        errors += _placement_errors(root, "images/morphology_3d", "czyx", sizes,
                                     lambda point: {**plane(point), "z": point["z"] * z_step})
-    if _present(root, "images/he_image", full, errors):
+    if held("images/he_image"):
         matrix = parse_alignment(alignment_text())
         pages = [lv.pages[0] for lv in open_tiff(open_he()).series[0].levels]
-        errors += _placement_errors(root, "images/he_image", [{"y": pg.imagelength, "x": pg.imagewidth} for pg in pages],
+        # A page stores its samples interleaved or planar; the layout puts the samples first, then (y, x).
+        sizes = [(pg.samplesperpixel, pg.imagelength, pg.imagewidth) for pg in pages]
+        errors += _placement_errors(root, "images/he_image", "cyx", sizes,
                                     lambda point: aligned(matrix, pixel_size, point))
         errors += _alignment_errors(root["images/he_image"], matrix)
     cells = bundle.member_zip(CELLS)
     for name, mask in MASKS.items():
-        if _present(root, f"labels/{name}", full, errors):
-            sizes = [dict(zip("yx", json.loads(cells.read(f"{mask}/.zarray"))["shape"]))]
-            errors += _placement_errors(root, f"labels/{name}", sizes, plane)
-    held = [name for name in QC_NAMES if _present(root, f"images/qc_{name}", full, errors)]
-    if not held:
+        if held(f"labels/{name}"):
+            # The shape of the mask array in the cells store is (y, x).
+            sizes = [tuple(json.loads(cells.read(f"{mask}/.zarray"))["shape"])]
+            errors += _placement_errors(root, f"labels/{name}", "yx", sizes, plane)
+    rasters = [name for name in QC_NAMES if held(f"images/qc_{name}")]
+    if not rasters:
         return errors
     with bundle.member_file(bundle.report()) as f:
         plot = data_bag(f.read().decode())["density_plot"]
     extent, origin = plot["dimensions"], dict(zip("xy", plot["origin_data"]))
-    for name in held:
-        # A name that ends in a bin size has that bin; each other raster has the bin of the fine grid.
-        bin_size = float(name[:-2].rsplit("_", 1)[-1]) if name.endswith("um") else extent["width"] / plot["horizontal_bin_count"]
-        sizes = [{"y": math.ceil(extent["height"] / bin_size), "x": math.ceil(extent["width"] / bin_size)}]
-        errors += _placement_errors(root, f"images/qc_{name}", sizes,
+    coarse, fine = coarse_bins(plot), extent["width"] / plot["horizontal_bin_count"]
+    for name in rasters:
+        # The element of a coarse map has the name of its key in the bag; each other raster has the fine grid.
+        bin_size = coarse.get(name, fine)
+        # One map of one channel; its rows run along y and its columns along x.
+        sizes = [(1, math.ceil(extent["height"] / bin_size), math.ceil(extent["width"] / bin_size))]
+        errors += _placement_errors(root, f"images/qc_{name}", "cyx", sizes,
                                     lambda point, b=bin_size: {a: origin[a] + n * b for a, n in point.items()})
     return errors
 
@@ -1043,6 +1120,8 @@ def main() -> None:
             "complete": lambda: gate_complete(root), **gates,
             "source": lambda: gate_source(root, sample, LAYOUTS.read_text()),
         }
+    # The launcher reads GATES, so its names must be the gates of this run.
+    assert tuple(gates) == GATES[args.mode]
     try:
         names = select_gates(args.gates, gates)
     except ValueError as e:

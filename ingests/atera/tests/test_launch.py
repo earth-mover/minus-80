@@ -1437,6 +1437,12 @@ def test_an_element_that_the_full_mode_does_not_write_is_refused_before_any_laun
         launch.main(_ingest_argv(_token_file(tmp_path), "--elements", "labels/nucleus_label"))
 
 
+def test_a_gate_that_the_verification_does_not_know_is_refused_before_any_launch(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    with pytest.raises(SystemExit, match="--gates: unknown gates: compleet;"):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--gates", "compleet", "--no-promote"))
+
+
 def test_the_ingest_step_says_which_elements_it_writes(tmp_path):
     done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(elements="labels/nucleus_labels,root")))
     assert ("=== step ingest: start: the ingest of the elements labels/nucleus_labels,root only, from the local "

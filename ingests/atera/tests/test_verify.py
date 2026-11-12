@@ -622,6 +622,16 @@ def test_every_gate_of_a_full_store_passes_and_a_local_bundle_skips_the_source_g
     assert out.index("images PASS") < out.index("transforms PASS") < out.index("qc PASS")
 
 
+@pytest.mark.parametrize("mode", ["fixture", "full"])
+def test_the_gate_names_of_each_mode_are_the_gates_that_main_builds(monkeypatch, full_store, mode):
+    built = []
+    # The recorder stands in for the run of the gates only; main builds the gates itself.
+    monkeypatch.setattr(verify, "run_gates", lambda gates, names: built.append(tuple(gates)) or [])
+    assert _verify(monkeypatch, full_store, "--mode", mode, "--branch", "main") == 0
+    assert built == [verify.GATES[mode]]
+    assert verify.GATES["fixture"] == tuple(g for g in verify.GATES["full"] if g not in ("bundle", "complete", "source"))
+
+
 def test_fixture_mode_runs_the_gates_of_the_fixture_and_knows_no_complete_gate(monkeypatch, capsys, full_store):
     assert _verify(monkeypatch, full_store, "--mode", "fixture", "--branch", "main", "--gates", "attrs,table_index") == 0
     capsys.readouterr()
@@ -1450,6 +1460,11 @@ def test_an_alignment_that_is_not_three_lines_of_three_numbers_is_refused(text):
         verify.parse_alignment(text)
 
 
+def test_an_alignment_whose_third_row_is_not_0_0_1_is_refused():
+    with pytest.raises(ValueError, match=r"third row \[0.0, 0.0, 2.0\], not 0, 0, 1"):
+        verify.parse_alignment("1,2,3\n4,5,6\n0,0,2\n")
+
+
 def _transforms(store, *, full=True):
     bundle = open_bundle(str(store.bundle))[0]
     return gate_transforms(store.root(), bundle, *he_readers(str(store.he), str(store.alignment)), full=full)
@@ -1477,7 +1492,9 @@ def test_transforms_pass_on_a_full_store_in_both_modes(full_store, capsys):
     out = capsys.readouterr().out
     for path, levels in (("images/morphology", 3), ("images/morphology_3d", 3), ("images/he_image", 3),
                          ("labels/cell_labels", 1), ("images/qc_mean_q_score_80um", 1)):
-        assert f"  transforms: {path}: {levels} level{'s' * (levels > 1)}, the first" in out
+        assert f"  transforms: {path}: {levels} level{'s' * (levels > 1)}, axes " in out
+    assert "  transforms: images/morphology_3d: 3 levels, axes c, z, y, x, the shape and the corners of each" in out
+    assert "  transforms: labels/cell_labels: 1 level, axes y, x, the shape and the corners of each" in out
     assert _transforms(full_store, full=False) == []
 
 
@@ -1488,8 +1505,10 @@ def _scale_last(multiscale):
 def test_transforms_fail_an_image_scale_that_is_one_percent_larger_at_every_level(full_store, tmp_path):
     errors = _damaged(full_store, tmp_path, "images/morphology", _scale_last)
     assert _levels(errors) == {f"images/morphology s{k}" for k in range(3)}
-    assert errors[0] == ("images/morphology s0: pixel (c 0, y 1300, x 2100) maps to x 450.7125, "
-                         "the source gives 446.25")
+    assert errors[:2] == [
+        "images/morphology s0: corner (c 0, y 0, x 2100) maps to x 450.7125, the source gives 446.25",
+        "images/morphology s0: corner (c 0, y 1300, x 2100) maps to x 450.7125, the source gives 446.25"]
+    assert len(errors) == 6
 
 
 def test_transforms_fail_one_level_whose_own_scale_differs_and_say_which(full_store, tmp_path):
@@ -1497,12 +1516,16 @@ def test_transforms_fail_one_level_whose_own_scale_differs_and_say_which(full_st
         multiscale["datasets"][1]["coordinateTransformations"][0]["scale"][1] *= 1.01
 
     errors = _damaged(full_store, tmp_path, "images/morphology", change)
-    assert len(errors) == 1 and errors[0].startswith("images/morphology s1: pixel (c 0, y 650, x 1050) maps to y ")
+    assert [e.split(" maps to ")[0] for e in errors] == [
+        "images/morphology s1: corner (c 0, y 650, x 0)", "images/morphology s1: corner (c 0, y 650, x 1050)"]
+    assert all(" maps to y " in e for e in errors)
 
 
 def test_transforms_fail_a_label_scale_that_differs(full_store, tmp_path):
     errors = _damaged(full_store, tmp_path, "labels/cell_labels", _scale_last)
-    assert len(errors) == 1 and errors[0].startswith("labels/cell_labels s0: pixel (y 6, x 8) maps to x ")
+    assert [e.split(" maps to ")[0] for e in errors] == [
+        "labels/cell_labels s0: corner (y 0, x 8)", "labels/cell_labels s0: corner (y 6, x 8)"]
+    assert all(" maps to x " in e for e in errors)
 
 
 def test_transforms_fail_a_stack_whose_z_scale_is_not_the_physical_size_z(full_store, tmp_path):
@@ -1511,8 +1534,9 @@ def test_transforms_fail_a_stack_whose_z_scale_is_not_the_physical_size_z(full_s
 
     errors = _damaged(full_store, tmp_path, "images/morphology_3d", change)
     assert _levels(errors) == {f"images/morphology_3d s{k}" for k in range(3)}
-    assert errors[0] == ("images/morphology_3d s0: pixel (c 0, z 3, y 1300, x 2100) maps to z 9.0, "
-                         "the source gives 7.5")
+    assert errors[0] == "images/morphology_3d s0: corner (c 0, z 3, y 0, x 0) maps to z 9.0, the source gives 7.5"
+    # Each of the four corners with the last plane fails, at each level.
+    assert len(errors) == 12 and all("z 3, " in e for e in errors)
 
 
 def test_transforms_fail_an_he_affine_with_x_and_y_swapped(full_store, tmp_path):
@@ -1523,8 +1547,22 @@ def test_transforms_fail_an_he_affine_with_x_and_y_swapped(full_store, tmp_path)
     errors = _damaged(full_store, tmp_path, "images/he_image", change)
     assert _levels(errors) == {f"images/he_image s{k}" for k in range(3)}
     assert all("maps to x " in e or "maps to y " in e for e in errors)
-    # The first pixel has no x or y to swap, so each level fails at its last pixel only.
+    # The first corner has no x or y to swap, so each level fails at its other three corners only.
     assert not any("y 0, x 0" in e for e in errors)
+
+
+def test_transforms_fail_an_he_affine_that_differs_only_off_the_diagonal_of_the_image(full_store, tmp_path):
+    def change(multiscale):
+        row = multiscale["coordinateTransformations"][0]["transformations"][0]["affine"][0]
+        # The added part is 0 at (x 2100, y 1300), so the first corner and the last keep their places.
+        row[0] += 1e-3 * 1300
+        row[1] -= 1e-3 * 2100
+
+    errors = _damaged(full_store, tmp_path, "images/he_image", change)
+    assert [e.split(" maps to ")[0] for e in errors] == [
+        f"images/he_image s{k}: corner (c 0, y {y}, x {x})"
+        for k in range(3) for y, x in ((0, 2100 >> k), (1300 >> k, 0))]
+    assert all(" maps to x " in e for e in errors)
 
 
 def test_transforms_fail_an_alignment_attribute_that_differs_from_the_csv(full_store, tmp_path):
@@ -1545,8 +1583,10 @@ def test_transforms_fail_a_qc_translation_that_is_off_by_one_bin(full_store, tmp
 
     errors = _damaged(full_store, tmp_path, "images/qc_mean_q_score", change)
     assert errors == [
-        "images/qc_mean_q_score s0: pixel (c 0, y 0, x 0) maps to x 10.0, the source gives -10.0",
-        "images/qc_mean_q_score s0: pixel (c 0, y 4, x 6) maps to x 130.0, the source gives 110.0",
+        "images/qc_mean_q_score s0: corner (c 0, y 0, x 0) maps to x 10.0, the source gives -10.0",
+        "images/qc_mean_q_score s0: corner (c 0, y 0, x 6) maps to x 130.0, the source gives 110.0",
+        "images/qc_mean_q_score s0: corner (c 0, y 4, x 0) maps to x 10.0, the source gives -10.0",
+        "images/qc_mean_q_score s0: corner (c 0, y 4, x 6) maps to x 130.0, the source gives 110.0",
     ]
 
 
@@ -1555,7 +1595,26 @@ def test_transforms_fail_a_qc_scale_that_is_not_the_bin_size(full_store, tmp_pat
         multiscale["coordinateTransformations"][0]["transformations"][0]["scale"][1] = 40.0
 
     errors = _damaged(full_store, tmp_path, "images/qc_mean_q_score_80um", change)
-    assert errors == ["images/qc_mean_q_score_80um s0: pixel (c 0, y 1, x 2) maps to y 20.0, the source gives 60.0"]
+    assert errors == [
+        "images/qc_mean_q_score_80um s0: corner (c 0, y 1, x 0) maps to y 20.0, the source gives 60.0",
+        "images/qc_mean_q_score_80um s0: corner (c 0, y 1, x 2) maps to y 20.0, the source gives 60.0"]
+
+
+def test_transforms_take_the_bin_size_of_the_coarse_raster_from_its_key_in_the_bag(full_store, tmp_path):
+    def change(members):
+        bag = verify.data_bag(members["analysis_summary_x.html"].decode())
+        bag["density_plot"]["mean_q_score_40um"] = bag["density_plot"].pop("mean_q_score_80um")
+        members["analysis_summary_x.html"] = _html(bag).encode()
+
+    assert verify.coarse_bins({"mean_q_score_80um": "_resources_a", "bins": {}, "horizontal_bin_count": 6}) == {
+        "mean_q_score_80um": 80.0}
+    other = Store(tmp_path)
+    other.write_inputs(change)
+    errors = gate_transforms(full_store.root(), open_bundle(str(other.bundle))[0],
+                             *he_readers(str(full_store.he), str(full_store.alignment)), full=True)
+    # The bag of this bundle has no 80 um key, so the source gives the fine grid for the element of that name.
+    assert errors[0] == "images/qc_mean_q_score_80um s0: shape (1, 1, 2), the source has (1, 4, 6)"
+    assert _levels(errors) == {"images/qc_mean_q_score_80um s0"}
 
 
 def test_transforms_fail_an_element_with_no_transform_into_global(full_store, tmp_path):
@@ -1563,16 +1622,99 @@ def test_transforms_fail_an_element_with_no_transform_into_global(full_store, tm
         multiscale["coordinateTransformations"][0]["output"]["name"] = "elsewhere"
 
     errors = _damaged(full_store, tmp_path, "labels/nucleus_labels", change)
-    assert errors == ["labels/nucleus_labels: 0 transforms into global"]
+    assert errors == ["labels/nucleus_labels: a transform into elsewhere, the layout has only global",
+                      "labels/nucleus_labels: 0 transforms into global"]
+
+
+def test_transforms_fail_a_second_transform_into_another_system(full_store, tmp_path):
+    def change(multiscale):
+        other = json.loads(json.dumps(multiscale["coordinateTransformations"][0]))
+        other["output"]["name"] = "aligned"
+        multiscale["coordinateTransformations"].append(other)
+
+    errors = _damaged(full_store, tmp_path, "images/morphology", change)
+    assert errors == ["images/morphology: a transform into aligned, the layout has only global"]
+
+
+def test_transforms_fail_a_sequence_whose_last_step_does_not_end_in_global(full_store, tmp_path):
+    def change(multiscale):
+        multiscale["coordinateTransformations"][0]["transformations"][-1]["output"]["name"] = "elsewhere"
+
+    errors = _damaged(full_store, tmp_path, "images/he_image", change)
+    assert errors == ["images/he_image: the last step of the sequence ends in elsewhere, not in global"]
+
+
+def test_transforms_fail_a_sequence_whose_step_does_not_start_where_the_step_before_it_ends(full_store, tmp_path):
+    def change(multiscale):
+        step = multiscale["coordinateTransformations"][0]["transformations"][0]
+        step["output"]["axes"] = step["output"]["axes"][::-1]
+
+    errors = _damaged(full_store, tmp_path, "images/he_image", change)
+    assert errors[0] == ("images/he_image: step 0 of the sequence ends in morphology_pixel (y, x), "
+                         "step 1 starts in morphology_pixel (x, y)")
+
+
+def test_transforms_fail_axes_that_are_not_in_the_order_of_the_source(full_store, tmp_path):
+    def change(multiscale):
+        multiscale["axes"] = [multiscale["axes"][i] for i in (0, 2, 1)]
+
+    errors = _damaged(full_store, tmp_path, "images/morphology", change)
+    assert errors == ["images/morphology: axes c, x, y, the source order is c, y, x"]
+
+
+def test_transforms_fail_a_level_whose_array_has_the_shape_of_the_source_transposed(full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+    copy.edit(lambda root: root.create_array("images/morphology/s2", shape=(4, 525, 325), dtype="u2", overwrite=True))
+    assert _transforms(copy) == ["images/morphology s2: shape (4, 525, 325), the source has (4, 325, 525)"]
+
+
+@pytest.mark.parametrize("full", [True, False])
+def test_transforms_fail_an_element_that_lists_no_level_in_both_modes(full_store, tmp_path, full):
+    copy = full_store.copy(tmp_path)
+
+    def change(root):
+        ome = json.loads(json.dumps(root["labels/cell_labels"].attrs["ome"]))
+        ome["multiscales"][0]["datasets"] = []
+        root["labels/cell_labels"].attrs["ome"] = ome
+
+    copy.edit(change)
+    assert _transforms(copy, full=full) == ["labels/cell_labels: lists no level"]
+
+
+def _plane(scales):
+    """A ``(c, y, x)`` element in memory with the levels (1, 5, 8) and (1, 3, 4), and ``scales`` on the second."""
+    root = zarr.group()
+    for level, shape in enumerate(((1, 5, 8), (1, 3, 4))):
+        root.create_array(f"e/s{level}", shape=shape, dtype="u1")
+    system = _axes("c", "y", "x")
+    root["e"].attrs["ome"] = {"multiscales": [{
+        "axes": system["axes"],
+        "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0]}]},
+                     {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": scales}]}],
+        "coordinateTransformations": [{"type": "scale", "scale": [1.0, 0.5, 0.5], "input": {"name": "cyx", **system},
+                                       "output": {"name": "global", **system}}]}]}
+    return verify._placement_errors(root, "e", "cyx", [(1, 5, 8), (1, 3, 4)],
+                                    lambda corner: {a: n * 0.5 for a, n in corner.items()})
+
+
+def test_placement_fails_a_level_with_an_odd_side_whose_y_and_x_scales_are_swapped():
+    assert _plane([1.0, 5 / 3, 2.0]) == []
+    errors = _plane([1.0, 2.0, 5 / 3])
+    assert [e.split(" maps to ")[0] for e in errors] == [
+        "e s1: corner (c 0, y 0, x 4)", "e s1: corner (c 0, y 3, x 0)",
+        "e s1: corner (c 0, y 3, x 4)", "e s1: corner (c 0, y 3, x 4)"]
 
 
 @pytest.mark.parametrize("path", ["images/morphology", "images/morphology_3d", "images/he_image",
                                   "labels/cell_labels", "images/qc_genomic_controls"])
-def test_transforms_fail_on_a_missing_element_in_full_mode_and_skip_it_in_fixture_mode(full_store, tmp_path, path):
+def test_transforms_fail_on_a_missing_element_in_full_mode_and_skip_it_in_fixture_mode(
+        full_store, tmp_path, capsys, path):
     copy = full_store.copy(tmp_path)
     copy.edit(lambda root: root.__delitem__(path))
     assert _transforms(copy) == [f"{path}: missing"]
+    assert "skipped" not in capsys.readouterr().out
     assert _transforms(copy, full=False) == []
+    assert f"  transforms: {path}: not held, skipped\n" in capsys.readouterr().out
 
 
 def test_transforms_pass_a_store_that_holds_one_coarse_level_and_the_labels_only(full_store, tmp_path, capsys):
@@ -1588,7 +1730,9 @@ def test_transforms_pass_a_store_that_holds_one_coarse_level_and_the_labels_only
         raise AssertionError("a store without the H&E reads no H&E object")
 
     assert gate_transforms(root, bundle, no_object, no_object, full=False) == []
-    assert "  transforms: images/morphology: 1 level, the first" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "  transforms: images/morphology: 1 level, axes c, y, x, the shape and the corners of each" in out
+    assert "  transforms: images/he_image: not held, skipped" in out
     errors = gate_transforms(root, bundle, no_object, no_object, full=True)
     assert "images/he_image: missing" in errors and "images/morphology_3d: missing" in errors
 
@@ -1605,9 +1749,9 @@ def test_the_transforms_gate_runs_in_fixture_mode_and_fails_the_run_on_a_changed
         root["images/morphology"].attrs["ome"] = ome
 
     copy.edit(change)
-    assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "transforms") == 1
+    assert _verify(monkeypatch, copy, "--mode", "fixture", "--branch", "main", "--gates", "transforms") == 1
     out = capsys.readouterr().out
-    assert "transforms FAIL" in out and "  images/morphology s2: pixel (c 0, y 325, x 525) maps to x " in out
+    assert "transforms FAIL" in out and "  images/morphology s2: corner (c 0, y 325, x 525) maps to x " in out
 
 
 def test_a_passed_verification_prints_the_snapshot_that_it_read_and_writes_it_to_the_file(
