@@ -3,7 +3,8 @@
 ## What was built
 
 The Arraylake repo `earthmover-biology/atera-kidney` holds the kidney sample, `Atera_v1_WTA_Kidney_non_diseased_FFPE`.
-The branch is `main`. Its snapshot is `KB0DWEXDHY8GSRE29GQG`.
+The branch is `main`. Its snapshot is `DCHK9523X4W5TSC4V5X0`.
+The full ingest wrote snapshot `KB0DWEXDHY8GSRE29GQG`. One later commit changes only the root attribute `description`.
 The store is a native SpatialData store. The ingest copied the bytes. It did not reference 10x's bucket.
 The tables are in the namespace `atera-kidney-tables` of the catalog `arraylake://earthmover-biology`.
 The run took place on 2026-11-11 and 2026-11-12. The sample is one of four. "Not done" lists the other three.
@@ -25,6 +26,7 @@ The run took place on 2026-11-11 and 2026-11-12. The sample is one of four. "Not
 The root attributes hold the title, citation, licence, source objects, sample and run records, and the list of what the store lacks.
 The root attribute `iceberg_tables` pins three tables that annotate no element.
 The root attribute `reading` says which reader opens which element.
+The root attribute `description` has one sentence for each kind of element that the store holds.
 `tables/table` annotates `cell_boundaries`. It has one row per cell.
 Its `instance` column equals the cell mask label. So the labels and the nucleus shapes join to the table by `instance`.
 The 3D stack has 13 planes at 3 µm. The H&E has its own pixel grid and an affine into `global`.
@@ -271,6 +273,18 @@ The disk held 9.5 GiB before the download and 55 GiB after it.
 
 The count matrix is the slowest small step: 1,196.2 MiB in 905.3 s. Its copy runs with one writer.
 The 3D stack is the longest step. Its decode runs in one thread.
+
+### The description commit
+
+On 2026-11-12 one run on an `m7g.xlarge` in us-west-2 wrote the root again.
+It ran `launch.py --ingest --remote-bundle --elements root --root-keys description` on the branch `trial-20261112-description`.
+The bundle check read 147.0 MB by range request and found no difference from the kidney's record.
+The ingest printed `root attributes: changes description` and wrote commit `DCHK9523X4W5TSC4V5X0`.
+The gates `complete`, `attrs` and `source` passed on that snapshot.
+Then `promote.py` moved `main` from `KB0DWEXDHY8GSRE29GQG` to `DCHK9523X4W5TSC4V5X0`.
+This was the first move of a branch on Arraylake with the machine token.
+The six tables kept their snapshots. The branch `fixture` stayed at `BF52XEQ53GH7JRBE4F30`.
+The steps took 4, 18, 77, 32, 9 and 4 s. The branch `trial-20261112-description` stays at the snapshot of `main`.
 
 ## Not done
 
