@@ -224,9 +224,12 @@ only the repo's first commit.
 | `images/morphology/s6` | `morphology_2d/ch000{0..3}_*.ome.tif`, level 6 of each | `(4, 517, 885)` uint16, chunks `(1, 1024, 1024)`, blosc-zstd level 5 with shuffle, decoded from lossless JPEG 2000 |
 | `shapes/nucleus_boundaries` | `cells.zarr.zip`, `polygon_sets/0` and `cell_id` | Iceberg table `nucleus_boundaries`; `shapes.parquet` is a `uint8` array of virtual references into the table's data file |
 | `points/transcripts` | `transcripts.zarr.zip`, `grid/0,0` and `codeword_category` | Iceberg table `transcripts`, partitioned by `grid_tile`; `points.parquet` is a `uint8` array of virtual references into the table's data file |
-| root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB. `description` has one sentence for each kind of element that the store holds. |
+| root attributes | `experiment.spatial`, `metrics_summary_RnD_S2_S2B_kidney_ND.csv`, this file | `title`, `description`, `source`, `documentation`, `license`, `citation`, `reading`, `sample`, `panel`, `run`, `metrics`, `missing`, `fixture`; 12.5 kB. |
 
 On the Arraylake branch `main`, `tables/table` annotates `cell_boundaries`, not `cell_labels`; see "The table's region".
+
+The ingest writes a `description` with one sentence for each kind of element that the store holds.
+The fixture branch of 2026-11-10 holds the description of an earlier text.
 
 The `s6` image level carries a scale of 1 in its dataset. The element transform maps it into
 `global` with `0.21249222 x 33139 / 517` on y and `0.21249222 x 56644 / 885` on x.
