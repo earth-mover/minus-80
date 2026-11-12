@@ -1045,7 +1045,8 @@ The step refuses when the snapshot of `main` is not an ancestor of the trial sna
 So `main` moves only forward, and the table pins of the verified snapshot stay as written.
 A trial branch has the name `trial-<date>`, or `trial-<date>-<n>` for a later try.
 A failed gate, or a stop in the ingest, keeps the trial branch. A rerun on that branch resumes.
-The move of a branch on Arraylake with the machine token is not tested. The kidney's `description` commit tests it first.
+Result: on 2026-11-12 the kidney's `description` run moved `main` on Arraylake with the machine token.
+`main` went from `KB0DWEXDHY8GSRE29GQG` to `DCHK9523X4W5TSC4V5X0`, the snapshot that the verification read.
 The verification of a later run can read either branch.
 
 **6. Threads for the stack.** `write_stack` decodes the planes of one position in a thread pool.
@@ -1054,6 +1055,9 @@ The bound on pending bytes stays. A test compares the result with the one-thread
 **7. The `description`.** The root attribute names `images/morphology_3d`, `images/he_image`, the QC rasters and `iceberg_tables`.
 The kidney gets one commit with it, on a trial branch. The gates `complete`, `attrs` and `source` run on that branch, then `main` moves.
 The `complete` gate checks that the text names each element kind that the store holds.
+Result: on 2026-11-12 one run wrote the kidney's root with `--root-keys description` on `trial-20261112-description`.
+The ingest printed `root attributes: changes description`. The gates `complete`, `attrs` and `source` passed.
+`main` moved forward by that one commit. The six tables kept their snapshots, and `fixture` stayed as it was.
 
 **8. Checks with their own reference.** The chunk-key mapping moves to one function in `minus80.core.zarr_copy`.
 The matrix and label gates also compare decoded values of sampled chunks with the source's decode.
