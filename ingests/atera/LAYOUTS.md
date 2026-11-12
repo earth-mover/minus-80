@@ -302,7 +302,9 @@ It also checks `nucleus_count` for every cell in the nucleus set.
 The branch `fixture` on Arraylake has several rows for one cell in `nucleus_boundaries`.
 That table has an int64 `method` column.
 Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
-The gates `images`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
+The gates `images`, `transforms`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
+The `transforms` gate passes on a synthetic store of that layout: one coarse image level and the two label elements.
+It did not run on the branch itself.
 The gates `bundle`, `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
 Each `iceberg_table` attribute of the branch pins one snapshot of `nucleus_boundaries` or `transcripts`.
 The `uint8` copies of the branch reference the data files of those snapshots.
@@ -518,6 +520,10 @@ Each long gate prints a progress line every five seconds.
 | `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
+| `transforms` | Each level of each image and label element maps its first pixel and its last pixel into `global` at the place that the source gives. |
+| | The source numbers are the pixel size of `experiment.spatial`, the level shapes, the stack's `PhysicalSizeZ`, the alignment CSV, and the report's origin, dimensions and bin sizes. |
+| | The gate parses each source itself and does not call the ingest's transform code. A stored number can differ from its source number by a relative 1e-9. |
+| | The `alignment` attribute of the H&E holds the matrix of the CSV and the axes `["x", "y"]`. |
 | `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. |
 | `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. |
 | `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. The metadata equals the source's `.zarray`. |

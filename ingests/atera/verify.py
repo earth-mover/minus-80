@@ -20,6 +20,8 @@ import math
 import os
 import sys
 import urllib.request
+import xml.etree.ElementTree as ET
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -51,7 +53,7 @@ from ingest import (
     CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INGEST_SKIPS, INSTANCE_KEY, LAYOUTS,
     MASKS, MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, require_same_place,
 )
-from qc import QC_NAMES, bundle_rasters
+from qc import QC_NAMES, bundle_rasters, data_bag
 from root_attrs import source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from transcripts import tile_order, xenium_cell_id
@@ -64,6 +66,10 @@ IMAGE_TILES = 4
 #: Half the side of the window that holds a sampled label, in pixels: 32 micrometres.
 WINDOW = 150
 SEED = 0
+#: The relative error that a stored transform may have against its source number.
+TRANSFORM_TOLERANCE = 1e-9
+#: The spellings of the micrometre in OME-XML: the micro sign and the Greek letter.
+MICROMETRE = ("µm", "\u03bcm")
 #: The polygon set that each shapes element holds.
 POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundaries": CELL_SET}
 
@@ -165,6 +171,142 @@ def gate_images(root, bundle, he_url: str, *, full: bool = False) -> list[str]:
     with Progress(f"images: comparing {total:,} pages, four tiles each", total=total, unit="pages") as progress:
         for label, array, entries in work:
             errors += check_level(label, array, entries, progress)
+    return errors
+
+
+def apply_transform(attr: dict, axes: Sequence[str], point: dict[str, float]) -> dict[str, float]:
+    """``point`` through the stored transform ``attr``, by axis name; an axis that ``attr`` lacks keeps its value.
+
+    ``axes`` are the axes of a transform that states no input system, as a dataset's transform does.
+    """
+    kind = attr["type"]
+    if kind == "sequence":
+        for step in attr["transformations"]:
+            point = apply_transform(step, axes, point)
+        return point
+    names = [a["name"] for a in attr["input"]["axes"]] if "input" in attr else list(axes)
+    if kind == "scale":
+        return {**point, **{n: point[n] * f for n, f in zip(names, attr["scale"], strict=True)}}
+    if kind == "translation":
+        return {**point, **{n: point[n] + t for n, t in zip(names, attr["translation"], strict=True)}}
+    if kind == "affine":
+        outputs = [a["name"] for a in attr["output"]["axes"]] if "output" in attr else names
+        vector = [*(point[n] for n in names), 1.0]
+        return {**point, **{o: sum(m * v for m, v in zip(row, vector, strict=True))
+                            for o, row in zip(outputs, attr["affine"], strict=True)}}
+    raise ValueError(f"unknown transform type {kind!r}")
+
+
+def parse_alignment(text: str) -> list[list[float]]:
+    """The matrix of the alignment CSV: 3 lines of 3 numbers, with CR LF or LF line ends."""
+    rows = [[float(v) for v in line.split(",")] for line in text.splitlines() if line.strip()]
+    if [len(row) for row in rows] != [3, 3, 3]:
+        raise ValueError(f"the alignment has rows of {[len(row) for row in rows]} numbers, not 3 by 3")
+    return rows
+
+
+def aligned(matrix: Sequence[Sequence[float]], pixel_size: float, point: dict[str, float]) -> dict[str, float]:
+    """The micrometres of the H&E pixel ``point``: ``matrix`` gives morphology pixels in ``(x, y)`` order."""
+    vector = (point["x"], point["y"], 1.0)
+    return {axis: pixel_size * sum(m * v for m, v in zip(row, vector)) for axis, row in zip("xy", matrix)}
+
+
+def stack_z_step(ome_xml: str) -> float:
+    """``PhysicalSizeZ`` of the first ``Pixels`` element of ``ome_xml``, in micrometres."""
+    pixels = next(e for e in ET.fromstring(ome_xml).iter() if e.tag.rsplit("}", 1)[-1] == "Pixels")
+    if (unit := pixels.get("PhysicalSizeZUnit", MICROMETRE[0])) not in MICROMETRE:
+        raise ValueError(f"PhysicalSizeZ is in {unit}, not micrometres")
+    if (size := pixels.get("PhysicalSizeZ")) is None:
+        raise ValueError("the OME-XML of the stack has no PhysicalSizeZ")
+    return float(size)
+
+
+def _placement_errors(root, path: str, sizes: Sequence[dict[str, int]], expected: Callable) -> list[str]:
+    """Each level that ``path`` lists maps its first pixel and its last to the place that the source gives.
+
+    ``sizes`` has the source's size on each space axis, by level. ``expected`` takes a point of level 0, in pixels.
+    The last pixel of level k and the last of level 0 are one place.
+    """
+    multiscale = root[path].attrs["ome"]["multiscales"][0]
+    axes = [a["name"] for a in multiscale["axes"]]
+    element = [t for t in multiscale.get("coordinateTransformations", ()) if t.get("output", {}).get("name") == "global"]
+    if len(element) != 1:
+        return [f"{path}: {len(element)} transforms into global"]
+    errors = []
+    for dataset in multiscale["datasets"]:
+        label, level = f"{path} {dataset['path']}", int(dataset["path"].removeprefix("s"))
+        if level >= len(sizes):
+            errors.append(f"{label}: the source has {len(sizes)} levels")
+            continue
+        for scaled in (0, 1):
+            pixel = {a: sizes[level].get(a, 0) * scaled for a in axes}
+            found = pixel
+            for step in (*dataset["coordinateTransformations"], *element):
+                found = apply_transform(step, axes, found)
+            wanted = expected({a: n * scaled for a, n in sizes[0].items()})
+            errors += [f"{label}: pixel ({', '.join(f'{a} {v}' for a, v in pixel.items())}) maps to {a} {found[a]}, "
+                       f"the source gives {value}" for a, value in wanted.items()
+                       if not math.isclose(found[a], value, rel_tol=TRANSFORM_TOLERANCE)]
+    print(f"  transforms: {path}: {_plural(len(multiscale['datasets']), 'level')}, the first and the last pixel of each")
+    return errors
+
+
+def _alignment_errors(group, matrix: list[list[float]]) -> list[str]:
+    """The attribute ``alignment`` holds ``matrix`` in ``(x, y)`` order."""
+    stored, errors = group.attrs.get("alignment", {}), []
+    if stored.get("axes") != ["x", "y"]:
+        errors.append(f"images/he_image: alignment axes {stored.get('axes')}, the CSV is in x, y order")
+    found = stored.get("matrix")
+    if np.shape(found) != (3, 3) or not all(
+            math.isclose(f, m, rel_tol=TRANSFORM_TOLERANCE) for f, m in zip(np.ravel(found), np.ravel(matrix))):
+        errors.append(f"images/he_image: alignment matrix {found}, the CSV gives {matrix}")
+    return errors
+
+
+def gate_transforms(root, bundle, open_he: Callable, alignment_text: Callable, *, full: bool) -> list[str]:
+    """The place in ``global`` of the first and the last pixel of each level of each image and label element.
+
+    Each expected place comes from the source, and the gate computes it without the ingest's transform code.
+    ``open_he`` and ``alignment_text`` are called only when the store has the H&E element.
+    A full store must hold each element; a fixture skips an element that it lacks.
+    """
+    errors, pixel_size = [], bundle.experiment()["pixel_size"]
+
+    def plane(point):
+        return {a: n * pixel_size for a, n in point.items()}
+
+    if _present(root, "images/morphology", full, errors):
+        levels = bundle.tiff(bundle.morphology_2d()[0]).series[0].levels
+        errors += _placement_errors(root, "images/morphology", [dict(zip("yx", lv.shape[-2:])) for lv in levels], plane)
+    if _present(root, "images/morphology_3d", full, errors):
+        tif = bundle.tiff(bundle.morphology_3d())
+        z_step = stack_z_step(tif.pages.first.description)
+        sizes = [{"z": len(lv.pages), **dict(zip("yx", lv.shape[-2:]))} for lv in tif.series[0].levels]
+        errors += _placement_errors(root, "images/morphology_3d", sizes,
+                                    lambda point: {**plane(point), "z": point["z"] * z_step})
+    if _present(root, "images/he_image", full, errors):
+        matrix = parse_alignment(alignment_text())
+        pages = [lv.pages[0] for lv in open_tiff(open_he()).series[0].levels]
+        errors += _placement_errors(root, "images/he_image", [{"y": pg.imagelength, "x": pg.imagewidth} for pg in pages],
+                                    lambda point: aligned(matrix, pixel_size, point))
+        errors += _alignment_errors(root["images/he_image"], matrix)
+    cells = bundle.member_zip(CELLS)
+    for name, mask in MASKS.items():
+        if _present(root, f"labels/{name}", full, errors):
+            sizes = [dict(zip("yx", json.loads(cells.read(f"{mask}/.zarray"))["shape"]))]
+            errors += _placement_errors(root, f"labels/{name}", sizes, plane)
+    held = [name for name in QC_NAMES if _present(root, f"images/qc_{name}", full, errors)]
+    if not held:
+        return errors
+    with bundle.member_file(bundle.report()) as f:
+        plot = data_bag(f.read().decode())["density_plot"]
+    extent, origin = plot["dimensions"], dict(zip("xy", plot["origin_data"]))
+    for name in held:
+        # A name that ends in a bin size has that bin; each other raster has the bin of the fine grid.
+        bin_size = float(name[:-2].rsplit("_", 1)[-1]) if name.endswith("um") else extent["width"] / plot["horizontal_bin_count"]
+        sizes = [{"y": math.ceil(extent["height"] / bin_size), "x": math.ceil(extent["width"] / bin_size)}]
+        errors += _placement_errors(root, f"images/qc_{name}", sizes,
+                                    lambda point, b=bin_size: {a: origin[a] + n * b for a, n in point.items()})
     return errors
 
 
@@ -869,8 +1011,11 @@ def main() -> None:
     cell_id = read_array(cells, "cell_id", names=names)
 
     he_image = args.he_image or sample.url(HE_IMAGE, S3)
+    open_he, alignment_text = he_readers(he_image, args.he_alignment or sample.url(HE_ALIGNMENT, S3),
+                                         counter.wrap, counter.wrap)
     gates = {
         "images": lambda: gate_images(root, bundle, he_image, full=full),
+        "transforms": lambda: gate_transforms(root, bundle, open_he, alignment_text, full=full),
         "qc": lambda: gate_qc(root, bundle, full=full),
         "labels": lambda: gate_labels(root, cells),
         "matrix": lambda: gate_matrix(root, matrix, full=full),
@@ -886,8 +1031,6 @@ def main() -> None:
         "table_index": lambda: gate_table_index(root),
     }
     if full:
-        open_he, alignment_text = he_readers(he_image, args.he_alignment or sample.url(HE_ALIGNMENT, S3),
-                                             counter.wrap, counter.wrap)
         gates = {
             "bundle": lambda: check(bundle, open_he, alignment_text, args.sample,
                                     record=load_record(args.sample, path=args.record), skip=INGEST_SKIPS),
