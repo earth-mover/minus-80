@@ -29,7 +29,7 @@ from minus80.core.pyramid import check_page, create_level, write_page, write_sta
 from minus80.core.registry import as_url
 from minus80.core.remote import reader
 from minus80.core.tables import row_group_bounds
-from minus80.core.zarr_copy import copy_chunks, create_copy
+from minus80.core.zarr_copy import chunk_key, chunk_members, copy_chunks, create_copy
 from zarr.storage import LoggingStore
 
 from bundle import CELLS, TRANSCRIPTS, open_bundle, open_tiff
@@ -37,7 +37,7 @@ from ingest import MASKS, member_bytes
 from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table
 from transcripts import TRANSCRIPT_SCHEMA, write_tile
-from verify import chunk_key, chunk_members, raw
+from verify import raw
 
 MASK = MASKS["nucleus_labels"]
 CHECK_TILES = 4

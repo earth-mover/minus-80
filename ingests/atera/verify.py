@@ -8,6 +8,11 @@ Some gates use code or names of the ingest, so a defect there can pass them.
 Gate `qc` decodes the rasters with the ingest's decoder ``qc.bundle_rasters``.
 Gates `labels` and `matrix` find each chunk's key for the hash comparison with the ingest's ``chunk_key``.
 Their decoded comparison uses no chunk key, so it checks that mapping.
+That comparison reads the source through ``zarr_copy.v2_spec``, as the copy does.
+So gate `labels`, and gate `matrix` in full mode, compare the metadata with the source ``.zarray``.
+Gates `tables` and `polygons` decode `polygon_sets/*/cell_index` with ``zarr_copy.read_array``.
+The setup in ``main`` decodes `cell_summary` and `cell_id` with the same function.
+The ingest decodes `cell_index` and `cell_id` with ``read_array`` too.
 Gates `tables` and `copies` take the tile order from ``transcripts.tile_order``.
 Gate `table_region` encodes the cell ids with ``transcripts.xenium_cell_id``.
 It also uses the ingest's region name.
@@ -91,6 +96,8 @@ FIXTURE_GATES = ("images", "transforms", "qc", "labels", "matrix", "tables", "ma
 GATES = {"fixture": FIXTURE_GATES, "full": ("bundle", "complete", *FIXTURE_GATES, "source")}
 #: The v3 name of each v2 blosc shuffle number.
 BLOSC_SHUFFLE = {0: "noshuffle", 1: "shuffle", 2: "bitshuffle"}
+#: The v3 ``bytes`` endian of each v2 byte-order character.
+BYTE_ORDER = {"<": "little", ">": "big"}
 #: The polygon set that each shapes element holds.
 POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundaries": CELL_SET}
 
@@ -452,6 +459,7 @@ def compare_decoded(root, zf, pairs: Sequence[tuple[str, str]], sample: int) -> 
 
     The chunks are spread evenly over the source's chunk grid, from the first to the last.
     ``read_region`` decodes the source; no chunk key is involved, so a stored chunk under a wrong key fails.
+    A sample with no value other than the fill value fails: two equal chunks of fill value hide a moved one.
     """
     errors, names = [], set(zf.namelist())
     for path, prefix in pairs:
@@ -460,28 +468,47 @@ def compare_decoded(root, zf, pairs: Sequence[tuple[str, str]], sample: int) -> 
         grid = [math.ceil(n / c) for n, c in zip(shape, chunks)]
         count = math.prod(grid)
         picked = np.unique(np.linspace(0, count - 1, min(sample, count)).round().astype(int))
-        for flat in picked:
-            index = tuple(int(i) for i in np.unravel_index(flat, grid))
-            region = [(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, shape)]
-            found = root[path][tuple(slice(lo, hi) for lo, hi in region)]
-            expected = read_region(zf, prefix, region, names=names)
-            if found.shape != expected.shape:
-                errors.append(f"{path}: chunk {index} reads as {found.shape}, the source's decode is {expected.shape}")
-                continue
-            differ = found != expected
-            if found.dtype.kind == "f":
-                differ &= ~(np.isnan(found) & np.isnan(expected))
-            if n := int(differ.sum()):
-                errors.append(f"{path}: chunk {index}: {n} of {expected.size} values differ from the source's decode")
-        print(f"  decoded: {path}: {len(picked)} of {count} chunks decoded")
+        fill, held = _fill(zarray.get("fill_value"), zarray["dtype"]), 0
+        with Progress(f"decoded: {path}: decoding {len(picked):,} of {count:,} chunks",
+                      total=len(picked), unit="chunks") as progress:
+            for flat in picked:
+                index = tuple(int(i) for i in np.unravel_index(flat, grid))
+                region = [(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, shape)]
+                found = root[path][tuple(slice(lo, hi) for lo, hi in region)]
+                expected = read_region(zf, prefix, region, names=names)
+                progress.advance()
+                held += bool(np.any((expected != fill) & ~(_isnan(expected) & _isnan(fill))))
+                if found.shape != expected.shape:
+                    errors.append(f"{path}: chunk {index} reads as {found.shape}, "
+                                  f"the source's decode is {expected.shape}")
+                    continue
+                differ = (found != expected) & ~(_isnan(found) & _isnan(expected))
+                if n := int(differ.sum()):
+                    errors.append(f"{path}: chunk {index}: {n} of {expected.size} values differ "
+                                  "from the source's decode")
+        print(f"  decoded: {path}: {len(picked)} of {count} chunks decoded, "
+              f"{held} hold a value other than the fill value")
+        if not held:
+            errors.append(f"{path}: no sampled chunk holds a value other than the fill value")
     return errors
 
 
+def _isnan(values) -> np.ndarray:
+    """NaN where ``values`` are floats; False for any other dtype."""
+    values = np.asarray(values)
+    return np.isnan(values) if values.dtype.kind == "f" else np.zeros(values.shape, dtype=bool)
+
+
 def gate_labels(root, cells) -> list[str]:
-    """Every chunk of each mask against the source member, by hash; ``DECODED_CHUNKS`` of each against its decode."""
+    """Every chunk of each mask against the source member, by hash; ``DECODED_CHUNKS`` of each against its decode.
+
+    Each mask's metadata must equal its source ``.zarray``.
+    The gate reads that file itself, because the decode shares ``v2_spec`` with the copy.
+    """
     errors = []
     for name, mask in MASKS.items():
         path, total = f"labels/{name}/s0", len(chunk_members(cells, mask))
+        errors += _metadata_errors(root[path], json.loads(cells.read(f"{mask}/.zarray")), mask)
         if not total:
             errors.append(f"{mask} has no chunk members")
         with Progress(f"labels: comparing {total:,} of {total:,} chunks of {mask}", total=total, unit="chunks") as p:
@@ -496,6 +523,7 @@ async def _list(store, prefix):
 
 def _codec_fields(name: str, config: dict) -> tuple:
     """A compressor's id, then its configuration in sorted order; blosc's shuffle by its v3 name."""
+    # Only blosc needs a field mapping: ``create_copy`` refuses every other compressor.
     if name == "blosc":
         config = {**config, "shuffle": BLOSC_SHUFFLE.get(config.get("shuffle", 1), config.get("shuffle"))}
         config.setdefault("blocksize", 0)
@@ -514,6 +542,8 @@ def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
     """Each field of the source ``.zarray`` against the stored array's metadata, read from each side directly.
 
     The fields are ``shape``, ``dtype``, ``chunks``, ``compressor``, ``filters``, ``order`` and ``fill_value``.
+    The ``bytes`` codec's endian must be the byte order of the source dtype.
+    A stored codec that the source does not imply, such as a second compressor or a checksum, fails.
     """
     metadata = array.metadata.to_dict()
     codecs = {c["name"]: c.get("configuration", {}) for c in metadata["codecs"]}
@@ -529,6 +559,8 @@ def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
             compressor["id"], {k: v for k, v in compressor.items() if k != "id"}),
         "filters": v2_filters,
         "order": zarray.get("order", "C"),
+        # The first character of a v2 dtype is its byte order; "|" has none.
+        "endian": BYTE_ORDER.get(zarray["dtype"][0]),
     }
     found = {
         "shape": tuple(array.shape),
@@ -537,6 +569,7 @@ def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
         "compressor": _codec_fields(compressors[0], codecs[compressors[0]]) if compressors else None,
         "filters": ["vlen-utf8"] if "vlen-utf8" in codecs else [],
         "order": "F" if "transpose" in codecs else "C",
+        "endian": codecs.get("bytes", {}).get("endian"),
     }
     differing = [k for k in expected if found[k] != expected[k]]
     # Two fill values compare only in one dtype; a differing dtype is reported above.
@@ -544,7 +577,14 @@ def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
             _fill(zarray.get("fill_value"), expected["dtype"]), _fill(metadata["fill_value"], found["dtype"]),
             equal_nan=found["dtype"].startswith("float")):
         differing.append("fill_value")
-    return [f"{label}: metadata differs from the source .zarray in {', '.join(differing)}"] if differing else []
+    extra = [c["name"] for c in metadata["codecs"]]
+    implied = [*(["transpose"] if expected["order"] == "F" else []), "vlen-utf8" if is_str else "bytes",
+               *([compressor["id"]] if compressor else [])]
+    for name in implied:
+        if name in extra:
+            extra.remove(name)
+    errors = [f"{label}: metadata differs from the source .zarray in {', '.join(differing)}"] if differing else []
+    return errors + [f"{label}: stored codec {name} that the source .zarray does not imply" for name in extra]
 
 
 def gate_matrix(root, matrix, *, full: bool = False) -> list[str]:

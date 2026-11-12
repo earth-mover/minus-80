@@ -17,6 +17,7 @@ import zarr
 from anndata.io import write_elem
 from pyiceberg.io.pyarrow import parquet_file_to_data_file
 from pyiceberg.types import LongType
+from zarr.codecs import BloscCodec, BytesCodec, Crc32cCodec, ZstdCodec
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
@@ -1889,3 +1890,65 @@ def test_metadata_compares_each_blosc_field(tmp_path):
     source = {**zarray, "compressor": {**zarray["compressor"], "shuffle": 2}}
     assert verify._metadata_errors(stored, source, "X/data") == [
         "X/data: metadata differs from the source .zarray in compressor"]
+
+
+# The label metadata, the fill-value sample and the stored codecs
+
+def _mask_source(tmp_path, **kwargs):
+    """A cells store whose masks hold ``MASK`` and its reverse, written with ``kwargs``."""
+    mask = {"chunks": (3, 4), "compressors": None, **kwargs}
+    return cells_zip(tmp_path, extra={"masks/0": (MASK, mask), "masks/1": (MASK[::-1], mask)})
+
+
+def test_labels_fail_a_mask_whose_fill_value_differs_from_the_source(tmp_path):
+    root = _label_repo(tmp_path / "b", _cells(tmp_path / "a"))
+    assert gate_labels(root, _mask_source(tmp_path / "c", fill_value=7)) == [
+        f"{mask}: metadata differs from the source .zarray in fill_value" for mask in ingest.MASKS.values()]
+
+
+def test_labels_fail_a_mask_whose_chunk_shape_differs_from_the_source(tmp_path):
+    root = _label_repo(tmp_path / "b", _cells(tmp_path / "a"))
+    errors = gate_labels(root, _mask_source(tmp_path / "c", chunks=(6, 4)))
+    assert "masks/0: metadata differs from the source .zarray in chunks" in errors
+
+
+def test_compare_decoded_fails_a_sample_that_holds_only_the_fill_value(tmp_path, capsys):
+    # Only chunks (0, 1) and (1, 0) hold labels; a sample of two reads chunks (0, 0) and (1, 1).
+    mask = np.zeros_like(MASK)
+    mask[:3, 4:], mask[3:, :4] = 1, 2
+    cells = _cells(tmp_path / "a", masks=(mask, MASK))
+    root = _label_repo(tmp_path / "b", cells)
+    assert compare_decoded(root, cells, MASK_PAIRS, 2) == [
+        "labels/nucleus_labels/s0: no sampled chunk holds a value other than the fill value"]
+    assert compare_decoded(root, cells, MASK_PAIRS, 20) == []
+    out = capsys.readouterr().out
+    assert "decoded: labels/nucleus_labels/s0: decoding 2 of 4 chunks" in out
+    assert "labels/nucleus_labels/s0: 4 of 4 chunks decoded, 2 hold a value other than the fill value" in out
+
+
+def _blosc(zarray):
+    """The v3 blosc codec of the source's compressor."""
+    c = zarray["compressor"]
+    return BloscCodec(cname=c["cname"], clevel=c["clevel"], shuffle=verify.BLOSC_SHUFFLE[c["shuffle"]],
+                      blocksize=c["blocksize"])
+
+
+def _stored(zarray, **kwargs):
+    return zarr.group().create_array("a", shape=zarray["shape"], chunks=zarray["chunks"], dtype=zarray["dtype"],
+                                     fill_value=zarray["fill_value"], **kwargs)
+
+
+def test_metadata_passes_the_endian_of_the_source_dtype_and_fails_another(tmp_path):
+    zarray = _data_zarray(tmp_path)
+    assert verify._metadata_errors(_stored(zarray, compressors=_blosc(zarray)), zarray, "X/data") == []
+    stored = _stored(zarray, compressors=_blosc(zarray), serializer=BytesCodec(endian="big"))
+    assert verify._metadata_errors(stored, zarray, "X/data") == [
+        "X/data: metadata differs from the source .zarray in endian"]
+
+
+@pytest.mark.parametrize("extra", [ZstdCodec(), Crc32cCodec()], ids=["zstd", "crc32c"])
+def test_metadata_fails_a_stored_codec_that_the_source_does_not_imply(tmp_path, extra):
+    zarray = _data_zarray(tmp_path)
+    stored = _stored(zarray, compressors=[_blosc(zarray), extra])
+    assert verify._metadata_errors(stored, zarray, "X/data") == [
+        f"X/data: stored codec {extra.to_dict()['name']} that the source .zarray does not imply"]
