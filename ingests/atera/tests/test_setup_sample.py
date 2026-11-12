@@ -287,7 +287,7 @@ def test_main_prints_the_lines_and_sets_the_exit_code(monkeypatch, capsys):
     assert main(["--sample", "kidney", "--org", "some-org"]) == 1
     assert "container: DIFFERS" in capsys.readouterr().out
     monkeypatch.setattr(setup_sample, "Org", lambda org: settled())
-    assert main(["--sample", "kidney", "--org", "some-org", "--dry-run"]) == 0
+    assert main(["--sample", "brain", "--org", "some-org", "--dry-run"]) == 0
 
 
 def test_main_dry_run_calls_reads_only(monkeypatch):
