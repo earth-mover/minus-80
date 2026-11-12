@@ -922,8 +922,8 @@ Open work, as present facts. Stage three closed the other items. The result line
   The gates `tables`, `polygons`, `masks` and `instances` decode `cell_index`, `cell_summary` and `cell_id` with `read_array`.
   The ingest decodes these arrays with the same function.
   The docstring of `verify.py` lists each use of the ingest's code. A defect in shared code can pass these gates.
-- **The gate `transforms` on real data.** The gate ran only in the dry run, on synthetic data.
-  The kidney's full verification had no such gate. The brain's run is its first run on a real store.
+- **The gate `matrix` on real data.** Its metadata and decoded checks ran only on synthetic data.
+  `transforms` and `labels` passed on the kidney's `main`. The brain's run is the first real run of `matrix` in this form.
 - **The threads of the stack.** No run measured their gain.
   With one thread, the stack took 3,257.4 s of the kidney ingest's 6,829 s.
 - **The read limit of the bundle check.** `check_bundle.py` reads at most 200,000,000 bytes by default.
@@ -1072,7 +1072,10 @@ The four corners of a plane fix the affine of the H&E.
 The gate also binds each stored axis name to its array dimension, by the axis order that `LAYOUTS.md` records.
 Limits: the gate reads the first multiscale of each element only.
 It does not compare the input and output axes of a transform with the stored axes.
-It ran on synthetic data only, in the dry run of 2026-11-12.
+It ran in the dry run of 2026-11-12, on synthetic data.
+On 2026-11-12 `verify.py --gates transforms,labels` ran on the kidney's `main`, snapshot `DCHK9523X4W5TSC4V5X0`.
+It ran on one `m7g.xlarge` and read the source by range request: 308.9 MiB in 3,504 requests.
+Both gates passed. `transforms` checked 11 elements. `labels` decoded 20 chunks of each mask, and 15 held cell labels.
 
 **5. A trial branch, then `main`.** The launcher's ingest form writes `trial-<name>`.
 After `=== all steps passed` for the verification, a last step moves `main` to the trial branch's snapshot.
