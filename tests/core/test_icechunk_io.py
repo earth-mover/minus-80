@@ -75,5 +75,18 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
     config = icechunk_io.arraylake_repository(location, source_prefixes=[REMOTE]).config
     assert config.manifest.max_concurrent_manifest_fetches_during_commit == icechunk_io.MANIFEST_FETCH_CONCURRENCY
     assert config.storage.retries.max_tries == REMOTE_READ_TRIES
+    assert config.caching.num_snapshot_nodes == icechunk_io.SNAPSHOT_CACHE_NODES
     with pytest.raises(ValueError, match="no virtual chunk container covering"):
         icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
+
+
+def test_a_repo_caches_snapshots_larger_than_icechunks_default(tmp_path):
+    create_repo(tmp_path / "repo", [], prefixes=[REMOTE])
+    stored = icechunk.Repository.open(storage=icechunk_io.storage_for(tmp_path / "repo"))
+    assert stored.config.caching.num_snapshot_nodes == icechunk_io.SNAPSHOT_CACHE_NODES
+
+
+def test_reopening_an_older_repo_caches_whole_snapshots(tmp_path):
+    storage = icechunk_io.storage_for(tmp_path / "repo")
+    icechunk.Repository.create(storage=storage)
+    assert open_repository(tmp_path / "repo").config.caching.num_snapshot_nodes == icechunk_io.SNAPSHOT_CACHE_NODES

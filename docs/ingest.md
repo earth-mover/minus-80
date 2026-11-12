@@ -255,8 +255,15 @@ same group cannot merge.
 ### Keep one repo per dataset, and try new sources on a branch
 
 A reader fetches the whole snapshot on open, and Icechunk's snapshot cache
-holds 500,000 nodes by default, about 45 Cell Painting plates. Ingest one file
-from each new source to a branch and inspect it before writing to `main`.
+holds 500,000 nodes by default, about 45 Cell Painting plates. A snapshot with
+more nodes than the cache holds is not kept at all, so every node lookup
+downloads it again: 1.2 s per lookup on RxRx19a's 689,195-node snapshot, and a
+rewrite of its groups downloaded 2.8 GB in ten minutes without finishing.
+`minus80.core.icechunk_io` opens every repo with room for
+`SNAPSHOT_CACHE_NODES`, and `create_repo` stores that in the repo's config. A
+reader who opens the repo another way, such as through Arraylake's client, has
+to raise `CachingConfig.num_snapshot_nodes` itself. Ingest one file from each
+new source to a branch and inspect it before writing to `main`.
 
 ### Keep enough writes in flight
 

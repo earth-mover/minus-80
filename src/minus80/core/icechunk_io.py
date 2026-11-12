@@ -134,6 +134,26 @@ def _with_remote_retries(config):
 MANIFEST_FETCH_CONCURRENCY = 32
 
 
+#: Icechunk's snapshot cache holds 500,000 nodes by default. A snapshot with more
+#: does not fit, so the cache keeps none of it and every node lookup downloads the
+#: whole snapshot again: on RxRx19a's 689,195-node, 57 MB snapshot, each lookup took
+#: 1.2 s over S3, and with room for a million nodes the first took 1.0 s and the rest
+#: under 10 ms. The cache is filled only by snapshots actually read, so a ceiling far
+#: above any snapshot an ingest writes costs nothing for small ones.
+SNAPSHOT_CACHE_NODES = 10_000_000
+
+
+def _with_snapshot_cache(config):
+    """``config`` with room for :data:`SNAPSHOT_CACHE_NODES` snapshot nodes, unless it already has more."""
+    import icechunk
+
+    caching = config.caching or icechunk.CachingConfig()
+    if (caching.num_snapshot_nodes or 0) < SNAPSHOT_CACHE_NODES:
+        caching.num_snapshot_nodes = SNAPSHOT_CACHE_NODES
+    config.caching = caching
+    return config
+
+
 #: How many times a commit may rebase onto whatever landed on the branch first.
 #: A long ingest commits once per source file and holds its session across a
 #: whole file's indexing, so another writer -- a second ingest, a metadata
@@ -221,7 +241,7 @@ def create_repo(
     remote = any(
         urlparse(p).scheme in ("http", "https", "s3", "gs", "az") for p in prefixes
     )
-    config = icechunk.RepositoryConfig.default()
+    config = _with_snapshot_cache(icechunk.RepositoryConfig.default())
     config.manifest = icechunk.ManifestConfig(
         max_concurrent_manifest_fetches_during_commit=MANIFEST_FETCH_CONCURRENCY
     )
@@ -244,7 +264,7 @@ def create_repo(
         # Either way a second study's new prefixes would go unregistered and its
         # chunks unreadable. Merging into the persisted config and saving it
         # keeps the containers readable by anyone who opens the repo.
-        persisted = icechunk.Repository.open(storage=storage).config
+        persisted = _with_snapshot_cache(icechunk.Repository.open(storage=storage).config)
         if persisted.manifest is not None:
             # Field by field, not a fresh ManifestConfig: a repo's splitting and
             # preload settings are its own and outlive any one ingest.
@@ -319,12 +339,12 @@ def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None 
     authorize = (
         {p: _access_for(p) for p in source_prefixes} if source_prefixes else None
     )
-    config = None
+    # A repo written before its config carried these settings still reads with
+    # the defaults; the override lasts for this session and changes nothing
+    # stored.
+    config = _with_snapshot_cache(icechunk.Repository.open(storage=storage).config)
     if any(urlparse(p).scheme in ("http", "https", "s3", "gs", "az") for p in source_prefixes or []):
-        # A repo written before its config carried retries still reads with
-        # one try; the override lasts for this session and changes nothing
-        # stored.
-        config = _with_remote_retries(icechunk.Repository.open(storage=storage).config)
+        config = _with_remote_retries(config)
     return icechunk.Repository.open(
         storage=storage, config=config, authorize_virtual_chunk_access=authorize
     )
@@ -392,7 +412,7 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     # repo instead would drop the commit author get_repo sets.
     import icechunk
 
-    config = _with_remote_retries(icechunk.RepositoryConfig())
+    config = _with_snapshot_cache(_with_remote_retries(icechunk.RepositoryConfig()))
     config.manifest = icechunk.ManifestConfig()
     config.manifest.max_concurrent_manifest_fetches_during_commit = MANIFEST_FETCH_CONCURRENCY
     return client.get_repo(name, config=config)
