@@ -70,7 +70,7 @@ def test_morphology_members_need_their_count(tmp_path):
     bundle = _bundle_of(tmp_path, [f"morphology_2d/ch000{i}.ome.tif" for i in range(3)])
     with pytest.raises(ValueError, match=r"morphology_2d/ch\*\.ome\.tif.*3"):
         bundle.morphology_2d()
-    with pytest.raises(ValueError, match=r"morphology_3d/ch\*\.ome\.tif.*none"):
+    with pytest.raises(ValueError, match=r"morphology_3d/ch\*\.ome\.tif.*found 0"):
         bundle.morphology_3d()
 
 
@@ -81,3 +81,9 @@ def test_metrics_and_report_need_exactly_one_member(tmp_path):
         bundle.metrics()
     with pytest.raises(ValueError, match=r"analysis_summary.*\.html.*analysis_summary_b\.html"):
         bundle.report()
+
+
+def test_a_star_does_not_match_a_slash_and_matching_never_raises_on_the_count(tmp_path):
+    bundle = _bundle_of(tmp_path, ["morphology_2d/ch0.ome.tif", "morphology_2d/sub/ch1.ome.tif", "morphology_2d/ch2.ome.tif"])
+    assert bundle.matching("morphology_2d/ch*.ome.tif") == ["morphology_2d/ch0.ome.tif", "morphology_2d/ch2.ome.tif"]
+    assert bundle.matching("nothing*") == []

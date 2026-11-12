@@ -13,7 +13,7 @@ import ingest
 from bundle import Bundle
 from ingest import write_qc
 from minus80.core.icechunk_io import commit
-from qc import QC_NAMES, rasters
+from qc import QC_NAMES, raw, rasters
 from tests.test_images import ALIGNMENT, PIXEL, _main, _repo, _rgb_pyramid, bundle, writer  # noqa: F401
 from verify import gate_qc
 
@@ -338,3 +338,32 @@ def test_a_report_in_another_unit_than_micrometres_raises():
     bag["density_plot"]["unit"] = "mm"
     with pytest.raises(ValueError, match="'mm'"):
         rasters(_html(bag))
+
+
+def test_raw_lists_what_the_bag_holds_without_refusing_a_value():
+    bag = _bag()
+    bag["density_plot"]["bins"]["Mean Mystery"] = "_resources_density_plot_mystery"
+    bag["_resources"]["density_plot_mystery"] = _resource(QUALITY.astype("<f8"))
+    found = raw(_html(bag))
+    assert found["bag_keys"] == ["_resources", "density_plot"]
+    assert found["density_plot_keys"] == sorted(bag["density_plot"])
+    assert found["unit"] == "µm" and found["origin_data"] == [-10.0, -20.0] and found["horizontal_bin_count"] == 6
+    assert found["dimensions"] == {"height": 70.0, "width": 120.0}
+    assert found["bins"]["Mean Mystery"] == "_resources_density_plot_mystery"
+    assert found["references"] == {"mean_q_score_80um": "_resources_density_plot_mean_q_score_80um"}
+    density = found["resources"]["density_plot_transcript_density_map"]
+    assert density == {"header": "data:uint16/zip;base64", "bytes": 48, "values": 24, "min": 0.0, "max": 161.0}
+    assert found["resources"]["density_plot_mean_q_score"]["max"] == pytest.approx(23 / 3)
+    assert found["resources"]["density_plot_mystery"] == {"header": "data:float64/zip;base64"}
+
+
+def test_raw_records_a_missing_or_undecodable_resource_and_a_missing_plot():
+    bag = _bag()
+    del bag["_resources"]["density_plot_mean_q_score"]
+    bag["_resources"]["density_plot_transcript_density_map"] = "data:uint16/zip;base64,!!!"
+    found = raw(_html(bag))
+    assert found["resources"]["density_plot_mean_q_score"] == {"missing": True}
+    assert found["resources"]["density_plot_transcript_density_map"] == {
+        "header": "data:uint16/zip;base64", "undecodable": "error"}
+    assert raw(_html({"other": 1})) == {"bag_keys": ["other"], "density_plot_keys": [], "bins": None,
+                                        "references": {}, "resources": {}}

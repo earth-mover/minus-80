@@ -92,6 +92,46 @@ def rasters(html: str) -> dict[str, QcRaster]:
     return found
 
 
+def raw(html: str) -> dict:
+    """What the data bag holds. A value that the ingest does not know is recorded, never refused.
+
+    ``references`` holds each ``density_plot`` key, other than ``bins``, whose value is a resource reference.
+    ``resources`` has an entry for each referenced resource: its data URI header and, when it decodes, its sizes and range.
+    """
+    bag = data_bag(html)
+    plot = bag.get("density_plot") if isinstance(bag.get("density_plot"), dict) else {}
+    bins = plot.get("bins")
+    references = {k: v for k, v in plot.items()
+                  if k != "bins" and isinstance(v, str) and v.startswith(RESOURCE_PREFIX)}
+    named = [v for v in [*(bins.values() if isinstance(bins, dict) else []), *references.values()] if isinstance(v, str)]
+    stored = bag.get("_resources") if isinstance(bag.get("_resources"), dict) else {}
+    return {
+        "bag_keys": sorted(bag),
+        "density_plot_keys": sorted(plot),
+        **{k: plot[k] for k in ("unit", "origin_data", "dimensions", "horizontal_bin_count") if k in plot},
+        "bins": bins,
+        "references": references,
+        "resources": {k: _resource_facts(stored, k) for k in (n.removeprefix(RESOURCE_PREFIX) for n in named)},
+    }
+
+
+def _resource_facts(stored: dict, key: str) -> dict:
+    if key not in stored:
+        return {"missing": True}
+    uri = stored[key]
+    header = uri.split(",", 1)[0] if isinstance(uri, str) else None
+    match = _DATA_URI.fullmatch(uri) if isinstance(uri, str) else None
+    if not match or match[1] not in DTYPES:
+        return {"header": header}
+    try:
+        values = np.frombuffer(zlib.decompress(base64.b64decode(match[2])), dtype=DTYPES[match[1]])
+    except Exception as error:
+        return {"header": header, "undecodable": type(error).__name__}
+    found = {"header": header, "bytes": values.nbytes, "values": values.size}
+    finite = values[np.isfinite(values)]
+    return {**found, "min": float(finite.min()), "max": float(finite.max())} if finite.size else found
+
+
 def bundle_rasters(bundle) -> dict[str, QcRaster]:
     """The rasters of the bundle's one ``analysis_summary*.html`` member."""
     with bundle.member_file(bundle.report()) as f:

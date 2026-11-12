@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import fnmatch
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -14,6 +14,11 @@ from minus80.core.registry import as_url
 from minus80.core.remote import reader
 from minus80.parsers.zip.nested import member_file, member_zip
 
+#: Each ``*`` matches within one path segment.
+MORPHOLOGY_2D_PATTERN = "morphology_2d/ch*.ome.tif"
+MORPHOLOGY_3D_PATTERN = "morphology_3d/ch*.ome.tif"
+METRICS_PATTERN = "metrics_summary*.csv"
+REPORT_PATTERN = "analysis_summary*.html"
 CELLS = "cells.zarr.zip"
 TRANSCRIPTS = "transcripts.zarr.zip"
 MATRIX = "cell_feature_matrix.zarr.zip"
@@ -35,26 +40,31 @@ class Bundle:
         self.names = [i.filename for i in infos]
         self.sizes = {i.filename: i.file_size for i in infos}
 
+    def matching(self, pattern: str) -> list[str]:
+        """The sorted members that match ``pattern``, whatever their count."""
+        regex = "[^/]*".join(map(re.escape, pattern.split("*")))
+        return sorted(n for n in self.names if re.fullmatch(regex, n))
+
     def _members(self, pattern: str, count: int) -> list[str]:
-        """The sorted members that match ``pattern``; ``ValueError`` unless there are exactly ``count``."""
-        found = sorted(n for n in self.names if fnmatch.fnmatchcase(n, pattern))
+        """The sorted members that match ``pattern``. ``ValueError`` unless there are exactly ``count``."""
+        found = self.matching(pattern)
         if len(found) != count:
-            raise ValueError(f"expected {count} members that match {pattern}, found {len(found) or 'none'}: {found}")
+            raise ValueError(f"expected {count} members that match {pattern}, found {len(found)}: {found}")
         return found
 
     def morphology_2d(self) -> list[str]:
         """The four single-plane morphology pyramids, in name order."""
-        return self._members("morphology_2d/ch*.ome.tif", 4)
+        return self._members(MORPHOLOGY_2D_PATTERN, 4)
 
     def morphology_3d(self) -> str:
         """The morphology stack."""
-        return self._members("morphology_3d/ch*.ome.tif", 1)[0]
+        return self._members(MORPHOLOGY_3D_PATTERN, 1)[0]
 
     def metrics(self) -> str:
-        return self._members("metrics_summary*.csv", 1)[0]
+        return self._members(METRICS_PATTERN, 1)[0]
 
     def report(self) -> str:
-        return self._members("analysis_summary*.html", 1)[0]
+        return self._members(REPORT_PATTERN, 1)[0]
 
     def member_file(self, name: str):
         return member_file(self.file, name)
