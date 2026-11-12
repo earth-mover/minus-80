@@ -1033,7 +1033,7 @@ The remote script runs it twice: by range request before the download, and on th
 - the stack's z step, against the OME-XML;
 - the H&E affine and the `alignment` attribute, against the CSV, which the gate parses itself;
 - each QC raster's scale and translation, against the report's bins and origin;
-- the result of two pixel points through each stored transform: the first pixel and the last pixel of level 0.
+- the result of the corners of each level through each stored transform: four corners of a plane, eight of the stack.
 
 The gate computes each expected value from the source and not from the ingest's functions.
 A stored number must equal its source number within a relative error of 1e-9.

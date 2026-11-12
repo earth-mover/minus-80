@@ -527,6 +527,7 @@ Each long gate prints a progress line every five seconds.
 | | Each level array has the shape that the source gives in that order. Thus each axis name belongs to one array dimension. |
 | | The channel length is the count of morphology files, 1 for the stack, the samples of an H&E pixel, and 1 for a QC raster. |
 | | Each level maps each corner of its array into `global` at the place that the source gives. The channel index of a corner is 0. |
+| | A far corner of each level maps to the far corner of level 0. This rule is the layout's choice, and the ingest writes it too. |
 | | A plane has four corners, and the stack has eight. A far corner is the outer corner of a last pixel. The four corners fix the affine of the H&E. |
 | | Each element has one transform, and its output is `global`. An element that lists no level fails. |
 | | A sequence ends in `global`. Each step starts in the system where the step before it ends, by system name and axis names. |
@@ -535,8 +536,9 @@ Each long gate prints a progress line every five seconds.
 | | The gate parses each source itself and does not call the ingest's transform code. A stored number can differ from its source number by a relative 1e-9. |
 | | The `alignment` attribute of the H&E holds the matrix of the CSV and the axes `["x", "y"]`. The gate refuses a CSV whose third row is not `0, 0, 1`. |
 | | Limits: the gate does not compare a step of a sequence that states no system. It does not compare the axes of the `input` and the `output` of an element's transform with the stored axes. |
+| | The gate reads the first multiscale of each element only. |
 | | An array with y and x exchanged has the source's shape when the two sides are equal. The `images` gate compares the pixels. |
-| `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. |
+| `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. The gate decodes the report with the ingest's decoder. |
 | `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. |
 | `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. The metadata equals the source's `.zarray`. |
 | `tables` | Each transcripts tile has the row count of `grid_number_objects`, and its `instance` range follows the source order. |

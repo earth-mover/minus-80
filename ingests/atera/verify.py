@@ -3,10 +3,17 @@
 Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on any failure.
 ``--mode fixture`` checks the fixture branch: a gate skips an element that the branch lacks.
 ``--mode full`` checks every element of the full tree, whatever the branch, and fails on a missing one.
-Each expectation comes from the bundle, the H&E image or the alignment CSV, except five.
-Gate `complete` uses the ingest's element list. Gate `table_region` uses the ingest's region name.
-Gate `source` uses the record in LAYOUTS.md. Gate `bundle` uses the sample's record of its bundle.
+Most expectations come from the bundle, the H&E image or the alignment CSV.
+Some gates use code or names of the ingest, so a defect there can pass them.
+Gate `qc` decodes the rasters with the ingest's decoder ``qc.bundle_rasters``.
+Gates `labels` and `matrix` build the expected array metadata with ``create_copy`` of the ingest.
+Gates `tables` and `copies` take the tile order from ``transcripts.tile_order``.
+Gate `table_region` encodes the cell ids with ``transcripts.xenium_cell_id``.
+It also uses the ingest's region name.
+Gate `complete` uses the ingest's element list. Each gate takes element and table names from the ingest.
 Gate `transforms` uses the axis order that LAYOUTS.md records for each element.
+It also requires the layout's rule: a far corner of each level is the far corner of level 0.
+Gate `source` uses the record in LAYOUTS.md. Gate `bundle` uses the sample's record of its bundle.
 The script only reads.
 """
 
