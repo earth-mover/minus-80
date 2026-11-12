@@ -303,7 +303,7 @@ The branch `fixture` on Arraylake has several rows for one cell in `nucleus_boun
 That table has an int64 `method` column.
 Its `tables/table` has the region `cell_labels`. It has no `shapes/cell_boundaries`.
 The gates `images`, `labels`, `matrix`, `masks`, `instances`, `copies`, `attrs`, `field_ids` and `table_index` apply to it.
-The gates `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
+The gates `bundle`, `tables`, `polygons`, `table_region` and `extra_tables` do not apply to it.
 Each `iceberg_table` attribute of the branch pins one snapshot of `nucleus_boundaries` or `transcripts`.
 The `uint8` copies of the branch reference the data files of those snapshots.
 The full ingest replaces the rows of both tables in place. It deletes no snapshot and no data file.
@@ -514,6 +514,7 @@ Each long gate prints a progress line every five seconds.
 
 | Gate | What it checks in the full store |
 |---|---|
+| `bundle` | The bundle equals the sample's record in `samples/`, in every group except `stores`. It runs first. |
 | `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |

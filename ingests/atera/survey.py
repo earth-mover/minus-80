@@ -18,32 +18,16 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from facts import ByteLimit, bundle_facts, error_text, write_record
-from ingest import open_bundle
-from minus80.core.registry import as_url
-from minus80.core.remote import ReadCounter, reader
+from check_bundle import open_sources
+from facts import DEFAULT_MAX_BYTES, bundle_facts, error_text, write_record
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 
 #: The longest printed line, prefix included. A log service can cut a longer line.
 MAX_LINE = 8_000
-DEFAULT_MAX_BYTES = 200_000_000
 _BEGIN = re.compile(r"=== record (\S+) begin")
 _PART = re.compile(r"=== record (\S+) part (\d+) of (\d+): (.*)")
 _END = re.compile(r"=== record (\S+) end sha256=([0-9a-f]{64}) chars=(\d+)")
 _FAILED = re.compile(r"(\S+): FAILED \w+: .*")
-
-
-class _Ceiling:
-    """The progress hook of a read counter. It stops a sample that reads more than ``limit`` bytes."""
-
-    def __init__(self, limit: int):
-        self.limit, self.total, self.message = limit, 0, None
-
-    def advance(self, size: int) -> None:
-        self.total += size
-        if self.total > self.limit:
-            self.message = f"read {self.total} bytes, over the limit of {self.limit} bytes"
-            raise ByteLimit(self.message)
 
 
 def _split(text: str, size: int) -> list[str]:
@@ -147,19 +131,8 @@ def survey_sample(name: str, directory: Path, max_bytes: int) -> bool:
     Returns false for such a sample.
     """
     sample = SAMPLES[name]
-    ceiling = _Ceiling(max_bytes)
-    bundle, bundle_counter = open_bundle(sample.url(BUNDLE, S3))
-    ceiling.total = bundle_counter.bytes
-    he_counter, alignment_counter = ReadCounter(), ReadCounter()
-    counters = {"bundle": bundle_counter, "he_image": he_counter, "alignment": alignment_counter}
-    for counter in counters.values():
-        counter.progress = ceiling
-
-    def open_he():
-        return reader(as_url(sample.url(HE_IMAGE, S3)), wrap=he_counter.wrap)
-
-    def alignment_text():
-        return reader(as_url(sample.url(HE_ALIGNMENT, S3)), wrap=alignment_counter.wrap).read().decode()
+    bundle, open_he, alignment_text, counters, ceiling = open_sources(
+        sample.url(BUNDLE, S3), sample.url(HE_IMAGE, S3), sample.url(HE_ALIGNMENT, S3), max_bytes)
 
     found = bundle_facts(bundle, open_he, alignment_text)
     errors = write_record(name, found, directory)

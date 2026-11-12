@@ -10,6 +10,7 @@ import pytest
 import zarr
 
 import ingest
+import qc
 from bundle import Bundle
 from ingest import write_qc
 from minus80.core.icechunk_io import commit
@@ -202,6 +203,13 @@ def test_a_float_raster_with_a_nan_has_a_finite_window_and_stores_the_nan(qc_bun
     json.dumps(dict(group.attrs), allow_nan=False)
 
 
+def test_write_qc_writes_the_rasters_it_is_given_without_decoding_the_report(monkeypatch, qc_bundle, writer):  # noqa: F811
+    decoded = qc.bundle_rasters(qc_bundle)
+    monkeypatch.setattr(qc, "rasters", lambda html: pytest.fail("the report was decoded"))
+    write_qc(writer, qc_bundle, rasters=decoded)
+    assert all(writer.has(f"images/qc_{name}") for name in decoded)
+
+
 def test_a_rerun_of_write_qc_skips_held_elements(qc_bundle, writer, capsys):  # noqa: F811
     write_qc(writer, qc_bundle)
     capsys.readouterr()
@@ -210,23 +218,25 @@ def test_a_rerun_of_write_qc_skips_held_elements(qc_bundle, writer, capsys):  # 
     assert out.count("already, skipped") == 3 and "commit" not in out
 
 
-def test_the_report_is_decoded_once_in_a_run_and_not_in_a_rerun_that_holds_every_element(
-        monkeypatch, tmp_path, qc_bundle):  # noqa: F811
-    import qc
+def _full_args(store, *elements):
+    return ("--mode", "full", "--branch", "full", "--bundle", str(store.bundle), "--he-image", str(store.he),
+            "--he-alignment", str(store.alignment), "--record", str(store.record), "--elements", ",".join(elements))
 
+
+def test_the_report_is_decoded_once_in_each_run(monkeypatch, tmp_path):
+    from tests.test_verify import Store
+
+    store = Store(tmp_path)
+    store.write_inputs()
     reads = []
     real = qc.rasters
     monkeypatch.setattr(qc, "rasters", lambda html: reads.append(len(html)) or real(html))
-    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
-    _rgb_pyramid(he, planar=False)
-    np.savetxt(alignment, ALIGNMENT, delimiter=",")
     monkeypatch.chdir(tmp_path)
-    args = ("--mode", "full", "--branch", "full", "--bundle", str(tmp_path / "outs.zip"), "--he-image", str(he),
-            "--he-alignment", str(alignment), "--elements", "images/qc_transcript_density,images/qc_mean_q_score")
+    args = _full_args(store, "images/qc_transcript_density", "images/qc_mean_q_score")
     _main(monkeypatch, tmp_path, *args)
     assert len(reads) == 1
     _main(monkeypatch, tmp_path, *args)
-    assert len(reads) == 1
+    assert len(reads) == 2
 
 
 def test_the_qc_elements_come_before_the_image_writes_in_full_mode():
@@ -234,16 +244,15 @@ def test_the_qc_elements_come_before_the_image_writes_in_full_mode():
     assert max(full.index(f"images/qc_{n}") for n in QC_NAMES) < full.index("images/morphology")
 
 
-def test_full_mode_writes_the_qc_rasters_and_does_not_list_them_as_missing(monkeypatch, tmp_path, qc_bundle):  # noqa: F811
+def test_full_mode_writes_the_qc_rasters_and_does_not_list_them_as_missing(monkeypatch, tmp_path):
+    from tests.test_verify import Store
+
     assert not any("qc_" in m["what"] for m in ingest.MISSING_FROM_FULL)
     assert any("overview_scan" in m["what"] for m in ingest.MISSING_FROM_FULL)
-    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
-    _rgb_pyramid(he, planar=False)
-    np.savetxt(alignment, ALIGNMENT, delimiter=",")
+    store = Store(tmp_path)
+    store.write_inputs()
     monkeypatch.chdir(tmp_path)
-    _main(monkeypatch, tmp_path, "--mode", "full", "--branch", "full", "--bundle", str(tmp_path / "outs.zip"),
-          "--he-image", str(he), "--he-alignment", str(alignment),
-          "--elements", "images/qc_transcript_density,images/qc_mean_q_score_80um")
+    _main(monkeypatch, tmp_path, *_full_args(store, "images/qc_transcript_density", "images/qc_mean_q_score_80um"))
     from minus80.core.icechunk_io import create_repo
 
     root = zarr.open_group(create_repo(tmp_path / "repo", [], open_existing=True).readonly_session(branch="full").store,

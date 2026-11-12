@@ -6,12 +6,13 @@ import io
 import json
 import re
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import tifffile
 from minus80.core.registry import as_url
-from minus80.core.remote import reader
+from minus80.core.remote import ReadCounter, counting_reader, reader
 from minus80.parsers.zip.nested import member_file, member_zip
 
 #: Each ``*`` matches within one path segment.
@@ -80,6 +81,25 @@ class Bundle:
     def tiff(self, name: str) -> tifffile.TiffFile:
         return open_tiff(self.member_file(name))
 
+
+
+def open_bundle(location: str) -> tuple[Bundle, ReadCounter]:
+    file, counter = counting_reader(as_url(location))
+    return Bundle(location, file), counter
+
+
+def he_readers(he_location: str, alignment_location: str, he_wrap=None, alignment_wrap=None) -> tuple[Callable, Callable]:
+    """``open_he``, which opens the H&E image, and ``alignment_text``, which reads the alignment CSV.
+
+    ``he_wrap`` and ``alignment_wrap`` wrap the store of each object, to count its reads.
+    """
+    def open_he():
+        return reader(as_url(he_location), wrap=he_wrap)
+
+    def alignment_text() -> str:
+        return reader(as_url(alignment_location), wrap=alignment_wrap).read().decode()
+
+    return open_he, alignment_text
 
 
 def read_alignment(text: str) -> np.ndarray:

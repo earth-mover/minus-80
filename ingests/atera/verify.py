@@ -3,8 +3,9 @@
 Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on any failure.
 ``--mode fixture`` checks the fixture branch: a gate skips an element that the branch lacks.
 ``--mode full`` checks every element of the full tree, whatever the branch, and fails on a missing one.
-Each expectation comes from the bundle, except three. Gate `complete` uses the ingest's element list.
+Each expectation comes from the bundle, except four. Gate `complete` uses the ingest's element list.
 Gate `table_region` uses the ingest's region name. Gate `source` uses the record in LAYOUTS.md.
+Gate `bundle` uses the sample's record of its bundle.
 The script only reads.
 """
 
@@ -43,14 +44,16 @@ from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, TRANSCRIPTS, open_tiff
+from bundle import CELLS, MATRIX, TRANSCRIPTS, he_readers, open_tiff
+from check_bundle import check
+from facts import load_record
 from ingest import (
     CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS, MASKS,
     MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters
 from root_attrs import source_objects
-from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
+from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from transcripts import tile_order, xenium_cell_id
 
 SAMPLED = 50
@@ -840,6 +843,9 @@ def main() -> None:
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
+    parser.add_argument("--he-alignment", help="the H&E alignment CSV, a URL or a local path; by default 10x's object")
+    parser.add_argument("--record", type=Path,
+                        help="--mode full: the record of the sample's bundle; by default the sample's committed record")
     parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
     parser.add_argument("--head-source", action="store_true",
                         help="run the source gate, which sends HEAD requests, although --bundle is a local file")
@@ -862,8 +868,9 @@ def main() -> None:
     columns = json.loads(cells.read("cell_summary/.zattrs"))["column_names"]
     cell_id = read_array(cells, "cell_id", names=names)
 
+    he_image = args.he_image or sample.url(HE_IMAGE, S3)
     gates = {
-        "images": lambda: gate_images(root, bundle, args.he_image or sample.url(HE_IMAGE, S3), full=full),
+        "images": lambda: gate_images(root, bundle, he_image, full=full),
         "qc": lambda: gate_qc(root, bundle, full=full),
         "labels": lambda: gate_labels(root, cells),
         "matrix": lambda: gate_matrix(root, matrix, full=full),
@@ -879,7 +886,11 @@ def main() -> None:
         "table_index": lambda: gate_table_index(root),
     }
     if full:
+        open_he, alignment_text = he_readers(he_image, args.he_alignment or sample.url(HE_ALIGNMENT, S3),
+                                             counter.wrap, counter.wrap)
         gates = {
+            "bundle": lambda: check(bundle, open_he, alignment_text, args.sample,
+                                    record=load_record(args.sample, path=args.record), skip=("stores",)),
             "complete": lambda: gate_complete(root), **gates,
             "source": lambda: gate_source(root, sample, LAYOUTS.read_text()),
         }

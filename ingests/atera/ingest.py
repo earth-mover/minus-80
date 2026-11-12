@@ -15,7 +15,8 @@ import math
 import os
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from minus80.core.elements import COMPLETE, ElementWriter
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo, open_repository
 from minus80.core.progress import MIB
 from minus80.core.registry import as_url
-from minus80.core.remote import ReadCounter, counting_reader, reader
+from minus80.core.remote import reader
 from minus80.core.pyramid import channel_names, create_level, physical_sizes, write_page, write_stack
 from minus80.core.tables import HeldFilesError, TableWriter, declare_copy, iceberg_table_attr, local_catalog, schema_changes
 from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array
@@ -37,8 +38,11 @@ from minus80.ome.spatialdata import (
 )
 
 from bundle import (
-    CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, TRANSCRIPTS, Bundle, open_tiff, read_alignment,
+    CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, TRANSCRIPTS, Bundle, he_readers, open_bundle, open_tiff,
+    read_alignment,
 )
+from check_bundle import differences
+from facts import bundle_facts, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
@@ -127,11 +131,6 @@ def require_same_place(repo: str, catalog: str) -> None:
         raise SystemExit(f"--catalog {catalog} is not a location; use arraylake://<org>.")
     if (catalog_org(catalog) is not None) != repo.startswith(ARRAYLAKE):
         raise SystemExit("--repo and --catalog must both be local or both be on Arraylake.")
-
-
-def open_bundle(location: str) -> tuple[Bundle, ReadCounter]:
-    file, counter = counting_reader(as_url(location))
-    return Bundle(location, file), counter
 
 
 def member_bytes(zf, prefix: str) -> int:
@@ -355,14 +354,19 @@ def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
                  lambda held: raster_attrs(level_ome(f"qc_{raster.name}", axes, [shape], held, omero), transform))
 
 
-def write_qc(writer: ElementWriter, bundle: Bundle, names: Sequence[str] | None = None) -> None:
-    """Write the QC rasters ``names`` of the analysis summary, all by default; skip a raster that the branch holds."""
+def write_qc(
+    writer: ElementWriter, bundle: Bundle, names: Sequence[str] | None = None, rasters: dict[str, QcRaster] | None = None,
+) -> None:
+    """Write the QC rasters ``names`` of the analysis summary, all by default; skip a raster that the branch holds.
+
+    ``rasters`` are the decoded rasters of the report; without them the report is decoded here.
+    """
     if names is not None:
         # The report is read only when a raster is missing from the branch.
         names = [n for n in names if not skip_held(writer, f"images/qc_{n}")]
         if not names:
             return
-    found = bundle_rasters(bundle)
+    found = rasters or bundle_rasters(bundle)
     for name in names or found:
         if name not in found:
             raise ValueError(f"the analysis summary has no QC raster {name}; it has {', '.join(found)}")
@@ -548,11 +552,63 @@ def write_transcripts(
         declare_copy(group, "points.parquet", ref.files)
 
 
-def write_root(writer, bundle, sample, layouts: str, experiment: dict, *, missing: list, fixture: str | None = None) -> None:
+def build_root(
+    bundle: Bundle, sample, layouts: str, experiment: dict, *, missing: list, fixture: str | None = None,
+) -> dict:
+    """The root attributes of ``sample`` from the bundle's metrics and ``experiment``."""
+    with bundle.member_file(bundle.metrics()) as f:
+        metrics = parse_metrics(f.read().decode())
+    return root_attrs(sample, layouts, experiment, metrics, missing=missing, fixture=fixture)
+
+
+def write_root(writer, root_attributes: dict) -> None:
     with writer.unit("root attributes", "Write root attributes") as (root, _):
-        with bundle.member_file(bundle.metrics()) as f:
-            metrics = parse_metrics(f.read().decode())
-        root.attrs.update(root_attrs(sample, layouts, experiment, metrics, missing=missing, fixture=fixture))
+        root.attrs.update(root_attributes)
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """The facts of a bundle that the steps of the full mode need, all read before the first write."""
+
+    experiment: dict
+    pixel_size: float
+    root: dict
+    methods: list[str]
+    #: Each transcript tile with its first ``instance``, in the source's order.
+    tile_plan: list[tuple[str, int]]
+    qc: dict[str, QcRaster]
+    #: The matrix that maps H&E pixels to morphology pixels.
+    alignment: np.ndarray
+
+
+#: The groups that the ingest's check leaves out: the ingest reads the Zarr stores themselves right after.
+INGEST_SKIPS = ("stores",)
+
+
+def prepare(
+    bundle: Bundle, sample, layouts: str, open_he: Callable, alignment_text: Callable, *, record: dict,
+) -> Prepared:
+    """Compare ``bundle`` with ``record``, then read every fact that a later step needs.
+
+    ``ValueError`` gives the difference lines, or the fact that the bundle lacks. The check reads no pixel and no table row.
+    """
+    decoded = {}
+    found = bundle_facts(bundle, open_he, alignment_text, INGEST_SKIPS, decoded)
+    if lines := differences(record, found, INGEST_SKIPS):
+        raise ValueError("\n".join(lines))
+    print("bundle check: 0 differences", flush=True)
+    # The members that the steps open must resolve to one file each.
+    bundle.morphology_2d(), bundle.morphology_3d(), bundle.metrics(), bundle.report()
+    experiment = bundle.experiment()
+    try:
+        pixel_size = experiment["pixel_size"]
+        root = build_root(bundle, sample, layouts, experiment, missing=MISSING_FROM_FULL)
+    except KeyError as error:
+        raise ValueError(f"experiment.spatial has no key {error.args[0]!r}, which the ingest needs") from None
+    return Prepared(
+        experiment=experiment, pixel_size=pixel_size, root=root, methods=found["polygons"]["method_names"],
+        tile_plan=tile_order(found["transcripts"]), qc=decoded or bundle_rasters(bundle), alignment=np.array(found["alignment"]),
+    )
 
 
 def check_bundle_size(bundle: Bundle, sample, layouts: str) -> None:
@@ -717,8 +773,10 @@ def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[
 
 
 def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str, elements: str | None = None,
-              replace_tables: str = "") -> list[str]:
+              replace_tables: str = "", sample: str | None = None, record: Path | None = None) -> list[str]:
     """Check what needs no bundle and no write, print the plan, and return one line for each problem.
+
+    With a ``sample`` its record, which is ``record`` or the committed one, must load.
 
     The check makes no commit and creates no table, namespace, branch or directory.
     """
@@ -729,6 +787,11 @@ def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str
         problems.append("--replace-tables is an option of --mode full")
     if branch in PROTECTED[mode]:
         problems.append(f"--mode {mode} never writes to the branch {branch}")
+    if sample is not None:
+        try:
+            load_record(sample, path=record)
+        except ValueError as e:
+            problems.append(f"record: {e}")
     selected = replace = None
     try:
         selected = select_elements(elements, ELEMENTS[mode])
@@ -806,6 +869,8 @@ def run() -> None:
     parser.add_argument("--concurrency", type=int, default=1, help="chunk writes that run at once inside an image or mask")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--he-alignment", help="the H&E alignment CSV, a URL or a local path; by default 10x's object")
+    parser.add_argument("--record", type=Path,
+                        help="--mode full: the record of the sample's bundle; by default the sample's committed record")
     parser.add_argument("--elements", help="write only these elements, comma-separated, of the mode's elements")
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--replace-tables", default="",
@@ -819,7 +884,8 @@ def run() -> None:
     args = parser.parse_args()
     if args.preflight:
         problems = preflight(mode=args.mode, branch=args.branch, repo=args.repo, catalog=args.catalog,
-                             namespace=args.namespace, elements=args.elements, replace_tables=args.replace_tables)
+                             namespace=args.namespace, elements=args.elements, replace_tables=args.replace_tables,
+                             sample=args.sample, record=args.record)
         for problem in problems:
             print(f"PROBLEM: {problem}")
         print(f"preflight: {len(problems)} problem{'s' * (len(problems) != 1)}" if problems else "preflight: no problem")
@@ -847,10 +913,20 @@ def run() -> None:
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     sample, layouts = SAMPLES[args.sample], LAYOUTS.read_text()
+    full = args.mode == "full"
+    he_image = args.he_image or sample.url(HE_IMAGE, S3)
+    he_alignment = args.he_alignment or sample.url(HE_ALIGNMENT, S3)
+    record = load_record(args.sample, path=args.record) if full else None
     bundle, counter = open_bundle(args.bundle or sample.url(BUNDLE, S3))
     if not args.bundle:
         check_bundle_size(bundle, sample, layouts)
-    experiment = bundle.experiment()
+    if full:
+        open_he, alignment_text = he_readers(he_image, he_alignment, counter.wrap, counter.wrap)
+        prepared = prepare(bundle, sample, layouts, open_he, alignment_text, record=record)
+        experiment, methods = prepared.experiment, prepared.methods
+    else:
+        prepared = None
+        experiment, methods = bundle.experiment(), json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     pixel_size = experiment["pixel_size"]
 
     if on_arraylake:
@@ -859,7 +935,6 @@ def run() -> None:
         tables = TableWriter(Client().get_iceberg(org), args.namespace, catalog_name="arraylake", org=org)
     else:
         tables = TableWriter(local_catalog(Path(args.catalog)), args.namespace, catalog_name="local", org="local")
-    methods = json.loads(bundle.member_zip(CELLS).read(".zattrs"))["segmentation_methods"]
     specs = table_specs(table_properties(sample, layouts, sample.repo), methods)
     # The tables exist before any element, so a repo without a container over their files fails here.
     if replace and (found := held_element_conflicts(tables.catalog, tables.namespace, specs, replace,
@@ -889,9 +964,6 @@ def run() -> None:
         print(f"rewritten: {', '.join(sorted(args.rewrite))}")
         return
     n = args.concurrency
-    he_image = args.he_image or sample.url(HE_IMAGE, S3)
-    he_alignment = args.he_alignment or sample.url(HE_ALIGNMENT, S3)
-    full = args.mode == "full"
     steps = {
         "tables/table": unless_held(writer, "tables/table", lambda: write_table(writer, bundle, concurrency=n)),
         **{f"labels/{name}": partial(write_labels, writer, bundle, pixel_size, names=[name], concurrency=n)
@@ -909,16 +981,16 @@ def run() -> None:
                                                       concurrency=n),
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),
         "images/he_image": lambda: write_he(writer, he_image, he_alignment, pixel_size, concurrency=n),
-        "root": lambda: write_root(writer, bundle, sample, layouts, experiment,
-                                   missing=MISSING_FROM_FULL if full else MISSING_FROM_FIXTURE,
-                                   fixture=None if full else FIXTURE),
+        "root": lambda: write_root(writer, prepared.root if full else build_root(
+            bundle, sample, layouts, experiment, missing=MISSING_FROM_FIXTURE, fixture=FIXTURE)),
     }
     qc_selected = [e for e in selected if e.startswith(QC_PREFIX)]
     for element in selected:
         if element in qc_selected:
             # One call for all selected rasters, so the report is read once.
             if element == qc_selected[0]:
-                write_qc(writer, bundle, [e.removeprefix(QC_PREFIX) for e in qc_selected])
+                write_qc(writer, bundle, [e.removeprefix(QC_PREFIX) for e in qc_selected],
+                         prepared.qc if full else None)
             continue
         steps[element]()
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")

@@ -610,6 +610,7 @@ def test_the_flag_with_a_held_element_and_a_changed_schema_is_refused_with_the_e
 
     class Counter:
         bytes = 0
+        wrap = None
 
     cells = cells_zip(tmp_path, attrs={"segmentation_methods": METHODS})
 
@@ -620,12 +621,17 @@ def test_the_flag_with_a_held_element_and_a_changed_schema_is_refused_with_the_e
         def member_zip(self, name):
             return cells
 
+    def stub_prepare(*args, **kwargs):
+        return ingest.Prepared(experiment={"pixel_size": 1.0}, pixel_size=1.0, root={}, methods=METHODS, tile_plan=[],
+                               qc={}, alignment=None)
+
     import sys as _sys
     from unittest import mock
 
     argv = ["ingest.py", "--sample", "kidney", "--repo", str(tmp_path / "repo"), "--catalog", str(tmp_path / "catalog"),
             "--namespace", "ns", "--mode", "full", "--branch", "full", "--bundle", "b", "--replace-tables", "nucleus_boundaries"]
-    with mock.patch.object(_sys, "argv", argv), mock.patch.object(ingest, "open_bundle", lambda location: (StubBundle(), Counter())):
+    with mock.patch.object(_sys, "argv", argv), mock.patch.object(ingest, "open_bundle", lambda location: (StubBundle(), Counter())), \
+            mock.patch.object(ingest, "prepare", stub_prepare):
         with pytest.raises(SystemExit, match="shapes/nucleus_boundaries"):
             ingest.main()
     assert _state(tmp_path) == state

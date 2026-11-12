@@ -32,10 +32,11 @@ from minus80.core.tables import (
     COPY_CHUNK, TableWriter, declare_copy, iceberg_table_attr, local_catalog, register_files, write_parquet,
 )
 from tests.stores import cells_zip, zip_directory, zip_v2_store
+from facts import bundle_facts, write_record
 from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, image_members, write_bundle
 from tests.test_ingest_tables import TILES, _Bundle, _hold, _matrix_zip, _transcripts_run, _transcripts_zip
 from tests.test_qc import DENSITY, _bag, _html, _resource
-from bundle import CELLS, MATRIX
+from bundle import CELLS, MATRIX, Bundle
 from ingest import (
     ICEBERG_TABLES, MISSING_FROM_FULL, catalog_org, table_attr, table_specs, write_extra_tables,
     write_labels,
@@ -527,13 +528,29 @@ class Store:
         self.directory, self.branch = directory, branch
         self.repo, self.catalog = directory / "repo", directory / "catalog"
         self.bundle, self.he, self.alignment = directory / "outs.zip", directory / "he.ome.tif", directory / "al.csv"
+        self.record = directory / "records" / "kidney.json"
+
+    def write_inputs(self, change=None) -> None:
+        """The synthetic bundle, the H&E and the alignment. Without ``change`` the record of the bundle too.
+
+        ``change(members)`` alters the members first; such a bundle has no record.
+        """
+        members = _bundle_members(self.directory)
+        if change:
+            change(members)
+        write_bundle(self.bundle, members)
+        _rgb_pyramid(self.he, planar=False)
+        np.savetxt(self.alignment, ALIGNMENT, delimiter=",")
+        if not change:
+            found = bundle_facts(Bundle(self.bundle), lambda: self.he.open("rb"), self.alignment.read_text)
+            assert write_record("kidney", found, self.record.parent) == []
 
     def copy(self, directory: Path) -> "Store":
         """The repo and the catalog in ``directory``; the data files stay where they are."""
         shutil.copytree(self.repo, directory / "repo")
         shutil.copytree(self.catalog, directory / "catalog")
         copy = Store(directory, self.branch)
-        copy.bundle, copy.he, copy.alignment = self.bundle, self.he, self.alignment
+        copy.bundle, copy.he, copy.alignment, copy.record = self.bundle, self.he, self.alignment, self.record
         return copy
 
     def root(self):
@@ -553,19 +570,19 @@ class Store:
 
     def argv(self, *args):
         return ["verify.py", "--sample", "kidney", "--repo", str(self.repo), "--catalog", str(self.catalog),
-                "--bundle", str(self.bundle), "--he-image", str(self.he), *args]
+                "--bundle", str(self.bundle), "--he-image", str(self.he), "--he-alignment", str(self.alignment),
+                "--record", str(self.record), *args]
 
 
 @pytest.fixture(scope="module")
 def full_store(tmp_path_factory):
     """``ingest.py --mode full`` on a synthetic bundle, onto the branch ``main``. Tests copy it to damage it."""
     store = Store(tmp_path_factory.mktemp("full"))
-    write_bundle(store.bundle, _bundle_members(store.directory))
-    _rgb_pyramid(store.he, planar=False)
-    np.savetxt(store.alignment, ALIGNMENT, delimiter=",")
+    store.write_inputs()
     argv = ["ingest.py", "--sample", "kidney", "--repo", str(store.repo), "--catalog", str(store.catalog),
             "--namespace", "ns", "--mode", "full", "--branch", "main", "--bundle", str(store.bundle),
-            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--concurrency", "2"]
+            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--record", str(store.record),
+            "--concurrency", "2"]
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(store.directory)
         patch.setattr(sys, "argv", argv)
@@ -587,7 +604,7 @@ def _verify(monkeypatch, store, *args):
     return raised.value.code
 
 
-ALL_GATES = ("complete,images,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,"
+ALL_GATES = ("bundle,complete,images,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,"
              "field_ids,table_index,source")
 
 
@@ -600,6 +617,7 @@ def test_every_gate_of_a_full_store_passes_and_a_local_bundle_skips_the_source_g
         if gate != "source":
             assert f"{gate} PASS" in out
     assert "source: skipped" in out and "source PASS" not in out and "source FAIL" not in out
+    assert out.index("bundle PASS") < out.index("complete PASS")
 
 
 def test_fixture_mode_runs_the_gates_of_the_fixture_and_knows_no_complete_gate(monkeypatch, capsys, full_store):
@@ -607,6 +625,29 @@ def test_fixture_mode_runs_the_gates_of_the_fixture_and_knows_no_complete_gate(m
     capsys.readouterr()
     refusal = _verify(monkeypatch, full_store, "--mode", "fixture", "--branch", "main", "--gates", "complete")
     assert "unknown gates: complete" in refusal
+
+
+def test_the_bundle_gate_passes_on_the_bundle_of_the_record(monkeypatch, capsys, full_store):
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "bundle") == 0
+    assert "bundle PASS" in capsys.readouterr().out
+
+
+def test_the_bundle_gate_fails_a_bundle_that_differs_from_the_record(monkeypatch, capsys, tmp_path, full_store):
+    other = Store(tmp_path / "other")
+    other.directory.mkdir()
+    other.write_inputs(lambda members: members.pop("diffexp_genes/gene_expression_azimuth.csv"))
+    copy = full_store.copy(tmp_path / "copy")
+    copy.bundle = other.bundle
+    assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "bundle") == 1
+    out = capsys.readouterr().out
+    assert "bundle FAIL" in out and "diffexp_genes/gene_expression_azimuth.csv" in out
+
+
+def test_a_refused_record_fails_the_bundle_gate_with_its_reason(monkeypatch, capsys, tmp_path, full_store):
+    copy = full_store.copy(tmp_path / "copy")
+    copy.record = tmp_path / "absent" / "kidney.json"
+    assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "bundle") == 1
+    assert "bundle FAIL" in (out := capsys.readouterr().out) and "no record of kidney" in out
 
 
 def test_a_full_store_is_complete(full_store):
@@ -1272,7 +1313,8 @@ def test_row_groups_fail_when_they_are_out_of_file_order(tmp_path):
 def _ingest(monkeypatch, store, *extra):
     argv = ["ingest.py", "--sample", "kidney", "--repo", str(store.repo), "--catalog", str(store.catalog),
             "--namespace", "ns", "--mode", "full", "--branch", "main", "--bundle", str(store.bundle),
-            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--concurrency", "2", *extra]
+            "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--record", str(store.record),
+            "--concurrency", "2", *extra]
     monkeypatch.chdir(store.directory)
     monkeypatch.setattr(sys, "argv", argv)
     ingest.main()

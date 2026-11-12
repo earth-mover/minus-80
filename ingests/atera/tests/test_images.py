@@ -300,14 +300,15 @@ def test_full_mode_refuses_the_fixture_branch_and_fixture_mode_refuses_main(monk
         _main(monkeypatch, tmp_path, "--mode", "fixture", "--branch", "main")
 
 
-def test_full_mode_writes_the_image_elements_named_by_elements_from_local_objects(monkeypatch, tmp_path, bundle):
-    he, alignment = tmp_path / "he.ome.tif", tmp_path / "alignment.csv"
-    _rgb_pyramid(he, planar=False)
-    np.savetxt(alignment, ALIGNMENT, delimiter=",")
+def test_full_mode_writes_the_image_elements_named_by_elements_from_local_objects(monkeypatch, tmp_path):
+    from tests.test_verify import Store
+
+    store = Store(tmp_path)
+    store.write_inputs()
     monkeypatch.chdir(tmp_path)
-    _main(monkeypatch, tmp_path, "--mode", "full", "--branch", "full", "--bundle", str(tmp_path / "outs.zip"),
-          "--he-image", str(he), "--he-alignment", str(alignment), "--concurrency", "2",
-          "--elements", "images/morphology,images/morphology_3d,images/he_image")
+    _main(monkeypatch, tmp_path, "--mode", "full", "--branch", "full", "--bundle", str(store.bundle),
+          "--he-image", str(store.he), "--he-alignment", str(store.alignment), "--record", str(store.record),
+          "--concurrency", "2", "--elements", "images/morphology,images/morphology_3d,images/he_image")
     session = create_repo(tmp_path / "repo", [], open_existing=True).readonly_session(branch="full")
     root = zarr.open_group(session.store, mode="r")
     assert sorted(root["images"].group_keys()) == ["he_image", "morphology", "morphology_3d"]

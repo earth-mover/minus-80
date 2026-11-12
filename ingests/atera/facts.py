@@ -10,7 +10,7 @@ import csv
 import json
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -28,6 +28,8 @@ from sources import S3
 
 RECORDS = Path(__file__).with_name("samples")
 DIFFEXP_PREFIX = "diffexp_genes/"
+#: The default ceiling of the bytes that one bundle check or survey reads.
+DEFAULT_MAX_BYTES = 200_000_000
 #: The upper bound of a CSV header line.
 HEADER_LIMIT = 1 << 20
 #: The longest message that an error entry keeps.
@@ -40,6 +42,19 @@ _LOCATION = re.compile(rf"""\S*://\S*|\S*{re.escape(urlparse(S3).netloc)}\S*|['"
 
 class ByteLimit(BaseException):
     """A sample read more than its ceiling. It is no ``Exception``, so ``group`` does not catch it."""
+
+
+class Ceiling:
+    """The progress hook of a read counter. It raises ``ByteLimit`` once the reads pass ``limit`` bytes."""
+
+    def __init__(self, limit: int):
+        self.limit, self.total, self.message = limit, 0, None
+
+    def advance(self, size: int) -> None:
+        self.total += size
+        if self.total > self.limit:
+            self.message = f"read {self.total} bytes, over the limit of {self.limit} bytes"
+            raise ByteLimit(self.message)
 
 
 def error_text(error: Exception) -> str:
@@ -241,11 +256,11 @@ def store_facts(bundle: Bundle, member: str, *, first_tile_only: bool = False) -
     return {**found, "arrays": arrays, "groups": groups}
 
 
-def rasters_facts(html: str) -> dict:
+def rasters_facts(rasters: dict) -> dict:
     """The rasters as the ingest sees them: element name, label, dtype, shape, bin size, origin and unit."""
     return {name: {"label": r.label, "dtype": str(r.array.dtype), "shape": list(r.array.shape),
                    "bin_size": r.bin_size, "origin": list(r.origin), "unit": r.unit}
-            for name, r in qc.rasters(html).items()}
+            for name, r in rasters.items()}
 
 
 def report_facts(bundle: Bundle) -> dict:
@@ -253,14 +268,24 @@ def report_facts(bundle: Bundle) -> dict:
     return {"count": len(names), "files": names}
 
 
-def qc_facts(bundle: Bundle) -> dict:
-    """The raw view and the ingest's view of the first report member. The report is read once."""
+def qc_facts(bundle: Bundle, decoded: dict | None = None) -> dict:
+    """The raw view and the ingest's view of the first report member. The report is read and decoded once.
+
+    The decoded rasters go into ``decoded`` when it is given.
+    """
     names = bundle.matching(REPORT_PATTERN)
     if not names:
         raise ValueError(f"no member matches {REPORT_PATTERN}")
     with bundle.member_file(names[0]) as f:
         html = f.read().decode()
-    return {"member": names[0], "raw": group(qc.raw, html), "rasters": group(rasters_facts, html)}
+
+    def decode() -> dict:
+        found = qc.rasters(html)
+        if decoded is not None:
+            decoded.update(found)
+        return found
+
+    return {"member": names[0], "raw": group(qc.raw, html), "rasters": group(lambda: rasters_facts(decode()))}
 
 
 def header_facts(bundle: Bundle, name: str) -> dict:
@@ -278,11 +303,14 @@ def diffexp_facts(bundle: Bundle) -> dict:
             if n.startswith(DIFFEXP_PREFIX) and n.endswith(".csv")}
 
 
-def bundle_facts(bundle: Bundle, open_he: Callable, alignment_text: Callable) -> dict:
+def bundle_facts(
+    bundle: Bundle, open_he: Callable, alignment_text: Callable, skip: Collection[str] = (), decoded: dict | None = None,
+) -> dict:
     """The facts of one bundle, as plain JSON values.
 
     ``open_he`` returns the open H&E image and ``alignment_text`` the text of the alignment CSV.
     Each is called inside its own group, so a failure on either leaves the other groups in the record.
+    A group in ``skip`` is not read and is not in the result. The QC group decodes its rasters into ``decoded``.
     The groups run in order, the cheap ones first. When ``ByteLimit`` is raised, the group in progress
     and every later group become error entries, and the earlier groups stay.
     """
@@ -296,7 +324,7 @@ def bundle_facts(bundle: Bundle, open_he: Callable, alignment_text: Callable) ->
         (("transcripts",), lambda: transcript_facts(bundle)),
         (("diffexp",), lambda: diffexp_facts(bundle)),
         (("polygons",), lambda: polygon_facts(bundle)),
-        (("qc",), lambda: qc_facts(bundle)),
+        (("qc",), lambda: qc_facts(bundle, decoded)),
         (("morphology_2d",), lambda: morphology_facts(bundle, MORPHOLOGY_2D_PATTERN)),
         (("morphology_3d",), lambda: morphology_facts(bundle, MORPHOLOGY_3D_PATTERN)),
         (("he_image",), lambda: he_facts(open_he)),
@@ -305,7 +333,7 @@ def bundle_facts(bundle: Bundle, open_he: Callable, alignment_text: Callable) ->
         (("stores", MATRIX), lambda: store_facts(bundle, MATRIX)),
     ]
     found, stopped = {}, None
-    for path, read in steps:
+    for path, read in (step for step in steps if step[0][0] not in skip):
         if stopped is None:
             try:
                 value = group(read)
@@ -340,12 +368,12 @@ def compare(record: dict, found: dict, path: str = "") -> list[str]:
     return lines
 
 
-def load_record(sample_name: str, directory: Path = RECORDS) -> dict:
-    """The facts on record for ``sample_name``, without the ``sample`` key.
+def load_record(sample_name: str, directory: Path = RECORDS, *, path: Path | None = None) -> dict:
+    """The facts on record for ``sample_name``, without the ``sample`` key. ``path`` names the file, else ``directory`` does.
 
     A record with an error entry cannot serve as a reference. ``ValueError`` gives the path of each entry.
     """
-    path = directory / f"{sample_name}.json"
+    path = path or directory / f"{sample_name}.json"
     if not path.is_file():
         raise ValueError(f"no record of {sample_name}: {path} is absent")
     record = json.loads(path.read_text())
