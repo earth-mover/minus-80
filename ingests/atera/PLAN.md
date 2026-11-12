@@ -130,7 +130,7 @@ sizes:
 | `cells.zarr.zip` | Zarr v2 "CellSegmentationDataset 6.3": two `uint32` masks, two polygon sets, a gridded polygon copy, a cell summary | 0.5 GB | `labels/*`, `shapes/*`, chunks copied |
 | `cell_feature_matrix.zarr.zip` | Zarr v2 AnnData: CSR `X` of `int32`, `obs`, `var`, `obsm` | 1.3 GB | `tables/table`, chunks copied |
 | `csc_cell_feature_matrix.zarr.zip` | the same matrix by column | 1.1 GB | out: a copy of `X` |
-| `transcripts.zarr.zip` | Zarr v2 grid of 30 to 32 tiles, six column arrays each | 12.8 GB | `points/transcripts`, as an Iceberg table and a `uint8` copy |
+| `transcripts.zarr.zip` | Zarr v2 grid of 30 to 37 tiles, six column arrays each | 12.8 GB | `points/transcripts`, as an Iceberg table and a `uint8` copy |
 | `binned_transcripts.zarr.zip` | per-gene 2D bins for the viewer | 2.2 GB | out: derived from the transcripts |
 | `diffexp_genes/*.csv` | two tables, Azimuth and graph clustering | 36 MB | Iceberg tables |
 | `experiment.spatial`, `metrics_summary_*.csv`, `*_fov_locations.json` | JSON and CSV | 25 kB | root attributes |
@@ -401,7 +401,7 @@ All on 2026-11-10, from a laptop, with range requests only.
   members, all stored, in all four bundles.
 - **Inner stores.** The kidney and brain bundles' five Zarr zips were
   indexed in full: every member stored, every array's metadata read. The
-  transcripts store has 30 tiles (kidney) and 32 (brain) of six arrays each.
+  transcripts store has 30 tiles (kidney) and 35 (brain, by the survey) of six arrays each.
   The counts store's `X` is CSR with one-million-element chunks. The masks
   are `(33139, 56644)` and `(42548, 61369)` `uint32` in blosc-zstd.
 - **Images.** The ten morphology TIFFs were parsed: 8 levels, 1024 tiles,
@@ -722,7 +722,7 @@ Risks:
   element as tiles is untested. It does not change the store. The elements declare
   `ome.version` `0.5-dev-spatialdata`. "Stage two", item 6, tests one element.
 - **Node count.** About 15 images with 8 levels, 2 labels, 2 shapes and one
-  table. The points have one part per source tile, 30 to 32 parts. That is a
+  table. The points have one part per source tile, 30 to 37 parts. That is a
   few hundred nodes per repo, far under the 500,000-node snapshot cache.
 
 ## Stage two
@@ -910,9 +910,11 @@ Open work, as present facts.
   `docs/ingest.md` asks for a branch first for a new source. The launcher
   accepts a branch `trial-<name>`. The owner decides for each sample.
 - **Facts of the other samples.** The other samples use analysis version 1.1.1.
-  Confirm these facts from each bundle before a write: the member names, the
-  planar H&E with 9 levels, 15 planes in the stack, 32 transcript tiles, the
-  QC labels, the metric keys.
+  The survey recorded them (`LAYOUTS.md`, "The four bundles"). The member names,
+  the QC labels and the metric keys equal the kidney's. The H&E is planar with 9
+  levels in all three. The stack has 15 planes in the brain and 13 in the others.
+  The transcript grids have 35, 33 and 37 tiles. Each bundle check compares a
+  bundle with its record.
 - **Approvals.** Each sample needs its repo, its namespace, its access policy,
   the Coiled spend and the storage. The owner approves each one.
 - **The 3D stack.** The stack decodes its planes in one thread. It took
@@ -989,7 +991,7 @@ The owner checks each of these.
 It runs on one VM through the launcher's script form. It reads by range request and downloads no bundle.
 It writes nothing to Arraylake.
 It reads metadata and the small index arrays: no pixel, no transcript column, no matrix chunk.
-It prints the bytes that it read from each bundle. The kidney's metadata reads were about 42 MB.
+It prints the bytes that it read from each bundle.
 The record holds:
 
 - the member names of the bundle, with sizes;
@@ -1007,6 +1009,13 @@ The record holds:
 The kidney is in the survey as a control. Its record must equal what `LAYOUTS.md` holds.
 The survey writes each record as `samples/<sample>.json`. The file is committed.
 `LAYOUTS.md` gets a table of the differences between the samples. A difference from the kidney is a finding with its number.
+
+Result: the survey ran on 2026-11-12 on one `m7g.xlarge` in us-west-2 and wrote the four records.
+It read 146,999,959, 103,065,174, 152,937,056 and 169,825,963 bytes in 1,852, 1,253, 1,733 and 1,927 requests.
+These are the kidney, brain, colorectal and breast. The kidney's reads total 3.5 times the 42 MB of the plan's estimate.
+Each kidney fact of `LAYOUTS.md` and `REPORT.md` equals the record.
+The colorectal and breast records hold an error entry at `qc.rasters`: the reader did not know `uint32`.
+`LAYOUTS.md` has the table in "The four bundles".
 
 **2. Members by pattern.** The ingest finds the morphology files by `morphology_2d/ch*.ome.tif` and `morphology_3d/ch*.ome.tif`.
 It finds the metrics member and the report by one pattern each. Each pattern must match the expected count, or the open of the bundle fails.
@@ -1055,6 +1064,19 @@ It has a dry run. It prints no bucket name and no prefix.
 It reads the namespace's location from the catalog at run time. No file holds it.
 Each piece that exists and is as wanted is skipped. A piece that exists and differs stops the script.
 
+### Facts that change stage three
+
+- The density map of the colorectal and breast reports is `uint32`. The QC reader accepts `uint32`.
+- The breast has 9 morphology levels in the four 2D files and in the stack. The other samples have 8.
+- The largest tile is in the colorectal sample: 334,725,210 rows. The kidney's largest has 90,630,655 rows. The ratio is 3.7.
+- The transcript rows are 1,640,508,930, 3,855,378,414 and 4,565,138,232 for the brain, colorectal and breast.
+- Estimate of the transcript tables. The kidney's tile `3,1` measured 24.6 bytes per row of Parquet.
+  That is 2,230,658,968 bytes for 90,630,655 rows.
+  Then 1,640,508,930 x 24.6 is 40.4e9, 3,855,378,414 x 24.6 is 94.8e9, and 4,565,138,232 x 24.6 is 112.3e9.
+  The tables come to about 40 GB, 95 GB and 112 GB.
+- Estimate of the scratch file of the largest tile. 334,725,210 x 24.6 is 8.2e9 bytes, or 7.7 GiB.
+  The launcher allows 10 GiB for this file.
+
 ### The run of one sample
 
 Each run needs the owner's approval of the repo, the spend and the storage.
@@ -1083,4 +1105,5 @@ The estimate assumes no gain from the stack's threads. The time limit is twice t
 - The names and signatures of functions.
 - The form of the survey's record, if `LAYOUTS.md` can hold it as tables.
 - The thread count of the stack's decode.
-- The test data for a 1.1.1 layout: a planar H&E with 9 levels, 15 planes, other stain names.
+- The test data for a 1.1.1 layout. It has a planar H&E with 9 levels and a stack of 15 planes.
+  It has 9 morphology levels and a `uint32` density map.

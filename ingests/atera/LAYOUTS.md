@@ -98,6 +98,118 @@ report from the bundle.
 | `atera-colorectal` | `Atera_v1_WTA_S4B_Colorectal_Cancer_FF_analysis_summary.html` | 9,227,516 | `2b1cbe0fc7dc0450bd5af267c99c1f56-2` | 2026-11-04 |
 | `atera-breast` | `Atera_v1_WTA_S4C_Breast_Cancer_FF_analysis_summary.html` | 9,225,158 | `75da29c5332603ba398a1ba22bd87da8-2` | 2026-11-04 |
 
+## The four bundles
+
+A survey read the four bundles on 2026-11-12 and wrote one record for each in `samples/<sample>.json`.
+The survey ran on one `m7g.xlarge` in AWS us-west-2.
+It read metadata and index arrays only, by range request. It wrote nothing to Arraylake.
+
+| Sample | Bytes read | Requests |
+|---|---|---|
+| kidney | 146,999,959 | 1,852 |
+| brain | 103,065,174 | 1,253 |
+| colorectal | 152,937,056 | 1,733 |
+| breast | 169,825,963 | 1,927 |
+
+### The facts of each sample
+
+Every number comes from the record.
+The QC grids come from the report's `dimensions` and `horizontal_bin_count`, with 20 µm bins and 80 µm bins.
+In all four samples, the four other 20 µm maps hold as many values as the 20 µm grid.
+The 80 µm map holds as many values as the 80 µm grid.
+The colorectal and breast records hold the header of the density map only.
+So its value count is not on record.
+
+| Fact | kidney | brain | colorectal | breast |
+|---|---|---|---|---|
+| Analysis version | atera-1.0.4.1 | atera-1.1.1.0 | atera-1.1.1.0 | atera-1.1.1.0 |
+| Pixel size (µm) | 0.21249222 | 0.21249222 | 0.21249222 | 0.21249222 |
+| Bundle members | 23 | 23 | 23 | 23 |
+| Morphology 2D levels | 8 | 8 | 8 | 9 |
+| Morphology level 0 (y, x) | (33139, 56644) | (42548, 61369) | (37836, 61353) | (37930, 70735) |
+| Stack planes | 13 | 15 | 13 | 13 |
+| Stack levels | 8 | 8 | 8 | 9 |
+| Stack z step (µm) | 3.0 | 3.0 | 3.0 | 3.0 |
+| H&E layout | interleaved | planar | planar | planar |
+| H&E planarconfig | 1 | 2 | 2 | 2 |
+| H&E compression | ADOBE_DEFLATE (8) | NONE (1) | NONE (1) | NONE (1) |
+| H&E levels | 7 | 9 | 9 | 9 |
+| H&E level 0 shape, as tifffile reports it | (42169, 23628, 3) | (3, 45694, 34152) | (3, 46690, 26286) | (3, 52963, 33455) |
+| H&E OME pixel size x, y (µm) | 0.27377097485986257, 0.27377514651833773 | 0.27377551503693404, 0.2737743698175019 | 0.2737764259925882, 0.27377278027832364 | 0.2737756820450169, 0.2737734450228483 |
+| H&E tile | (1024, 1024) | (1024, 1024) | (1024, 1024) | (1024, 1024) |
+| Transcript tiles (grid_keys) | 30 | 35 | 33 | 37 |
+| Transcript rows | 1,186,813,834 | 1,640,508,930 | 3,855,378,414 | 4,565,138,232 |
+| Largest tile rows | 90,630,655 | 101,948,261 | 334,725,210 | 323,473,738 |
+| gene_offset chunk rows | 24,674 | 24,677 | 24,677 | 24,677 |
+| Cells | 399,120 | 91,431 | 446,777 | 485,985 |
+| Nucleus set rows | 398,197 | 90,238 | 445,269 | 489,641 |
+| Nucleus set unique cells | 394,076 | 89,840 | 438,274 | 475,426 |
+| Cell set rows | 399,120 | 91,431 | 446,777 | 485,985 |
+| Cell set unique cells | 399,120 | 91,431 | 446,777 | 485,985 |
+| Nucleus set methods (rows) | 3 (377,544); 4 (20,653) | 3 (88,037); 4 (2,201) | 3 (385,518); 4 (59,751) | 3 (446,939); 4 (42,702) |
+| Cell set methods (rows) | 0 (82,577); 1 (312,076); 2 (4,467) | 0 (6,174); 1 (83,333); 2 (1,924) | 0 (52,198); 1 (375,060); 2 (19,519) | 0 (127,964); 1 (348,158); 2 (9,863) |
+| QC grid 20 µm (rows by columns) | 353 by 603 | 453 by 653 | 403 by 653 | 404 by 753 |
+| QC grid 80 µm (rows by columns) | 89 by 151 | 114 by 164 | 101 by 164 | 101 by 189 |
+| QC bin size (µm) | 20.0 | 20.0 | 20.0 | 20.0 |
+| QC raster dtypes | uint16 (all six maps) | uint16 (all six maps) | uint16 (five maps); uint32 (the transcript density map) | uint16 (five maps); uint32 (the transcript density map) |
+| Diffexp columns, azimuth | 146 | 86 | 128 | 143 |
+| Diffexp columns, graphclust | 86 | 80 | 74 | 80 |
+| Cells store arrays | 2,432 | 2,999 | 2,276 | 2,876 |
+| Cells store listing truncated | no | yes | no | no |
+| Counts store arrays | 419 | 309 | 370 | 405 |
+| Record error entries | none | none | qc.rasters | qc.rasters |
+
+The alignment matrix of each sample, as three rows of three numbers:
+
+- kidney: `0.008566778149855193,1.288853807979006,914.1373717471324`; `-1.288853807979006,0.008566778149855193,32040.595506861275`; `0.0,0.0,1.0`.
+- brain: `0.0027415923126132453,1.289035480320539,2898.1812485916216`; `-1.289035480320539,0.0027415923126132453,40318.17766101257`; `0.0,0.0,1.0`.
+- colorectal: `0.0021905011282140523,1.289043437173772,-690.0117501854438`; `-1.289043437173772,0.0021905011282140523,36250.525266432596`; `0.0,0.0,1.0`.
+- breast: `0.0023853516130283455,1.2890134780879539,1070.2031252227916`; `-1.2890134780879539,0.0023853516130283455,40380.985237337765`; `0.0,0.0,1.0`.
+
+### What is the same in all four
+
+Each statement below was checked between the four records.
+
+- The members have the same names. Only the metrics member and the report member carry the sample's own suffix.
+- The four morphology files are `ch0000_dapi.ome.tif`, `ch0001_atp1a1_cd45_e-cadherin.ome.tif`, `ch0002_18s.ome.tif` and `ch0003_alphasma_vimentin.ome.tif`.
+  The stack file is `ch0000_dapi_3d.ome.tif`.
+- `experiment.spatial` has the same 49 keys.
+- The metrics member has the same 103 keys.
+- `cells.zarr.zip` has two polygon sets, `0` and `1`, and the same eight method names in the same order.
+- `cell_summary` has the same eight columns.
+- The directories of tiles equal `grid_keys`, and the tile rows add up to `number_rnas`.
+- The morphology files are `uint16` JPEG 2000 with tiles of 1024. The H&E has tiles of 1024, `uint8`, one page.
+- The QC labels, the QC origin `[-10.0, -10.0]` and the unit `µm` are the same. The pixel size is 0.21249222 µm.
+- The report has the same data bag keys. The transcript tile has the same six column arrays.
+- The two diffexp files have the same names and the same first two columns.
+- The alignment is a 3 by 3 matrix with the bottom row `0.0,0.0,1.0`.
+
+### The differences from the kidney
+
+- **The stack has 15 planes in the brain.** The kidney, colorectal and breast stacks have 13.
+- **The breast has 9 morphology levels.** The four 2D files and the stack have 9 levels. The other three samples have 8.
+- **The H&E of the three 1.1.1 samples is planar and uncompressed.**
+  Each has 9 levels, `planarconfig` 2 and compression NONE (1).
+  The kidney is interleaved, ADOBE_DEFLATE (8), with 7 levels.
+  tifffile reports a planar level as `(3, y, x)`. It reports an interleaved level as `(y, x, 3)`.
+- **The transcript grids have 35, 33 and 37 tiles.** The kidney has 30.
+  The brain, colorectal and breast tiles hold up to 101,948,261, 334,725,210 and 323,473,738 rows. The kidney's largest holds 90,630,655.
+- **The density map is `uint32` in colorectal and breast.** The other maps are `uint16`. The survey's reader knew `uint16` and `float32` only, so it stopped at the header.
+- **The gene count is 24,677 in the three 1.1.1 samples.** The kidney has 24,674.
+  `gene_offset` has these rows in the first listed tile, and `var/feature_id` in the counts store has the same count.
+- **The diffexp files differ in columns.** The azimuth file has 146, 86, 128 and 143 columns. The graphclust file has 86, 80, 74 and 80.
+- **The cells store has 2,432, 2,999, 2,276 and 2,876 arrays.**
+  The brain's listing stops at the survey's cap of 3,000 members.
+  The record marks it `truncated` and counts 36 members not read.
+  This is a limit of the survey. It is no fact of the bundle.
+  The brain record lacks the group entries `""` and `gridded_polygon_sets/1` of the cells store for the same reason.
+
+### The error entries
+
+The colorectal and breast records each hold one error entry, at `qc.rasters`.
+It comes from the reader before it accepted `uint32`.
+A record with an error entry does not serve as a reference until the survey reads that group again.
+
 ## Files
 
 The fixture branch, `fixture`, of a local repo and a local catalog, written on 2026-11-10 from the
