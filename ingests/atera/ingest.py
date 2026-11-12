@@ -294,7 +294,7 @@ def write_morphology_3d(
         pages = list(pyramid[level].pages)
         array = create_level(group, f"s{level}", shapes[level], pages[0].dtype, dims=("c", "z", "y", "x"),
                              chunk=(pages[0].tilelength, pages[0].tilewidth), shard_planes=len(pages))
-        write_stack(array, pages, (0,), concurrency=concurrency)
+        write_stack(array, pages, (0,), concurrency=concurrency, decoders=min(len(pages), os.cpu_count() or 1))
 
     write_levels(writer, "images/morphology_3d", len(shapes), levels, write_level,
                  lambda held: raster_attrs(level_ome("morphology_3d", ("c", "z", "y", "x"), shapes, held, omero),

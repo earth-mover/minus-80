@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import sys
 import zipfile
 from contextlib import contextmanager
@@ -206,11 +207,22 @@ def test_the_stack_is_written_one_shard_per_tile_and_every_plane_matches(bundle,
     assert ome["multiscales"][0]["coordinateTransformations"][0]["scale"] == [1.0, Z_STEP, PIXEL, PIXEL]
 
 
+def test_the_stack_decodes_with_one_thread_for_each_plane_up_to_the_cpu_count(bundle, writer, monkeypatch):
+    decoders = []
+    real = ingest.write_stack
+    monkeypatch.setattr(ingest, "write_stack", lambda *a, **kw: decoders.append(kw.get("decoders")) or real(*a, **kw))
+    write_morphology_3d(writer, bundle, PIXEL, levels=[0], concurrency=2)
+    assert decoders == [min(PLANES, os.cpu_count() or 1)]
+    root = zarr.open_group(writer.repo.readonly_session(branch="work").store, mode="r")
+    page = bundle.tiff(MORPHOLOGY_3D).series[0].levels[0].pages[1]
+    np.testing.assert_array_equal(root["images/morphology_3d/s0"][0, 1], page.asarray())
+
+
 def test_a_rerun_of_the_stack_decodes_no_held_level(bundle, writer, monkeypatch):
     write_morphology_3d(writer, bundle, PIXEL, levels=[0], concurrency=1)
     decoded = []
-    real = pyramid._decode_tile
-    monkeypatch.setattr(pyramid, "_decode_tile", lambda page, *a: decoded.append(page.imagelength) or real(page, *a))
+    real = pyramid._decode_segments
+    monkeypatch.setattr(pyramid, "_decode_segments", lambda page, *a: decoded.append(page.imagelength) or real(page, *a))
     write_morphology_3d(writer, bundle, PIXEL, concurrency=1)
     assert SHAPE[0] not in decoded and decoded
     assert writer.complete("images/morphology_3d")

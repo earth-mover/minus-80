@@ -1,5 +1,6 @@
 """Pages of synthetic TIFFs written into zarr levels, compared with tifffile's own decode."""
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -20,6 +21,8 @@ from minus80.core.pyramid import (
     write_page,
     write_stack,
 )
+
+DECODE_POOL = "stack-decode"
 
 XML = """<?xml version="1.0"?>
 <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
@@ -497,12 +500,15 @@ def test_write_stack_refuses_an_array_not_sharded_by_stack(tmp_path):
             write_stack(flat, pages, (0,))
 
 
-def test_write_stack_bounds_pending_writes_by_bytes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("decoders", [1, 4])
+def test_write_stack_bounds_pending_writes_by_bytes(tmp_path, monkeypatch, decoders):
     in_flight = []
 
     class TrackingPool(ThreadPoolExecutor):
         def submit(self, *args, **kwargs):
             future = super().submit(*args, **kwargs)
+            if self._thread_name_prefix == DECODE_POOL:
+                return future
             in_flight.append(future)
             in_flight[:] = [f for f in in_flight if not f.done()]
             peak.append(len(in_flight))
@@ -514,7 +520,7 @@ def test_write_stack_bounds_pending_writes_by_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr(pyramid, "PENDING_BYTES", 2 * 3 * 256 * 256 * 2 + 1)
     tif, pages, array = _stack(tmp_path)
     with tif:
-        assert write_stack(array, pages, (0,), concurrency=8) == 18
+        assert write_stack(array, pages, (0,), concurrency=8, decoders=decoders) == 18
         assert max(peak) <= 2
         np.testing.assert_array_equal(array[0, 1], pages[1].asarray())
 
@@ -567,3 +573,62 @@ def test_write_stack_fills_a_missing_tile_with_the_fill_value(tmp_path):
         write_stack(array, pages, (0,))
         assert (array[0, 1, :256, :256] == 7).all()
         np.testing.assert_array_equal(array[0, 0], pages[0].asarray())
+
+
+def _pool_threads():
+    return [t for t in threading.enumerate() if t.name.startswith(DECODE_POOL)]
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_write_stack_decoded_in_threads_equals_serial(tmp_path, concurrency):
+    tif, pages, serial = _stack(tmp_path, planes=5)
+    with tif:
+        threaded = create_level(
+            zarr.group(MemoryStore()), "s0", serial.shape, serial.dtype,
+            dims=("c", "z", "y", "x"), chunk=(256, 256), shard_planes=5,
+        )
+        pages[3].databytecounts = (0, *pages[3].databytecounts[1:])
+        assert write_stack(serial, pages, (0,), concurrency=concurrency) == 18
+        assert write_stack(threaded, pages, (0,), concurrency=concurrency, decoders=4) == 18
+        np.testing.assert_array_equal(threaded[:], serial[:])
+        np.testing.assert_array_equal(threaded[0, 2], pages[2].asarray())
+        assert (threaded[0, 3, :256, :256] == 0).all()
+        assert not _pool_threads()
+
+
+def test_write_stack_uses_no_pool_with_one_decoder(tmp_path, monkeypatch):
+    submitted = _count_pool_submits(monkeypatch)
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        write_stack(array, pages, (0,), decoders=1)
+    assert submitted == []
+
+
+def test_a_decode_that_raises_stops_the_write_and_ends_the_pool(tmp_path, monkeypatch):
+    tif, pages, array = _stack(tmp_path, planes=5)
+    real_decode = pyramid._decode_segments
+    plane_two = []
+
+    def failing(page, segments):
+        if page is pages[2]:
+            plane_two.append(1)
+            if len(plane_two) == 2:
+                raise OSError("decode failed")
+        return real_decode(page, segments)
+
+    writes = []
+    real_set = zarr.Array.__setitem__
+    monkeypatch.setattr(pyramid, "_decode_segments", failing)
+    monkeypatch.setattr(zarr.Array, "__setitem__", lambda a, k, v: writes.append(k) or real_set(a, k, v))
+    with tif:
+        with pytest.raises(OSError, match="decode failed"):
+            write_stack(array, pages, (0,), decoders=4)
+    assert len(writes) == 1
+    assert not _pool_threads()
+
+
+def test_write_stack_refuses_decoders_below_one(tmp_path):
+    tif, pages, array = _stack(tmp_path)
+    with tif:
+        with pytest.raises(ValueError, match="decoders must be at least 1"):
+            write_stack(array, pages, (0,), decoders=0)

@@ -55,10 +55,8 @@ def _tiles(page: tifffile.TiffPage) -> Iterator[tuple[int, int, int, np.ndarray]
             yield _crop(page, segment, indices)
 
 
-def _decode_tile(
-    page: tifffile.TiffPage, row: int, col: int
-) -> Iterator[tuple[int, int, int, np.ndarray]]:
-    """Decode only tile `(row, col)`: one segment, or one per sample on a planar page."""
+def _read_tile(page: tifffile.TiffPage, row: int, col: int) -> list[tuple[int, bytes]]:
+    """Read the stored bytes of tile `(row, col)` as `(segment index, bytes)`: one, or one per sample if planar."""
     per_row = -(-page.imagewidth // page.tilewidth)
     rows = -(-page.imagelength // page.tilelength)
     per_plane = per_row * rows
@@ -67,15 +65,31 @@ def _decode_tile(
         raise IndexError(f"tile ({row}, {col}) is outside the {rows} x {per_row} tile grid of {page}")
     planar = page.planarconfig == tifffile.PLANARCONFIG.SEPARATE
     fh = page.parent.filehandle
+    segments = []
     for sample in range(page.samplesperpixel if planar else 1):
         i = sample * per_plane + row * per_row + col
         if not page.databytecounts[i]:
             continue
-        with page.parent.filehandle.lock:
+        with fh.lock:
             fh.seek(page.dataoffsets[i])
-            data = fh.read(page.databytecounts[i])
+            segments.append((i, fh.read(page.databytecounts[i])))
+    return segments
+
+
+def _decode_segments(
+    page: tifffile.TiffPage, segments: Sequence[tuple[int, bytes]]
+) -> Iterator[tuple[int, int, int, np.ndarray]]:
+    """Decode each `(segment index, bytes)` of `page`; this holds no lock and reads no file."""
+    for i, data in segments:
         segment, indices, _ = page.decode(data, i)
         yield _crop(page, segment, indices)
+
+
+def _decode_tile(
+    page: tifffile.TiffPage, row: int, col: int
+) -> Iterator[tuple[int, int, int, np.ndarray]]:
+    """Decode only tile `(row, col)`: one segment, or one per sample on a planar page."""
+    yield from _decode_segments(page, _read_tile(page, row, col))
 
 
 def _require_tiled(page: tifffile.TiffPage) -> None:
@@ -205,8 +219,12 @@ def write_stack(
     index: tuple[int, ...],
     *,
     concurrency: int = 1,
+    decoders: int = 1,
 ) -> int:
     """Write one plane per page at `index`, one region per tile position; return the region count.
+
+    With `decoders > 1`, the planes of one position decode in that many threads.
+    The calling thread reads the tile bytes, so no thread seeks the shared file handle.
 
     An interior region is one whole shard, so the codec writes it once, not once per plane.
     A cropped edge region is a partial shard, so zarr reads that shard once before it writes.
@@ -215,11 +233,17 @@ def write_stack(
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
+    if decoders < 1:
+        raise ValueError(f"decoders must be at least 1, got {decoders}")
     first = _check_stack(array, pages, index)
     height, width = array.shape[-2:]
     tile_h, tile_w = first.tilelength, first.tilewidth
 
-    def writes():
+    def fill(stack, z, page, segments):
+        for _, _, _, tile in _decode_segments(page, segments):
+            stack[z] = tile[0]
+
+    def writes(pool):
         for y0 in range(0, height, tile_h):
             for x0 in range(0, width, tile_w):
                 stack = np.full(
@@ -227,9 +251,16 @@ def write_stack(
                     array.fill_value,
                     array.dtype,
                 )
-                for z, page in enumerate(pages):
-                    for _, _, _, tile in _decode_tile(page, y0 // tile_h, x0 // tile_w):
-                        stack[z] = tile[0]
+                row, col = y0 // tile_h, x0 // tile_w
+                # The caller reads every tile first: tifffile loads tag values lazily without the lock.
+                segments = [_read_tile(page, row, col) for page in pages]
+                if pool is None:
+                    for z, page in enumerate(pages):
+                        fill(stack, z, page, segments[z])
+                else:
+                    # Each thread fills its own plane; `result` re-raises the first failure.
+                    for future in [pool.submit(fill, stack, z, page, segments[z]) for z, page in enumerate(pages)]:
+                        future.result()
                 region = index + (
                     slice(None),
                     slice(y0, y0 + stack.shape[1]),
@@ -238,7 +269,13 @@ def write_stack(
                 yield region, stack
 
     region_bytes = len(pages) * tile_h * tile_w * array.dtype.itemsize
-    return _write_all(array, writes(), concurrency, region_bytes)
+    pool = ThreadPoolExecutor(decoders, thread_name_prefix="stack-decode") if decoders > 1 else None
+    try:
+        return _write_all(array, writes(pool), concurrency, region_bytes)
+    finally:
+        # A failed decode drops the queued planes; running ones finish before the error propagates.
+        if pool is not None:
+            pool.shutdown(cancel_futures=True)
 
 
 def check_page(
