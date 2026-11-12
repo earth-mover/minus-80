@@ -1,4 +1,4 @@
-"""Synthetic pyramid TIFFs shared by the pyramid tests and the Atera ingest tests."""
+"""Synthetic test images: a noisy picture, and a tiled pyramid TIFF of one plane or a ZYX stack."""
 
 import numpy as np
 import tifffile

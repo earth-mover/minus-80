@@ -26,6 +26,7 @@ from typing import NamedTuple
 import pyarrow as pa
 import pyarrow.parquet as pq
 import zarr
+from pyarrow.fs import FileType
 
 from .progress import MIB
 from .registry import file_path
@@ -148,14 +149,16 @@ def data_file(io, location: str) -> DataFile:
     So the time is rounded up, and a change within that second goes undetected.
     Raises when ``io`` states no time for the file.
     """
-    file = io.new_input(location)
-    # pyiceberg's InputFile has no public modification time; PyArrowFile's _file_info has it.
-    if not hasattr(file, "_file_info"):
+    # Only a PyArrowFileIO has a public filesystem to ask; the FileIO and InputFile APIs state no time.
+    if not hasattr(io, "fs_by_scheme"):
         raise ValueError(f"no last-modified time for {location}: {type(io).__name__} states none")
+    scheme, netloc, path = io.parse_location(location, io.properties)
     try:
-        info = file._file_info()
+        info = io.fs_by_scheme(scheme, netloc).get_file_info(path)
     except OSError as e:
         raise type(e)(f"{location}: {e}") from e
+    if info.type == FileType.NotFound:
+        raise FileNotFoundError(f"{location}: file not found")
     if info.mtime_ns is None:
         raise ValueError(f"no last-modified time for {location}: the store states none")
     seconds = -(-info.mtime_ns // 1_000_000_000)

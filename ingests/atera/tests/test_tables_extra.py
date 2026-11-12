@@ -78,3 +78,8 @@ def test_diffexp_table_types_a_column_without_values_as_float64():
 def test_diffexp_table_refuses_a_repeated_column_name():
     with pytest.raises(ValueError, match="G Mean Counts"):
         diffexp_table("Feature ID,G Mean Counts,G Mean Counts\nENSG1,1,2\n")
+
+
+def test_diffexp_table_names_a_missing_feature_id_column():
+    with pytest.raises(ValueError, match="Feature ID"):
+        diffexp_table("Feature Name\nA\n")

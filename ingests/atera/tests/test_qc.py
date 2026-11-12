@@ -331,3 +331,10 @@ def test_gate_qc_fails_when_the_channel_label_differs(qc_bundle, qc_store):
 
     errors = gate_qc(_corrupt(qc_store, change), qc_bundle)
     assert len(errors) == 1 and "label" in errors[0] and "Mean Quality" in errors[0]
+
+
+def test_a_report_in_another_unit_than_micrometres_raises():
+    bag = _bag()
+    bag["density_plot"]["unit"] = "mm"
+    with pytest.raises(ValueError, match="'mm'"):
+        rasters(_html(bag))

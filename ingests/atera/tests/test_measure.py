@@ -28,12 +28,18 @@ def sources(tmp_path_factory):
 
 def _run(monkeypatch, capsys, sources, tmp_path, part, *args, branch="measure-test", repo="repo"):
     argv = ["measure.py", "--local", str(tmp_path / repo), "--bundle", str(sources / "outs.zip"),
-            "--he-image", str(sources / "he.ome.tif"), "--branch", branch, "--part", part, *args]
+            "--he-image", str(sources / "he.ome.tif"), "--branch", branch, "--part", part, "--sample", "kidney", *args]
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as raised:
         measure.main()
     lines = capsys.readouterr().out.strip().splitlines()
     return raised.value.code, lines, json.loads(lines[-1])
+
+
+def test_measure_requires_a_sample(tmp_path, capsys):
+    with pytest.raises(SystemExit) as raised:
+        measure.parse(["--local", str(tmp_path), "--branch", "measure-t", "--part", "plane"])
+    assert raised.value.code == 2 and "--sample" in capsys.readouterr().err
 
 
 def test_sampled_spreads_over_the_items_and_keeps_both_ends():
@@ -45,7 +51,7 @@ def test_sampled_spreads_over_the_items_and_keeps_both_ends():
 def test_a_branch_that_does_not_start_with_measure_is_refused_before_anything_opens(
         monkeypatch, tmp_path, branch):
     argv = ["measure.py", "--local", str(tmp_path / "repo"), "--bundle", str(tmp_path / "absent.zip"),
-            "--branch", branch, "--part", "plane"]
+            "--branch", branch, "--part", "plane", "--sample", "kidney"]
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as raised:
         measure.main()
@@ -109,7 +115,7 @@ def test_the_tile_part_writes_the_largest_tile_to_a_local_parquet_file(monkeypat
 def test_the_tile_part_refuses_a_tile_the_source_lacks(monkeypatch, capsys, sources, tmp_path):
     monkeypatch.setattr(sys, "argv", ["measure.py", "--local", str(tmp_path / "r"), "--bundle",
                                       str(sources / "outs.zip"), "--branch", "measure-t", "--part", "tile",
-                                      "--tile", "9,9"])
+                                      "--tile", "9,9", "--sample", "kidney"])
     with pytest.raises(SystemExit, match="9,9"):
         measure.main()
 
@@ -125,7 +131,8 @@ def test_a_wrong_row_count_fails_the_tile_check(tmp_path):
 
 def _all(monkeypatch, capfd, sources, tmp_path, *extra):
     argv = ["measure.py", "--local", str(tmp_path / "repo"), "--bundle", str(sources / "outs.zip"),
-            "--he-image", str(sources / "he.ome.tif"), "--branch", "measure-test", "--part", "all", *extra]
+            "--he-image", str(sources / "he.ome.tif"), "--branch", "measure-test", "--part", "all",
+            "--sample", "kidney", *extra]
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as raised:
         measure.main()

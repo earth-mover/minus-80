@@ -1,5 +1,6 @@
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pyarrow as pa
@@ -8,6 +9,7 @@ import zarr
 
 from .stores import cells_zip
 from ingest import table_attr
+from sources import SAMPLES
 from minus80.core.tables import TableWriter, local_catalog
 
 LAYOUTS = (Path(__file__).parents[1] / "LAYOUTS.md").read_text()
@@ -436,6 +438,25 @@ def _matrix_zip(tmp_path):
     return zip_directory(source, tmp_path / "matrix.zip")
 
 
+def _table_arrays(tmp_path, name, concurrency):
+    from ingest import write_table
+    from minus80.core.elements import ElementWriter
+    from minus80.core.icechunk_io import create_repo
+
+    repo = create_repo(tmp_path / name, [])
+    repo.create_branch("fixture", repo.lookup_branch("main"))
+    write_table(ElementWriter(repo, "fixture"), _Bundle(_matrix_zip(tmp_path)), concurrency=concurrency)
+    group = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["tables/table"]
+    return {path: node[...] for path, node in group.members(max_depth=None) if isinstance(node, zarr.Array)}
+
+
+def test_the_table_copy_is_the_same_with_four_writers_as_with_one(tmp_path):
+    one, four = _table_arrays(tmp_path, "one", 1), _table_arrays(tmp_path, "four", 4)
+    assert one.keys() == four.keys() and "X/data" in one
+    for key in one:
+        np.testing.assert_array_equal(one[key], four[key])
+
+
 def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path):
     from anndata.io import read_elem
     from ingest import write_table
@@ -444,7 +465,7 @@ def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path)
 
     repo = create_repo(tmp_path / "repo", [])
     repo.create_branch("fixture", repo.lookup_branch("main"))
-    write_table(ElementWriter(repo, "fixture"), _Bundle(_matrix_zip(tmp_path)))
+    write_table(ElementWriter(repo, "fixture"), _Bundle(_matrix_zip(tmp_path)), concurrency=1)
     group = zarr.open_group(repo.readonly_session(branch="fixture").store, mode="r")["tables/table"]
     assert group.attrs["region"] == "cell_boundaries"
     assert group["uns/spatialdata_attrs/region"][()] == "cell_boundaries"
@@ -453,7 +474,7 @@ def test_the_table_annotates_cell_boundaries_with_one_instance_per_row(tmp_path)
 
 
 def test_a_fresh_fixture_has_a_table_region_that_every_gate_of_the_region_accepts(tmp_path):
-    from ingest import FIXTURE_TABLES, CELL_SET, NUCLEUS_SET, table_specs, write_boundaries, write_table
+    from ingest import ELEMENT_TABLES, CELL_SET, NUCLEUS_SET, table_specs, write_boundaries, write_table
     from minus80.core.elements import ElementWriter
     from minus80.core.icechunk_io import create_repo
     from verify import gate_table_region
@@ -465,17 +486,43 @@ def test_a_fresh_fixture_has_a_table_region_that_every_gate_of_the_region_accept
         def member_zip(self, name):
             return self.zips[name]
 
-    assert "cell_boundaries" in FIXTURE_TABLES
+    assert "cell_boundaries" in ELEMENT_TABLES
     bundle = FixtureBundle(_matrix_zip(tmp_path), cells_zip(tmp_path))
     tables = TableWriter(local_catalog(tmp_path / "catalog"), "ns", catalog_name="local", org="local")
     specs = table_specs({}, ["a", "b", "c", "d", "e"])
-    for name in FIXTURE_TABLES:
+    for name in ELEMENT_TABLES:
         tables.require(name, **specs[name])
-    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix(n) for n in FIXTURE_TABLES])
+    repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix(n) for n in ELEMENT_TABLES])
     repo.create_branch("fixture", repo.lookup_branch("main"))
     writer = ElementWriter(repo, "fixture")
-    write_table(writer, bundle)
+    write_table(writer, bundle, concurrency=1)
     write_boundaries(writer, bundle, tables, "nucleus_boundaries", NUCLEUS_SET)
     write_boundaries(writer, bundle, tables, "cell_boundaries", CELL_SET)
     with zarr.config.set({"array.rectilinear_chunks": True}):
         assert gate_table_region(_pinned(repo), tables.catalog) == []
+
+
+def _recorded(*names):
+    rows = "".join(f"| `atera-kidney` | `{SAMPLES['kidney'].name}{n}` | {10 if n.endswith('_outs.zip') else 99} | `e` | 2026-10-15 |\n" for n in names)
+    return "| Repo | Object | Size | ETag | Last modified |\n|---|---|---|---|---|\n" + rows
+
+
+def _ten_byte_bundle():
+    return SimpleNamespace(file=io.BytesIO(b"0123456789"))
+
+
+def test_check_bundle_size_selects_the_bundle_row_by_its_name_not_its_position():
+    from ingest import check_bundle_size
+
+    check_bundle_size(_ten_byte_bundle(), SAMPLES["kidney"], _recorded("_he_image.ome.tif", "_outs.zip"))
+    with pytest.raises(ValueError, match="is 3 bytes"):
+        check_bundle_size(SimpleNamespace(file=io.BytesIO(b"abc")), SAMPLES["kidney"],
+                          _recorded("_he_image.ome.tif", "_outs.zip"))
+
+
+@pytest.mark.parametrize("names", [("_he_image.ome.tif",), ("_outs.zip", "_b_outs.zip")])
+def test_check_bundle_size_refuses_no_bundle_row_and_several(names):
+    from ingest import check_bundle_size
+
+    with pytest.raises(ValueError, match="_outs.zip"):
+        check_bundle_size(_ten_byte_bundle(), SAMPLES["kidney"], _recorded(*names))

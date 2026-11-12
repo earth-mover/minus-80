@@ -43,7 +43,7 @@ from bundle import (
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
 from root_attrs import LICENSE, citation_text, parse_metrics, root_attrs, source_objects
-from sources import HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
+from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table, diffexp_table
 from transcripts import TRANSCRIPT_SCHEMA, tile_order, write_tile, xenium_cell_id
 
@@ -54,8 +54,8 @@ MASKS = {"nucleus_labels": "masks/0", "cell_labels": "masks/1"}
 NUCLEUS_SET, CELL_SET = 0, 1
 #: The root attribute that pins the tables that annotate no element, each as an ``iceberg_table`` attribute does.
 ICEBERG_TABLES = "iceberg_tables"
-#: The Iceberg tables the fixture writes; the others wait for the full ingest.
-FIXTURE_TABLES = ("nucleus_boundaries", "cell_boundaries", "transcripts")
+#: The Iceberg tables that an element holds, in both modes.
+ELEMENT_TABLES = ("nucleus_boundaries", "cell_boundaries", "transcripts")
 #: Each differential expression table with its bundle member.
 DIFFEXP_TABLES = {"diffexp_azimuth": DIFFEXP_AZIMUTH, "diffexp_graphclust": DIFFEXP_GRAPHCLUST}
 #: The tables that the root attribute ``iceberg_tables`` pins.
@@ -84,7 +84,7 @@ ELEMENTS = {
              "images/morphology_3d", "images/he_image", "root"),
 }
 #: The tables ``--replace-tables`` can replace in place: each table the full mode writes.
-REPLACEABLE = (*FIXTURE_TABLES, *EXTRA_TABLES)
+REPLACEABLE = (*ELEMENT_TABLES, *EXTRA_TABLES)
 #: The element whose step writes each replaceable table's rows.
 REPLACE_ELEMENTS = {"transcripts": "points/transcripts", "nucleus_boundaries": "shapes/nucleus_boundaries",
                     "cell_boundaries": "shapes/cell_boundaries", **dict.fromkeys(EXTRA_TABLES, ICEBERG_TABLES)}
@@ -160,11 +160,11 @@ def drop_index_column(frame: zarr.Group) -> None:
     frame.attrs["column-order"] = [c for c in frame.attrs["column-order"] if c != frame.attrs["_index"]]
 
 
-def write_table(writer: ElementWriter, bundle: Bundle) -> None:
+def write_table(writer: ElementWriter, bundle: Bundle, *, concurrency: int) -> None:
     zf = bundle.member_zip(MATRIX)
     with writer.unit("tables/table", "Write tables/table", total=member_bytes(zf, "")) as (root, _):
         group = root.require_group("tables").create_group("table")
-        copy_group(zf, "", group)
+        copy_group(zf, "", group, concurrency=concurrency)
         drop_index_column(group["obs"])
         drop_index_column(group["var"])
         obs = group["obs"]
@@ -430,8 +430,8 @@ def require_table_listing(tables: TableWriter, name: str, spec: dict, evolve: bo
 
 
 def require_tables(tables: TableWriter, specs: dict[str, dict], replace: set[str]) -> None:
-    """Require each of ``FIXTURE_TABLES``; a table in ``replace`` takes the columns of its spec."""
-    for name in FIXTURE_TABLES:
+    """Require each of ``ELEMENT_TABLES``; a table in ``replace`` takes the columns of its spec."""
+    for name in ELEMENT_TABLES:
         require_table_listing(tables, name, specs[name], name in replace)
 
 
@@ -564,7 +564,10 @@ def write_root(writer, bundle, sample, layouts: str, experiment: dict, *, missin
 
 
 def check_bundle_size(bundle: Bundle, sample, layouts: str) -> None:
-    recorded = source_objects(layouts, sample)[0]
+    bundles = [o for o in source_objects(layouts, sample) if o["url"].endswith(BUNDLE)]
+    if len(bundles) != 1:
+        raise ValueError(f"LAYOUTS.md records {len(bundles)} objects of {sample.repo} that end in {BUNDLE}, not 1")
+    (recorded,) = bundles
     size = bundle.file.seek(0, os.SEEK_END)
     if size != recorded["size"]:
         raise ValueError(f"{recorded['url']} is {size} bytes; LAYOUTS.md records {recorded['size']}")
@@ -656,7 +659,7 @@ def _preflight_tables(catalog, namespace: str, replace: set[str], problems: list
     Returns the data prefixes of the tables that exist.
     """
     specs, prefixes = table_specs({}, []), []
-    for name in (*FIXTURE_TABLES, *EXTRA_TABLES):
+    for name in REPLACEABLE:
         try:
             prefix = _preflight_table(catalog, namespace, name, specs, replace, problems)
         except Exception as e:  # The text of a storage error can hold a location.
@@ -690,7 +693,7 @@ def held_element_conflicts(catalog, namespace: str, specs: dict, replace: set[st
     if handle is None or branch not in handle.list_branches():
         return []
     writer, found = ElementWriter(handle, branch), []
-    for name in (n for n in FIXTURE_TABLES if n in replace and catalog.table_exists(f"{namespace}.{n}")):
+    for name in (n for n in ELEMENT_TABLES if n in replace and catalog.table_exists(f"{namespace}.{n}")):
         try:
             added, deleted = schema_changes(catalog.load_table(f"{namespace}.{name}"), specs[name]["schema"])
         except ValueError:  # The require step refuses a type change.
@@ -852,7 +855,7 @@ def run() -> None:
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     sample, layouts = SAMPLES[args.sample], LAYOUTS.read_text()
-    bundle, counter = open_bundle(args.bundle or sample.url("_outs.zip", S3))
+    bundle, counter = open_bundle(args.bundle or sample.url(BUNDLE, S3))
     if not args.bundle:
         check_bundle_size(bundle, sample, layouts)
     experiment = bundle.experiment()
@@ -871,7 +874,7 @@ def run() -> None:
                                                     _open_existing_repo(args.repo, []), args.branch)):
         raise SystemExit("\n".join(found))
     require_tables(tables, specs, replace)
-    prefixes = [tables.data_prefix(name) for name in FIXTURE_TABLES]
+    prefixes = [tables.data_prefix(name) for name in ELEMENT_TABLES]
     if on_arraylake:
         repo = arraylake_repository(args.repo, source_prefixes=prefixes)
     else:
@@ -898,7 +901,7 @@ def run() -> None:
     he_alignment = args.he_alignment or sample.url(HE_ALIGNMENT, S3)
     full = args.mode == "full"
     steps = {
-        "tables/table": unless_held(writer, "tables/table", lambda: write_table(writer, bundle)),
+        "tables/table": unless_held(writer, "tables/table", lambda: write_table(writer, bundle, concurrency=n)),
         **{f"labels/{name}": partial(write_labels, writer, bundle, pixel_size, names=[name], concurrency=n)
            for name in MASKS},
         **{f"shapes/{name}": unless_held(writer, f"shapes/{name}",

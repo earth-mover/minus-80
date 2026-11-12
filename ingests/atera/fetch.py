@@ -20,11 +20,11 @@ from pathlib import Path
 from minus80.core.progress import MIB, Progress
 
 from root_attrs import source_objects
-from sources import HE_ALIGNMENT, HE_IMAGE, SAMPLES
+from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, SAMPLES
 
 LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
 #: The suffix of each object that the ingest reads; the others of LAYOUTS.md are read from the bundle or not at all.
-READ_SUFFIXES = ("_outs.zip", HE_IMAGE, HE_ALIGNMENT)
+READ_SUFFIXES = (BUNDLE, HE_IMAGE, HE_ALIGNMENT)
 RETRIES = 5
 CHUNK = 1 << 20
 #: The largest part size, in MiB, that ``part_size`` considers.

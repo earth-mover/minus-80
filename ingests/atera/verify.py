@@ -3,7 +3,9 @@
 Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on any failure.
 ``--mode fixture`` checks the fixture branch: a gate skips an element that the branch lacks.
 ``--mode full`` checks every element of the full tree, whatever the branch, and fails on a missing one.
-Every expectation comes from the bundle, so the script serves each sample. The script only reads.
+Each expectation comes from the bundle, except three. Gate `complete` uses the ingest's element list.
+Gate `table_region` uses the ingest's region name. Gate `source` uses the record in LAYOUTS.md.
+The script only reads.
 """
 
 from __future__ import annotations
@@ -41,14 +43,14 @@ from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, open_tiff
+from bundle import CELLS, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, open_tiff
 from ingest import (
     CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS, MASKS,
     MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters
 from root_attrs import source_objects
-from sources import HE_IMAGE, S3, SAMPLES
+from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
 from transcripts import tile_order, xenium_cell_id
 
 SAMPLED = 50
@@ -835,7 +837,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=("fixture", "full"), default="fixture",
                         help="fixture skips an element that the branch lacks; full fails on it")
     parser.add_argument("--branch", help="the branch to read; by default fixture for --mode fixture, main for --mode full")
-    parser.add_argument("--sample", choices=sorted(SAMPLES), default="kidney")
+    parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
@@ -851,9 +853,9 @@ def main() -> None:
     root = open_root(args.repo, args.branch or {"fixture": "fixture", "full": "main"}[args.mode])
     catalog = open_catalog(args.catalog)
     sample = SAMPLES[args.sample]
-    bundle, counter = open_bundle(args.bundle or sample.url("_outs.zip", S3))
+    bundle, counter = open_bundle(args.bundle or sample.url(BUNDLE, S3))
     cells, matrix = bundle.member_zip(CELLS), bundle.member_zip(MATRIX)
-    transcripts = bundle.member_zip("transcripts.zarr.zip")
+    transcripts = bundle.member_zip(TRANSCRIPTS)
     pixel_size = bundle.experiment()["pixel_size"]
     names = set(cells.namelist())
     summary = read_array(cells, "cell_summary", names=names)

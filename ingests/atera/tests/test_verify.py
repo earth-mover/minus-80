@@ -552,8 +552,8 @@ class Store:
         commit(session, "edit")
 
     def argv(self, *args):
-        return ["verify.py", "--repo", str(self.repo), "--catalog", str(self.catalog), "--bundle", str(self.bundle),
-                "--he-image", str(self.he), *args]
+        return ["verify.py", "--sample", "kidney", "--repo", str(self.repo), "--catalog", str(self.catalog),
+                "--bundle", str(self.bundle), "--he-image", str(self.he), *args]
 
 
 @pytest.fixture(scope="module")
@@ -1164,10 +1164,17 @@ def test_instances_fail_an_instance_that_is_not_the_row_plus_one():
 def test_verify_refuses_a_repo_and_a_catalog_that_are_not_both_local_or_both_on_arraylake_and_makes_no_directory(
         monkeypatch, tmp_path, repo, catalog):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["verify.py", "--repo", repo, "--catalog", catalog])
+    monkeypatch.setattr(sys, "argv", ["verify.py", "--sample", "kidney", "--repo", repo, "--catalog", catalog])
     with pytest.raises(SystemExit):
         verify.main()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_verify_requires_a_sample(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(sys, "argv", ["verify.py", "--repo", str(tmp_path / "r"), "--catalog", str(tmp_path / "c")])
+    with pytest.raises(SystemExit) as raised:
+        verify.main()
+    assert raised.value.code == 2 and "--sample" in capsys.readouterr().err
 
 
 # gate_tables: row groups of each transcripts file

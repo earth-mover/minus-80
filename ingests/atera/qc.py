@@ -26,6 +26,7 @@ BIN_NAMES = {
 #: The bag gives the coarse map as a key, with no label or bin count; its bin size is in the key.
 COARSE_KEY = "mean_q_score_80um"
 COARSE_NAME, COARSE_LABEL, COARSE_BIN = "mean_q_score_80um", "Mean Q-Score 80 µm", 80.0
+UNIT = "µm"
 #: The element names in the order of PLAN.md, "The tree".
 QC_NAMES = ("transcript_density", "mean_q_score", COARSE_NAME, "negative_control_codewords",
             "negative_control_probes", "genomic_controls")
@@ -72,6 +73,8 @@ def rasters(html: str) -> dict[str, QcRaster]:
     plot = bag["density_plot"]
     width, height = plot["dimensions"]["width"], plot["dimensions"]["height"]
     origin, unit = tuple(plot["origin_data"]), plot["unit"]
+    if unit != UNIT:
+        raise ValueError(f"the report's unit is {unit!r}; the ingest declares {UNIT!r}")
     fine = width / plot["horizontal_bin_count"]
     found = {}
     maps = [(label, BIN_NAMES.get(label), key, fine) for label, key in plot["bins"].items()]

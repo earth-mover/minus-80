@@ -16,7 +16,9 @@ from transcripts import CATEGORY_COLUMNS
 
 
 def _required(table: pa.Table, index_column: str) -> pa.Table:
-    """``table`` with ``index_column`` non-nullable; a null in it raises ``ValueError``."""
+    """``table`` with ``index_column`` non-nullable; a null in it, or no such column, raises ``ValueError``."""
+    if index_column not in table.column_names:
+        raise ValueError(f"the table has no column {index_column!r}")
     fields = [f.with_nullable(False) if f.name == index_column else f for f in table.schema]
     return table.cast(pa.schema(fields))
 

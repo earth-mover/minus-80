@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import fetch
-from sources import SAMPLES
+from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, SAMPLES
 
 HERE = Path(__file__).parent
 #: The container that builds the environment: uv and git on Debian, for x86 and ARM.
@@ -180,8 +180,8 @@ def ingest_script(plan: IngestPlan) -> str:
     prints its last 40 lines again, so a failed check never reaches the ingest and a failed ingest never reaches the
     verification.
     """
-    files = {kind: f"$DATA/{o['name']}" for kind, suffix in (("bundle", "_outs.zip"), ("image", "_he_image.ome.tif"),
-                                                          ("alignment", "_he_imagealignment.csv"))
+    files = {kind: f"$DATA/{o['name']}" for kind, suffix in (("bundle", BUNDLE), ("image", HE_IMAGE),
+                                                          ("alignment", HE_ALIGNMENT))
              for o in fetch.wanted(SAMPLES[plan.sample]) if o["name"].endswith(suffix)}
     quote = shlex.quote
     python = "uv run --frozen --package atera-ingest python ingests/atera"

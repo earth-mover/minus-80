@@ -34,7 +34,7 @@ from zarr.storage import LoggingStore
 
 from bundle import CELLS, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, open_tiff
 from ingest import MASKS, member_bytes, open_bundle
-from sources import HE_IMAGE, S3, SAMPLES
+from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table
 from transcripts import TRANSCRIPT_SCHEMA, write_tile
 from verify import chunk_key, chunk_members, raw
@@ -360,7 +360,7 @@ def run_part(args) -> int:
     print(f"part {args.part}: concurrency {args.concurrency}, limit {args.limit}", flush=True)
     print(f"cpus: {os.cpu_count()}, usable by this process: {affinity}", flush=True)
     sample = SAMPLES[args.sample]
-    bundle, counter = open_bundle(args.bundle or sample.url("_outs.zip", S3))
+    bundle, counter = open_bundle(args.bundle or sample.url(BUNDLE, S3))
     if args.part == "tile":
         zf = bundle.member_zip(TRANSCRIPTS)
         counts = tile_counts(zf)
@@ -436,7 +436,7 @@ def parse(argv=None) -> argparse.Namespace:
     target.add_argument("--repo", help="arraylake://<org>/<repo>; it must exist")
     target.add_argument("--local", help="a local repo directory")
     parser.add_argument("--branch", required=True, help=f"a scratch branch; its name starts with {BRANCH_PREFIX}")
-    parser.add_argument("--sample", choices=sorted(SAMPLES), default="kidney")
+    parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
     parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--part", choices=(*PARTS, "all"), required=True)
