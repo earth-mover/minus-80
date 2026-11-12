@@ -1336,3 +1336,145 @@ The VM stops on every exit path of the script, and the server stops it at `--max
 No gate verified the current snapshot of each table.
 A reader of a table's current snapshot sees those rows.
 `main` of `atera-brain` pins no table, so a reader of `main` sees no data of the failed run.
+
+## The runs of colorectal and breast
+
+The colorectal and breast samples take the path of the brain. Each needs its own approvals.
+Their records hold no error entry since the second survey run of 2026-11-12.
+The plan's author recommends both runs after the brain's run passes and moves `main`.
+The brain's run is the first real run of a 1.1.1 bundle. A defect there would stop the two longer runs too.
+
+### The approvals of each sample
+
+1. **The setup.** `setup_sample.py --sample <sample> --org earthmover-biology` creates the four pieces.
+   Run it with `--dry-run` just before the launch. It must print four `exists` lines.
+2. **The spend.** One `m7g.xlarge` in us-west-2, Coiled workspace `earthmover-devs`, for at most the limit below.
+3. **The storage.** The transcript Parquet files come to about 95 GB (colorectal) and 112 GB (breast).
+   These figures use the kidney's 24.6 bytes per row. No run measured the rate of a 1.1.1 bundle.
+   No run measured the stored size of the images, labels and matrix.
+4. **The run.** It is the first write to the sample's repo, on the branch `trial-<date>`.
+
+### The commands
+
+```
+uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
+  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-colorectal \
+  --ingest --sample colorectal --repo arraylake://earthmover-biology/atera-colorectal \
+  --catalog arraylake://earthmover-biology --namespace atera-colorectal-tables \
+  --branch trial-<date> --concurrency 32 --max-minutes 679 --token-file <path>
+```
+
+```
+uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
+  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-breast \
+  --ingest --sample breast --repo arraylake://earthmover-biology/atera-breast \
+  --catalog arraylake://earthmover-biology --namespace atera-breast-tables \
+  --branch trial-<date> --concurrency 32 --max-minutes 786 --token-file <path>
+```
+
+The notes on the brain's command apply to each: `<date>`, `<path>`, no `--gates`, no `--replace-tables`, no `--disk`.
+On 2026-11-12, the command with `--dry-run` printed the disk of each sample. It contacted nothing and read no token.
+
+### The time limits
+
+The rule and the kidney's times are those of the brain. A ratio below 1 keeps the kidney's time.
+The brain's assumptions hold, with these three changes:
+
+- The verification scales by the ratio of the matrix's stored values, not of the pixels.
+  The gate `matrix` hashes every chunk of `X`, and the matrix ratio is the largest ratio of a gate's input.
+- The records hold the shape of each mask. It equals level 0 of the morphology, so the labels scale by its pixels.
+- The H&E of each sample is planar and uncompressed, as the brain's. No run measured its decode cost.
+
+#### colorectal
+
+These are the ratios against the kidney:
+
+- Downloads: 80,409,520,624 / 48,518,883,775 bytes = 1.6573.
+- Bundle check: 152,937,056 / 146,999,959 bytes = 1.0404. These are the survey's reads.
+- Pixels of level 0: (37836 x 61353) / (33139 x 56644) = 1.2367.
+- Stack: 13 / 13 planes x 1.2367 = 1.2367.
+- H&E pixels of level 0: (46690 x 26286) / (42169 x 23628) = 1.2318.
+- Transcript rows: 3,855,378,414 / 1,186,813,834 = 3.2485.
+- QC bins of the 20 µm grid: (403 x 653) / (353 x 603) = 1.2363.
+- Stored values of the matrix: 1,313,675,832 / 599,212,411 = 2.1923.
+- Polygon rows: 446,777 / 399,120 cells = 1.1194; 445,269 / 398,197 nuclei = 1.1182.
+
+| Step | Kidney (s) | Ratio | Colorectal (s) |
+|---|---|---|---|
+| environment | 13 | 1.0000 | 13.0 |
+| preflight | 14 | 1.0000 | 14.0 |
+| bundle-remote | 77 | 1.0404 | 80.1 |
+| space | 0 | 1.0000 | 0.0 |
+| download | 991 | 1.6573 | 1,642.4 |
+| check | 377 | 1.6573 | 624.8 |
+| bundle-local | 77 | 1.0404 | 80.1 |
+| ingest: the bundle check of `ingest.prepare`, an added estimate | 77 | 1.0404 | 80.1 |
+| ingest: `tables/table` | 905.3 | 2.1923 | 1,984.7 |
+| ingest: two labels | 69.9 | 1.2367 | 86.4 |
+| ingest: two shapes | 30.8 | 1.1194 | 34.5 |
+| ingest: `points/transcripts` | 1,749.3 | 3.2485 | 5,682.6 |
+| ingest: `iceberg_tables` | 30.5 | 1.0000 | 30.5 |
+| ingest: six QC rasters | 17.9 | 1.2363 | 22.1 |
+| ingest: `images/morphology` | 625.0 | 1.2367 | 772.9 |
+| ingest: `images/morphology_3d` | 3,257.4 | 1.2367 | 4,028.3 |
+| ingest: `images/he_image` | 68.5 | 1.2318 | 84.4 |
+| ingest: root attributes | 1.6 | 1.0000 | 1.6 |
+| ingest: the rest | 72.8 | 1.0000 | 72.8 |
+| verify: the gates of the kidney's run | 2,246 | 2.1923 | 4,924.0 |
+| verify: the gate `bundle` | 77 | 1.0404 | 80.1 |
+| promote | 4 | 1.0000 | 4.0 |
+| Sum | | | 20,343.4 |
+
+The estimate is 20,343.4 s, or 339.1 minutes.
+Twice the estimate is 40,686.9 s, or 678.1 minutes. The limit is 679 minutes.
+
+The disk is 125 GiB: 75 GiB of downloads and 40 GiB of overhead are 115 GiB at least.
+The largest tile has 334,725,210 rows. At 24.6 bytes per row, its scratch file is about 8.2e+09 bytes.
+The space step keeps 10 GiB for that file, so the file fits.
+
+#### breast
+
+These are the ratios against the kidney:
+
+- Downloads: 96,624,552,262 / 48,518,883,775 bytes = 1.9915.
+- Bundle check: 169,825,963 / 146,999,959 bytes = 1.1553. These are the survey's reads.
+- Pixels of level 0: (37930 x 70735) / (33139 x 56644) = 1.4293.
+- Stack: 13 / 13 planes x 1.4293 = 1.4293.
+- H&E pixels of level 0: (52963 x 33455) / (42169 x 23628) = 1.7783.
+- Transcript rows: 4,565,138,232 / 1,186,813,834 = 3.8465.
+- QC bins of the 20 µm grid: (404 x 753) / (353 x 603) = 1.4292.
+- Stored values of the matrix: 1,482,175,790 / 599,212,411 = 2.4735.
+- Polygon rows: 485,985 / 399,120 cells = 1.2176; 489,641 / 398,197 nuclei = 1.2296.
+
+| Step | Kidney (s) | Ratio | Breast (s) |
+|---|---|---|---|
+| environment | 13 | 1.0000 | 13.0 |
+| preflight | 14 | 1.0000 | 14.0 |
+| bundle-remote | 77 | 1.1553 | 89.0 |
+| space | 0 | 1.0000 | 0.0 |
+| download | 991 | 1.9915 | 1,973.6 |
+| check | 377 | 1.9915 | 750.8 |
+| bundle-local | 77 | 1.1553 | 89.0 |
+| ingest: the bundle check of `ingest.prepare`, an added estimate | 77 | 1.1553 | 89.0 |
+| ingest: `tables/table` | 905.3 | 2.4735 | 2,239.3 |
+| ingest: two labels | 69.9 | 1.4293 | 99.9 |
+| ingest: two shapes | 30.8 | 1.2296 | 37.9 |
+| ingest: `points/transcripts` | 1,749.3 | 3.8465 | 6,728.8 |
+| ingest: `iceberg_tables` | 30.5 | 1.0000 | 30.5 |
+| ingest: six QC rasters | 17.9 | 1.4292 | 25.6 |
+| ingest: `images/morphology` | 625.0 | 1.4293 | 893.3 |
+| ingest: `images/morphology_3d` | 3,257.4 | 1.4293 | 4,655.8 |
+| ingest: `images/he_image` | 68.5 | 1.7783 | 121.8 |
+| ingest: root attributes | 1.6 | 1.0000 | 1.6 |
+| ingest: the rest | 72.8 | 1.0000 | 72.8 |
+| verify: the gates of the kidney's run | 2,246 | 2.4735 | 5,555.6 |
+| verify: the gate `bundle` | 77 | 1.1553 | 89.0 |
+| promote | 4 | 1.0000 | 4.0 |
+| Sum | | | 23,574.0 |
+
+The estimate is 23,574.0 s, or 392.9 minutes.
+Twice the estimate is 47,148.0 s, or 785.8 minutes. The limit is 786 minutes.
+
+The disk is 150 GiB: 90 GiB of downloads and 40 GiB of overhead are 130 GiB at least.
+The largest tile has 323,473,738 rows. At 24.6 bytes per row, its scratch file is about 8.0e+09 bytes.
+The space step keeps 10 GiB for that file, so the file fits.
