@@ -381,3 +381,9 @@ def test_org_writes_pass_the_namespaces_own_bucket_and_sub_prefix():
         ("create_repo", "some-org/atera-brain"),
         ("create_iceberg_namespace", "some-org", "atera-brain-tables"),
     ]
+
+
+@pytest.mark.parametrize("prefix", [".", "..", "a/../b", "a/./b", "a//b", " a", "a b"])
+def test_split_location_refuses_a_segment_that_is_not_a_plain_name(prefix):
+    with pytest.raises(ValueError):
+        split_location(URL, prefix)

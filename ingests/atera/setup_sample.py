@@ -38,8 +38,12 @@ class Namespace(NamedTuple):
 def split_location(bucket_url: str, prefix: str) -> tuple[str, str]:
     """The location and the sub-prefix of a namespace; raises ``ValueError`` when the prefix names no directory."""
     subprefix = prefix.strip("/")
-    if not any(subprefix.split("/")):
+    segments = subprefix.split("/")
+    if not any(segments):
         raise ValueError("the namespace has no sub-prefix of its own")
+    # A segment that is empty, a dot name or holds a space can address another directory.
+    if any(not s or s in (".", "..") or s != s.strip() or " " in s for s in segments):
+        raise ValueError("the namespace's sub-prefix has a segment that is not a plain name")
     return f"{bucket_url.rstrip('/')}/{subprefix}/", subprefix
 
 
