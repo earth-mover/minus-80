@@ -15,7 +15,9 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 from minus80.core.icechunk_io import create_repo
-from minus80.core.zarr_copy import copy_chunks, copy_group, create_copy, read_array, read_rows, v2_spec
+from minus80.core.zarr_copy import (
+    chunk_key, chunk_members, copy_chunks, copy_group, create_copy, read_array, read_region, read_rows, v2_spec,
+)
 
 
 def _v2_zip(tmp_path, groups=None, **arrays):
@@ -481,3 +483,57 @@ def test_read_rows_refuses_a_range_outside_the_array(tmp_path, start, stop):
     zf = _v2_zip(tmp_path, x=dict(data=np.arange(10, dtype="<i4"), chunks=(4,), compressors=None))
     with pytest.raises(ValueError, match="rows"):
         read_rows(zf, "x", start, stop)
+
+
+# The v2 member to v3 key mapping
+
+@pytest.mark.parametrize("separator", [".", "/"])
+def test_chunk_members_map_to_v3_keys_under_either_separator(tmp_path, separator):
+    zf = _v2_zip(tmp_path, x=dict(data=np.arange(48, dtype="<u4").reshape(6, 8), chunks=(3, 4), compressors=None,
+                                   chunk_key_encoding={"name": "v2", "separator": separator}))
+    names = chunk_members(zf, "x")
+    assert sorted(names) == sorted(f"x/{r}{separator}{c}" for r in (0, 1) for c in (0, 1))
+    assert {chunk_key("labels/a/s0", "x", n) for n in names} == {f"labels/a/s0/c/{r}/{c}" for r in (0, 1) for c in (0, 1)}
+
+
+def test_chunk_members_skip_the_directory_entries_of_a_zip(tmp_path):
+    path = tmp_path / "d.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for name in ("masks/", "masks/0/", "masks/0/1/", "masks/0/1/0", "masks/0/1/1", "masks/0/.zarray", "masks/0/2.3"):
+            zf.writestr(name, b"")
+    members = sorted(chunk_members(zipfile.ZipFile(path), "masks/0"))
+    assert members == ["masks/0/1/0", "masks/0/1/1", "masks/0/2.3"]
+    assert [chunk_key("s0", "masks/0", m) for m in members] == ["s0/c/1/0", "s0/c/1/1", "s0/c/2/3"]
+
+
+def test_chunk_members_of_a_root_array_and_of_a_given_member_set(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.arange(6, dtype="<i4"), chunks=(2,), compressors=None))
+    names = ["0", "1", ".zarray", "x/0", "x/.zarray"]
+    assert chunk_members(zf, "", names=names) == ["0", "1"]
+    assert chunk_members(zf, "x", names=names) == ["x/0"]
+    assert chunk_key("a", "", "1") == "a/c/1"
+
+
+# read_region
+
+@pytest.mark.parametrize("order", ["C", "F"])
+def test_read_region_equals_the_slice_of_the_whole_array(tmp_path, order):
+    data = np.arange(7 * 5, dtype="<f4").reshape(7, 5)
+    zf = _v2_zip(tmp_path, x=dict(data=data, order=order, chunks=(3, 2), compressors=numcodecs.Blosc(cname="lz4")))
+    assert np.array_equal(read_region(zf, "x", [(3, 6), (2, 4)]), data[3:6, 2:4])
+    assert np.array_equal(read_region(zf, "x", [(6, 7), (4, 5)]), data[6:7, 4:5])
+    assert np.array_equal(read_region(zf, "x", [(1, 2)]), data[1:2])
+
+
+def test_read_region_reads_only_the_chunks_the_region_touches(tmp_path):
+    data = np.arange(6 * 4, dtype="<i4").reshape(6, 4)
+    zf = _v2_zip(tmp_path, x=dict(data=data, chunks=(3, 2), compressors=None))
+    # Only chunk (1, 1) is left; a region inside it needs no other.
+    gap = _without_members(tmp_path, zf, "x/0.0", "x/0.1", "x/1.0")
+    assert np.array_equal(read_region(gap, "x", [(3, 6), (2, 4)]), data[3:6, 2:4])
+
+
+def test_read_region_refuses_a_range_outside_the_array_on_any_axis(tmp_path):
+    zf = _v2_zip(tmp_path, x=dict(data=np.zeros((4, 4), dtype="<i4"), chunks=(2, 2), compressors=None))
+    with pytest.raises(ValueError, match="axis 1"):
+        read_region(zf, "x", [(0, 2), (2, 5)])

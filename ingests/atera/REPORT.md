@@ -145,7 +145,7 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - Booth and the Arraylake web app are not checked.
 - The overview scan is not in the store. No gate covers it.
 - No gate checks an element's transform.
-- Three checks use the ingest's own code as the reference: the chunk-key mapping, the copied arrays' metadata, the QC rasters' decode.
+- One check uses the ingest's own code as the reference: the QC rasters' decode.
 
 ## Changes from the plan
 

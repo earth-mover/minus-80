@@ -116,6 +116,19 @@ def create_copy(
     )
 
 
+def chunk_members(zf: zipfile.ZipFile, prefix: str, *, names: Collection[str] | None = None) -> list[str]:
+    """The chunk members of the v2 array at ``prefix``, under either separator; ``names`` is the member set of ``zf``."""
+    stem = f"{prefix}/" if prefix else ""
+    return [m for m in (zf.namelist() if names is None else names)
+            if m.startswith(stem) and _CHUNK_NAME.fullmatch(m[len(stem):])]
+
+
+def chunk_key(path: str, prefix: str, member: str) -> str:
+    """The key under the v3 array ``path`` of ``member``, a chunk of the v2 array at ``prefix``."""
+    stem = f"{prefix}/" if prefix else ""
+    return f"{path}/c/" + member.removeprefix(stem).replace(".", "/")
+
+
 def copy_chunks(
     zf: zipfile.ZipFile,
     prefix: str,
@@ -131,19 +144,12 @@ def copy_chunks(
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
-    stem = f"{prefix}/" if prefix else ""
     prototype = default_buffer_prototype()
-    keys = {}
-    for member in zf.namelist() if names is None else names:
-        index = member.removeprefix(stem)
-        if not member.startswith(stem) or not _CHUNK_NAME.fullmatch(index):
-            continue
-        # A v2 array of zero dimensions has the one chunk "0"; v3 names it "c".
-        keys[member] = (
-            f"{array.path}/c"
-            if array.ndim == 0
-            else f"{array.path}/c/" + index.replace(".", "/")
-        )
+    # A v2 array of zero dimensions has the one chunk "0"; v3 names it "c".
+    keys = {
+        member: f"{array.path}/c" if array.ndim == 0 else chunk_key(array.path, prefix, member)
+        for member in chunk_members(zf, prefix, names=names)
+    }
 
     async def put_all() -> None:
         free = asyncio.Semaphore(concurrency)
@@ -233,19 +239,20 @@ def copy_group(
 
 
 def _read_block(
-    zf: zipfile.ZipFile, path: str, names: Collection[str] | None, rows: tuple[int, int] | None
+    zf: zipfile.ZipFile, path: str, names: Collection[str] | None, region: Sequence[tuple[int, int]]
 ) -> np.ndarray:
-    """Decode the chunks of the v2 array at ``path`` that touch ``rows`` on axis 0, or all of them."""
+    """Decode the chunks of the v2 array at ``path`` that touch ``region``, one range for each leading axis."""
     zarray = json.loads(zf.read(f"{path}/.zarray"))
     spec = v2_spec(zarray)
     separator = zarray.get("dimension_separator", ".")
     dtype = np.dtype(spec.dtype)
     codecs = [spec.compressor, *reversed(spec.filters)]
     bounds = [(0, n) for n in spec.shape]
-    if rows is not None:
-        if not 0 <= rows[0] <= rows[1] <= spec.shape[0]:
-            raise ValueError(f"rows {rows[0]}:{rows[1]} are outside {path}, which has {spec.shape[0]}")
-        bounds[0] = rows
+    for axis, (lo, hi) in enumerate(region):
+        if not 0 <= lo <= hi <= spec.shape[axis]:
+            noun = "rows" if axis == 0 else f"indices on axis {axis}"
+            raise ValueError(f"{noun} {lo}:{hi} are outside {path}, which has {spec.shape[axis]}")
+        bounds[axis] = (lo, hi)
     out = np.full([hi - lo for lo, hi in bounds], spec.fill_value or 0, dtype=dtype, order=spec.order)
     # An empty range touches no chunk.
     grid = [range(lo // c, math.ceil(hi / c) if hi > lo else 0) for (lo, hi), c in zip(bounds, spec.chunks)]
@@ -275,7 +282,7 @@ def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None 
     ``zf`` is an open zip, because ``ZipStore`` cannot use one and would parse the central directory again.
     ``names`` is the member set; pass it when reading several arrays, so ``namelist()`` runs once.
     """
-    return _read_block(zf, path, names, None)
+    return _read_block(zf, path, names, ())
 
 
 def read_rows(
@@ -285,4 +292,14 @@ def read_rows(
 
     The result is ``array[start:stop]``, with ``read_array``'s rules for fill and ``names``.
     """
-    return _read_block(zf, path, names, (start, stop))
+    return _read_block(zf, path, names, [(start, stop)])
+
+
+def read_region(
+    zf: zipfile.ZipFile, path: str, region: Sequence[tuple[int, int]], *, names: Collection[str] | None = None
+) -> np.ndarray:
+    """Decode ``region`` of a Zarr v2 array of numeric dtype: one ``(start, stop)`` for each leading axis.
+
+    Only the chunks the region touches are read, with ``read_array``'s rules for fill and ``names``.
+    """
+    return _read_block(zf, path, names, region)

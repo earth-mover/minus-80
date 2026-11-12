@@ -6,7 +6,8 @@ Each gate prints PASS, or FAIL and its mismatches. The script exits non-zero on 
 Most expectations come from the bundle, the H&E image or the alignment CSV.
 Some gates use code or names of the ingest, so a defect there can pass them.
 Gate `qc` decodes the rasters with the ingest's decoder ``qc.bundle_rasters``.
-Gates `labels` and `matrix` build the expected array metadata with ``create_copy`` of the ingest.
+Gates `labels` and `matrix` find each chunk's key for the hash comparison with the ingest's ``chunk_key``.
+Their decoded comparison uses no chunk key, so it checks that mapping.
 Gates `tables` and `copies` take the tile order from ``transcripts.tile_order``.
 Gate `table_region` encodes the cell ids with ``transcripts.xenium_cell_id``.
 It also uses the ingest's region name.
@@ -50,8 +51,7 @@ from minus80.core.tables import (
     COPY_CHUNK, copy_edges, local_catalog, parquet_field_ids, partition_bounds, partition_counts, partition_files,
     row_group_bounds,
 )
-from minus80.core.zarr_copy import create_copy
-from minus80.core.zarr_copy import read_array
+from minus80.core.zarr_copy import chunk_key, chunk_members, read_array, read_region
 from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
@@ -70,6 +70,8 @@ from transcripts import tile_order, xenium_cell_id
 
 SAMPLED = 50
 MATRIX_CHUNKS = 20
+#: Chunks of each array that the label and matrix gates read through zarr and compare with the source's decode.
+DECODED_CHUNKS = 20
 #: Blocks between the first and the last that each copy compares with its data file.
 COPY_SAMPLES = 3
 IMAGE_TILES = 4
@@ -87,6 +89,8 @@ FIXTURE_GATES = ("images", "transforms", "qc", "labels", "matrix", "tables", "ma
                  "table_region", "copies", "attrs", "extra_tables", "field_ids", "table_index")
 #: The gates of each mode, in the order of a run. The launcher checks ``--gates`` against the full mode.
 GATES = {"fixture": FIXTURE_GATES, "full": ("bundle", "complete", *FIXTURE_GATES, "source")}
+#: The v3 name of each v2 blosc shuffle number.
+BLOSC_SHUFFLE = {0: "noshuffle", 1: "shuffle", 2: "bitshuffle"}
 #: The polygon set that each shapes element holds.
 POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundaries": CELL_SET}
 
@@ -94,18 +98,6 @@ POLYGON_SETS = {"shapes/nucleus_boundaries": NUCLEUS_SET, "shapes/cell_boundarie
 def raw(store, key: str) -> bytes | None:
     buffer = sync(store.get(key, default_buffer_prototype()))
     return None if buffer is None else buffer.to_bytes()
-
-
-def chunk_members(zf, prefix: str) -> list[str]:
-    """The chunk members of the v2 array at ``prefix``, whether its separator is ``.`` or ``/``."""
-    stem = f"{prefix}/"
-    return [n for n in zf.namelist() if n.startswith(stem) and not n.endswith("/")
-            and n[len(stem):].replace(".", "").replace("/", "").isdigit()]
-
-
-def chunk_key(array_path: str, prefix: str, member: str) -> str:
-    """The key under the v3 array ``array_path`` of ``member``, a chunk of the v2 array at ``prefix``."""
-    return f"{array_path}/c/" + member[len(prefix) + 1:].replace(".", "/")
 
 
 def _name(location: str) -> str:
@@ -455,8 +447,38 @@ def compare_chunks(
     return errors
 
 
+def compare_decoded(root, zf, pairs: Sequence[tuple[str, str]], sample: int) -> list[str]:
+    """``sample`` chunks of each ``(store path, zip prefix)``: the values read through zarr equal the source's decode.
+
+    The chunks are spread evenly over the source's chunk grid, from the first to the last.
+    ``read_region`` decodes the source; no chunk key is involved, so a stored chunk under a wrong key fails.
+    """
+    errors, names = [], set(zf.namelist())
+    for path, prefix in pairs:
+        zarray = json.loads(zf.read(f"{prefix}/.zarray"))
+        shape, chunks = zarray["shape"], zarray["chunks"]
+        grid = [math.ceil(n / c) for n, c in zip(shape, chunks)]
+        count = math.prod(grid)
+        picked = np.unique(np.linspace(0, count - 1, min(sample, count)).round().astype(int))
+        for flat in picked:
+            index = tuple(int(i) for i in np.unravel_index(flat, grid))
+            region = [(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, shape)]
+            found = root[path][tuple(slice(lo, hi) for lo, hi in region)]
+            expected = read_region(zf, prefix, region, names=names)
+            if found.shape != expected.shape:
+                errors.append(f"{path}: chunk {index} reads as {found.shape}, the source's decode is {expected.shape}")
+                continue
+            differ = found != expected
+            if found.dtype.kind == "f":
+                differ &= ~(np.isnan(found) & np.isnan(expected))
+            if n := int(differ.sum()):
+                errors.append(f"{path}: chunk {index}: {n} of {expected.size} values differ from the source's decode")
+        print(f"  decoded: {path}: {len(picked)} of {count} chunks decoded")
+    return errors
+
+
 def gate_labels(root, cells) -> list[str]:
-    """Every chunk of each mask against the source member, by hash."""
+    """Every chunk of each mask against the source member, by hash; ``DECODED_CHUNKS`` of each against its decode."""
     errors = []
     for name, mask in MASKS.items():
         path, total = f"labels/{name}/s0", len(chunk_members(cells, mask))
@@ -464,6 +486,7 @@ def gate_labels(root, cells) -> list[str]:
             errors.append(f"{mask} has no chunk members")
         with Progress(f"labels: comparing {total:,} of {total:,} chunks of {mask}", total=total, unit="chunks") as p:
             errors += compare_chunks(root.store, cells, mask, path, path, p)
+    errors += compare_decoded(root, cells, [(f"labels/{name}/s0", mask) for name, mask in MASKS.items()], DECODED_CHUNKS)
     return errors
 
 
@@ -471,11 +494,56 @@ async def _list(store, prefix):
     return [k async for k in store.list_prefix(prefix)]
 
 
+def _codec_fields(name: str, config: dict) -> tuple:
+    """A compressor's id, then its configuration in sorted order; blosc's shuffle by its v3 name."""
+    if name == "blosc":
+        config = {**config, "shuffle": BLOSC_SHUFFLE.get(config.get("shuffle", 1), config.get("shuffle"))}
+        config.setdefault("blocksize", 0)
+        config.pop("typesize", None)
+    return (name, *sorted(config.items()))
+
+
+def _fill(value, dtype: str):
+    """A fill value as a 0-d array. A v2 null is the dtype's zero, as zarr v3 sets it."""
+    if dtype == "string":
+        return np.array("" if value is None else value, dtype=object)
+    return np.array(0 if value is None else value, dtype=dtype)
+
+
 def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
-    """The stored array's shape, chunk grid, dtype, codecs and fill value are those that ``create_copy`` makes of ``zarray``."""
-    expected = create_copy(zarr.group(), "a", zarray).metadata.to_dict()
-    found = array.metadata.to_dict()
-    differing = [k for k in ("shape", "chunk_grid", "data_type", "codecs", "fill_value") if found.get(k) != expected.get(k)]
+    """Each field of the source ``.zarray`` against the stored array's metadata, read from each side directly.
+
+    The fields are ``shape``, ``dtype``, ``chunks``, ``compressor``, ``filters``, ``order`` and ``fill_value``.
+    """
+    metadata = array.metadata.to_dict()
+    codecs = {c["name"]: c.get("configuration", {}) for c in metadata["codecs"]}
+    v2_filters = [f["id"] for f in zarray.get("filters") or []]
+    is_str = np.dtype(zarray["dtype"]).kind == "O"
+    compressor = zarray.get("compressor")
+    compressors = [n for n in codecs if n not in ("bytes", "vlen-utf8", "transpose")]
+    expected = {
+        "shape": tuple(zarray["shape"]),
+        "dtype": "string" if is_str and "vlen-utf8" in v2_filters else str(np.dtype(zarray["dtype"])),
+        "chunks": tuple(zarray["chunks"]),
+        "compressor": None if compressor is None else _codec_fields(
+            compressor["id"], {k: v for k, v in compressor.items() if k != "id"}),
+        "filters": v2_filters,
+        "order": zarray.get("order", "C"),
+    }
+    found = {
+        "shape": tuple(array.shape),
+        "dtype": "string" if "vlen-utf8" in codecs else str(np.dtype(array.dtype)),
+        "chunks": tuple(array.chunks),
+        "compressor": _codec_fields(compressors[0], codecs[compressors[0]]) if compressors else None,
+        "filters": ["vlen-utf8"] if "vlen-utf8" in codecs else [],
+        "order": "F" if "transpose" in codecs else "C",
+    }
+    differing = [k for k in expected if found[k] != expected[k]]
+    # Two fill values compare only in one dtype; a differing dtype is reported above.
+    if expected["dtype"] == found["dtype"] and not np.array_equal(
+            _fill(zarray.get("fill_value"), expected["dtype"]), _fill(metadata["fill_value"], found["dtype"]),
+            equal_nan=found["dtype"].startswith("float")):
+        differing.append("fill_value")
     return [f"{label}: metadata differs from the source .zarray in {', '.join(differing)}"] if differing else []
 
 
@@ -484,6 +552,7 @@ def gate_matrix(root, matrix, *, full: bool = False) -> list[str]:
 
     A full run compares every chunk of every array copied from the matrix store, and its metadata, with the source.
     A fixture run compares ``MATRIX_CHUNKS`` sampled chunks of ``X/data`` and ``X/indices``.
+    Both modes compare ``DECODED_CHUNKS`` chunks of ``X/data`` and ``X/indices``, and all of ``X/indptr``, with the source's decode.
     """
     errors = []
     x = sparse_dataset(root["tables/table/X"])
@@ -511,6 +580,11 @@ def gate_matrix(root, matrix, *, full: bool = False) -> list[str]:
             if full:
                 errors += _metadata_errors(root[path], json.loads(matrix.read(f"{array}/.zarray")), array)
             errors += compare_chunks(root.store, matrix, array, path, array, progress, members)
+    pairs = [(f"tables/table/X/{part}", f"X/{part}") for part in ("data", "indices")]
+    errors += compare_decoded(root, matrix, pairs, DECODED_CHUNKS)
+    # A sample as large as the array's length takes every chunk.
+    indptr = json.loads(matrix.read("X/indptr/.zarray"))["shape"][0]
+    errors += compare_decoded(root, matrix, [("tables/table/X/indptr", "X/indptr")], indptr)
     return errors
 
 

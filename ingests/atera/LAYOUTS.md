@@ -539,8 +539,8 @@ Each long gate prints a progress line every five seconds.
 | | The gate reads the first multiscale of each element only. |
 | | An array with y and x exchanged has the source's shape when the two sides are equal. The `images` gate compares the pixels. |
 | `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. The gate decodes the report with the ingest's decoder. |
-| `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. |
-| `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. The metadata equals the source's `.zarray`. |
+| `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. 20 chunks of each mask, from the first to the last, read through zarr, equal the source's decode. |
+| `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. Each metadata field equals the field of the source's `.zarray`. In both modes, 20 chunks of `X/data` and `X/indices` and every chunk of `X/indptr`, read through zarr, equal the source's decode. |
 | `tables` | Each transcripts tile has the row count of `grid_number_objects`, and its `instance` range follows the source order. |
 | | The `instance` ranges leave no gap across tiles. The manifests give all of this, so no data file is read. |
 | | Each row group of a tile starts after the last, and its range fits its row count. The Parquet footers give this. A repeat inside one row group with the right minimum, maximum and count is not found. |

@@ -2,7 +2,6 @@ import hashlib
 import http.server
 import io
 import json
-import zipfile
 import shutil
 import sys
 import threading
@@ -25,7 +24,9 @@ import ingest
 import verify
 from minus80.core.elements import COMPLETE, ElementWriter
 from minus80.core.registry import file_path
-from minus80.core.zarr_copy import copy_group
+from minus80.core import zarr_copy
+from minus80.core.progress import Progress
+from minus80.core.zarr_copy import chunk_members, copy_group, create_copy
 from minus80.core.icechunk_io import commit, create_repo
 from minus80.ome.spatialdata import write_table_keys
 from minus80.core.tables import (
@@ -45,7 +46,7 @@ from polygons import polygon_table
 from root_attrs import KIND_SENTENCES, describe, element_kind
 from sources import SAMPLES
 from verify import (
-    apply_transform, chunk_key, chunk_members, element_tables, gate_attrs, gate_complete, gate_copies,
+    apply_transform, compare_chunks, compare_decoded, element_tables, gate_attrs, gate_complete, gate_copies,
     gate_extra_tables, gate_field_ids, gate_images, gate_labels, gate_matrix, gate_polygons, gate_qc, gate_source,
     gate_table_index, gate_table_region, gate_tables, gate_transforms, http_head, run_gates, select_gates,
     without_source,
@@ -780,10 +781,7 @@ def _label_repo(tmp_path, cells):
 @pytest.mark.parametrize("separator", [".", "/"])
 def test_labels_compare_chunks_stored_under_either_separator(tmp_path, separator):
     cells = _cells(tmp_path / "a", separator=separator)
-    names = chunk_members(cells, "masks/0")
-    assert len(names) == 4
-    assert {chunk_key("labels/nucleus_labels/s0", "masks/0", n) for n in names} == {
-        f"labels/nucleus_labels/s0/c/{r}/{c}" for r in (0, 1) for c in (0, 1)}
+    assert len(chunk_members(cells, "masks/0")) == 4
     assert gate_labels(_label_repo(tmp_path / "b", cells), cells) == []
 
 
@@ -791,7 +789,8 @@ def test_labels_fail_a_chunk_that_differs_from_the_source(tmp_path):
     root = _label_repo(tmp_path / "b", _cells(tmp_path / "a"))
     other = _cells(tmp_path / "c", masks=(MASK + 1, MASK[::-1]))
     errors = gate_labels(root, other)
-    assert len(errors) == 4 and all("differs" in e and e.startswith("labels/nucleus_labels/s0") for e in errors)
+    # Four chunks differ by hash, and the same four by their decoded values.
+    assert len(errors) == 8 and all("differ" in e and e.startswith("labels/nucleus_labels/s0") for e in errors)
 
 
 def test_labels_compare_every_chunk_by_hash(tmp_path, capsys):
@@ -1116,7 +1115,9 @@ def test_matrix_in_full_mode_compares_every_chunk_of_every_copied_array(tmp_path
 def test_matrix_in_full_mode_fails_a_changed_indptr(tmp_path):
     zf, repo = _chunked_matrix(tmp_path)
     _flip(repo, "tables/table/X/indptr/c/0")
-    assert gate_matrix(_main_root(repo), zf, full=True) == ["X/indptr: chunk X/indptr/0 differs"]
+    assert gate_matrix(_main_root(repo), zf, full=True) == [
+        "X/indptr: chunk X/indptr/0 differs",
+        "tables/table/X/indptr: chunk (0,): 1 of 6 values differ from the source's decode"]
 
 
 def test_matrix_in_full_mode_fails_a_changed_byte_in_a_late_data_chunk(tmp_path):
@@ -1133,7 +1134,8 @@ def test_matrix_in_full_mode_fails_a_missing_chunk_and_changed_metadata(tmp_path
     root["tables/table/X/indices"].attrs["x"] = 1
     commit(session, "damage")
     errors = gate_matrix(_main_root(repo), zf, full=True)
-    assert errors == ["X/data: 6 chunks stored, 7 members", "X/data: chunk X/data/3 differs"]
+    assert errors == ["X/data: 6 chunks stored, 7 members", "X/data: chunk X/data/3 differs",
+                      "tables/table/X/data: chunk (3,): 6 of 6 values differ from the source's decode"]
     other = zip_directory(_matrix_dir(tmp_path / "o", 4), tmp_path / "o.zip")
     assert any("metadata differs" in e for e in gate_matrix(_main_root(repo), other, full=True))
 
@@ -1144,16 +1146,6 @@ def _matrix_dir(tmp_path, chunk):
                scipy.sparse.csr_matrix(np.arange(1, 41, dtype="int32").reshape(20, 2)),
                dataset_kwargs={"chunks": (chunk,)})
     return source
-
-
-# chunk_members
-
-def test_chunk_members_skip_the_directory_entries_of_a_zip(tmp_path):
-    path = tmp_path / "d.zip"
-    with zipfile.ZipFile(path, "w") as zf:
-        for name in ("masks/", "masks/0/", "masks/0/1/", "masks/0/1/0", "masks/0/1/1", "masks/0/.zarray", "masks/0/2.3"):
-            zf.writestr(name, b"")
-    assert sorted(chunk_members(zipfile.ZipFile(path), "masks/0")) == ["masks/0/1/0", "masks/0/1/1", "masks/0/2.3"]
 
 
 # gate_masks and gate_instances
@@ -1810,3 +1802,90 @@ def test_complete_fails_a_description_that_lacks_the_sentence_of_a_held_kind(ful
         "description: lacks the sentence for images/qc",
         "description: lacks the sentence for iceberg_tables",
     ]
+
+
+# compare_decoded: the store's values through zarr against the source's own decode
+
+MASK_PAIRS = [(f"labels/{name}/s0", mask) for name, mask in ingest.MASKS.items()]
+
+
+def test_compare_decoded_passes_a_copy_of_each_mask(tmp_path, capsys):
+    cells = _cells(tmp_path / "a", separator="/")
+    assert compare_decoded(_label_repo(tmp_path / "b", cells), cells, MASK_PAIRS, 20) == []
+    assert "labels/nucleus_labels/s0: 4 of 4 chunks decoded" in capsys.readouterr().out
+
+
+def test_a_shifted_chunk_key_passes_the_hash_comparison_and_fails_the_decoded_one(monkeypatch, tmp_path):
+    cells = _cells(tmp_path / "a")
+    mapping = zarr_copy.chunk_key
+
+    def shifted(path, prefix, member):
+        # The copy and the hash comparison share this defect: chunk row r goes to row r + 1 of the 2 rows.
+        head, index = mapping(path, prefix, member).split("/c/")
+        row, *rest = index.split("/")
+        return f"{head}/c/" + "/".join([str((int(row) + 1) % 2), *rest])
+
+    monkeypatch.setattr(zarr_copy, "chunk_key", shifted)
+    monkeypatch.setattr(verify, "chunk_key", shifted)
+    root = _label_repo(tmp_path / "b", cells)
+    with Progress("hash", total=4) as progress:
+        assert compare_chunks(root.store, cells, "masks/0", "labels/nucleus_labels/s0", "masks/0", progress) == []
+    errors = gate_labels(root, cells)
+    assert errors == [f"{path}: chunk ({r}, {c}): 12 of 12 values differ from the source's decode"
+                      for path, _ in MASK_PAIRS for r in (0, 1) for c in (0, 1)]
+
+
+def test_compare_decoded_reads_the_first_and_the_last_chunk(tmp_path):
+    zf, repo = _chunked_matrix(tmp_path)
+    session = repo.writable_session("main")
+    data = zarr.open_group(session.store, mode="a")["tables/table/X/data"]
+    data[39] = 0
+    data[20] = 0
+    commit(session, "change the last chunk and chunk 3")
+    # Two regions are the first and the last chunk, so the change in chunk 3 is not read.
+    assert compare_decoded(_main_root(repo), zf, [("tables/table/X/data", "X/data")], 2) == [
+        "tables/table/X/data: chunk (6,): 1 of 4 values differ from the source's decode"]
+    errors = compare_decoded(_main_root(repo), zf, [("tables/table/X/data", "X/data")], 20)
+    assert errors == [f"tables/table/X/data: chunk ({n},): 1 of {size} values differ from the source's decode"
+                      for n, size in ((3, 6), (6, 4))]
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_matrix_compares_decoded_values_in_both_modes(tmp_path, full):
+    zf, repo = _chunked_matrix(tmp_path)
+    session = repo.writable_session("main")
+    zarr.open_group(session.store, mode="a")["tables/table/X/indptr"][20] = 0
+    commit(session, "change the last indptr value")
+    errors = gate_matrix(_main_root(repo), zf, full=full)
+    assert "tables/table/X/indptr: chunk (3,): 1 of 3 values differ from the source's decode" in errors
+
+
+# _metadata_errors reads the source .zarray itself
+
+def _data_zarray(tmp_path):
+    return json.loads(_chunked_matrix(tmp_path)[0].read("X/data/.zarray"))
+
+
+def test_metadata_passes_a_copy_and_fails_another_fill_value(tmp_path):
+    zarray = _data_zarray(tmp_path)
+    group = zarr.group()
+    assert verify._metadata_errors(create_copy(group, "a", zarray), zarray, "X/data") == []
+    other = create_copy(group, "b", {**zarray, "fill_value": 7})
+    assert verify._metadata_errors(other, zarray, "X/data") == [
+        "X/data: metadata differs from the source .zarray in fill_value"]
+
+
+def test_metadata_reports_a_source_filter_and_order_that_the_stored_array_lacks(tmp_path):
+    zarray = _data_zarray(tmp_path)
+    stored = create_copy(zarr.group(), "a", zarray)
+    source = {**zarray, "filters": [{"id": "delta", "dtype": "<i4"}], "order": "F"}
+    assert verify._metadata_errors(stored, source, "X/data") == [
+        "X/data: metadata differs from the source .zarray in filters, order"]
+
+
+def test_metadata_compares_each_blosc_field(tmp_path):
+    zarray = _data_zarray(tmp_path)
+    stored = create_copy(zarr.group(), "a", zarray)
+    source = {**zarray, "compressor": {**zarray["compressor"], "shuffle": 2}}
+    assert verify._metadata_errors(stored, source, "X/data") == [
+        "X/data: metadata differs from the source .zarray in compressor"]
