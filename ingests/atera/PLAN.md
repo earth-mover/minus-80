@@ -900,10 +900,8 @@ Each item gives the problem, the fix and the check.
 
 Open work, as present facts. Stage three closed the other items. The result line of each work item gives the code.
 
-- **The transcript tables of colorectal and breast.** The kidney's tile `3,1` measured 24.6 bytes of Parquet per row.
-  At that rate, the tables come to about 95 GB and 112 GB. The brain's comes to about 40 GB.
-  No run measured the bytes per row of a 1.1.1 bundle.
-  The storage approval of each sample uses these estimates.
+- **The transcript tables of colorectal and breast.** The brain's table measured 22.94 bytes of Parquet per row.
+  At that rate, the tables come to about 88 GB and 105 GB. The storage approval of each sample uses these estimates.
 - **The stain names inside the OME-XML.** The record holds the file names of the morphology members.
   It does not hold the channel names inside the files.
   The ingest takes the channel names from the OME-XML when it writes.
@@ -1182,6 +1180,9 @@ The estimate assumes no gain from the stack's threads. The time limit is twice t
 The next sample is the brain, `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF`.
 Its record, `samples/brain.json`, holds no error entry.
 
+Result: the brain's run of 2026-11-12 passed every step. `REPORT.md`, "The brain sample", gives the facts.
+`main` of `atera-brain` is at `KQQGSNM0K4Z4HQT3R050`. The run took 9,203 s against an estimate of 14,718.6 s.
+
 ### The approvals
 
 The owner gives each of these approvals before the run:
@@ -1349,8 +1350,8 @@ The brain's run is the first real run of a 1.1.1 bundle. A defect there would st
 1. **The setup.** `setup_sample.py --sample <sample> --org earthmover-biology` creates the four pieces.
    Run it with `--dry-run` just before the launch. It must print four `exists` lines.
 2. **The spend.** One `m7g.xlarge` in us-west-2, Coiled workspace `earthmover-devs`, for at most the limit below.
-3. **The storage.** The transcript Parquet files come to about 95 GB (colorectal) and 112 GB (breast).
-   These figures use the kidney's 24.6 bytes per row. No run measured the rate of a 1.1.1 bundle.
+3. **The storage.** The transcript Parquet files come to about 88 GB (colorectal) and 105 GB (breast).
+   These figures use the brain's measured 22.94 bytes per row.
    No run measured the stored size of the images, labels and matrix.
 4. **The run.** It is the first write to the sample's repo, on the branch `trial-<date>`.
 

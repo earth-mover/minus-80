@@ -287,9 +287,41 @@ This was the first move of a branch on Arraylake with the machine token.
 The six tables kept their snapshots. The branch `fixture` stayed at `BF52XEQ53GH7JRBE4F30`.
 The steps took 4, 18, 77, 32, 9 and 4 s. The branch `trial-20261112-description` stays at the snapshot of `main`.
 
+### The brain sample
+
+On 2026-11-12 one run wrote the brain sample, `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF`, to `earthmover-biology/atera-brain`.
+The bundle is Atera 1.1.1. The run used one `m7g.xlarge` in us-west-2 and the branch `trial-20261112`.
+Every gate of the full mode passed on snapshot `KQQGSNM0K4Z4HQT3R050`.
+Then `promote.py` moved `main` from `1CECHNKREP0F1RSTCMT0` to that snapshot.
+The tables are in the namespace `atera-brain-tables`. Each current snapshot equals the pin on `main`.
+
+| Step | Time (s) | Estimate (s) |
+|---|---|---|
+| environment | 4 | 13 |
+| preflight | 11 | 14 |
+| bundle-remote | 83 | 54 |
+| download | 1,448 | 1,131 |
+| check | 419 | 430 |
+| bundle-local | 4 | 54 |
+| ingest | 5,087 | 9,840 |
+| verify | 2,143 | 3,178 |
+| promote | 4 | 4 |
+| all steps | 9,203 | 14,718.6 |
+
+These are the facts that the run measured:
+
+- The stack took about 1,236 s against an estimate of 5,228 s. The estimate counted no gain from the decode threads.
+- `points/transcripts` took 2,424.3 s against an estimate of 2,418 s.
+- The transcript table holds 1,640,508,930 rows in 34 files and 37,639,100,576 bytes: 22.94 bytes per row.
+- The tile `5,-1` holds no row, so it has no file.
+- The gate `instances` found 50 of 50 centroids in their own label.
+- The gate `polygons` printed one finding: 362 invalid nucleus polygons. The metrics CSV states no count.
+- The decoded checks of `labels` and `matrix` passed. 13 of 20 mask chunks and all 20 chunks of `X` hold values.
+- The verification read 855.0 MiB of local files and sent 4,533 requests.
+
 ## Not done
 
-- **Three samples.** The brain, colorectal and breast samples are not ingested. Each needs its repo and its access policy.
+- **Two samples.** The colorectal and breast samples are not ingested. Each needs its repo and its access policy.
 - **The overview scan.** `images/overview_scan` is not written. The ingest does not place the scan. `PLAN.md`, call 6, gives the test for it.
 - **Booth.** Nobody checked whether Booth serves an element as tiles.
 - **Reads on `main`.** The SpatialData and zax reads ran on the `fixture` branch only.
