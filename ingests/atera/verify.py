@@ -43,7 +43,7 @@ from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, open_tiff
+from bundle import CELLS, MATRIX, TRANSCRIPTS, open_tiff
 from ingest import (
     CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS, MASKS,
     MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle, require_same_place,
@@ -141,14 +141,14 @@ def gate_images(root, bundle, he_url: str, *, full: bool = False) -> list[str]:
     """
     errors, work = [], []
     if _present(root, "images/morphology", full, errors):
-        pyramids = [bundle.tiff(name).series[0].levels for name in MORPHOLOGY_2D]
+        pyramids = [bundle.tiff(name).series[0].levels for name in bundle.morphology_2d()]
         errors += level_errors(root, "images/morphology", len(pyramids[0]), full)
         for level in stored_levels(root["images/morphology"]):
             entries = [(f"channel {c}", pyramid[level].pages[0], (c,)) for c, pyramid in enumerate(pyramids)]
             work.append((f"morphology s{level}", root[f"images/morphology/s{level}"], entries))
     if _present(root, "images/morphology_3d", full, errors):
         # One series holds every plane: its level k has one page for each plane.
-        pyramid = bundle.tiff(MORPHOLOGY_3D).series[0].levels
+        pyramid = bundle.tiff(bundle.morphology_3d()).series[0].levels
         errors += level_errors(root, "images/morphology_3d", len(pyramid), full)
         for level in stored_levels(root["images/morphology_3d"]):
             entries = [(f"plane {z}", page, (0, z)) for z, page in enumerate(pyramid[level].pages)]

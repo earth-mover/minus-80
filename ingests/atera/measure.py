@@ -32,14 +32,13 @@ from minus80.core.tables import row_group_bounds
 from minus80.core.zarr_copy import copy_chunks, create_copy
 from zarr.storage import LoggingStore
 
-from bundle import CELLS, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, open_tiff
+from bundle import CELLS, TRANSCRIPTS, open_tiff
 from ingest import MASKS, member_bytes, open_bundle
 from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table
 from transcripts import TRANSCRIPT_SCHEMA, write_tile
 from verify import chunk_key, chunk_members, raw
 
-PLANE = MORPHOLOGY_2D[0]
 MASK = MASKS["nucleus_labels"]
 CHECK_TILES = 4
 CHECK_CHUNKS = 20
@@ -382,11 +381,12 @@ def run_part(args) -> int:
     print(f"writing {group} on branch {args.branch}", flush=True)
     n = args.concurrency
     if args.part == "plane":
-        page = bundle.tiff(PLANE).series[0].levels[0].pages[0]
+        plane = bundle.morphology_2d()[0]
+        page = bundle.tiff(plane).series[0].levels[0].pages[0]
         tiles = min(args.limit, grid_tiles(page))
         start = middle_start(grid_tiles(page), tiles)
         result = measure_plane(repo, args.branch, group, page, counter, tiles=tiles, start=start, concurrency=n)
-        errors, source = check_plane(repo, result, page, tiles, start), f"{PLANE} level 0"
+        errors, source = check_plane(repo, result, page, tiles, start), f"{plane} level 0"
     elif args.part == "he":
         he_url = args.he_image or sample.url(HE_IMAGE, S3)
         # The object is read as write_he reads it, through the counter.
@@ -397,13 +397,14 @@ def run_part(args) -> int:
                                name="he_image")
         errors, source = check_plane(repo, result, page, tiles, start), f"{HE_IMAGE} level 0"
     elif args.part == "stack":
-        pages = list(bundle.tiff(MORPHOLOGY_3D).series[0].levels[0].pages)
+        stack = bundle.morphology_3d()
+        pages = list(bundle.tiff(stack).series[0].levels[0].pages)
         per_row = -(-pages[0].imagewidth // pages[0].tilewidth)
         positions = min(args.limit, per_row)
         row, column = -(-pages[0].imagelength // pages[0].tilelength) // 2, middle_start(per_row, positions)
         result = measure_stack(repo, args.branch, group, pages, counter, row=row, column=column, positions=positions,
                                concurrency=n)
-        errors, source = check_stack(repo, result, pages, row, column, positions), f"{MORPHOLOGY_3D} level 0"
+        errors, source = check_stack(repo, result, pages, row, column, positions), f"{stack} level 0"
     else:
         zf = bundle.member_zip(CELLS)
         result = measure_mask(repo, args.branch, group, zf, MASK, counter, limit=args.limit, concurrency=n)

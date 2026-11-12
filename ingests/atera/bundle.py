@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
+import fnmatch
+import io
 import json
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import tifffile
 from minus80.core.registry import as_url
 from minus80.core.remote import reader
 from minus80.parsers.zip.nested import member_file, member_zip
 
-MORPHOLOGY_2D = (
-    "morphology_2d/ch0000_dapi.ome.tif",
-    "morphology_2d/ch0001_atp1a1_cd45_e-cadherin.ome.tif",
-    "morphology_2d/ch0002_18s.ome.tif",
-    "morphology_2d/ch0003_alphasma_vimentin.ome.tif",
-)
-MORPHOLOGY_3D = "morphology_3d/ch0000_dapi_3d.ome.tif"
 CELLS = "cells.zarr.zip"
 TRANSCRIPTS = "transcripts.zarr.zip"
 MATRIX = "cell_feature_matrix.zarr.zip"
@@ -35,7 +31,30 @@ class Bundle:
 
     def __init__(self, location: str | Path, file=None):
         self.file = file if file is not None else reader(as_url(location))
-        self.names = zipfile.ZipFile(self.file).namelist()
+        infos = zipfile.ZipFile(self.file).infolist()
+        self.names = [i.filename for i in infos]
+        self.sizes = {i.filename: i.file_size for i in infos}
+
+    def _members(self, pattern: str, count: int) -> list[str]:
+        """The sorted members that match ``pattern``; ``ValueError`` unless there are exactly ``count``."""
+        found = sorted(n for n in self.names if fnmatch.fnmatchcase(n, pattern))
+        if len(found) != count:
+            raise ValueError(f"expected {count} members that match {pattern}, found {len(found) or 'none'}: {found}")
+        return found
+
+    def morphology_2d(self) -> list[str]:
+        """The four single-plane morphology pyramids, in name order."""
+        return self._members("morphology_2d/ch*.ome.tif", 4)
+
+    def morphology_3d(self) -> str:
+        """The morphology stack."""
+        return self._members("morphology_3d/ch*.ome.tif", 1)[0]
+
+    def metrics(self) -> str:
+        return self._members("metrics_summary*.csv", 1)[0]
+
+    def report(self) -> str:
+        return self._members("analysis_summary*.html", 1)[0]
 
     def member_file(self, name: str):
         return member_file(self.file, name)
@@ -51,3 +70,11 @@ class Bundle:
     def tiff(self, name: str) -> tifffile.TiffFile:
         return open_tiff(self.member_file(name))
 
+
+
+def read_alignment(text: str) -> np.ndarray:
+    """The 3 by 3 matrix of the alignment CSV, as published."""
+    matrix = np.loadtxt(io.StringIO(text), delimiter=",", ndmin=2)
+    if matrix.shape != (3, 3):
+        raise ValueError(f"the alignment has shape {matrix.shape}, not 3 by 3")
+    return matrix

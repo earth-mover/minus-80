@@ -108,7 +108,7 @@ def _transcripts_zip(tmp_path):
         }
     return zip_v2_store(
         tmp_path, "transcripts", arrays,
-        attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1]},
+        attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1], "number_rnas": sum(TILES.values())},
         group_attrs={"grid": {"grid_keys": list(TILES), "grid_number_objects": list(TILES.values())}},
     )
 

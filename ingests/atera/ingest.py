@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import json
 import math
 import os
@@ -38,7 +37,7 @@ from minus80.ome.spatialdata import (
 )
 
 from bundle import (
-    CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, MORPHOLOGY_2D, MORPHOLOGY_3D, TRANSCRIPTS, Bundle, open_tiff,
+    CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, TRANSCRIPTS, Bundle, open_tiff, read_alignment,
 )
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
@@ -255,8 +254,9 @@ def file_pixel_sizes(tif, pixel_size: float, label: str) -> dict[str, float]:
 def write_morphology(
     writer: ElementWriter, bundle: Bundle, pixel_size: float, *, levels: Sequence[int] | None = None, concurrency: int,
 ) -> None:
-    tiffs = [bundle.tiff(name) for name in MORPHOLOGY_2D]
-    for name, tif in zip(MORPHOLOGY_2D, tiffs, strict=True):
+    files = bundle.morphology_2d()
+    tiffs = [bundle.tiff(name) for name in files]
+    for name, tif in zip(files, tiffs, strict=True):
         file_pixel_sizes(tif, pixel_size, name)
     pyramids = [tif.series[0].levels for tif in tiffs]
     shapes = [(len(tiffs), *level.shape) for level in pyramids[0]]
@@ -279,10 +279,11 @@ def write_morphology(
 def write_morphology_3d(
     writer: ElementWriter, bundle: Bundle, pixel_size: float, *, levels: Sequence[int] | None = None, concurrency: int,
 ) -> None:
-    tif = bundle.tiff(MORPHOLOGY_3D)
-    z_step = file_pixel_sizes(tif, pixel_size, MORPHOLOGY_3D).get("z")
+    stack = bundle.morphology_3d()
+    tif = bundle.tiff(stack)
+    z_step = file_pixel_sizes(tif, pixel_size, stack).get("z")
     if z_step is None:
-        raise ValueError(f"{MORPHOLOGY_3D}: the OME-XML has no PhysicalSizeZ")
+        raise ValueError(f"{stack}: the OME-XML has no PhysicalSizeZ")
     # One series holds every plane: its level k is a ``(z, y, x)`` array with one page for each plane.
     pyramid = tif.series[0].levels
     shapes = [(1, len(level.pages), *level.shape[1:]) for level in pyramid]
@@ -299,14 +300,6 @@ def write_morphology_3d(
                  lambda held: raster_attrs(level_ome("morphology_3d", ("c", "z", "y", "x"), shapes, held, omero),
                                            level_scale(("c", "z", "y", "x"), shapes, held,
                                                        {"c": 1.0, "z": z_step, "y": pixel_size, "x": pixel_size})))
-
-
-def read_alignment(text: str) -> np.ndarray:
-    """The 3 by 3 matrix of the alignment CSV, as published."""
-    matrix = np.loadtxt(io.StringIO(text), delimiter=",", ndmin=2)
-    if matrix.shape != (3, 3):
-        raise ValueError(f"the alignment has shape {matrix.shape}, not 3 by 3")
-    return matrix
 
 
 def write_he(writer: ElementWriter, he_url: str, alignment_url: str, pixel_size: float, *, concurrency: int) -> None:
@@ -556,9 +549,8 @@ def write_transcripts(
 
 
 def write_root(writer, bundle, sample, layouts: str, experiment: dict, *, missing: list, fixture: str | None = None) -> None:
-    metrics_name = next(n for n in bundle.names if n.startswith("metrics_summary_"))
     with writer.unit("root attributes", "Write root attributes") as (root, _):
-        with bundle.member_file(metrics_name) as f:
+        with bundle.member_file(bundle.metrics()) as f:
             metrics = parse_metrics(f.read().decode())
         root.attrs.update(root_attrs(sample, layouts, experiment, metrics, missing=missing, fixture=fixture))
 

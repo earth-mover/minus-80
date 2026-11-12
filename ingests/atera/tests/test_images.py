@@ -13,7 +13,7 @@ import zarr
 from tiff_pyramids import picture, pyramid_tiff
 
 import ingest
-from bundle import MORPHOLOGY_2D, MORPHOLOGY_3D, Bundle
+from bundle import Bundle
 from ingest import read_alignment, write_he, write_morphology, write_morphology_3d
 from minus80.core import pyramid
 from minus80.core.elements import ElementWriter
@@ -30,6 +30,8 @@ XML = """<?xml version="1.0"?>
   </Pixels></Image>
 </OME>"""
 STAINS = ["DAPI", "ATP1A1/CD45/E-Cadherin", "18S", "alphaSMA/Vimentin"]
+MORPHOLOGY_2D = [f"morphology_2d/ch000{i}_{s}.ome.tif" for i, s in enumerate(("dapi", "atp1a1", "18s", "asma"))]
+MORPHOLOGY_3D = "morphology_3d/ch0000_dapi_3d.ome.tif"
 ALIGNMENT = np.array([[0.0, -1.289, 40.0], [1.289, 0.0, 12.5], [0.0, 0.0, 1.0]])
 
 

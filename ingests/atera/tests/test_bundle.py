@@ -2,6 +2,8 @@ import io
 import json
 import zipfile
 
+import pytest
+
 from bundle import Bundle
 from sources import S3, SAMPLES
 
@@ -44,3 +46,38 @@ def test_open_bundle_counts_the_bytes_it_reads(tmp_path):
     before = counter.bytes
     bundle.experiment()
     assert counter.bytes >= before
+
+
+def _bundle_of(tmp_path, names):
+    path = tmp_path / "outs.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
+        for name in names:
+            z.writestr(name, "")
+    return Bundle(path)
+
+
+def test_bundle_finds_its_morphology_metrics_and_report_by_pattern(tmp_path):
+    two_d = [f"morphology_2d/ch000{i}_x.ome.tif" for i in (3, 1, 0, 2)]
+    bundle = _bundle_of(tmp_path, [*two_d, "morphology_3d/ch0000_dapi_3d.ome.tif", "metrics_summary_a.csv",
+                                   "analysis_summary_a.html", "morphology_2d/other.txt", "metrics_summary_a.html"])
+    assert bundle.morphology_2d() == sorted(two_d)
+    assert bundle.morphology_3d() == "morphology_3d/ch0000_dapi_3d.ome.tif"
+    assert bundle.metrics() == "metrics_summary_a.csv"
+    assert bundle.report() == "analysis_summary_a.html"
+
+
+def test_morphology_members_need_their_count(tmp_path):
+    bundle = _bundle_of(tmp_path, [f"morphology_2d/ch000{i}.ome.tif" for i in range(3)])
+    with pytest.raises(ValueError, match=r"morphology_2d/ch\*\.ome\.tif.*3"):
+        bundle.morphology_2d()
+    with pytest.raises(ValueError, match=r"morphology_3d/ch\*\.ome\.tif.*none"):
+        bundle.morphology_3d()
+
+
+def test_metrics_and_report_need_exactly_one_member(tmp_path):
+    bundle = _bundle_of(tmp_path, ["metrics_summary_a.csv", "metrics_summary_b.csv", "analysis_summary_a.html",
+                                   "analysis_summary_b.html"])
+    with pytest.raises(ValueError, match=r"metrics_summary.*\.csv.*metrics_summary_a\.csv.*metrics_summary_b\.csv"):
+        bundle.metrics()
+    with pytest.raises(ValueError, match=r"analysis_summary.*\.html.*analysis_summary_b\.html"):
+        bundle.report()

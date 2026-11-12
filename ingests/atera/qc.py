@@ -94,8 +94,5 @@ def rasters(html: str) -> dict[str, QcRaster]:
 
 def bundle_rasters(bundle) -> dict[str, QcRaster]:
     """The rasters of the bundle's one ``analysis_summary*.html`` member."""
-    reports = [n for n in bundle.names if n.startswith("analysis_summary") and n.endswith(".html")]
-    if len(reports) != 1:
-        raise ValueError(f"expected one analysis_summary*.html member, found {len(reports)}: {reports}")
-    with bundle.member_file(reports[0]) as f:
+    with bundle.member_file(bundle.report()) as f:
         return rasters(f.read().decode())
