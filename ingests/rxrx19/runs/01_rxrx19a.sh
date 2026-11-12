@@ -9,7 +9,7 @@
 # Needs ARRAYLAKE_TOKEN (the ingest client, granted the repo) and ice-pack on
 # PATH or in ICE_PACK.
 #
-# Ran 2026-11-12 from 00:0x UTC on a laptop, from commit 1bb67cf, into main.
+# Ran 2026-11-11 from 23:57 UTC on a laptop, from commit 1bb67cf, into main.
 #   ingest: 2 min 22 s. 57 plates, 689,193 nodes, 1,527,600 references built
 #           in 7.2 s; the embeddings (1.4 GB deflated, 64 MiB ranges from
 #           GCS at 20-27 s each) parsed at about 15,000 rows/s; nodes and
