@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import struct
 import zipfile
 from pathlib import Path
@@ -10,8 +11,10 @@ import pytest
 import tifffile
 
 import facts
-from bundle import Bundle, open_tiff
-from facts import bundle_facts, compare, error_paths, error_text, load_record, write_record
+from bundle import CELLS, MATRIX, TRANSCRIPTS, Bundle, open_tiff
+from facts import ByteLimit, STORE_MEMBERS, bundle_facts, compare, error_paths, error_text, load_record, write_record
+from minus80.core.registry import as_url
+from minus80.core.remote import counting_reader
 from tests.stores import cells_zip
 from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, write_bundle
 from tests.test_ingest_tables import TILES
@@ -39,6 +42,9 @@ class Recorder:
 
     def tell(self):
         return self.file.tell()
+
+    def close(self):
+        self.file.close()
 
     def __enter__(self):
         return self
@@ -145,14 +151,12 @@ def test_bundle_facts_of_the_qc_report_has_the_ingests_view_and_the_raw_view(fou
 
 
 def test_bundle_facts_of_the_zarr_stores(found):
-    from bundle import CELLS, MATRIX, TRANSCRIPTS
-
     cells = found["stores"][CELLS]
     assert cells["arrays"]["masks/0"] == {"dtype": "<u4", "shape": [6, 8], "chunks": [3, 4], "compressor": None}
     assert cells["arrays"]["cell_summary"]["attrs"] == ["column_names"]
     assert cells["arrays"]["polygon_sets/1/cell_index"]["shape"] == [3] and cells["groups"][""] == ["segmentation_methods"]
     transcripts = found["stores"][TRANSCRIPTS]
-    assert transcripts["tiles"] == {"count": 3, "listed": "0,0"}
+    assert transcripts["tiles"] == {"count": 3, "listed": "0,0", "directories_equal_grid_keys": True}
     assert {p for p in transcripts["arrays"] if p.startswith("grid/")} == {
         f"grid/0,0/{c}" for c in ("cell_id", "codeword_identity", "location", "overlaps_nucleus", "quality_score")}
     assert transcripts["groups"]["grid"] == ["grid_keys", "grid_number_objects"]
@@ -213,8 +217,7 @@ def test_an_error_entry_keeps_the_type_and_the_first_line_and_no_location():
         "s3://10x.files/samples/atera/x_outs.zip and /Users/someone/data/x.zip, '/tmp/y z' (10x.files/z)\nline /home/a")
     text = error_text(error)
     assert text.startswith("FileNotFoundError: ") and "and" in text
-    for leaked in ("://", "/Users", "/tmp", "/home", "10x.files", "line"):
-        assert leaked not in text
+    assert text == "FileNotFoundError: <location> and <location>"
     assert error_text(ValueError("no morphology_2d/ch0000.ome.tif")) == "ValueError: no morphology_2d/ch0000.ome.tif"
 
 
@@ -427,3 +430,161 @@ def test_a_missing_alignment_object_is_an_error_entry_and_the_other_groups_remai
     found = bundle_facts(Bundle(tmp_path / "outs.zip"), lambda: io.BytesIO(synthetic.he.read_bytes()), missing)
     assert found["alignment"] == {"error": "OSError: no alignment"} and error_paths(found) == ["alignment"]
     assert "levels" in found["he_image"]
+
+
+def test_an_absolute_path_with_a_space_leaks_no_tail():
+    assert error_text(OSError("cannot open '/Users/a/b c/x.zip' now")) == "OSError: cannot open <location>"
+
+
+def test_the_he_file_is_closed_after_the_facts_and_after_a_failed_open(tmp_path, synthetic):
+    write_bundle(tmp_path / "outs.zip", synthetic.members)
+    bad = tmp_path / "bad.tif"
+    bad.write_bytes(b"not a tiff")
+    for path, readable in ((synthetic.he, True), (bad, False)):
+        handle = open(path, "rb")
+        found = bundle_facts(Bundle(tmp_path / "outs.zip"), lambda: handle, lambda: ALIGNMENT_TEXT)
+        assert handle.closed and ("levels" in found["he_image"]) is readable
+
+
+def test_a_negative_method_code_is_recorded_with_a_question_mark(tmp_path, synthetic):
+    extra = {"polygon_sets/0/method": (np.array([3, -1, 4], dtype="<i4"), {})}
+    found = _variant(tmp_path, synthetic,
+                     lambda m: m.__setitem__("cells.zarr.zip", _cells_member(tmp_path / "c", extra)))
+    assert found["polygons"]["sets"]["0"]["methods"] == {"3:d": 1, "-1:?": 1, "4:e": 1}
+
+
+# The byte ceiling: the groups read before it stay, the group in progress and the later ones are error entries.
+
+class _Limit:
+    """The progress hook that the survey's ceiling is."""
+
+    def __init__(self, limit, total):
+        self.limit, self.total = limit, total
+
+    def advance(self, size):
+        self.total += size
+        if self.total > self.limit:
+            raise ByteLimit(f"read {self.total} bytes, over the limit of {self.limit} bytes")
+
+
+def _facts_with_limit(synthetic, limit=None):
+    file, counter = counting_reader(as_url(synthetic.path))
+    bundle = Bundle(synthetic.path, file)
+    if limit is not None:
+        counter.progress = _Limit(limit, counter.bytes)
+    he_bytes = synthetic.he.read_bytes()
+    found = bundle_facts(bundle, lambda: io.BytesIO(he_bytes), lambda: ALIGNMENT_TEXT)
+    return found, counter.bytes
+
+
+GROUP_ORDER = ["members", "experiment", "metrics", "report", "alignment", "cells", "transcripts", "diffexp", "polygons",
+               "qc", "morphology_2d", "morphology_3d", "he_image", f"stores.{CELLS}", f"stores.{TRANSCRIPTS}",
+               f"stores.{MATRIX}"]
+
+
+def _entry(record, path):
+    group, _, store = path.partition(".")
+    return record[group][store] if store else record[group]
+
+
+def test_a_ceiling_passed_in_a_read_makes_the_group_and_every_later_group_an_error_entry(synthetic):
+    full, total = _facts_with_limit(synthetic)
+    partial, _ = _facts_with_limit(synthetic, total - 1)
+    errors = error_paths(partial)
+    assert errors and errors == sorted(GROUP_ORDER[-len(errors):])
+    for path in errors:
+        assert re.fullmatch(r"ByteLimit: read \d+ bytes, over the limit of \d+ bytes", _entry(partial, path)["error"])
+    for path in GROUP_ORDER[:-len(errors)]:
+        assert _entry(partial, path) == _entry(full, path)
+
+
+def test_a_ceiling_passed_in_the_matrix_store_keeps_every_earlier_group(synthetic, monkeypatch):
+    original = facts.store_facts
+
+    def passing(bundle, member, **kwargs):
+        found = original(bundle, member, **kwargs)
+        if member == MATRIX:
+            raise ByteLimit("read 9 bytes, over the limit of 1 bytes")
+        return found
+
+    monkeypatch.setattr(facts, "store_facts", passing)
+    partial, _ = _facts_with_limit(synthetic)
+    monkeypatch.undo()
+    full, _ = _facts_with_limit(synthetic)
+    assert error_paths(partial) == [f"stores.{MATRIX}"]
+    assert partial["stores"][MATRIX] == {"error": "ByteLimit: read 9 bytes, over the limit of 1 bytes"}
+    assert all(_entry(partial, p) == _entry(full, p) for p in GROUP_ORDER[:-1])
+
+
+def test_a_ceiling_passed_in_an_early_group_gives_error_entries_from_there_on(synthetic, monkeypatch):
+    def passing(bundle):
+        raise ByteLimit("read 9 bytes, over the limit of 1 bytes")
+
+    monkeypatch.setattr(facts, "metrics_facts", passing)
+    partial, _ = _facts_with_limit(synthetic)
+    assert partial["members"] and "keys" in partial["experiment"]
+    assert error_paths(partial) == sorted(p for p in GROUP_ORDER if p not in ("members", "experiment"))
+
+
+# The listing of a store.
+
+META = {"dtype": "<f4", "shape": [1, 3], "chunks": [1, 3], "compressor": None, "fill_value": 0, "filters": None,
+        "order": "C", "zarr_format": 2}
+
+
+def _store_bundle(tmp_path, members_of_store, store=TRANSCRIPTS):
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w", zipfile.ZIP_STORED) as zf:
+        for name, text in members_of_store.items():
+            zf.writestr(name, text)
+    write_bundle(tmp_path / "s.zip", {store: inner.getvalue()})
+    return Bundle(tmp_path / "s.zip")
+
+
+def _grid(directories, keys=None, counts=None):
+    members = {f"grid/{d}/{c}/.zarray": json.dumps(META) for d in directories for c in ("cell_id", "location")}
+    if keys is not None:
+        members["grid/.zattrs"] = json.dumps({"grid_keys": keys, "grid_number_objects": counts})
+    return members
+
+
+def _opened(monkeypatch):
+    names, original = [], zipfile.ZipFile.open
+
+    def record(self, name, *args, **kwargs):
+        names.append(getattr(name, "filename", name))
+        return original(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", record)
+    return names
+
+
+def test_a_store_whose_tile_directories_differ_from_the_grid_keys_lists_one_tile(tmp_path, monkeypatch):
+    bundle = _store_bundle(tmp_path, _grid(["0,0", "1,0", "-1,0"], ["a", "b", "c"], [1, 1, 1]))
+    opened = _opened(monkeypatch)
+    found = facts.store_facts(bundle, TRANSCRIPTS, first_tile_only=True)
+    assert found["tiles"] == {"count": 3, "listed": "-1,0", "directories_equal_grid_keys": False}
+    assert sorted(found["arrays"]) == ["grid/-1,0/cell_id", "grid/-1,0/location"]
+    assert {n.split("/")[1] for n in opened if n.startswith("grid/") and n.endswith(".zarray")} == {"-1,0"}
+
+
+def test_a_store_lists_the_first_tile_with_rows_when_the_keys_match_its_directories(tmp_path):
+    bundle = _store_bundle(tmp_path, _grid(["0,0", "1,0"], ["0,0", "1,0"], [0, 5]))
+    found = facts.store_facts(bundle, TRANSCRIPTS, first_tile_only=True)
+    assert found["tiles"] == {"count": 2, "listed": "1,0", "directories_equal_grid_keys": True}
+    assert sorted(found["arrays"]) == ["grid/1,0/cell_id", "grid/1,0/location"]
+
+
+def test_a_store_with_unreadable_grid_attributes_still_lists_its_arrays(tmp_path):
+    bundle = _store_bundle(tmp_path, _grid(["0,0", "1,0"]))
+    found = facts.store_facts(bundle, TRANSCRIPTS, first_tile_only=True)
+    assert found["tiles"] == {"count": 2, "listed": "0,0", "directories_equal_grid_keys": False}
+    assert sorted(found["arrays"]) == ["grid/0,0/cell_id", "grid/0,0/location"] and "error" not in found
+
+
+def test_a_store_listing_stops_at_the_member_cap(tmp_path, monkeypatch):
+    bundle = _store_bundle(tmp_path, {f"a{i}/.zarray": json.dumps(META) for i in range(STORE_MEMBERS + 2000)}, MATRIX)
+    opened = _opened(monkeypatch)
+    found = facts.store_facts(bundle, MATRIX)
+    assert STORE_MEMBERS == 3000 and len(found["arrays"]) == 3000 and len(opened) == 3000
+    assert found["truncated"] is True and found["members_not_read"] == 2000

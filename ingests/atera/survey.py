@@ -18,7 +18,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from facts import bundle_facts, error_text, write_record
+from facts import ByteLimit, bundle_facts, error_text, write_record
 from ingest import open_bundle
 from minus80.core.registry import as_url
 from minus80.core.remote import ReadCounter, reader
@@ -30,22 +30,20 @@ DEFAULT_MAX_BYTES = 200_000_000
 _BEGIN = re.compile(r"=== record (\S+) begin")
 _PART = re.compile(r"=== record (\S+) part (\d+) of (\d+): (.*)")
 _END = re.compile(r"=== record (\S+) end sha256=([0-9a-f]{64}) chars=(\d+)")
-
-
-class ByteLimit(BaseException):
-    """A sample read more than its ceiling. It is no ``Exception``, so no fact group records it."""
+_FAILED = re.compile(r"(\S+): FAILED \w+: .*")
 
 
 class _Ceiling:
     """The progress hook of a read counter. It stops a sample that reads more than ``limit`` bytes."""
 
     def __init__(self, limit: int):
-        self.limit, self.total = limit, 0
+        self.limit, self.total, self.message = limit, 0, None
 
     def advance(self, size: int) -> None:
         self.total += size
         if self.total > self.limit:
-            raise ByteLimit(f"read {self.total} bytes, over the limit of {self.limit} bytes")
+            self.message = f"read {self.total} bytes, over the limit of {self.limit} bytes"
+            raise ByteLimit(self.message)
 
 
 def _split(text: str, size: int) -> list[str]:
@@ -85,7 +83,7 @@ def _joined(sample: str, begun: set, parts: dict, ends: dict) -> dict:
         return ValueError(f"record of {sample}: {what}")
 
     if sample not in begun | parts.keys() | ends.keys():
-        raise fail("no lines")
+        raise fail("no marker line at the start of a line (a log with a prefix on each line is not read)")
     if sample not in begun:
         raise fail("no begin line")
     total, texts = parts.get(sample, (0, {}))
@@ -104,19 +102,27 @@ def _joined(sample: str, begun: set, parts: dict, ends: dict) -> dict:
     return json.loads(text)
 
 
+def failed_samples(log_text: str) -> set[str]:
+    """The samples with a ``FAILED`` line in ``log_text``."""
+    return {m[1] for line in log_text.split("\n") if (m := _FAILED.fullmatch(line.rstrip()))}
+
+
 def read_records(log_text: str, samples: Sequence[str] | None = None) -> dict[str, dict]:
     """The record of each sample in ``log_text``. The log can hold unrelated lines and identical duplicate lines.
 
     A sample needs a ``begin`` line, every part and an ``end`` line with a matching count and digest.
     A sample that fails any of these raises ``ValueError`` that names it. Duplicates that disagree raise it too.
+    A ``FAILED`` line before the last ``begin`` line leaves a partial record, which is returned.
+    A ``FAILED`` line after the last ``begin`` line, or with no ``begin`` line, raises.
     The result holds the samples in ``samples``, or every sample in the log when ``samples`` is ``None``.
-    A sample in ``samples`` with no line raises.
+    A sample in ``samples`` with no marker line at the start of a line raises.
     """
-    begun, parts, ends = set(), {}, {}
-    for line in log_text.split("\n"):
+    begun, parts, ends, begin_at, failed_at = set(), {}, {}, {}, {}
+    for index, line in enumerate(log_text.split("\n")):
         line = line.rstrip()
         if match := _BEGIN.fullmatch(line):
             begun.add(match[1])
+            begin_at[match[1]] = index
         elif match := _PART.fullmatch(line):
             sample, number, total, text = match[1], int(match[2]), int(match[3]), match[4]
             seen_total, texts = parts.setdefault(sample, (total, {}))
@@ -125,14 +131,20 @@ def read_records(log_text: str, samples: Sequence[str] | None = None) -> dict[st
         elif match := _END.fullmatch(line):
             if ends.setdefault(match[1], (match[2], int(match[3]))) != (match[2], int(match[3])):
                 raise ValueError(f"record of {match[1]}: the end lines disagree")
+        elif match := _FAILED.fullmatch(line):
+            failed_at.setdefault(match[1], index)
     wanted = list(samples) if samples is not None else sorted(begun | parts.keys() | ends.keys())
+    for sample in wanted:
+        if sample in failed_at and begin_at.get(sample, -1) < failed_at[sample]:
+            raise ValueError(f"record of {sample}: a FAILED line follows its last begin line")
     return {sample: _joined(sample, begun, parts, ends) for sample in wanted}
 
 
-def survey_sample(name: str, directory: Path, max_bytes: int) -> None:
+def survey_sample(name: str, directory: Path, max_bytes: int) -> bool:
     """Write and print the record of sample ``name``, then the bytes and requests that it took.
 
-    The sample stops with ``ByteLimit`` when its reads pass ``max_bytes``.
+    When its reads pass ``max_bytes``, the groups not read are error entries. The record prints after a ``FAILED`` line.
+    Returns false for such a sample.
     """
     sample = SAMPLES[name]
     ceiling = _Ceiling(max_bytes)
@@ -151,6 +163,8 @@ def survey_sample(name: str, directory: Path, max_bytes: int) -> None:
 
     found = bundle_facts(bundle, open_he, alignment_text)
     errors = write_record(name, found, directory)
+    if ceiling.message:
+        print(f"{name}: FAILED ByteLimit: {ceiling.message}; a partial record follows", flush=True)
     for line in record_lines(name, found):
         print(line, flush=True)
     each = ", ".join(f"{label} {c.bytes} bytes in {c.requests} requests" for label, c in counters.items())
@@ -158,6 +172,7 @@ def survey_sample(name: str, directory: Path, max_bytes: int) -> None:
           f"{sum(c.requests for c in counters.values())} requests ({each})", flush=True)
     if errors:
         print(f"{name}: error entries at {', '.join(errors)}", flush=True)
+    return ceiling.message is None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,10 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = 0
     for name in names:
         try:
-            survey_sample(name, args.out, args.max_bytes)
-        except ByteLimit as limit:
-            failed += 1
-            print(f"{name}: FAILED ByteLimit: {limit}", flush=True)
+            failed += not survey_sample(name, args.out, args.max_bytes)
         except Exception as error:
             failed += 1
             print(f"{name}: FAILED {error_text(error)}", flush=True)

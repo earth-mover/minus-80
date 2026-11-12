@@ -367,3 +367,7 @@ def test_raw_records_a_missing_or_undecodable_resource_and_a_missing_plot():
         "header": "data:uint16/zip;base64", "undecodable": "error"}
     assert raw(_html({"other": 1})) == {"bag_keys": ["other"], "density_plot_keys": [], "bins": None,
                                         "references": {}, "resources": {}}
+
+
+def test_raw_of_a_bag_that_is_no_dict_gives_its_type():
+    assert raw(_html([1, 2])) == {"bag_type": "list"}

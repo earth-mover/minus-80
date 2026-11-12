@@ -94,11 +94,14 @@ def rasters(html: str) -> dict[str, QcRaster]:
 
 def raw(html: str) -> dict:
     """What the data bag holds. A value that the ingest does not know is recorded, never refused.
+    A bag that is no dict gives its type name only.
 
     ``references`` holds each ``density_plot`` key, other than ``bins``, whose value is a resource reference.
     ``resources`` has an entry for each referenced resource: its data URI header and, when it decodes, its sizes and range.
     """
     bag = data_bag(html)
+    if not isinstance(bag, dict):
+        return {"bag_type": type(bag).__name__}
     plot = bag.get("density_plot") if isinstance(bag.get("density_plot"), dict) else {}
     bins = plot.get("bins")
     references = {k: v for k, v in plot.items()

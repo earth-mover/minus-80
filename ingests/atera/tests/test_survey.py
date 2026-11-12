@@ -10,7 +10,7 @@ import survey
 from bundle import Bundle
 from facts import bundle_facts, load_record
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, SAMPLES
-from survey import MAX_LINE, _split, main, read_records, record_lines
+from survey import MAX_LINE, _split, failed_samples, main, read_records, record_lines
 from tests.test_facts import ALIGNMENT_TEXT, synthetic  # noqa: F401
 
 
@@ -75,17 +75,37 @@ def test_a_missing_he_object_leaves_the_bundle_groups_in_the_record(monkeypatch,
     assert record["transcripts"]["number_rnas"] and "error entries at he_image" in out
 
 
-def test_a_sample_over_its_byte_ceiling_fails_with_the_bytes_read_and_the_run_goes_on(
-        monkeypatch, capsys, tmp_path, synthetic):  # noqa: F811
+def _limit_run(monkeypatch, tmp_path, synthetic, *options):  # noqa: F811
     _lay_out(tmp_path / "s3", synthetic, ["kidney", "brain"])
     monkeypatch.setenv("MINUS80_S3_ANONYMOUS", "1")
     monkeypatch.setattr(survey, "S3", str(tmp_path / "s3"))
-    code = main(["--samples", "kidney,brain", "--out", str(tmp_path / "out"), "--max-bytes", "20000"])
+    return main(["--samples", "kidney,brain", "--out", str(tmp_path / "out"), *options])
+
+
+def test_a_sample_over_its_byte_ceiling_fails_and_leaves_a_partial_record_and_the_run_goes_on(
+        monkeypatch, capsys, tmp_path, synthetic):  # noqa: F811
+    code = _limit_run(monkeypatch, tmp_path, synthetic, "--max-bytes", "20000")
     out = capsys.readouterr().out
     assert code == 1
-    assert len(re.findall(r"^(kidney|brain): FAILED ByteLimit: read \d+ bytes, over the limit of 20000 bytes$",
-                          out, re.MULTILINE)) == 2
-    assert "=== record" not in out and not list((tmp_path / "out").glob("*.json"))
+    assert len(re.findall(r"^(kidney|brain): FAILED ByteLimit: read \d+ bytes, over the limit of 20000 bytes; "
+                          r"a partial record follows$", out, re.MULTILINE)) == 2
+    records = read_records(out, ["kidney", "brain"])
+    assert failed_samples(out) == {"kidney", "brain"}
+    for name in ("kidney", "brain"):
+        assert records[name]["members"] and records[name]["transcripts"]["error"].startswith("ByteLimit: read ")
+        assert (tmp_path / "out" / f"{name}.json").exists()
+
+
+def test_a_ceiling_passed_late_keeps_every_earlier_group(monkeypatch, capsys, tmp_path, synthetic):  # noqa: F811
+    assert _limit_run(monkeypatch, tmp_path, synthetic) == 0
+    total = int(re.search(r"^kidney: (\d+) bytes read", capsys.readouterr().out, re.MULTILINE)[1])
+    for part in (tmp_path / "s3", tmp_path / "out"):
+        shutil.rmtree(part)
+    assert _limit_run(monkeypatch, tmp_path, synthetic, "--max-bytes", str(total - 1)) == 1
+    out = capsys.readouterr().out
+    record = read_records(out, ["kidney"])["kidney"]
+    assert record["transcripts"]["number_rnas"] and record["stores"]["cell_feature_matrix.zarr.zip"]["error"]
+    assert "kidney: error entries at" in out and "kidney" in failed_samples(out)
 
 
 # The log transport.
@@ -154,7 +174,7 @@ def test_a_missing_part_a_missing_end_and_a_missing_begin_raise():
 
 def test_a_sample_that_was_asked_for_and_has_no_lines_raises_and_others_are_not_needed():
     log = "\n".join(record_lines("kidney", {"k": 1}))
-    with pytest.raises(ValueError, match="brain.*no lines"):
+    with pytest.raises(ValueError, match="brain.*no marker line at the start of a line"):
         read_records(log, ["kidney", "brain"])
     assert read_records(log, ["kidney"]) == {"kidney": {"k": 1}}
 
@@ -172,3 +192,25 @@ def test_a_record_of_exactly_one_part_at_the_line_bound():
     lines = record_lines("s", record)
     assert len(lines) == 3 and len(lines[1]) == MAX_LINE and read_records("\n".join(lines)) == {"s": record}
     assert json.dumps(record, separators=(",", ":")) == lines[1].split(": ", 1)[1]
+
+
+def test_a_log_with_a_prefix_on_each_line_is_not_read_and_the_error_says_so():
+    log = "\n".join("[12:00:01] " + line for line in record_lines("kidney", {"k": 1}))
+    with pytest.raises(ValueError, match="kidney.*no marker line at the start of a line"):
+        read_records(log, ["kidney"])
+
+
+def test_a_failed_line_after_an_older_complete_record_raises_and_one_before_a_partial_record_does_not():
+    older = record_lines("kidney", {"k": 1})
+    log = "\n".join([*older, "kidney: FAILED OSError: gone"])
+    with pytest.raises(ValueError, match="kidney.*FAILED"):
+        read_records(log, ["kidney"])
+    partial = "\n".join(["kidney: FAILED ByteLimit: read 9 bytes, over the limit of 1 bytes; a partial record follows",
+                         *older, "kidney: FAILED ByteLimit: read 9 bytes, over the limit of 1 bytes; a partial record follows"])
+    assert read_records(partial, ["kidney"]) == {"kidney": {"k": 1}}
+
+
+def test_failed_samples_lists_each_sample_with_a_failed_line():
+    log = "\n".join(["tile 0,0: 5 rows", "kidney: FAILED OSError: gone", "brain: 5 bytes read in 2 requests",
+                     "kidney: FAILED OSError: gone", "breast: FAILED ByteLimit: read 2 bytes, over the limit of 1 bytes"])
+    assert failed_samples(log) == {"kidney", "breast"}
