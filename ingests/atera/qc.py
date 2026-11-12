@@ -14,7 +14,7 @@ import numpy as np
 #: The text that opens the data bag. An earlier occurrence sits in an HTML comment.
 BAG_TAG = '<script id="ws-data" type="application/json">'
 RESOURCE_PREFIX = "_resources_"
-DTYPES = {"uint16": "<u2", "float32": "<f4"}
+DTYPES = {"uint16": "<u2", "uint32": "<u4", "float32": "<f4"}
 #: The element name of each label in ``density_plot["bins"]``. A label that this table lacks raises.
 BIN_NAMES = {
     "Genomic Controls": "genomic_controls",

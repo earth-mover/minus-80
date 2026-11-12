@@ -294,7 +294,7 @@ The ingest stops when the bundle has no such member or has more than one. It doe
   A resource is the string `data:<dtype>/zip;base64,<payload>`. The payload is one zlib stream.
   It holds little-endian values of the dtype, row-major, with row 0 at the origin.
   Rows run along y and columns run along x. All six rasters of the kidney are `uint16`.
-  The ingest accepts `uint16` and `float32`. It stops on any other dtype and prints the header.
+  The ingest accepts `uint16`, `uint32` and `float32`. It stops on any other dtype and prints the header.
 - **The grids.** The five maps of `bins` have 212,859 values each: 353 rows by 603 columns of 20 µm bins.
   The bin size is `width / horizontal_bin_count`. The rows are `ceil(height / bin size)`.
   The map `mean_q_score_80um` has 13,439 values: 89 rows by 151 columns, with the same origin.

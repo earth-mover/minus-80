@@ -415,7 +415,7 @@ All on 2026-11-10, from a laptop, with range requests only.
   rasters are numeric, not pictures. Each is a base64 zlib stream with the
   dtype in its header. All six rasters of the kidney are `uint16`: the
   density map and the control maps, and also the quality maps. The ingest
-  accepts `uint16` and `float32` and stores the dtype of the report.
+  accepts `uint16`, `uint32` and `float32` and stores the dtype of the report.
   The report states each grid, its origin and its unit beside the rasters.
   The sum of the density map is 1,083,945,548. The report states
   1,083,799,964 high quality transcripts. The transcript store holds

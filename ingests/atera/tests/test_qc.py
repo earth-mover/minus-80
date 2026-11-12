@@ -371,3 +371,42 @@ def test_raw_records_a_missing_or_undecodable_resource_and_a_missing_plot():
 
 def test_raw_of_a_bag_that_is_no_dict_gives_its_type():
     assert raw(_html([1, 2])) == {"bag_type": "list"}
+
+
+BIG = 70_000
+
+
+def _big_density_bag():
+    bag = _bag()
+    density = DENSITY.astype("<u4")
+    density[1, 2] = BIG
+    bag["_resources"]["density_plot_transcript_density_map"] = _resource(density)
+    return bag, density
+
+
+def test_a_uint32_raster_decodes_with_a_value_above_the_uint16_range():
+    bag, density = _big_density_bag()
+    array = rasters(_html(bag))["transcript_density"].array
+    assert array.dtype == np.uint32 and array[1, 2] == BIG
+    np.testing.assert_array_equal(array, density)
+
+
+def test_raw_records_the_sizes_and_range_of_a_uint32_resource():
+    bag, density = _big_density_bag()
+    found = raw(_html(bag))["resources"]["density_plot_transcript_density_map"]
+    assert found == {"header": "data:uint32/zip;base64", "bytes": 96, "values": 24, "min": 0.0, "max": float(BIG)}
+
+
+def test_write_qc_stores_a_uint32_raster_untruncated_and_the_gate_passes(writer, tmp_path):  # noqa: F811
+    bag, density = _big_density_bag()
+    with zipfile.ZipFile(tmp_path / "big.zip", "w") as zf:
+        zf.writestr("analysis_summary_big.html", _html(bag))
+    big = Bundle(tmp_path / "big.zip")
+    write_qc(writer, big, ["transcript_density"])
+    root = _root(writer)
+    stored = root["images/qc_transcript_density/s0"]
+    assert stored.dtype == np.uint32
+    np.testing.assert_array_equal(stored[0], density)
+    window = root["images/qc_transcript_density"].attrs["ome"]["omero"]["channels"][0]["window"]
+    assert window["end"] == BIG
+    assert gate_qc(root, big) == []
