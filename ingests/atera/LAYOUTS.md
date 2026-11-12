@@ -497,7 +497,7 @@ from a laptop. The table read 1,168.1 MiB for 1,030.2 MiB of members: the reader
 ### The verification
 
 `verify.py` on the fixture branch read 307.7 MiB of the bundle in 994.8 s.
-The `polygons` gate fails only when the metrics CSV states a count that differs.
+In this verification, the `polygons` gate failed only when the metrics CSV stated a count that differed.
 
 | Gate | Result | What it measured |
 |---|---|---|
@@ -526,15 +526,15 @@ Each long gate prints a progress line every five seconds.
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | | The root attribute `description` has the sentence of `KIND_SENTENCES` for each kind of element that the store holds. |
 | `images` | Four sampled tiles of every level of every plane against tifffile. Every level of the source is present. |
-| `transforms` | The stored axis names of each element have this order: `c, y, x` for a 2D image, `c, z, y, x` for the stack, `y, x` for a label. |
+| `transforms` | The stored axis names of each element have a fixed order. A 2D image has `c, y, x`. The stack has `c, z, y, x`. A label has `y, x`. |
 | | Each level array has the shape that the source gives in that order. Thus each axis name belongs to one array dimension. |
-| | The channel length is the count of morphology files, 1 for the stack, the samples of an H&E pixel, and 1 for a QC raster. |
+| | The channel length of `images/morphology` is the count of morphology files. It is 1 for the stack and for a QC raster. For the H&E, it is the samples of a pixel. |
 | | Each level maps each corner of its array into `global` at the place that the source gives. The channel index of a corner is 0. |
 | | A far corner of each level maps to the far corner of level 0. This rule is the layout's choice, and the ingest writes it too. |
 | | A plane has four corners, and the stack has eight. A far corner is the outer corner of a last pixel. The four corners fix the affine of the H&E. |
 | | Each element has one transform, and its output is `global`. An element that lists no level fails. |
 | | A sequence ends in `global`. Each step starts in the system where the step before it ends, by system name and axis names. |
-| | The source numbers are the pixel size of `experiment.spatial`, the level shapes, the stack's `PhysicalSizeZ`, the alignment CSV, and the report's origin, dimensions and bin sizes. |
+| | The source numbers are the pixel size of `experiment.spatial`, the level shapes, the stack's `PhysicalSizeZ` and the alignment CSV. The report's origin, dimensions and bin sizes are source numbers too. |
 | | The bin size of the coarse raster comes from its key in the bag, `mean_q_score_80um`. |
 | | The gate parses each source itself and does not call the ingest's transform code. A stored number can differ from its source number by a relative 1e-9. |
 | | The `alignment` attribute of the H&E holds the matrix of the CSV and the axes `["x", "y"]`. The gate refuses a CSV whose third row is not `0, 0, 1`. |
@@ -543,11 +543,15 @@ Each long gate prints a progress line every five seconds.
 | | An array with y and x exchanged has the source's shape when the two sides are equal. The `images` gate compares the pixels. |
 | `qc` | Every raster of `QC_NAMES` equals the report's, with its scale and translation. The gate decodes the report with the ingest's decoder. |
 | `labels` | Every chunk of each mask equals the source member, by hash. The stored chunk count equals the member count. Each metadata field equals the field of the source's `.zarray`. 20 chunks of each mask, from the first to the last, read through zarr, equal the source's decode. At least one of them holds a value other than the fill value. |
-| `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. Each metadata field equals the field of the source's `.zarray`. In both modes, 20 chunks of `X/data` and `X/indices` and every chunk of `X/indptr`, read through zarr, equal the source's decode. |
+| `matrix` | `X` is CSR with the source's shape and stored values. Every chunk of every copied array equals its source member, by hash. Each metadata field equals the field of the source's `.zarray`. In both modes, 20 chunks of `X/data` and `X/indices`, read through zarr, equal the source's decode. So does every chunk of `X/indptr`. |
+| `instances` | At least 90 % of 50 sampled cell centroids fall in their own cell label. Each miss prints one line. |
+| | On each sampled row, `obs.instance` is the row plus one, and `obs.cell_id` decodes to the cells store's pair. |
 | `tables` | Each transcripts tile has the row count of `grid_number_objects`, and its `instance` range follows the source order. |
 | | The `instance` ranges leave no gap across tiles. The manifests give all of this, so no data file is read. |
 | | Each row group of a tile starts after the last, and its range fits its row count. The Parquet footers give this. A repeat inside one row group with the right minimum, maximum and count is not found. |
 | | Each polygon table has one row per cell of its set. |
+| `polygons` | No `instance` repeats. `part_count` equals the source rows of each cell. In the nucleus set, it also equals `nucleus_count`. |
+| | A count of invalid parts that differs from the metric of 10x is a printed FINDING, not a failure. |
 | `copies` | Each `uint8` copy has the length of its data files and the chunk edges of an 8 MiB reference. |
 | | For each data file, the first block, the last block and three blocks between equal the same bytes of the file, by hash. A change in another block is not found. |
 | `source` | Each source object's size and ETag from a HEAD request equal this file and the root attribute `source`. A local `--bundle` skips the gate. |
@@ -668,7 +672,11 @@ verify.py <the same, with --branch main> --gates $SERVED
 
 The launcher gives no `--record`, so its steps read the committed record. It gives `--concurrency 32`.
 `--head-source` cannot run here: the `source` gate needs the real objects.
-So each verification printed `source: skipped; the gate sends HEAD requests, and a local bundle has no source object to ask`.
+So each verification printed this line:
+
+```
+source: skipped; the gate sends HEAD requests, and a local bundle has no source object to ask
+```
 
 | Step | Exit code | Lines |
 |---|---|---|
@@ -676,12 +684,12 @@ So each verification printed `source: skipped; the gate sends HEAD requests, and
 | Bundle check, `ch0002_18s.ome.tif` renamed `ch0002_28s.ome.tif` | 1 | `members.morphology_2d/ch0002_18s.ome.tif: record 2013085, bundle absent`, then three more lines, then `bundle check: 4 differences` |
 | Preflight | 0 | `catalog: absent; the ingest creates it`, `repo: absent; the ingest creates it`, `preflight: no problem` |
 | Ingest | 0 | `bundle check: 0 differences (not compared: stores)`, `tile 5,-1: no rows, skipped`, `full written:` with the 17 elements |
-| Verification, every gate | 1 | 15 gates pass; `masks FAIL` and `instances FAIL` with `raised ValueError: Cannot take a larger sample than population when replace is False` |
+| Verification, every gate | 1 | 15 gates pass. `masks` and `instances` fail. Each raised `ValueError: Cannot take a larger sample than population when replace is False`. |
 | Verification, `SERVED` | 0 | 15 gates pass; the file holds the snapshot of `branch trial-dry: snapshot <S>` |
 | Promote | 0 | `main: 1CECHNKREP0F1RSTCMT0 -> <S>` |
 | Verification of `main`, `SERVED` | 0 | `branch main: snapshot <S>`; 15 gates pass |
 
-- **`masks` and `instances`.** Each gate samples 50 cells. The synthetic bundle has three, so each gate raises. They need the real bundle.
+- **`masks` and `instances`.** Each gate sampled 50 cells. The synthetic bundle has three, so each gate raised. They need the real bundle.
 - **`transforms`.** The gate checked 8 levels of `images/morphology`, 8 of `images/morphology_3d` and 9 of `images/he_image`.
   It also checked both labels and the six QC rasters.
 - **`tables`.** `points/transcripts: 34 tiles, 430 rows, the source 430`. The empty tile has no Parquet file.

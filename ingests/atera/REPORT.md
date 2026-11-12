@@ -272,7 +272,8 @@ The disk held 9.5 GiB before the download and 55 GiB after it.
 | root attributes | 0.1 MiB | 1.6 |
 
 The count matrix is the slowest small step: 1,196.2 MiB in 905.3 s. Its copy runs with one writer.
-The 3D stack is the longest step. Its decode runs in one thread.
+The 3D stack is the longest step. In the kidney run, its decode ran in one thread.
+The code decodes the stack with up to 4 threads on an `m7g.xlarge`. No run measured the gain.
 
 ### The description commit
 

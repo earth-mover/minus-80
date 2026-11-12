@@ -1049,6 +1049,7 @@ It is 4 for a check that did not finish.
 The verification runs the comparison as the gate `bundle`.
 The ingest and the gate `bundle` leave out the group `stores`. The group `members` pins the size of each store member.
 `check_bundle.py` compares `stores` too. The launcher runs it by range request and again on the local files.
+Without `--bundle`, `check_bundle.py` also compares the size and ETag of each source object by a HEAD request.
 Each of the three scripts takes `--record` for a record file outside `samples/`.
 A record with an error entry stops each of them.
 On 2026-11-12 the kidney's check read 147.0 MB by range request and found no difference.
@@ -1059,7 +1060,7 @@ On 2026-11-12 the kidney's check read 147.0 MB by range request and found no dif
 - the stack's z step, against the OME-XML;
 - the H&E affine and the `alignment` attribute, against the CSV, which the gate parses itself;
 - each QC raster's scale and translation, against the report's bins and origin;
-- the result of the corners of each level through each stored transform: four corners of a plane, eight of the stack.
+- where each stored transform maps the corners of each level: four of a plane, eight of the stack.
 
 The gate computes each expected value from the source and not from the ingest's functions.
 A stored number must equal its source number within a relative error of 1e-9.
@@ -1151,7 +1152,8 @@ Limit: the script has not run for real. It needs a login with the right to set a
 Each run needs the owner's approval of the repo, the spend and the storage.
 
 1. The setup script, after approval.
-2. The launcher's ingest form, on one VM: environment, preflight, space check, download, file check, bundle check, ingest to `trial-<name>`, verification, move of `main`.
+2. The launcher's ingest form, on one VM. The ingest writes `trial-<name>`, and the last step moves `main`.
+   The steps are environment, preflight, bundle-remote, space, download, check, bundle-local, ingest, verify and promote.
 3. A check that the cluster stopped.
 4. `REPORT.md` gets a section for the sample: the counts, the times, the findings.
 5. The reader project gets the `main` snapshot and the table pins.
@@ -1166,7 +1168,8 @@ Each run needs the owner's approval of the repo, the spend and the storage.
 
 The kidney's download took 991 s for 48.5 GB, and its ingest 6,829 s.
 The survey gives each sample's transcript rows, pixels and planes.
-The estimate of a run scales the kidney's times: the download and the file check by bytes, the transcripts by rows, each image by its pixels and planes.
+The estimate of a run scales the kidney's times. The download and the file check scale by bytes.
+The transcripts scale by rows. Each image scales by its pixels and planes.
 The estimate assumes no gain from the stack's threads. The time limit is twice the estimate.
 
 ### Left to the builder
@@ -1201,6 +1204,11 @@ A push of the git branch and a pull request are a separate question.
 The launcher uploads the committed code of the local checkout, so the run needs no push.
 
 ### The command
+
+Run `setup_sample.py --sample brain --org earthmover-biology --dry-run` just before the launch.
+It must print four `exists` lines.
+The ingest writes to the catalog before it checks the virtual chunk container.
+So a missing piece fails about 30 minutes into the run.
 
 ```
 uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
@@ -1257,7 +1265,7 @@ These are the ratios:
 | download | 991 | 1.1414 | 1,131.1 |
 | check | 377 | 1.1414 | 430.3 |
 | bundle-local | 77 | 0.7011 | 54.0 |
-| ingest: the bundle check of `ingest.prepare` | 77 | 0.7011 | 54.0 |
+| ingest: the bundle check of `ingest.prepare`, an added estimate | not measured; 77 assumed | 0.7011 | 54.0 |
 | ingest: `tables/table` | 905.3 | 1, not 0.4310 | 905.3 |
 | ingest: two labels | 32.6 + 37.3 = 69.9 | 1.3910 | 97.2 |
 | ingest: two shapes | 16.0 + 14.8 = 30.8 | 1, not 0.23 | 30.8 |
@@ -1275,6 +1283,8 @@ These are the ratios:
 | promote | 4 | 1 | 4.0 |
 | Sum | | | 14,718.6 |
 
+The kidney's 6,829 s of ingest held no bundle check. So the row of `ingest.prepare` is an added estimate.
+It uses the 77 s of the check by range request. The other kidney rows of the ingest add up to 6,829 s.
 The estimate is 14,718.6 s, or 245.3 minutes.
 Twice the estimate is 29,437.2 s, or 490.6 minutes. The limit is 491 minutes.
 The kidney's run took 10,470 s in its six steps. The kidney's limit was 480 minutes.
@@ -1297,3 +1307,35 @@ The assumptions, one on each line:
 - That is the largest ratio of a gate's input. The `images` gate reads 161 pages for the brain against 143.
 - The gate `transforms` reads headers, the CSV and attributes only. The estimate counts 0 s for it.
 - The rates of `LAYOUTS.md`, item (f), read from 10x's bucket. The run reads local files, so the estimate uses the run's times.
+
+### If the run fails
+
+A rerun resumes on the trial branch of the failed run, so it needs the same `--branch`.
+Without `--branch`, the launcher uses `trial-<date>` with the UTC date of the launch.
+So a rerun on another day gets another branch. Give the branch on every rerun.
+
+A rerun starts on another VM, so it repeats each step:
+
+- The download and the file check run again. For the brain they take about 26 minutes.
+- The verification runs every gate again. For the brain it takes about 52 minutes.
+
+The ingest skips each unit that the trial branch holds by a commit.
+These units are `tables/table`, each label, each shape, `points/transcripts`, each image level, each QC raster and `iceberg_tables`.
+The ingest skips a held transcripts tile when its row count and `instance` range are correct.
+A held tile with another count stops the ingest, unless the rerun gives `--replace-tables transcripts`.
+A table write with the same content as the held file changes nothing.
+
+The launcher moves `main` after a part of the gates only with `--gates <list> --promote-after-gates`.
+That form needs the owner's approval.
+
+A failed run leaves these items behind:
+
+- the trial branch and its chunks in `atera-brain`;
+- the tables of the namespace `atera-brain-tables`, with the snapshots that the run wrote;
+- the four pieces of the setup: the repo, the namespace, the virtual chunk container and the access policy;
+- the logs of the job in Coiled.
+
+The VM stops on every exit path of the script, and the server stops it at `--max-minutes`.
+No gate verified the current snapshot of each table.
+A reader of a table's current snapshot sees those rows.
+`main` of `atera-brain` pins no table, so a reader of `main` sees no data of the failed run.
