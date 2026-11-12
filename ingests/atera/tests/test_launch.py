@@ -1,5 +1,6 @@
 import inspect
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import launch
-from sources import SAMPLES
+from sources import BASE, S3, SAMPLES
 from tests.test_verify import _verify, full_store  # noqa: F401
 
 TOKEN = "fake-token-0123456789"
@@ -529,7 +530,7 @@ def _ingest_argv(token_file, *extra, drop=()):
     argv = {"--vm-type": "m7g.xlarge", "--region": "us-west-2", "--workspace": "earthmover-devs",
             "--name": "atera-ingest", "--token-file": str(token_file), "--max-minutes": "600",
             "--sample": "kidney", "--repo": "arraylake://org/atera-kidney", "--catalog": "arraylake://org",
-            "--namespace": "atera-kidney-tables", "--branch": "main", "--concurrency": "8"}
+            "--namespace": "atera-kidney-tables", "--branch": "trial-1", "--concurrency": "8"}
     flat = [x for k, v in argv.items() if k not in drop for x in (k, v)]
     return ["--ingest", *flat, *extra]
 
@@ -543,7 +544,7 @@ def test_the_ingest_dry_run_names_the_objects_the_local_files_and_the_full_mode_
                  "45,720,445,144", "8c1c07343dbe1b946f5f90a21130782f-5451",
                  f'--bundle "$DATA/{KIDNEY}_outs.zip"', f'--he-image "$DATA/{KIDNEY}_he_image.ome.tif"',
                  f'--he-alignment "$DATA/{KIDNEY}_he_imagealignment.csv"', "fetch.py download", "fetch.py check",
-                 "--head-source", "--namespace atera-kidney-tables", "--branch main", "--concurrency 8",
+                 "--head-source", "--namespace atera-kidney-tables", "--branch trial-1", "--concurrency 8",
                  "'ARRAYLAKE_TOKEN': '***'", "'cluster_timeout': '600 minutes'", "job_timeout='600 minutes'", "disk_size='100'"):
         assert fact in out, fact
     assert out.count("--mode full") == 3
@@ -562,7 +563,7 @@ def test_the_ingest_form_has_no_default_for_max_minutes(tmp_path):
         launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", drop=("--max-minutes",)))
 
 
-@pytest.mark.parametrize("missing", ["--sample", "--repo", "--catalog", "--namespace", "--branch", "--concurrency"])
+@pytest.mark.parametrize("missing", ["--sample", "--repo", "--catalog", "--namespace", "--concurrency"])
 def test_the_ingest_form_needs_each_of_its_arguments(tmp_path, missing):
     with pytest.raises(SystemExit, match=missing.removeprefix("--")):
         launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", drop=(missing,)))
@@ -589,9 +590,14 @@ def test_the_help_says_that_a_dead_launcher_does_not_stop_the_ingest(capsys):
     assert "does not stop the job" in " ".join(capsys.readouterr().out.split())
 
 
+def _plan(**changes):
+    return launch.IngestPlan(**{"sample": "kidney", "repo": "arraylake://org/atera-kidney", "catalog": "arraylake://org",
+                                "namespace": "atera-kidney-tables", "branch": "trial-1", "concurrency": 8,
+                                "elements": None, "gates": None, "replace_tables": None, **changes})
+
+
 def _ingest_job(**changes):
-    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "atera-kidney-tables", "main",
-                             8, None, None, None)
+    plan = _plan()
     return _job(**{"script": "ingest", "arguments": [], "ingest": plan, "minutes": 600, "status_failures": None,
                    "stops": "viewer", **changes})
 
@@ -603,6 +609,9 @@ case "$*" in
   *"fetch.py download"*) [ "${STUB_FAIL:-}" = download ] && fail download 7 ;;
   *"fetch.py check"*) [ "${STUB_FAIL:-}" = check ] && fail check 1 ;;
   *"--preflight"*) [ "${STUB_FAIL:-}" = preflight ] && fail preflight 5 ;;
+  *"check_bundle.py"*"--bundle"*) [ "${STUB_FAIL:-}" = bundle-local ] && fail bundle-local "${STUB_CODE:-1}" ;;
+  *"check_bundle.py"*) [ "${STUB_FAIL:-}" = bundle-remote ] && fail bundle-remote "${STUB_CODE:-1}" ;;
+  *"promote.py"*) [ "${STUB_FAIL:-}" = promote ] && fail promote 1 ;;
   *"ingest.py"*) [ "${STUB_FAIL:-}" = ingest ] && fail ingest 3 ;;
   *"verify.py"*) [ "${STUB_FAIL:-}" = verify ] && fail verify 4 ;;
 esac
@@ -622,7 +631,7 @@ fi
 """
 
 
-def _run_script(tmp_path, fail=None, job=None, free_kb=None):
+def _run_script(tmp_path, fail=None, job=None, free_kb=None, code=None):
     """Run the generated remote script for real with a stub ``uv`` that records each call."""
     work, bin_dir = tmp_path / "work", tmp_path / "bin"
     work.mkdir()
@@ -636,7 +645,8 @@ def _run_script(tmp_path, fail=None, job=None, free_kb=None):
     script.write_text(launch.remote_script(job or _ingest_job()))
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATERA_DATA": str(tmp_path / "data"),
            "ATERA_LOGS": str(tmp_path / "logs"), "STUB_CALLS": str(tmp_path / "calls"), "STUB_DF": str(tmp_path / "df"),
-           **({"STUB_FAIL": fail} if fail else {}), **({"STUB_FREE_KB": str(free_kb)} if free_kb else {})}
+           "ARRAYLAKE_TOKEN": TOKEN, **({"STUB_FAIL": fail} if fail else {}),
+           **({"STUB_FREE_KB": str(free_kb)} if free_kb else {}), **({"STUB_CODE": str(code)} if code else {})}
     done = subprocess.run(["bash", str(script)], cwd=work, env=env, capture_output=True, text=True, timeout=60)
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     return done, calls
@@ -646,17 +656,19 @@ def test_the_script_runs_the_environment_the_download_the_check_the_ingest_and_t
     done, calls = _run_script(tmp_path)
     assert done.returncode == 0, done.stdout
     assert [c.split("python ")[-1].split(" --")[0] if "python" in c else c for c in calls] == [
-        "uv sync --frozen --package atera-ingest", "ingests/atera/ingest.py", "ingests/atera/fetch.py download",
-        "ingests/atera/fetch.py check", "ingests/atera/ingest.py", "ingests/atera/verify.py"]
+        "uv sync --frozen --package atera-ingest", "ingests/atera/ingest.py", "ingests/atera/check_bundle.py",
+        "ingests/atera/fetch.py download", "ingests/atera/fetch.py check", "ingests/atera/check_bundle.py",
+        "ingests/atera/ingest.py", "ingests/atera/verify.py", "ingests/atera/promote.py"]
     assert "--preflight" in calls[1] and "--bundle" not in calls[1] and "--mode full" in calls[1]
-    assert f'--bundle {tmp_path}/data/{KIDNEY}_outs.zip' in calls[4] and "--mode full" in calls[4]
-    assert "--preflight" not in calls[4] and "--mode full" in calls[5] and "--head-source" in calls[5]
-    for step in ("environment", "preflight", "download", "check", "ingest", "verify"):
+    assert f'--bundle {tmp_path}/data/{KIDNEY}_outs.zip' in calls[6] and "--mode full" in calls[6]
+    assert "--preflight" not in calls[6] and "--mode full" in calls[7] and "--head-source" in calls[7]
+    for step in STEPS:
         assert f"=== step {step}" in done.stdout and f"=== step {step}: done in " in done.stdout
 
 
 @pytest.mark.parametrize("fail, code, ran", [
-    ("preflight", 5, 2), ("download", 7, 3), ("check", 1, 4), ("ingest", 3, 5), ("verify", 4, 6)])
+    ("preflight", 5, 2), ("bundle-remote", 1, 3), ("download", 7, 4), ("check", 1, 5), ("bundle-local", 1, 6),
+    ("ingest", 3, 7), ("verify", 4, 8), ("promote", 1, 9)])
 def test_a_failed_step_stops_the_run_with_its_exit_code_and_the_later_steps_do_not_run(tmp_path, fail, code, ran):
     done, calls = _run_script(tmp_path, fail)
     assert done.returncode == code and len(calls) == ran
@@ -778,6 +790,8 @@ def test_the_script_stops_before_the_download_when_the_data_directory_has_too_li
     ("--branch", "fixture", "branch"),
     ("--branch", "scratch", "branch"),
     ("--branch", "trial", "branch"),
+    ("--branch", "trial-", "branch"),
+    ("--branch", "main", "trial-<name>"),
     ("--sample", "brain", "atera-brain"),
     ("--sample", "kidny", "sample"),
     ("--concurrency", "0", "concurrency"),
@@ -799,11 +813,12 @@ def test_a_name_list_with_an_empty_name_or_whitespace_is_refused(tmp_path, flag,
         launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", flag, value))
 
 
-@pytest.mark.parametrize("branch", ["main", "trial-1", "trial-kidney-2"])
-def test_the_ingest_form_accepts_main_and_trial_branches(tmp_path, capsys, branch):
+@pytest.mark.parametrize("branch", ["trial-1", "trial-kidney-2"])
+def test_the_ingest_form_accepts_trial_branches(tmp_path, capsys, branch):
     argv = _ingest_argv(_token_file(tmp_path), "--dry-run")
     argv[argv.index("--branch") + 1] = branch
     assert launch.main(argv) == 0
+    assert f"--branch {branch}" in capsys.readouterr().out
 
 
 def test_the_script_form_refuses_a_time_limit_below_one_minute(tmp_path):
@@ -904,7 +919,7 @@ class Vm:
 launch.install_stop_signals()
 # A child of a background job starts with SIGINT ignored; Python's own handler is what a terminal run has.
 signal.signal(signal.SIGINT, signal.default_int_handler)
-plan = launch.IngestPlan("kidney", "r", "c", "n", "main", 1, None, None, None)
+plan = launch.IngestPlan("kidney", "r", "c", "n", "trial-1", 1, None, None, None)
 job = launch.Job("n", "m7g.xlarge", "r", "ws", 1, 90, "ingest", [], plan, None, "viewer")
 try:
     launch.run(Vm(), job, "tok-secret", out=lambda line: print(line, flush=True), interval=0.05)
@@ -965,7 +980,7 @@ def test_the_dry_run_has_a_preflight_step_after_the_environment_with_the_argumen
     assert "the arguments, the repo, the catalog and each table's state, with no write and no bundle" in preflight
     assert preflight.endswith("--preflight") and "--bundle" not in preflight and "--he-image" not in preflight
     for text in ("--replace-tables transcripts", "--elements labels/nucleus_labels", "--concurrency 8",
-                 "--namespace atera-kidney-tables", "--mode full", "--branch main"):
+                 "--namespace atera-kidney-tables", "--mode full", "--branch trial-1"):
         assert text in preflight and text in ingest, text
     assert "--replace-tables" not in verify
 
@@ -978,9 +993,7 @@ def test_a_failed_preflight_reaches_neither_the_space_step_nor_the_download(tmp_
 
 
 def test_replace_tables_is_on_the_preflight_and_the_ingest_line_and_not_on_the_verify_line(tmp_path):
-    plan = launch.IngestPlan("kidney", "arraylake://org/atera-kidney", "arraylake://org", "atera-kidney-tables", "main",
-                             8, None, None, "transcripts,nucleus_boundaries")
-    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(replace_tables="transcripts,nucleus_boundaries")))
     flagged = [c for c in calls if "--replace-tables transcripts,nucleus_boundaries" in c]
     assert [("--preflight" in c) for c in flagged] == [True, False] and "verify.py" not in " ".join(flagged)
 
@@ -1077,3 +1090,203 @@ def test_a_failed_stop_by_name_prints_one_line_with_the_job_name_and_the_cli_com
     assert len(lines) == 1
     assert "atera-x" in lines[0] and "coiled cluster list --workspace earthmover-devs" in lines[0]
     assert "coiled cluster stop atera-x --workspace earthmover-devs" in lines[0]
+
+
+STEPS = ("environment", "preflight", "bundle-remote", "space", "download", "check", "bundle-local", "ingest", "verify",
+         "promote")
+REMOTE_STEPS = ("environment", "preflight", "bundle-remote", "ingest", "verify", "promote")
+
+
+def _steps(text):
+    """The names of the steps of a script, or of the steps that started in a run's output, in order."""
+    return tuple(a or b for a, b in re.findall(r"^(?:step (\S+) |=== step (\S+): start: )", text, re.M))
+
+
+def _programs(calls):
+    return [c.split("ingests/atera/")[-1].split(" --")[0] for c in calls]
+
+
+@pytest.mark.parametrize("flags, steps", [((), STEPS), (("--remote-bundle",), REMOTE_STEPS),
+                                          (("--no-promote",), STEPS[:-1]),
+                                          (("--remote-bundle", "--no-promote"), REMOTE_STEPS[:-1])])
+def test_the_dry_run_shows_the_steps_in_order(tmp_path, capsys, flags, steps):
+    assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *flags)) == 0
+    assert _steps(capsys.readouterr().out) == steps
+
+
+def test_the_branch_of_the_ingest_form_is_a_trial_branch_with_the_utc_date_by_default(tmp_path, capsys):
+    assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", drop=("--branch",))) == 0
+    out = capsys.readouterr().out
+    branches = set(re.findall(r"--(?:branch|from) (\S+)", out))
+    assert len(branches) == 1 and re.fullmatch(r"trial-\d{8}", branches.pop())
+    assert launch.default_branch(launch.datetime(2026, 11, 12, 23, 59, tzinfo=launch.timezone.utc)) == "trial-20261112"
+
+
+@pytest.mark.parametrize("branch", ["main", "fixture", "trial-", "trial-a b", "trial-$(id)", 'trial-"x'])
+def test_no_script_is_built_for_a_branch_that_is_not_a_trial_branch(branch):
+    with pytest.raises(ValueError, match="trial-<name>"):
+        launch.remote_script(_ingest_job(ingest=_plan(branch=branch)))
+
+
+@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}, {"promote": False}], ids=["local", "remote", "no-promote"])
+def test_each_command_of_the_run_names_the_trial_branch_and_none_names_main(tmp_path, plan):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(branch="trial-20261112", **plan)))
+    assert done.returncode == 0, done.stdout
+    writers = [c for c in calls if "ingest.py" in c or "verify.py" in c]
+    assert len(writers) == 3 and all("--branch trial-20261112" in c for c in writers)
+    assert not any(re.search(r"\bmain\b", c) for c in calls)
+    assert [c.split("promote.py ")[1] for c in calls if "promote.py" in c] == (
+        ["--repo arraylake://org/atera-kidney --from trial-20261112"] if plan != {"promote": False} else [])
+
+
+def test_the_script_runs_the_six_steps_of_a_remote_bundle_and_gives_no_local_file(tmp_path):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(remote_bundle=True)))
+    assert done.returncode == 0, done.stdout
+    assert _programs(calls) == ["uv sync", "ingest.py", "check_bundle.py", "ingest.py", "verify.py", "promote.py"]
+    assert _steps(done.stdout) == REMOTE_STEPS
+    assert not any(flag in c for c in calls for flag in ("--bundle", "--he-image", "--he-alignment", "--head-source"))
+    assert not _df(tmp_path) and "disk" not in done.stdout
+
+
+def test_the_remote_bundle_check_takes_the_sample_only_and_the_local_one_the_three_local_files(tmp_path):
+    done, calls = _run_script(tmp_path)
+    data = f"{tmp_path}/data/{KIDNEY}"
+    remote, local = (c.split("check_bundle.py ")[1] for c in calls if "check_bundle.py" in c)
+    assert remote == "--sample kidney"
+    assert local == (f"--sample kidney --bundle {data}_outs.zip --he-image {data}_he_image.ome.tif "
+                     f"--he-alignment {data}_he_imagealignment.csv")
+
+
+def test_the_remote_bundle_check_runs_before_the_download_and_the_local_one_between_the_file_check_and_the_ingest(
+        tmp_path):
+    done, calls = _run_script(tmp_path)
+    started = [line.split(":")[0] for line in done.stdout.splitlines() if ": start: " in line]
+    assert started == [f"=== step {name}" for name in STEPS]
+    order = _programs(calls)
+    assert order.index("check_bundle.py") < order.index("fetch.py download")
+    assert order.index("fetch.py check") + 1 == len(order) - 1 - order[::-1].index("check_bundle.py") == order.index(
+        "ingest.py", 2) - 1
+
+
+def test_the_verification_reads_the_local_alignment_file(tmp_path):
+    done, calls = _run_script(tmp_path)
+    verify = next(c for c in calls if "verify.py" in c)
+    assert f"--he-alignment {tmp_path}/data/{KIDNEY}_he_imagealignment.csv" in verify
+
+
+BUNDLE_CODES = {1: "the bundle differs from the record", 2: "the record cannot serve as a reference",
+                3: "the bundle does not open"}
+
+
+@pytest.mark.parametrize("code", BUNDLE_CODES)
+def test_a_failed_remote_bundle_check_reaches_no_download_and_the_output_says_which_exit_code(tmp_path, code):
+    done, calls = _run_script(tmp_path, "bundle-remote", code=code)
+    assert done.returncode == code and _programs(calls)[-1] == "check_bundle.py" and len(calls) == 3
+    assert not any("fetch.py" in c for c in calls) and not _df(tmp_path)
+    assert _steps(done.stdout) == STEPS[:3]
+    assert f"=== bundle check: exit code {code}: {BUNDLE_CODES[code]}" in done.stdout
+    assert f"=== step bundle-remote: FAILED with exit code {code}" in done.stdout
+    assert all(text not in done.stdout for other, text in BUNDLE_CODES.items() if other != code)
+
+
+@pytest.mark.parametrize("code", BUNDLE_CODES)
+def test_a_failed_local_bundle_check_reaches_no_ingest_and_the_output_says_which_exit_code(tmp_path, code):
+    done, calls = _run_script(tmp_path, "bundle-local", code=code)
+    assert done.returncode == code and len(calls) == 6
+    assert _programs(calls).count("ingest.py") == 1 and "--preflight" in calls[1]
+    assert not any("verify.py" in c or "promote.py" in c for c in calls)
+    assert f"=== bundle check: exit code {code}: {BUNDLE_CODES[code]}" in done.stdout
+    assert f"=== step bundle-local: FAILED with exit code {code}" in done.stdout
+
+
+def test_a_bundle_check_exit_code_without_a_meaning_stops_the_run_and_is_shown(tmp_path):
+    done, calls = _run_script(tmp_path, "bundle-remote", code=9)
+    assert done.returncode == 9 and len(calls) == 3
+    assert "=== bundle check: exit code 9: not a code of check_bundle.py" in done.stdout
+
+
+@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}], ids=["local", "remote"])
+@pytest.mark.parametrize("fail", ["ingest", "verify"])
+def test_a_failed_ingest_or_verification_reaches_no_promote(tmp_path, plan, fail):
+    done, calls = _run_script(tmp_path, fail, job=_ingest_job(ingest=_plan(**plan)))
+    assert done.returncode != 0 and not any("promote.py" in c for c in calls)
+    assert "step promote" not in done.stdout and "=== all steps passed" not in done.stdout
+
+
+def test_the_promote_step_is_the_last_command_and_runs_after_the_verification_passed(tmp_path):
+    done, calls = _run_script(tmp_path)
+    assert _programs(calls)[-2:] == ["verify.py", "promote.py"]
+    out = done.stdout
+    assert out.index("=== step verify: done in ") < out.index("=== step promote: start") < out.index(
+        "=== step promote: done in ") < out.index("=== all steps passed")
+
+
+def test_a_failed_promote_fails_the_run(tmp_path):
+    done, calls = _run_script(tmp_path, "promote")
+    assert done.returncode == 1 and "=== all steps passed" not in done.stdout
+
+
+def test_no_promote_drops_the_step_and_the_output_says_that_main_stays(tmp_path):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(promote=False)))
+    assert done.returncode == 0 and _programs(calls)[-1] == "verify.py"
+    assert not any("promote.py" in c for c in calls) and "step promote" not in done.stdout
+    assert "=== no promote step: main stays as it is" in done.stdout
+
+
+@pytest.mark.parametrize("flag", ["--remote-bundle", "--no-promote"])
+def test_the_options_of_the_ingest_form_are_refused_for_a_script(tmp_path, flag):
+    with pytest.raises(SystemExit, match=flag.removeprefix("--")):
+        launch.main(_argv(_token_file(tmp_path), "--dry-run", flag))
+
+
+def test_the_verify_step_shows_the_gates_when_the_run_has_a_part_of_them(tmp_path):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(gates="complete,tables")))
+    assert "=== step verify: start: the verification, only the gates complete,tables" in done.stdout
+    (tmp_path / "all").mkdir()
+    done, calls = _run_script(tmp_path / "all")
+    assert "=== step verify: start: the full verification" in done.stdout
+
+
+@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}], ids=["local", "remote"])
+def test_the_token_is_in_no_command_and_in_no_output_of_the_run(tmp_path, plan):
+    job = _ingest_job(ingest=_plan(**plan))
+    script = launch.remote_script(job)
+    assert TOKEN not in script and launch.TOKEN_VARIABLE not in script
+    assert TOKEN not in repr(launch.run_kwargs(job)) and TOKEN not in launch.call_text(job)
+    done, calls = _run_script(tmp_path, job=job)
+    assert done.returncode == 0 and TOKEN not in done.stdout + done.stderr + "\n".join(calls)
+
+
+def _locations(text):
+    """Each URL in ``text`` that is not on Arraylake."""
+    return [u for u in re.findall(r"[a-z0-9]+://[^\s'\"]+", text) if not u.startswith("arraylake://")]
+
+
+@pytest.mark.parametrize("flags", [(), ("--remote-bundle",)], ids=["local", "remote"])
+def test_the_output_names_no_storage_location_except_the_public_source(tmp_path, capsys, flags):
+    assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *flags)) == 0
+    out = capsys.readouterr().out
+    assert all(u.startswith((BASE, S3)) for u in _locations(out)) and "amazonaws" not in out.replace(BASE, "")
+    plan = _plan(remote_bundle=bool(flags))
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
+    assert not _locations(done.stdout + done.stderr)
+
+
+def test_the_plan_of_a_remote_bundle_says_that_nothing_is_downloaded(tmp_path, capsys):
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--remote-bundle"))
+    out = capsys.readouterr().out
+    assert "download " not in out and f"range requests to {KIDNEY}_outs.zip: 45,720,445,144 bytes" in out
+
+
+def test_the_help_states_the_trial_branch_and_the_two_options(capsys):
+    with pytest.raises(SystemExit):
+        launch.main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    for fact in ("--remote-bundle", "--no-promote", "trial-<name>", "trial-<UTC date>"):
+        assert fact in text, fact
+
+
+def test_a_gate_list_with_shell_characters_runs_no_command_of_its_own(tmp_path):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(gates="$(touch${IFS}made)")))
+    assert done.returncode == 0 and not (tmp_path / "work" / "made").exists()
+    assert "=== step verify: start: the verification, only the gates $(touch${IFS}made)" in done.stdout
