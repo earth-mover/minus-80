@@ -35,7 +35,7 @@ from minus80.core.tables import (
 )
 from tests.stores import cells_zip, zip_directory, zip_v2_store
 from facts import bundle_facts, write_record
-from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, image_members, write_bundle
+from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, _xml, image_members, write_bundle
 from tests.test_ingest_tables import TILES, _Bundle, _hold, _matrix_zip, _transcripts_run, _transcripts_zip
 from tests.test_qc import DENSITY, _bag, _html, _resource
 from bundle import CELLS, MATRIX, Bundle, he_readers, open_bundle
@@ -525,29 +525,143 @@ def _bundle_members(tmp_path) -> dict:
     return members
 
 
+BRAIN = json.loads((Path(__file__).parents[1] / "samples" / "brain.json").read_text())
+#: Source rows for each synthetic transcript row; the brain's largest tile gets 26 rows, an empty tile none.
+SOURCE_ROWS_PER_ROW = 4_000_000
+
+
+def _only(mapping: dict):
+    (value,) = mapping.values()
+    return value
+
+
+def _brain_transcripts_zip(tmp_path):
+    """The brain's 35 tiles in its key order, with its empty tile, scaled rows, and ``gene_offset`` of 24,677 genes."""
+    grid = BRAIN["transcripts"]
+    genes = grid["first_tile"]["chunk_rows"]["gene_offset"]
+    rows = [-(-n // SOURCE_ROWS_PER_ROW) for n in grid["grid_number_objects"]]
+    rng = np.random.default_rng(0)
+    arrays = {"codeword_category": (np.zeros((2, 9), dtype=bool), {})}
+    for tile, n in zip(grid["grid_keys"], rows, strict=True):
+        arrays |= {
+            f"grid/{tile}/location": (rng.random((n, 3), dtype=np.float32), {"chunks": (max(n, 1), 3)}),
+            f"grid/{tile}/codeword_identity": (rng.integers(0, 2, (n, 1)).astype("<u4"), {"chunks": (max(n, 1), 1)}),
+            f"grid/{tile}/cell_id": (rng.integers(0, 2**32, (n, 2), dtype=np.uint32), {"chunks": (max(n, 1), 2)}),
+            f"grid/{tile}/quality_score": (rng.random((n, 1)).astype("<f2"), {"chunks": (max(n, 1), 1)}),
+            f"grid/{tile}/overlaps_nucleus": (rng.integers(0, 2, (n, 1)).astype("u1"), {"chunks": (max(n, 1), 1)}),
+            f"grid/{tile}/gene_offset": (np.zeros((genes, 2), dtype="<u4"), {"chunks": (genes, 2)}),
+        }
+    return zip_v2_store(
+        tmp_path, "transcripts", arrays,
+        attrs={"codeword_gene_names": ["A", "B"], "codeword_gene_mapping": [0, 1], "number_rnas": sum(rows)},
+        group_attrs={"grid": {"grid_keys": grid["grid_keys"], "grid_number_objects": rows}},
+    )
+
+
+def _brain_matrix_zip(tmp_path):
+    """The three cells of ``_matrix_zip`` over the brain's 24,677 genes."""
+    genes = BRAIN["transcripts"]["first_tile"]["chunk_rows"]["gene_offset"]
+    source = tmp_path / "matrix.zarr"
+    root = zarr.open_group(source, mode="w", zarr_format=2)
+    counts = scipy.sparse.csr_matrix(([1, 2, 3, 3], ([0, 1, 2, 2], [0, 1, 0, genes - 1])), shape=(3, genes), dtype="int32")
+    write_elem(root, "X", counts)
+    write_elem(root, "obs", pd.DataFrame({"cell_id": [1 + 2**32, 2 + 2**32, 3 + 2**32]},
+                                         index=pd.Index(["a", "b", "c"], name="barcode")))
+    write_elem(root, "var", pd.DataFrame({"n": np.arange(genes)},
+                                         index=pd.Index([f"ENSG{g:011d}" for g in range(genes)], name="feature_id")))
+    return zip_directory(source, tmp_path / "matrix.zip")
+
+
+def _brain_report() -> str:
+    """A report with the brain's QC labels, grid, origin and unit; each map is ``uint16``, as in the brain."""
+    raw = BRAIN["qc"]["raw"]
+    shapes = {r["label"]: r["shape"] for r in BRAIN["qc"]["rasters"].values()}
+    rng = np.random.default_rng(1)
+    plot = {k: raw[k] for k in ("dimensions", "horizontal_bin_count", "origin_data", "unit")}
+    plot |= {"bins": raw["bins"], **raw["references"], "large_image": "data:image/jpeg;base64,AAAA"}
+    resources = {key.removeprefix("_resources_"): _resource(rng.integers(0, 60, shapes[label], dtype="<u2"))
+                 for label, key in raw["bins"].items()}
+    resources[raw["references"]["mean_q_score_80um"].removeprefix("_resources_")] = _resource(
+        rng.integers(0, 40, shapes["Mean Q-Score 80 µm"], dtype="<u2"))
+    return _html({"density_plot": plot, "_resources": resources})
+
+
+def _brain_cells(tmp_path):
+    """The cells of ``_cells`` with the brain's method names and its eight ``cell_summary`` columns."""
+    columns = BRAIN["cells"]["cell_summary_columns"]
+    summary = np.full((3, len(columns)), 5.0)
+    summary[:, columns.index("nucleus_count")] = [1.0, 0.0, 2.0]
+    encoding = {"name": "v2", "separator": "."}
+    mask = {"chunks": (3, 4), "compressors": None, "chunk_key_encoding": encoding}
+    return cells_zip(tmp_path, extra={
+        "masks/0": (MASK, mask), "masks/1": (MASK[::-1], mask),
+        "cell_summary": (summary, {"attributes": {"column_names": columns}}),
+    }, attrs={"segmentation_methods": BRAIN["polygons"]["method_names"]})
+
+
+def _diffexp(columns: int) -> str:
+    """A ``diffexp_genes`` CSV of two genes with ``columns`` columns, the first two as in the brain."""
+    header = ["Feature ID", "Feature Name", *(f"Cluster {k} Mean Counts" for k in range(1, columns - 1))]
+    rows = [[f"ENSG{g}", name, *(str(0.5 * k) for k in range(1, columns - 1))] for g, name in ((1, "A"), (2, "B"))]
+    return "\n".join(",".join(line) for line in (header, *rows)) + "\n"
+
+
+def brain_members(directory: Path) -> dict:
+    """A bundle with the layout facts of the brain's record, analysis 1.1.1, at a small size.
+
+    The record gives the member names, the levels, the planes, the tile keys, the QC labels and grids, the metrics keys,
+    the method names, the ``cell_summary`` columns, the diffexp column counts and the gene count.
+    """
+    morphology = BRAIN["morphology_2d"]["files"]
+    stack = _only(BRAIN["morphology_3d"]["files"])
+    members = image_members(directory, names=sorted(morphology), levels=len(stack["levels"]), planes=stack["planes"],
+                            pixel=BRAIN["experiment"]["pixel_size"], z_step=stack["pixel_size"]["z"])
+    members["experiment.spatial"] = json.dumps({
+        "pixel_size": BRAIN["experiment"]["pixel_size"], "panel_wta": {"panel_organism": "Human"},
+        "analysis_sw_version": BRAIN["experiment"]["analysis_sw_version"], "instrument_sw_version": "2",
+    }).encode()
+    members[CELLS] = _inner(_brain_cells(directory))
+    members[MATRIX] = _inner(_brain_matrix_zip(directory))
+    members["transcripts.zarr.zip"] = _inner(_brain_transcripts_zip(directory))
+    (metrics, keys), = BRAIN["metrics"]["files"].items()
+    members[metrics] = f"{','.join(keys)}\n{',' * (len(keys) - 1)}\n".encode()
+    for name, facts in BRAIN["diffexp"].items():
+        members[name] = _diffexp(facts["columns"]).encode()
+    members[BRAIN["qc"]["member"]] = _brain_report().encode()
+    return members
+
+
 class Store:
     """A repo and its catalog on disk, and the local objects that the ingest read."""
+
+    sample = "kidney"
 
     def __init__(self, directory: Path, branch: str = "main"):
         self.directory, self.branch = directory, branch
         self.repo, self.catalog = directory / "repo", directory / "catalog"
         self.bundle, self.he, self.alignment = directory / "outs.zip", directory / "he.ome.tif", directory / "al.csv"
-        self.record = directory / "records" / "kidney.json"
+        self.record = directory / "records" / f"{self.sample}.json"
+
+    def members(self) -> dict:
+        return _bundle_members(self.directory)
+
+    def write_he(self) -> None:
+        _rgb_pyramid(self.he, planar=False)
+        np.savetxt(self.alignment, ALIGNMENT, delimiter=",")
 
     def write_inputs(self, change=None) -> None:
         """The synthetic bundle, the H&E and the alignment. Without ``change`` the record of the bundle too.
 
         ``change(members)`` alters the members first; such a bundle has no record.
         """
-        members = _bundle_members(self.directory)
+        members = self.members()
         if change:
             change(members)
         write_bundle(self.bundle, members)
-        _rgb_pyramid(self.he, planar=False)
-        np.savetxt(self.alignment, ALIGNMENT, delimiter=",")
+        self.write_he()
         if not change:
             found = bundle_facts(Bundle(self.bundle), lambda: self.he.open("rb"), self.alignment.read_text)
-            assert write_record("kidney", found, self.record.parent) == []
+            assert write_record(self.sample, found, self.record.parent) == []
 
     def copy(self, directory: Path) -> "Store":
         """The repo and the catalog in ``directory``; the data files stay where they are."""
@@ -573,9 +687,25 @@ class Store:
         commit(session, "edit")
 
     def argv(self, *args):
-        return ["verify.py", "--sample", "kidney", "--repo", str(self.repo), "--catalog", str(self.catalog),
+        return ["verify.py", "--sample", self.sample, "--repo", str(self.repo), "--catalog", str(self.catalog),
                 "--bundle", str(self.bundle), "--he-image", str(self.he), "--he-alignment", str(self.alignment),
                 "--record", str(self.record), *args]
+
+
+class BrainStore(Store):
+    """A store whose inputs have the layout facts of the brain's record: ``brain_members``, a planar H&E, its alignment."""
+
+    sample = "brain"
+
+    def members(self) -> dict:
+        return brain_members(self.directory)
+
+    def write_he(self) -> None:
+        he = BRAIN["he_image"]
+        assert he["planar"] and he["compression"]["name"] == "NONE"
+        _rgb_pyramid(self.he, planar=True, levels=len(he["levels"]),
+                     description=_xml([], (he["pixel_size"]["x"], he["pixel_size"]["y"]), dtype=he["dtype"]))
+        np.savetxt(self.alignment, BRAIN["alignment"], delimiter=",")
 
 
 @pytest.fixture(scope="module")

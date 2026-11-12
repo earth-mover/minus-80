@@ -26,7 +26,7 @@ Z_STEP = 2.5
 SHAPE, TILE, LEVELS, PLANES = (1300, 2100), (1024, 1024), 3, 3
 XML = """<?xml version="1.0"?>
 <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
-  <Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYZCT" Type="uint16" PhysicalSizeX="0.2125" PhysicalSizeY="0.2125">
+  <Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYZCT" Type="{dtype}" PhysicalSizeX="{x}" PhysicalSizeY="{y}">
 {channels}
   </Pixels></Image>
 </OME>"""
@@ -36,38 +36,43 @@ MORPHOLOGY_3D = "morphology_3d/ch0000_dapi_3d.ome.tif"
 ALIGNMENT = np.array([[0.0, -1.289, 40.0], [1.289, 0.0, 12.5], [0.0, 0.0, 1.0]])
 
 
-def _xml(names):
+def _xml(names, pixel=(PIXEL, PIXEL), dtype="uint16"):
+    """OME-XML of one image with ``names`` as its channels and ``pixel`` as its ``(x, y)`` size in micrometres."""
     channels = "\n".join(f'    <Channel ID="Channel:0:{i}" Name="{n}"/>' for i, n in enumerate(names))
-    return XML.format(channels=channels)
+    return XML.format(channels=channels, dtype=dtype, x=pixel[0], y=pixel[1])
 
 
 def _level_shapes(shape=SHAPE, levels=LEVELS):
     return [tuple(-(-n // 2**k) for n in shape) for k in range(levels)]
 
 
-def _rgb_pyramid(path, *, planar: bool):
-    """An RGB pyramid of the H&E's two layouts: interleaved Deflate, or planar and uncompressed."""
+def _rgb_pyramid(path, *, planar: bool, levels=LEVELS, description=None):
+    """An RGB pyramid of the H&E's two layouts: interleaved Deflate, or planar and uncompressed.
+
+    ``description`` is the first page's ImageDescription, as the OME-XML of an OME-TIFF is.
+    """
     args = dict(photometric="rgb", tile=TILE)
     args |= dict(planarconfig="separate") if planar else dict(planarconfig="contig", compression="adobe_deflate")
     data = picture((*SHAPE, 3), np.uint8)
     with tifffile.TiffWriter(path, ome=False) as tw:
-        tw.write(np.moveaxis(data, -1, 0) if planar else data, subifds=LEVELS - 1, **args)
-        for _ in range(LEVELS - 1):
+        extra = {"description": description} if description else {}
+        tw.write(np.moveaxis(data, -1, 0) if planar else data, subifds=levels - 1, **args, **extra)
+        for _ in range(levels - 1):
             data = data[::2, ::2]
             tw.write(np.moveaxis(data, -1, 0) if planar else data, subfiletype=1, **args)
 
 
-def image_members(tmp_path) -> dict:
+def image_members(tmp_path, *, names=MORPHOLOGY_2D, levels=LEVELS, planes=PLANES, pixel=PIXEL, z_step=Z_STEP) -> dict:
     """The members of a bundle that the image elements read: four pyramids, a stack and ``experiment.spatial``."""
     members = {}
-    for channel, name in enumerate(MORPHOLOGY_2D):
+    for channel, name in enumerate(names):
         path = tmp_path / f"c{channel}.tif"
-        pyramid_tiff(path, 1, SHAPE, LEVELS, TILE, _xml(STAINS))
+        pyramid_tiff(path, 1, SHAPE, levels, TILE, _xml(STAINS, (pixel, pixel)))
         members[name] = path.read_bytes()
-    stack = {"PhysicalSizeX": PIXEL, "PhysicalSizeY": PIXEL, "PhysicalSizeZ": Z_STEP, "Channel": {"Name": ["DAPI"]}}
-    pyramid_tiff(tmp_path / "3d.tif", PLANES, SHAPE, LEVELS, TILE, metadata=stack)
+    stack = {"PhysicalSizeX": pixel, "PhysicalSizeY": pixel, "PhysicalSizeZ": z_step, "Channel": {"Name": ["DAPI"]}}
+    pyramid_tiff(tmp_path / "3d.tif", planes, SHAPE, levels, TILE, metadata=stack)
     members[MORPHOLOGY_3D] = (tmp_path / "3d.tif").read_bytes()
-    members["experiment.spatial"] = json.dumps({"pixel_size": PIXEL}).encode()
+    members["experiment.spatial"] = json.dumps({"pixel_size": pixel}).encode()
     return members
 
 

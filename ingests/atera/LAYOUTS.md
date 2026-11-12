@@ -620,6 +620,90 @@ The comparison of each resumed store with the unstopped store gave these results
 - The six tables hold equal rows. `transcripts` has two snapshots in all three stores, one for each tile with rows.
 - Each store has 33 commits and no repeated commit message. So no element was written twice.
 
+### The dry run of the trial-branch flow
+
+On 2026-11-12, on a laptop, with a local repo, a local catalog and a synthetic bundle of version 1.1.1.
+The test `tests/test_dry_run.py` runs each script as a subprocess, in the order of the launcher's ingest form.
+It runs only with `ATERA_DRY_RUN=1`. It takes about 45 s, so the default suite skips it.
+The test uses the Python of `uv run --package atera-ingest --extra launch`.
+
+`BrainStore` in `tests/test_verify.py` builds the bundle from the facts of `samples/brain.json`, at a small size.
+`bundle_facts` on that bundle gives the record of the run. `brain.json` itself is not the record of the run.
+
+| Fact | `brain.json` | Synthetic bundle |
+|---|---|---|
+| Analysis version, pixel size (µm) | atera-1.1.1.0, 0.21249222 | the same |
+| Morphology files | the four recorded names | the same names |
+| Morphology levels, level 0 (y, x) | 8, (42548, 61369) | 8, (1300, 2100) |
+| Stack planes, levels, z step (µm) | 15, 8, 3.0 | 15, 8, 3.0 |
+| H&E | planar, NONE (1), `uint8`, 9 levels | the same, level 0 (3, 1300, 2100) |
+| H&E OME pixel size x, y (µm) | 0.27377551503693404, 0.2737743698175019 | the same |
+| Alignment matrix | the brain's | the same |
+| Transcript tiles | 35 keys, `5,-1` empty | the same keys in the same order, `5,-1` empty |
+| Transcript rows | 1,640,508,930 | 430: each tile has its rows divided by 4,000,000, rounded up |
+| `gene_offset` rows | 24,677 | 24,677 in each tile; the matrix has 24,677 genes |
+| QC rasters | six labels, `uint16`, 453 by 653 and 114 by 164 | the same |
+| Metrics member, report member | the brain's names, 103 metrics keys | the same names and keys, with empty values |
+| Method names, `cell_summary` columns | eight each | the same |
+| Diffexp columns, azimuth and graphclust | 86, 80 | 86, 80 |
+| Cells, codewords | 91,431, 53,385 | 3, 2 |
+
+The commands, with `IN` for the local files and their record:
+
+```
+IN="--bundle <scratch>/flow/outs.zip --he-image <scratch>/flow/he.ome.tif --he-alignment <scratch>/flow/al.csv
+    --record <scratch>/flow/records/brain.json"
+RUN="--sample brain --repo <scratch>/flow/repo --catalog <scratch>/flow/catalog --namespace ns --mode full
+     --branch trial-dry --concurrency 2"
+SERVED=bundle,complete,images,transforms,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,field_ids,table_index,source
+check_bundle.py --sample brain $IN
+check_bundle.py --sample brain --bundle <scratch>/renamed/outs.zip <the H&E, alignment and record of IN>
+ingest.py $RUN --record <scratch>/flow/records/brain.json --preflight
+ingest.py $RUN $IN
+verify.py --sample brain --repo <scratch>/flow/repo --catalog <scratch>/flow/catalog --mode full --branch trial-dry $IN
+verify.py <the same> --gates $SERVED --snapshot-file <scratch>/verified-snapshot
+promote.py --repo <scratch>/flow/repo --from trial-dry --expect=<the snapshot in the file>
+verify.py <the same, with --branch main> --gates $SERVED
+```
+
+The launcher gives no `--record`, so its steps read the committed record. It gives `--concurrency 32`.
+`--head-source` cannot run here: the `source` gate needs the real objects.
+So each verification printed `source: skipped; the gate sends HEAD requests, and a local bundle has no source object to ask`.
+
+| Step | Exit code | Lines |
+|---|---|---|
+| Bundle check | 0 | `bundle check: 0 differences` |
+| Bundle check, `ch0002_18s.ome.tif` renamed `ch0002_28s.ome.tif` | 1 | `members.morphology_2d/ch0002_18s.ome.tif: record 2013085, bundle absent`, then three more lines, then `bundle check: 4 differences` |
+| Preflight | 0 | `catalog: absent; the ingest creates it`, `repo: absent; the ingest creates it`, `preflight: no problem` |
+| Ingest | 0 | `bundle check: 0 differences (not compared: stores)`, `tile 5,-1: no rows, skipped`, `full written:` with the 17 elements |
+| Verification, every gate | 1 | 15 gates pass; `masks FAIL` and `instances FAIL` with `raised ValueError: Cannot take a larger sample than population when replace is False` |
+| Verification, `SERVED` | 0 | 15 gates pass; the file holds the snapshot of `branch trial-dry: snapshot <S>` |
+| Promote | 0 | `main: 1CECHNKREP0F1RSTCMT0 -> <S>` |
+| Verification of `main`, `SERVED` | 0 | `branch main: snapshot <S>`; 15 gates pass |
+
+- **`masks` and `instances`.** Each gate samples 50 cells. The synthetic bundle has three, so each gate raises. They need the real bundle.
+- **`transforms`.** The gate checked 8 levels of `images/morphology`, 8 of `images/morphology_3d` and 9 of `images/he_image`.
+  It also checked both labels and the six QC rasters.
+- **`tables`.** `points/transcripts: 34 tiles, 430 rows, the source 430`. The empty tile has no Parquet file.
+- **`complete`.** `16 elements of the full tree, 4 listed as missing`.
+- **The OME channel name.** In a separate check, `Name="18S"` became `Name="28S"` in the OME-XML of `ch0002_18s.ome.tif`.
+  `check_bundle.py` gave exit code 0 and `bundle check: 0 differences`. The record holds no channel name.
+
+The stop and the rerun used `ingest.py $RUN $IN` on a fresh repo and catalog.
+The driver sent SIGINT after `images/morphology_3d/s1: reading`. At that time `images/morphology_3d/s0` had its commit.
+The `KeyboardInterrupt` came inside `write_stack`. The process ended by SIGINT, return code -2. A shell gives 130.
+The rerun gave exit code 0. It printed `on branch trial-dry already, skipped` for each element before the stack, and for `s0`.
+It wrote `s1` to `s7` of the stack, then `images/he_image` and the root.
+The verification with `--gates $SERVED` on the resumed store gave exit code 0.
+
+The test compared the resumed store with the store of the unstopped ingest, branch `trial-dry` of each:
+
+- The 114 nodes have equal attributes. The comparison leaves out `snapshot_id` and `table_uuid`, which each catalog sets for itself.
+- The 84 arrays have equal shapes, dtypes, metadata and values.
+- The six tables hold equal rows: `cell_boundaries` 3, `codewords` 2, `diffexp_azimuth` 2, `diffexp_graphclust` 2,
+  `nucleus_boundaries` 2, `transcripts` 430.
+- Each branch has 49 commits, with the same messages in the same order. The stopped level made no commit.
+
 ### The OME version check
 
 On 2026-11-11, on the `images/morphology` and `labels/cell_labels` elements of the dry-run store.
