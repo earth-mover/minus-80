@@ -3,6 +3,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import imagecodecs
 import numpy as np
 import pytest
 import tifffile
@@ -632,3 +633,22 @@ def test_write_stack_refuses_decoders_below_one(tmp_path):
     with tif:
         with pytest.raises(ValueError, match="decoders must be at least 1"):
             write_stack(array, pages, (0,), decoders=0)
+
+
+@pytest.mark.skipif(not imagecodecs.JPEG2K.available, reason="imagecodecs has no JPEG 2000 codec")
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_write_stack_of_jpeg2000_planes_decoded_in_threads_equals_serial(tmp_path, concurrency):
+    tif, pages, serial = _stack(tmp_path, planes=13)
+    assert pages[0].compression == tifffile.COMPRESSION.JPEG2000
+    with tif:
+        pages[7].databytecounts = (0, *pages[7].databytecounts[1:])
+        write_stack(serial, pages, (0,), concurrency=concurrency)
+        for _ in range(5):
+            threaded = create_level(
+                zarr.group(MemoryStore()), "s0", serial.shape, serial.dtype,
+                dims=("c", "z", "y", "x"), chunk=(256, 256), shard_planes=13,
+            )
+            assert write_stack(threaded, pages, (0,), concurrency=concurrency, decoders=4) == 18
+            np.testing.assert_array_equal(threaded[:], serial[:])
+        assert (serial[0, 7, :256, :256] == 0).all()
+        np.testing.assert_array_equal(serial[0, 12], pages[12].asarray())

@@ -270,6 +270,10 @@ def write_stack(
 
     region_bytes = len(pages) * tile_h * tile_w * array.dtype.itemsize
     pool = ThreadPoolExecutor(decoders, thread_name_prefix="stack-decode") if decoders > 1 else None
+    if pool is not None:
+        # tifffile builds a page's decoder on first access, which is not thread-safe.
+        for page in pages:
+            page.decode  # noqa: B018
     try:
         return _write_all(array, writes(pool), concurrency, region_bytes)
     finally:
