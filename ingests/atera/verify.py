@@ -991,6 +991,8 @@ def main() -> None:
     parser.add_argument("--gates", nargs="+", help="run only these gates, comma-separated; by default all")
     parser.add_argument("--head-source", action="store_true",
                         help="run the source gate, which sends HEAD requests, although --bundle is a local file")
+    parser.add_argument("--snapshot-file", type=Path,
+                        help="write the snapshot that the gates read to this file, after each selected gate passed")
     args = parser.parse_args()
     require_same_place(args.repo, args.catalog)
 
@@ -998,7 +1000,11 @@ def main() -> None:
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     zarr.config.set({"array.rectilinear_chunks": True})
     full = args.mode == "full"
-    root = open_root(args.repo, args.branch or {"fixture": "fixture", "full": "main"}[args.mode])
+    branch = args.branch or {"fixture": "fixture", "full": "main"}[args.mode]
+    root = open_root(args.repo, branch)
+    # The session of the gates gives the id, so a later commit to the branch cannot change it.
+    snapshot = root.store.session.snapshot_id
+    print(f"branch {branch}: snapshot {snapshot}", flush=True)
     catalog = open_catalog(args.catalog)
     sample = SAMPLES[args.sample]
     bundle, counter = open_bundle(args.bundle or sample.url(BUNDLE, S3))
@@ -1043,6 +1049,8 @@ def main() -> None:
         raise SystemExit(str(e))
     failed = run_gates(gates, without_source(names, local=bool(args.bundle) and not args.head_source))
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {counter.requests:,} requests")
+    if args.snapshot_file and not failed:
+        args.snapshot_file.write_text(f"{snapshot}\n")
     sys.exit(1 if failed else 0)
 
 

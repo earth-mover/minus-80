@@ -193,3 +193,47 @@ def test_the_command_refuses_a_target_other_than_main(repo, tmp_path, monkeypatc
     assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x", "--to", "other") == 1
     assert "main" in capsys.readouterr().err
     _unchanged(repo, before)
+
+
+def test_a_commit_to_the_trial_branch_after_the_recorded_snapshot_is_refused(repo):
+    _trial_ahead(repo)
+    recorded = repo.readonly_session("trial-x").snapshot_id
+    _write(repo, "trial-x", 7)
+    before = _tips(repo)
+    for dry_run in (False, True):
+        with pytest.raises(promote.Refusal, match=f"not the expected snapshot {recorded}"):
+            promote.promote(repo, "trial-x", expect=recorded, dry_run=dry_run)
+    _unchanged(repo, before)
+
+
+def test_the_expected_snapshot_lets_the_move_pass_when_the_trial_branch_is_still_there(repo):
+    first = repo.lookup_branch("main")
+    trial = _trial_ahead(repo)
+    assert promote.promote(repo, "trial-x", expect=repo.readonly_session("trial-x").snapshot_id) == (first, trial)
+    assert repo.lookup_branch("main") == trial
+
+
+def test_an_empty_expected_snapshot_is_refused(repo):
+    _trial_ahead(repo)
+    before = _tips(repo)
+    with pytest.raises(promote.Refusal, match="not the expected snapshot"):
+        promote.promote(repo, "trial-x", expect="")
+    _unchanged(repo, before)
+
+
+def test_the_expected_snapshot_is_checked_before_the_ancestry(repo):
+    _trial_ahead(repo)
+    _write(repo, "main", 9)
+    with pytest.raises(promote.Refusal, match="not the expected snapshot"):
+        promote.promote(repo, "trial-x", expect="OTHER")
+
+
+def test_the_command_passes_the_expected_snapshot_as_given(repo, tmp_path, monkeypatch, capsys):
+    first = repo.lookup_branch("main")
+    trial = _trial_ahead(repo)
+    for wrong in ("", "OTHER"):
+        assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x", "--expect", wrong) == 1
+        assert "not the expected snapshot" in capsys.readouterr().err
+        assert repo.lookup_branch("main") == first
+    assert _cli(monkeypatch, tmp_path / "repo", "--from", "trial-x", "--expect", trial) == 0
+    assert capsys.readouterr().out == f"main: {first} -> {trial}\n"

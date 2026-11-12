@@ -136,7 +136,15 @@ def test_a_missing_or_empty_token_file_is_an_error_before_any_launch(tmp_path, m
     with pytest.raises(SystemExit, match="token"):
         launch.main(_argv(_token_file(tmp_path, text)))
     with pytest.raises(SystemExit, match="token"):
-        launch.main(_argv(tmp_path / "absent", "--dry-run"))
+        launch.main(_argv(tmp_path / "absent"))
+    with pytest.raises(SystemExit, match="token"):
+        launch.main(_ingest_argv(tmp_path / "absent"))
+
+
+def test_a_dry_run_reads_no_token_file(tmp_path, capsys):
+    assert launch.main(_argv(tmp_path / "absent", "--dry-run")) == 0
+    assert launch.main(_ingest_argv(tmp_path / "absent", "--dry-run")) == 0
+    assert "'ARRAYLAKE_TOKEN': '***'" in capsys.readouterr().out
 
 
 def test_the_name_is_unique_for_each_launch():
@@ -553,7 +561,7 @@ def test_the_ingest_dry_run_names_the_objects_the_local_files_and_the_full_mode_
 
 def test_elements_and_gates_reach_their_scripts(tmp_path, capsys):
     launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--elements", "labels/nucleus_labels",
-                             "--gates", "complete,tables"))
+                             "--gates", "complete,tables", "--no-promote"))
     out = capsys.readouterr().out
     assert "--elements labels/nucleus_labels" in out and "--gates complete,tables" in out
 
@@ -613,7 +621,14 @@ case "$*" in
   *"check_bundle.py"*) [ "${STUB_FAIL:-}" = bundle-remote ] && fail bundle-remote "${STUB_CODE:-1}" ;;
   *"promote.py"*) [ "${STUB_FAIL:-}" = promote ] && fail promote 1 ;;
   *"ingest.py"*) [ "${STUB_FAIL:-}" = ingest ] && fail ingest 3 ;;
-  *"verify.py"*) [ "${STUB_FAIL:-}" = verify ] && fail verify 4 ;;
+  *"verify.py"*) [ "${STUB_FAIL:-}" = verify ] && fail verify 4
+    previous=
+    for word in "$@"; do
+      if [ "$previous" = --snapshot-file ] && [ "${STUB_SNAPSHOT-SNAPSHOT1}" != absent ]; then
+        echo "${STUB_SNAPSHOT-SNAPSHOT1}" > "$word"
+      fi
+      previous=$word
+    done ;;
 esac
 echo "stub ran: $*"
 exit 0
@@ -622,7 +637,10 @@ exit 0
 
 DF_STUB = """#!/bin/bash
 echo "df $*" >> "$STUB_DF"
-if [ "$1" = "-Pk" ]; then
+if [ "$1" = "-Pk" ] && [ -n "${STUB_DF_FAIL:-}" ]; then
+  echo "df: no such file system" >&2
+  exit 1
+elif [ "$1" = "-Pk" ]; then
   echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
   echo "stub 100 1 ${STUB_FREE_KB:-999999999999} 1% /"
 else
@@ -631,8 +649,11 @@ fi
 """
 
 
-def _run_script(tmp_path, fail=None, job=None, free_kb=None, code=None):
-    """Run the generated remote script for real with a stub ``uv`` that records each call."""
+def _run_script(tmp_path, fail=None, job=None, free_kb=None, code=None, snapshot=None, df_fails=False):
+    """Run the generated remote script for real with a stub ``uv`` that records each call.
+
+    The stub of ``verify.py`` writes ``snapshot`` to its snapshot file: ``absent`` writes no file.
+    """
     work, bin_dir = tmp_path / "work", tmp_path / "bin"
     work.mkdir()
     bin_dir.mkdir()
@@ -646,7 +667,8 @@ def _run_script(tmp_path, fail=None, job=None, free_kb=None, code=None):
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "ATERA_DATA": str(tmp_path / "data"),
            "ATERA_LOGS": str(tmp_path / "logs"), "STUB_CALLS": str(tmp_path / "calls"), "STUB_DF": str(tmp_path / "df"),
            "ARRAYLAKE_TOKEN": TOKEN, **({"STUB_FAIL": fail} if fail else {}),
-           **({"STUB_FREE_KB": str(free_kb)} if free_kb else {}), **({"STUB_CODE": str(code)} if code else {})}
+           **({"STUB_FREE_KB": str(free_kb)} if free_kb else {}), **({"STUB_CODE": str(code)} if code else {}),
+           **({"STUB_SNAPSHOT": snapshot} if snapshot is not None else {}), **({"STUB_DF_FAIL": "1"} if df_fails else {})}
     done = subprocess.run(["bash", str(script)], cwd=work, env=env, capture_output=True, text=True, timeout=60)
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     return done, calls
@@ -1106,9 +1128,14 @@ def _programs(calls):
     return [c.split("ingests/atera/")[-1].split(" --")[0] for c in calls]
 
 
-@pytest.mark.parametrize("flags, steps", [((), STEPS), (("--remote-bundle",), REMOTE_STEPS),
+#: The one form of a remote bundle that the launcher accepts, as a plan and as options.
+REMOTE_PLAN = {"remote_bundle": True, "elements": "root", "gates": "complete,attrs,source", "promote_after_gates": True}
+REMOTE_FLAGS = ("--remote-bundle", "--elements", "root", "--gates", "complete,attrs,source")
+
+
+@pytest.mark.parametrize("flags, steps", [((), STEPS), ((*REMOTE_FLAGS, "--promote-after-gates"), REMOTE_STEPS),
                                           (("--no-promote",), STEPS[:-1]),
-                                          (("--remote-bundle", "--no-promote"), REMOTE_STEPS[:-1])])
+                                          ((*REMOTE_FLAGS, "--no-promote"), REMOTE_STEPS[:-1])])
 def test_the_dry_run_shows_the_steps_in_order(tmp_path, capsys, flags, steps):
     assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *flags)) == 0
     assert _steps(capsys.readouterr().out) == steps
@@ -1128,7 +1155,7 @@ def test_no_script_is_built_for_a_branch_that_is_not_a_trial_branch(branch):
         launch.remote_script(_ingest_job(ingest=_plan(branch=branch)))
 
 
-@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}, {"promote": False}], ids=["local", "remote", "no-promote"])
+@pytest.mark.parametrize("plan", [{}, REMOTE_PLAN, {"promote": False}], ids=["local", "remote", "no-promote"])
 def test_each_command_of_the_run_names_the_trial_branch_and_none_names_main(tmp_path, plan):
     done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(branch="trial-20261112", **plan)))
     assert done.returncode == 0, done.stdout
@@ -1136,11 +1163,12 @@ def test_each_command_of_the_run_names_the_trial_branch_and_none_names_main(tmp_
     assert len(writers) == 3 and all("--branch trial-20261112" in c for c in writers)
     assert not any(re.search(r"\bmain\b", c) for c in calls)
     assert [c.split("promote.py ")[1] for c in calls if "promote.py" in c] == (
-        ["--repo arraylake://org/atera-kidney --from trial-20261112"] if plan != {"promote": False} else [])
+        ["--repo arraylake://org/atera-kidney --from trial-20261112 --expect SNAPSHOT1"]
+        if plan != {"promote": False} else [])
 
 
 def test_the_script_runs_the_six_steps_of_a_remote_bundle_and_gives_no_local_file(tmp_path):
-    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(remote_bundle=True)))
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(**REMOTE_PLAN)))
     assert done.returncode == 0, done.stdout
     assert _programs(calls) == ["uv sync", "ingest.py", "check_bundle.py", "ingest.py", "verify.py", "promote.py"]
     assert _steps(done.stdout) == REMOTE_STEPS
@@ -1175,7 +1203,7 @@ def test_the_verification_reads_the_local_alignment_file(tmp_path):
 
 
 BUNDLE_CODES = {1: "the bundle differs from the record", 2: "the record cannot serve as a reference",
-                3: "the bundle does not open"}
+                3: "the bundle does not open", 4: "the check did not finish"}
 
 
 @pytest.mark.parametrize("code", BUNDLE_CODES)
@@ -1205,7 +1233,7 @@ def test_a_bundle_check_exit_code_without_a_meaning_stops_the_run_and_is_shown(t
     assert "=== bundle check: exit code 9: not a code of check_bundle.py" in done.stdout
 
 
-@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}], ids=["local", "remote"])
+@pytest.mark.parametrize("plan", [{}, REMOTE_PLAN], ids=["local", "remote"])
 @pytest.mark.parametrize("fail", ["ingest", "verify"])
 def test_a_failed_ingest_or_verification_reaches_no_promote(tmp_path, plan, fail):
     done, calls = _run_script(tmp_path, fail, job=_ingest_job(ingest=_plan(**plan)))
@@ -1233,21 +1261,21 @@ def test_no_promote_drops_the_step_and_the_output_says_that_main_stays(tmp_path)
     assert "=== no promote step: main stays as it is" in done.stdout
 
 
-@pytest.mark.parametrize("flag", ["--remote-bundle", "--no-promote"])
+@pytest.mark.parametrize("flag", ["--remote-bundle", "--no-promote", "--promote-after-gates"])
 def test_the_options_of_the_ingest_form_are_refused_for_a_script(tmp_path, flag):
     with pytest.raises(SystemExit, match=flag.removeprefix("--")):
         launch.main(_argv(_token_file(tmp_path), "--dry-run", flag))
 
 
 def test_the_verify_step_shows_the_gates_when_the_run_has_a_part_of_them(tmp_path):
-    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(gates="complete,tables")))
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(gates="complete,tables", promote=False)))
     assert "=== step verify: start: the verification, only the gates complete,tables" in done.stdout
     (tmp_path / "all").mkdir()
     done, calls = _run_script(tmp_path / "all")
     assert "=== step verify: start: the full verification" in done.stdout
 
 
-@pytest.mark.parametrize("plan", [{}, {"remote_bundle": True}], ids=["local", "remote"])
+@pytest.mark.parametrize("plan", [{}, REMOTE_PLAN], ids=["local", "remote"])
 def test_the_token_is_in_no_command_and_in_no_output_of_the_run(tmp_path, plan):
     job = _ingest_job(ingest=_plan(**plan))
     script = launch.remote_script(job)
@@ -1262,20 +1290,23 @@ def _locations(text):
     return [u for u in re.findall(r"[a-z0-9]+://[^\s'\"]+", text) if not u.startswith("arraylake://")]
 
 
-@pytest.mark.parametrize("flags", [(), ("--remote-bundle",)], ids=["local", "remote"])
+@pytest.mark.parametrize("flags", [(), (*REMOTE_FLAGS, "--promote-after-gates")], ids=["local", "remote"])
 def test_the_output_names_no_storage_location_except_the_public_source(tmp_path, capsys, flags):
     assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *flags)) == 0
     out = capsys.readouterr().out
     assert all(u.startswith((BASE, S3)) for u in _locations(out)) and "amazonaws" not in out.replace(BASE, "")
-    plan = _plan(remote_bundle=bool(flags))
+    plan = _plan(**(REMOTE_PLAN if flags else {}))
     done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
     assert not _locations(done.stdout + done.stderr)
 
 
 def test_the_plan_of_a_remote_bundle_says_that_nothing_is_downloaded(tmp_path, capsys):
-    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", "--remote-bundle"))
+    launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *REMOTE_FLAGS, "--no-promote"))
     out = capsys.readouterr().out
-    assert "download " not in out and f"range requests to {KIDNEY}_outs.zip: 45,720,445,144 bytes" in out
+    assert f"range requests to {KIDNEY}_outs.zip: 45,720,445,144 bytes" in out
+    assert f"disk: no download occurs; {launch.OVERHEAD_GIB} GiB of overhead at least; this launch has 50 GiB" in out
+    # The only use of the word says that none occurs.
+    assert "download" not in out.replace("no download", "")
 
 
 def test_the_help_states_the_trial_branch_and_the_two_options(capsys):
@@ -1287,6 +1318,134 @@ def test_the_help_states_the_trial_branch_and_the_two_options(capsys):
 
 
 def test_a_gate_list_with_shell_characters_runs_no_command_of_its_own(tmp_path):
-    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(gates="$(touch${IFS}made)")))
+    plan = _plan(gates="$(touch${IFS}made)", elements="$(touch${IFS}made)", promote_after_gates=True)
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
     assert done.returncode == 0 and not (tmp_path / "work" / "made").exists()
     assert "=== step verify: start: the verification, only the gates $(touch${IFS}made)" in done.stdout
+    assert "after the gates $(touch${IFS}made) only" in done.stdout
+    assert "=== step ingest: start: the ingest of the elements $(touch${IFS}made) only" in done.stdout
+
+
+@pytest.mark.parametrize("flags, message", [
+    (("--gates", "complete"), "--no-promote or --promote-after-gates"),
+    (("--gates", "complete", "--no-promote", "--promote-after-gates"), "exclude"),
+    (("--promote-after-gates",), "needs --gates"),
+    (("--promote-after-gates", "--no-promote"), "needs --gates")])
+def test_a_part_of_the_gates_moves_main_only_when_the_caller_says_so(tmp_path, monkeypatch, flags, message):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    with pytest.raises(SystemExit, match=message):
+        launch.main(_ingest_argv(_token_file(tmp_path), *flags))
+
+
+@pytest.mark.parametrize("plan, message", [
+    ({"gates": "complete"}, "--no-promote or --promote-after-gates"),
+    ({"gates": "complete", "promote": False, "promote_after_gates": True}, "exclude"),
+    ({"promote_after_gates": True}, "needs --gates"),
+    ({"remote_bundle": True}, "--remote-bundle needs --elements and --gates"),
+    ({**REMOTE_PLAN, "elements": None}, "--remote-bundle needs --elements and --gates"),
+    ({**REMOTE_PLAN, "gates": None, "promote_after_gates": False}, "--remote-bundle needs --elements and --gates"),
+    ({**REMOTE_PLAN, "elements": "root,images/morphology"}, "images/morphology"),
+    ({**REMOTE_PLAN, "gates": "complete,images"}, "images")])
+def test_no_script_is_built_for_a_plan_that_breaks_a_rule_of_the_gates_or_of_the_remote_bundle(plan, message):
+    with pytest.raises(ValueError, match=message):
+        launch.remote_script(_ingest_job(ingest=_plan(**plan)))
+
+
+@pytest.mark.parametrize("flags, message", [
+    (("--remote-bundle",), "--remote-bundle needs --elements and --gates"),
+    (("--remote-bundle", "--no-promote", "--elements", "root"), "--remote-bundle needs --elements and --gates"),
+    (("--remote-bundle", "--no-promote", "--gates", "complete"), "--remote-bundle needs --elements and --gates"),
+    (("--remote-bundle", "--no-promote", "--elements", "root,images/morphology", "--gates", "complete"),
+     "images/morphology"),
+    (("--remote-bundle", "--no-promote", "--elements", "root", "--gates", "complete,images"), "images")])
+def test_a_remote_bundle_is_refused_unless_its_elements_and_gates_read_few_bytes(tmp_path, monkeypatch, flags, message):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    with pytest.raises(SystemExit, match=message):
+        launch.main(_ingest_argv(_token_file(tmp_path), *flags))
+
+
+def test_the_promote_step_says_which_gates_it_follows_when_the_run_has_a_part_of_them(tmp_path):
+    plan = _plan(gates="complete,tables", promote_after_gates=True)
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=plan))
+    assert done.returncode == 0, done.stdout
+    assert ("=== step promote: start: move main forward to the snapshot that the verification read on the branch "
+            "trial-1, after the gates complete,tables only") in done.stdout
+    (tmp_path / "all").mkdir()
+    done, calls = _run_script(tmp_path / "all")
+    start = next(x for x in done.stdout.splitlines() if x.startswith("=== step promote: start"))
+    assert start.endswith("the snapshot that the verification read on the branch trial-1")
+
+
+def test_the_texts_say_when_the_promote_step_runs(capsys):
+    with pytest.raises(SystemExit):
+        launch.main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    for fact in ("to the snapshot that the verification read", "--promote-after-gates",
+                 "refuses --gates unless the run has exactly one of --no-promote and --promote-after-gates",
+                 "refuses --remote-bundle without --elements and --gates",
+                 "the only element is root", "each gate is one of complete, attrs, source"):
+        assert fact in text, fact
+    assert "runs only after the verification passed" not in text
+
+
+def test_the_verification_writes_its_snapshot_to_a_file_and_the_promote_step_expects_that_snapshot(tmp_path):
+    done, calls = _run_script(tmp_path, snapshot="0123ABCDEF")
+    assert done.returncode == 0, done.stdout
+    assert f"--snapshot-file {tmp_path}/data/verified-snapshot" in calls[-2]
+    assert calls[-1].endswith("promote.py --repo arraylake://org/atera-kidney --from trial-1 --expect 0123ABCDEF")
+    (tmp_path / "none").mkdir()
+    done, calls = _run_script(tmp_path / "none", job=_ingest_job(ingest=_plan(promote=False)))
+    assert f"--snapshot-file {tmp_path}/none/data/verified-snapshot" in calls[-1]
+
+
+@pytest.mark.parametrize("snapshot", ["absent", "", "  "], ids=["absent", "empty", "blank"])
+def test_a_verification_that_records_no_snapshot_reaches_no_promote_command(tmp_path, snapshot):
+    done, calls = _run_script(tmp_path, snapshot=snapshot)
+    assert done.returncode != 0 and _programs(calls)[-1] == "verify.py"
+    assert f"the verification recorded no snapshot in {tmp_path}/data/verified-snapshot" in done.stdout
+    assert "=== step promote: FAILED" in done.stdout and "=== all steps passed" not in done.stdout
+
+
+def test_a_snapshot_file_of_an_earlier_run_does_not_reach_the_promote_step(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "verified-snapshot").write_text("EARLIER\n")
+    done, calls = _run_script(tmp_path, snapshot="absent")
+    assert done.returncode != 0 and not any("promote.py" in c for c in calls)
+    assert "EARLIER" not in done.stdout + "\n".join(calls)
+
+
+def test_the_disk_of_a_remote_bundle_is_the_overhead_only(tmp_path, capsys):
+    assert launch.required_disk_gib("kidney", remote_bundle=True) == launch.OVERHEAD_GIB == 40
+    assert launch.default_disk_gib("kidney", remote_bundle=True) == 50
+    argv = _ingest_argv(_token_file(tmp_path), "--dry-run", *REMOTE_FLAGS, "--no-promote", "--disk")
+    launch.main([*argv, "40"])
+    assert "disk_size='40'" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="disk.*40 GiB"):
+        launch.main([*argv, "39"])
+
+
+def test_the_space_step_fails_when_df_gives_no_number(tmp_path):
+    done, calls = _run_script(tmp_path, df_fails=True)
+    assert done.returncode != 0 and not any("fetch.py" in c for c in calls)
+    assert f"the free space of {tmp_path}/data is not a number" in done.stdout
+    assert "=== step space: FAILED" in done.stdout
+
+
+def test_an_element_that_the_full_mode_does_not_write_is_refused_before_any_launch(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    with pytest.raises(SystemExit, match="unknown elements: labels/nucleus_label;"):
+        launch.main(_ingest_argv(_token_file(tmp_path), "--elements", "labels/nucleus_label"))
+
+
+def test_the_ingest_step_says_which_elements_it_writes(tmp_path):
+    done, calls = _run_script(tmp_path, job=_ingest_job(ingest=_plan(elements="labels/nucleus_labels,root")))
+    assert ("=== step ingest: start: the ingest of the elements labels/nucleus_labels,root only, from the local "
+            "files, to the branch trial-1; the first write to Arraylake") in done.stdout
+    (tmp_path / "remote").mkdir()
+    done, calls = _run_script(tmp_path / "remote", job=_ingest_job(ingest=_plan(**REMOTE_PLAN)))
+    assert ("=== step ingest: start: the ingest of the elements root only, by range request, to the branch trial-1; "
+            "the first write to Arraylake") in done.stdout
+    (tmp_path / "all").mkdir()
+    done, calls = _run_script(tmp_path / "all")
+    assert ("=== step ingest: start: the full ingest, from the local files, to the branch trial-1; the first write "
+            "to Arraylake") in done.stdout

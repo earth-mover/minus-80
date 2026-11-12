@@ -1608,3 +1608,28 @@ def test_the_transforms_gate_runs_in_fixture_mode_and_fails_the_run_on_a_changed
     assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "transforms") == 1
     out = capsys.readouterr().out
     assert "transforms FAIL" in out and "  images/morphology s2: pixel (c 0, y 325, x 525) maps to x " in out
+
+
+def test_a_passed_verification_prints_the_snapshot_that_it_read_and_writes_it_to_the_file(
+        monkeypatch, capsys, full_store, tmp_path):
+    snapshot = create_repo(full_store.repo, [], open_existing=True).lookup_branch("main")
+    path = tmp_path / "snapshot"
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "complete", "--snapshot-file", str(path)) == 0
+    assert f"branch main: snapshot {snapshot}\n" in capsys.readouterr().out
+    assert path.read_text() == f"{snapshot}\n"
+    assert _verify(monkeypatch, full_store, "--mode", "full", "--gates", "complete") == 0
+    assert f"branch main: snapshot {snapshot}\n" in capsys.readouterr().out
+
+
+def test_a_failed_verification_writes_no_snapshot_file(monkeypatch, capsys, full_store, tmp_path):
+    copy = full_store.copy(tmp_path)
+
+    def change(root):
+        ome = json.loads(json.dumps(root["images/morphology"].attrs["ome"]))
+        _scale_last(ome["multiscales"][0])
+        root["images/morphology"].attrs["ome"] = ome
+
+    copy.edit(change)
+    path = tmp_path / "snapshot"
+    assert _verify(monkeypatch, copy, "--mode", "full", "--gates", "complete,transforms", "--snapshot-file", str(path)) == 1
+    assert "transforms FAIL" in capsys.readouterr().out and not path.exists()

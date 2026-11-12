@@ -179,6 +179,23 @@ def test_the_byte_limit_turns_the_groups_not_read_into_differences(capsys, tmp_p
     assert "ByteLimit" in capsys.readouterr().out
 
 
+def test_a_check_that_raises_has_its_own_exit_code_and_one_line_with_the_error_type(
+        capsys, tmp_path, monkeypatch, synthetic, alignment_file, pristine):  # noqa: F811
+    def fail(*args, **kwargs):
+        raise OSError("s3://secret-bucket/prefix")
+
+    write_record("kidney", pristine, tmp_path)
+    monkeypatch.setattr(check_bundle, "check", fail)
+    code = _check(synthetic, alignment_file, tmp_path / "kidney.json")
+    captured = capsys.readouterr()
+    assert code == 4 and captured.out == ""
+    assert captured.err == "the check did not finish (OSError)\n"
+
+
+def test_the_docstring_gives_the_exit_code_of_a_check_that_did_not_finish():
+    assert "4 for a check that did not finish" in " ".join(check_bundle.__doc__.split())
+
+
 # The check when the ingest opens the bundle
 
 LAYOUTS = ingest.LAYOUTS.read_text()

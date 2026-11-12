@@ -5,7 +5,8 @@
 
 By default the bundle, the H&E image and the alignment are the sample's objects, read by range request.
 A group in ``--skip-groups`` is neither read nor compared. The exit code is 0 for no difference,
-1 for a difference, 2 for a record that cannot serve as a reference, and 3 for a bundle that does not open.
+1 for a difference, 2 for a record that cannot serve as a reference, 3 for a bundle that does not open,
+and 4 for a check that did not finish.
 """
 
 from __future__ import annotations
@@ -84,7 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:  # The text of a storage error can hold a location.
         print(f"the bundle does not open ({type(error).__name__})", file=sys.stderr)
         return 3
-    lines = check(bundle, open_he, alignment_text, args.sample, record=record, skip=skip)
+    try:
+        lines = check(bundle, open_he, alignment_text, args.sample, record=record, skip=skip)
+    except Exception as error:  # Exit code 1 means a difference, and the text of the error can hold a location.
+        print(f"the check did not finish ({type(error).__name__})", file=sys.stderr)
+        return 4
     for line in lines:
         print(line)
     print(summary(len(lines), skip))

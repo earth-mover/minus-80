@@ -2,6 +2,7 @@
 
 The move is a reset of main, guarded to fail if main moved since the read.
 The snapshot of main must be an ancestor of the trial snapshot, so no commit of main is lost.
+With ``--expect`` the trial snapshot must be the given one, so a commit after the verification moves nothing.
 The script never deletes a branch, a tag or a snapshot.
 """
 
@@ -19,10 +20,12 @@ class Refusal(ValueError):
     """A rule of promote() forbids the move."""
 
 
-def promote(repo, source: str, target: str = "main", *, dry_run: bool = False) -> tuple[str, str]:
+def promote(repo, source: str, target: str = "main", *, expect: str | None = None,
+            dry_run: bool = False) -> tuple[str, str]:
     """Return (old snapshot of target, snapshot of source).
 
     Move target to the snapshot of source, unless the snapshots are equal or dry_run is set.
+    When expect is given, the snapshot of source must be expect.
     """
     if not source.startswith(TRIAL_PREFIX):
         raise Refusal(f"the source {source} does not start with {TRIAL_PREFIX}")
@@ -33,6 +36,8 @@ def promote(repo, source: str, target: str = "main", *, dry_run: bool = False) -
         if name not in branches:
             raise Refusal(f"the branch {name} does not exist")
     old, new = repo.lookup_branch(target), repo.lookup_branch(source)
+    if expect is not None and expect != new:
+        raise Refusal(f"the snapshot {new} of {source} is not the expected snapshot {expect}")
     if old == new:
         return old, new
     if old not in (info.id for info in repo.ancestry(snapshot_id=new)):
@@ -56,11 +61,12 @@ def main() -> None:
     parser.add_argument("--repo", required=True, help="a local directory, or arraylake://<org>/<repo>")
     parser.add_argument("--from", dest="source", required=True, help="the trial branch, trial-<name>")
     parser.add_argument("--to", dest="target", default="main", help="the branch to move; only main")
+    parser.add_argument("--expect", help="the snapshot that the trial branch must have; another snapshot is refused")
     parser.add_argument("--dry-run", action="store_true", help="print the move and change nothing")
     args = parser.parse_args()
     try:
         repo = arraylake_repository(args.repo) if args.repo.startswith(ARRAYLAKE) else open_repository(args.repo)
-        old, new = promote(repo, args.source, args.target, dry_run=args.dry_run)
+        old, new = promote(repo, args.source, args.target, expect=args.expect, dry_run=args.dry_run)
     except Refusal as refusal:
         _fail(str(refusal))
     except Exception as error:

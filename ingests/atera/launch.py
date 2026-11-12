@@ -10,7 +10,8 @@
 The VM builds its own environment from ``uv.lock`` inside a Linux container, never from the laptop's environment.
 The launcher stops the VM when the script ends, fails or passes the time limit. On an interrupt the script form
 stops the VM; the ingest form and an attach do not. It exits with the script's exit code. The Arraylake token never appears in any output.
-The ingest form writes a trial branch only. Its last step moves ``main`` to the trial snapshot after the verification passed.
+The ingest form writes a trial branch only. Its last step moves ``main`` to the snapshot that the verification read.
+With ``--gates`` the verification runs a part of the gates. Then the caller gives ``--no-promote`` or ``--promote-after-gates``.
 """
 
 from __future__ import annotations
@@ -68,7 +69,10 @@ GIB = 1 << 30
 TRIAL_BRANCH = re.compile(r"trial-[A-Za-z0-9._-]+")
 #: What each exit code of ``check_bundle.py`` means, for the line that follows a failed check.
 BUNDLE_CODES = {1: "the bundle differs from the record", 2: "the record cannot serve as a reference",
-                3: "the bundle does not open"}
+                3: "the bundle does not open", 4: "the check did not finish"}
+#: The elements and the gates of a remote bundle: each reads few bytes of the source by range request.
+REMOTE_ELEMENTS = ("root",)
+REMOTE_GATES = ("complete", "attrs", "source")
 #: Coiled prefixes each line of a batch task's output with this marker.
 BATCH_MARKER = re.compile(r"^__BATCH \d+\.\d+__ ?")
 
@@ -90,7 +94,8 @@ class IngestPlan:
     """What ``ingest.py --mode full`` and ``verify.py --mode full`` take, and the shape of the run.
 
     With ``remote_bundle`` the run downloads nothing: each step reads the sample's objects by range request.
-    ``promote`` says whether the last step moves ``main`` to the snapshot of ``branch``.
+    ``promote`` says whether the last step moves ``main`` to the snapshot that the verification read.
+    ``promote_after_gates`` says that the caller accepts this move after a part of the gates.
     """
 
     sample: str
@@ -104,6 +109,7 @@ class IngestPlan:
     replace_tables: str | None
     remote_bundle: bool = False
     promote: bool = True
+    promote_after_gates: bool = False
 
 
 @dataclass(frozen=True)
@@ -157,17 +163,41 @@ def is_arm(vm_type: str) -> bool:
     return re.match(r"^[a-z]+\d+[a-z]*g[a-z]*\.", vm_type) is not None
 
 
-def required_disk_gib(sample: str) -> int:
-    """The disk, in GiB, that the ingest of ``sample`` needs: its downloads, rounded up, and ``OVERHEAD_GIB``."""
-    return -(-download_bytes(sample) // GIB) + OVERHEAD_GIB
+def required_disk_gib(sample: str, remote_bundle: bool = False) -> int:
+    """The disk, in GiB, that the ingest of ``sample`` needs: its downloads, rounded up, and ``OVERHEAD_GIB``.
+
+    A remote bundle has no download, so it needs the overhead only.
+    """
+    return OVERHEAD_GIB if remote_bundle else -(-download_bytes(sample) // GIB) + OVERHEAD_GIB
 
 
 def download_bytes(sample: str) -> int:
     return sum(o["size"] for o in fetch.wanted(SAMPLES[sample]))
 
 
-def default_disk_gib(sample: str) -> int:
-    return -(-required_disk_gib(sample) // DISK_STEP_GIB) * DISK_STEP_GIB
+def default_disk_gib(sample: str, remote_bundle: bool = False) -> int:
+    return -(-required_disk_gib(sample, remote_bundle) // DISK_STEP_GIB) * DISK_STEP_GIB
+
+
+def plan_fault(elements: str | None, gates: str | None, remote_bundle: bool, promote: bool,
+               promote_after_gates: bool) -> str | None:
+    """The rule that these options of the ingest form break, or ``None``.
+
+    A part of the gates moves ``main`` only when the caller says so. A remote bundle reads few bytes only.
+    """
+    if promote_after_gates and not gates:
+        return "--promote-after-gates needs --gates"
+    if promote_after_gates and not promote:
+        return "--promote-after-gates and --no-promote exclude each other"
+    if gates and promote and not promote_after_gates:
+        return "--gates runs a part of the verification; give --no-promote or --promote-after-gates"
+    if remote_bundle:
+        if not elements or not gates:
+            return "--remote-bundle needs --elements and --gates, so that the run reads few bytes by range request"
+        for flag, text, allowed in (("elements", elements, REMOTE_ELEMENTS), ("gates", gates, REMOTE_GATES)):
+            if other := [name for name in text.split(",") if name not in allowed]:
+                return f"--remote-bundle takes only the {flag} {', '.join(allowed)}, not {', '.join(other)}"
+    return None
 
 
 ENVIRONMENT = """test -f uv.lock || { echo "the uploaded code is missing from $PWD"; exit 2; }
@@ -197,9 +227,12 @@ def ingest_script(plan: IngestPlan) -> str:
     A remote bundle has no space, download, check and bundle-local step. Each step prints a start line and its wall time.
     The first failed step ends the script with its exit code and prints its last 40 lines again.
     So a failed bundle check reaches no download and no ingest, and a failed verification reaches no promote.
+    The verification writes the snapshot that it read to a file, and the promote step moves ``main`` to that one only.
     """
     if not TRIAL_BRANCH.fullmatch(plan.branch):
         raise ValueError(f"the ingest form writes a branch trial-<name>, not {plan.branch!r}")
+    if fault := plan_fault(plan.elements, plan.gates, plan.remote_bundle, plan.promote, plan.promote_after_gates):
+        raise ValueError(fault)
     quote = shlex.quote
     python = "uv run --frozen --package atera-ingest python ingests/atera"
     common = f"--sample {quote(plan.sample)} --repo {quote(plan.repo)} --catalog {quote(plan.catalog)}"
@@ -218,10 +251,15 @@ def ingest_script(plan: IngestPlan) -> str:
                  f'--he-alignment "{files["alignment"]}"')
         head = " --head-source"
     ingest = f"{python}/ingest.py {arguments}{local}"
-    verify = (f"{python}/verify.py {common} --mode full --branch {quote(plan.branch)}{local}{head}"
-              + (f" --gates {quote(plan.gates)}" if plan.gates else ""))
+    verify = (f'{python}/verify.py {common} --mode full --branch {quote(plan.branch)}{local}{head}'
+              + (f" --gates {quote(plan.gates)}" if plan.gates else "") + ' --snapshot-file "$SNAPSHOT"')
     # A description is one shell word, so no text of the plan runs as a command.
     verification = quote(f"the verification, only the gates {plan.gates}" if plan.gates else "the full verification")
+    written = quote((f"the ingest of the elements {plan.elements} only" if plan.elements else "the full ingest")
+                    + (", by range request" if plan.remote_bundle else ", from the local files")
+                    + f", to the branch {plan.branch}; the first write to Arraylake")
+    moved = quote(f"move main forward to the snapshot that the verification read on the branch {plan.branch}"
+                  + (f", after the gates {plan.gates} only" if plan.promote_after_gates else ""))
     codes = "\n".join(f'    {code}) echo "=== bundle check: exit code {code}: {meaning}" ;;'
                       for code, meaning in BUNDLE_CODES.items())
     need_kb = (download_bytes(plan.sample) + TILE_SCRATCH_GIB * GIB) // 1024
@@ -229,6 +267,7 @@ def ingest_script(plan: IngestPlan) -> str:
 set -uo pipefail
 {ENVIRONMENT}DATA="${{ATERA_DATA:-/tmp/atera-data}}"
 LOGS="${{ATERA_LOGS:-/tmp/atera-steps}}"
+SNAPSHOT="$DATA/verified-snapshot"
 mkdir -p "$DATA" "$LOGS"
 
 # step NAME DESCRIPTION COMMAND...: print a start line, run, print the wall time; on failure print the last 40 lines and exit.
@@ -248,17 +287,6 @@ step() {{
   echo "=== step $name: done in $((SECONDS - began)) s"
 }}
 
-# The data directory must hold the downloads and the largest tile's scratch file.
-check_space() {{
-  local free_kb
-  free_kb=$(df -Pk "$DATA" | awk 'NR==2 {{print $4}}')
-  echo "free space in $DATA: $free_kb KiB; needed: {need_kb} KiB"
-  if [ "$free_kb" -lt {need_kb} ]; then
-    echo "not enough free space in $DATA for the downloads and the largest tile's scratch file"
-    return 3
-  fi
-}}
-
 # Compare a bundle with the sample's record; a line says what a non-zero exit code means.
 bundle_check() {{
   {python}/check_bundle.py --sample {quote(plan.sample)} "$@"
@@ -276,7 +304,21 @@ step environment "build the environment from uv.lock" uv sync --frozen --package
 step preflight "the arguments, the repo, the catalog and each table's state, with no write and no bundle" {python}/ingest.py {arguments} --preflight
 step bundle-remote "the sample's objects against the record, by range request, with no download" bundle_check
 """
-    download = f"""echo "=== disk before the download: the data directory, /opt (the environment) and the working directory"
+    download = f"""# The data directory must hold the downloads and the largest tile's scratch file.
+check_space() {{
+  local free_kb
+  free_kb=$(df -Pk "$DATA" | awk 'NR==2 {{print $4}}')
+  case "$free_kb" in
+    ''|*[!0-9]*) echo "the free space of $DATA is not a number: '$free_kb'"; return 3 ;;
+  esac
+  echo "free space in $DATA: $free_kb KiB; needed: {need_kb} KiB"
+  if [ "$free_kb" -lt {need_kb} ]; then
+    echo "not enough free space in $DATA for the downloads and the largest tile's scratch file"
+    return 3
+  fi
+}}
+
+echo "=== disk before the download: the data directory, /opt (the environment) and the working directory"
 df -h "$DATA" /opt . || true
 step space "free space of the data directory against the downloads and the tile's scratch file" check_space
 step download "one streaming GET for each object of the sample, anonymous, resumed up to 5 times" \\
@@ -286,17 +328,30 @@ df -h "$DATA" || true
 step check "size of each file, and its ETag where the MD5 of the file or of its parts can be recomputed" \\
   {python}/fetch.py check --sample {quote(plan.sample)} --directory "$DATA"
 step bundle-local "the local files against the record" bundle_check{local}
-step ingest "the full ingest from the local files to the branch {plan.branch}; the first write to Arraylake" {ingest}
+step ingest {written} {ingest}
 echo "=== disk after the ingest"
 df -h "$DATA" || true
 echo "=== note: the verification reads the local files; its source gate sends HEAD requests to the real objects"
 """
-    remote = f"""step ingest "the full ingest by range request to the branch {plan.branch}; the first write to Arraylake" {ingest}
+    remote = f"""step ingest {written} {ingest}
 """
-    promote = (f'step promote "move main forward to the snapshot of the branch {plan.branch}" '
-               f"{python}/promote.py --repo {quote(plan.repo)} --from {quote(plan.branch)}\n" if plan.promote
-               else 'echo "=== no promote step: main stays as it is"\n')
-    return f"""{head_of_script}{remote if plan.remote_bundle else download}step verify {verification} {verify}
+    promote = f"""
+# Move main to the snapshot that the verification read. An absent or empty file moves nothing.
+promote_verified() {{
+  local snapshot=""
+  [ -f "$SNAPSHOT" ] && snapshot=$(head -n 1 "$SNAPSHOT" | tr -d '[:space:]')
+  if [ -z "$snapshot" ]; then
+    echo "the verification recorded no snapshot in $SNAPSHOT; main stays as it is"
+    return 1
+  fi
+  {python}/promote.py --repo {quote(plan.repo)} --from {quote(plan.branch)} --expect "$snapshot"
+}}
+
+step promote {moved} promote_verified
+""" if plan.promote else 'echo "=== no promote step: main stays as it is"\n'
+    # A snapshot file of an earlier run must not reach the promote step.
+    return f"""{head_of_script}{remote if plan.remote_bundle else download}rm -f "$SNAPSHOT"
+step verify {verification} {verify}
 {promote}echo "=== all steps passed"
 """
 
@@ -599,8 +654,11 @@ def plan_text(job: Job) -> str:
     verb = "range requests to" if job.ingest.remote_bundle else "download"
     lines = [f"{verb} {o['name']}: {o['size']:,} bytes, ETag {o['etag']}" for o in objects]
     total = sum(o["size"] for o in objects)
-    lines.append(f"disk: {total:,} bytes of downloads are {-(-total // GIB)} GiB, plus {OVERHEAD_GIB} GiB of overhead "
-                 f"is {required_disk_gib(job.ingest.sample)} GiB at least; this launch has {job.disk} GiB")
+    if job.ingest.remote_bundle:
+        lines.append(f"disk: no download occurs; {OVERHEAD_GIB} GiB of overhead at least; this launch has {job.disk} GiB")
+    else:
+        lines.append(f"disk: {total:,} bytes of downloads are {-(-total // GIB)} GiB, plus {OVERHEAD_GIB} GiB of "
+                     f"overhead is {required_disk_gib(job.ingest.sample)} GiB at least; this launch has {job.disk} GiB")
     return "\n".join(lines)
 
 
@@ -612,7 +670,10 @@ NOTE = (
     "server, or when a person runs launch.py --stop <cluster id> --workspace <ws>. Follow a job again with "
     "launch.py --attach <cluster id> --workspace <ws>; an attached launcher never stops the cluster. A script "
     "(after --) stops the VM on every exit path. The ingest form writes the branch trial-<name>, never main. Its "
-    "last step, promote.py, moves main forward to the trial snapshot, and runs only after the verification passed."
+    "last step, promote.py, moves main forward to the snapshot that the verification read. The step runs only after "
+    "the verify step passed, and it refuses a trial branch that holds a later commit. With --gates the verify step "
+    "runs a part of the gates. So the launcher refuses --gates unless the run has exactly one of --no-promote and "
+    "--promote-after-gates."
 )
 
 
@@ -645,6 +706,16 @@ def check_ingest(args, fail) -> None:
     for flag in ("elements", "gates", "replace_tables"):
         if (text := getattr(args, flag)) is not None:
             split_names(flag.replace("_", "-"), text, fail)
+    if args.elements is not None:
+        # Only this check needs the ingest's modules, and their import is slow.
+        from ingest import ELEMENTS, select_elements
+
+        try:
+            select_elements(args.elements, ELEMENTS["full"])
+        except ValueError as error:
+            fail(f"--elements: {error}")
+    if fault := plan_fault(args.elements, args.gates, args.remote_bundle, not args.no_promote, args.promote_after_gates):
+        fail(fault)
 
 
 def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
@@ -653,8 +724,15 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=NOTE)
     for flag in ("vm-type", "region", "workspace", "name", "sample", "repo", "catalog", "namespace",
-                 "elements", "gates", "replace-tables", "attach", "stop"):
+                 "replace-tables", "attach", "stop"):
         parser.add_argument(f"--{flag}")
+    parser.add_argument("--elements",
+                        help="With --ingest, ingest.py writes only these elements, separated by commas. "
+                             "With --remote-bundle the only element is root.")
+    parser.add_argument("--gates",
+                        help="With --ingest, verify.py runs only these gates, separated by commas. The launcher "
+                             "refuses --gates unless the run has exactly one of --no-promote and "
+                             "--promote-after-gates. With --remote-bundle each gate is one of complete, attrs, source.")
     parser.add_argument("--branch", help="with --ingest, the branch to write: trial-<name>; trial-<UTC date> by default")
     parser.add_argument("--disk", type=int, help="GiB; the ingest form defaults to its requirement, rounded up")
     parser.add_argument("--max-minutes", type=int, help="the VM stops when the run passes this; 90 for a script")
@@ -667,9 +745,12 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--ingest", action="store_true",
                         help="run ingest.py and verify.py, both --mode full, on a trial branch, then promote.py")
     parser.add_argument("--remote-bundle", action="store_true",
-                        help="with --ingest, download nothing: each step reads the sample's objects by range request; "
-                             "for a run that reads few bytes")
+                        help="With --ingest, download nothing: each step reads the sample's objects by range request. "
+                             "The launcher refuses --remote-bundle without --elements and --gates. The only element "
+                             "is root, and each gate is one of complete, attrs, source.")
     parser.add_argument("--no-promote", action="store_true", help="with --ingest, leave main as it is")
+    parser.add_argument("--promote-after-gates", action="store_true",
+                        help="with --ingest and --gates, move main after only the gates of --gates passed")
     parser.add_argument("--dry-run", action="store_true", help="print the command and contact nothing")
     args = parser.parse_args(own)
 
@@ -685,7 +766,7 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
         fail(f"--max-minutes is at least 1, not {args.max_minutes}")
     if args.replace_tables is not None and not args.ingest:
         fail("--replace-tables belongs to --ingest")
-    for flag in ("remote-bundle", "no-promote"):
+    for flag in ("remote-bundle", "no-promote", "promote-after-gates"):
         if getattr(args, flag.replace("-", "_")) and not args.ingest:
             fail(f"--{flag} belongs to --ingest")
     if args.attach or args.stop:
@@ -697,9 +778,10 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
              "concurrency")
         args.branch = default_branch() if args.branch is None else args.branch
         check_ingest(args, fail)
-        if args.disk is not None and args.disk < required_disk_gib(args.sample):
-            fail(f"--disk {args.disk} is below the {required_disk_gib(args.sample)} GiB that the ingest of "
-                 f"{args.sample} needs: its downloads and {OVERHEAD_GIB} GiB of overhead")
+        needed = required_disk_gib(args.sample, args.remote_bundle)
+        if args.disk is not None and args.disk < needed:
+            fail(f"--disk {args.disk} is below the {needed} GiB that the ingest of {args.sample} needs: "
+                 f"{'' if args.remote_bundle else 'its downloads and '}{OVERHEAD_GIB} GiB of overhead")
     else:
         need("vm-type", "region", "workspace", "name", "disk")
         if not command or not (HERE / command[0]).is_file():
@@ -751,8 +833,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"would follow {args.attach} in {args.workspace}: the last {args.tail} lines, then the new ones; "
               "it would stop nothing", flush=True)
         return 0
-    token = read_token(Path(args.token_file).expanduser())
     if args.attach:
+        token = read_token(Path(args.token_file).expanduser())
         job = Job(args.attach, "", "", args.workspace, 0, None, "", [], status_failures=None, stops="never")
         install_stop_signals()
         print(f"attaching to {args.attach}; the last {args.tail} lines first", flush=True)
@@ -761,8 +843,10 @@ def main(argv: list[str] | None = None) -> int:
     name = unique_name(args.name)
     if args.ingest:
         plan = IngestPlan(args.sample, args.repo, args.catalog, args.namespace, args.branch, args.concurrency,
-                          args.elements, args.gates, args.replace_tables, args.remote_bundle, not args.no_promote)
-        job = Job(name, args.vm_type, args.region, args.workspace, args.disk or default_disk_gib(args.sample),
+                          args.elements, args.gates, args.replace_tables, args.remote_bundle, not args.no_promote,
+                          args.promote_after_gates)
+        job = Job(name, args.vm_type, args.region, args.workspace,
+                  args.disk or default_disk_gib(args.sample, args.remote_bundle),
                   args.max_minutes, "ingest", [], plan, args.status_failures, "viewer")
     else:
         job = Job(name, args.vm_type, args.region, args.workspace, args.disk, args.max_minutes or 90, command[0],
@@ -773,6 +857,8 @@ def main(argv: list[str] | None = None) -> int:
         print(call_text(job))
         print(remote_script(job), end="")
         return 0
+    # The dry run shows stars for the secret, so only a launch reads the token.
+    token = read_token(Path(args.token_file).expanduser())
     install_stop_signals()
     print(f"launching {job.name}: {job.vm_type} in {job.region}, at most {job.minutes} minutes", flush=True)
     return interruptible(lambda: run(CoiledVm(), job, token, out=lambda line: print(line, flush=True)))
