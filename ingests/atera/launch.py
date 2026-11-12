@@ -110,6 +110,7 @@ class IngestPlan:
     remote_bundle: bool = False
     promote: bool = True
     promote_after_gates: bool = False
+    root_keys: str | None = None
 
 
 @dataclass(frozen=True)
@@ -187,12 +188,12 @@ def names_fault(flag: str, text: str) -> str | None:
 
 
 def plan_fault(elements: str | None, gates: str | None, remote_bundle: bool, promote: bool,
-               promote_after_gates: bool) -> str | None:
+               promote_after_gates: bool, root_keys: str | None) -> str | None:
     """The rule that these options of the ingest form break, or ``None``.
 
     A part of the gates moves ``main`` only when the caller says so. A remote bundle reads few bytes only.
     """
-    for flag, text in (("elements", elements), ("gates", gates)):
+    for flag, text in (("elements", elements), ("gates", gates), ("root-keys", root_keys)):
         if text is not None and (fault := names_fault(flag, text)):
             return fault
     if promote_after_gates and not gates:
@@ -207,6 +208,8 @@ def plan_fault(elements: str | None, gates: str | None, remote_bundle: bool, pro
         for flag, text, allowed in (("elements", elements, REMOTE_ELEMENTS), ("gates", gates, REMOTE_GATES)):
             if other := [name for name in text.split(",") if name not in allowed]:
                 return f"--remote-bundle takes only the {flag} {', '.join(allowed)}, not {', '.join(other)}"
+    if root_keys is not None and elements != "root":
+        return "--root-keys needs --elements root alone"
     return None
 
 
@@ -241,7 +244,8 @@ def ingest_script(plan: IngestPlan) -> str:
     """
     if not TRIAL_BRANCH.fullmatch(plan.branch):
         raise ValueError(f"the ingest form writes a branch trial-<name>, not {plan.branch!r}")
-    if fault := plan_fault(plan.elements, plan.gates, plan.remote_bundle, plan.promote, plan.promote_after_gates):
+    if fault := plan_fault(plan.elements, plan.gates, plan.remote_bundle, plan.promote, plan.promote_after_gates,
+                           plan.root_keys):
         raise ValueError(fault)
     quote = shlex.quote
     python = "uv run --frozen --package atera-ingest python ingests/atera"
@@ -250,7 +254,8 @@ def ingest_script(plan: IngestPlan) -> str:
     arguments = (f'{common} --namespace {quote(plan.namespace)} --mode full --branch {quote(plan.branch)} '
                  f'--concurrency {plan.concurrency}'
                  + (f" --elements {quote(plan.elements)}" if plan.elements else "")
-                 + (f" --replace-tables {quote(plan.replace_tables)}" if plan.replace_tables else ""))
+                 + (f" --replace-tables {quote(plan.replace_tables)}" if plan.replace_tables else "")
+                 + (f" --root-keys {quote(plan.root_keys)}" if plan.root_keys else ""))
     if plan.remote_bundle:
         local = head = ""
     else:
@@ -729,8 +734,17 @@ def check_ingest(args, fail) -> None:
             select_gates([args.gates], GATES["full"])
         except ValueError as error:
             fail(f"--gates: {error}")
-    if fault := plan_fault(args.elements, args.gates, args.remote_bundle, not args.no_promote, args.promote_after_gates):
+    if fault := plan_fault(args.elements, args.gates, args.remote_bundle, not args.no_promote, args.promote_after_gates,
+                           args.root_keys):
         fail(fault)
+    if args.root_keys is not None:
+        # Only this check needs the ingest's modules, and their import is slow.
+        from ingest import root_key_names
+
+        try:
+            root_key_names(args.root_keys, [args.elements])
+        except ValueError as error:
+            fail(f"--root-keys: {error}")
 
 
 def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
@@ -744,6 +758,9 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--elements",
                         help="With --ingest, ingest.py writes only these elements, separated by commas. "
                              "With --remote-bundle the only element is root.")
+    parser.add_argument("--root-keys",
+                        help="With --ingest and --elements root alone, ingest.py writes only these root attributes, "
+                             "separated by commas. Another root attribute that changes ends the ingest before the write.")
     parser.add_argument("--gates",
                         help="With --ingest, verify.py runs only these gates, separated by commas. The launcher "
                              "refuses --gates unless the run has exactly one of --no-promote and "
@@ -779,8 +796,9 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
 
     if args.max_minutes is not None and args.max_minutes < 1:
         fail(f"--max-minutes is at least 1, not {args.max_minutes}")
-    if args.replace_tables is not None and not args.ingest:
-        fail("--replace-tables belongs to --ingest")
+    for flag in ("replace-tables", "root-keys"):
+        if getattr(args, flag.replace("-", "_")) is not None and not args.ingest:
+            fail(f"--{flag} belongs to --ingest")
     for flag in ("remote-bundle", "no-promote", "promote-after-gates"):
         if getattr(args, flag.replace("-", "_")) and not args.ingest:
             fail(f"--{flag} belongs to --ingest")
@@ -859,7 +877,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ingest:
         plan = IngestPlan(args.sample, args.repo, args.catalog, args.namespace, args.branch, args.concurrency,
                           args.elements, args.gates, args.replace_tables, args.remote_bundle, not args.no_promote,
-                          args.promote_after_gates)
+                          args.promote_after_gates, args.root_keys)
         job = Job(name, args.vm_type, args.region, args.workspace,
                   args.disk or default_disk_gib(args.sample, args.remote_bundle),
                   args.max_minutes, "ingest", [], plan, args.status_failures, "viewer")

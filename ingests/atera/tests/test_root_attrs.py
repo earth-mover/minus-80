@@ -3,8 +3,8 @@ from pathlib import Path
 
 import ingest
 from root_attrs import (
-    KIND_SENTENCES, citation_text, describe, element_kind, markdown_tables, parse_metrics, root_attrs,
-    source_objects,
+    KIND_SENTENCES, ROOT_KEYS, citation_text, describe, element_kind, markdown_tables, parse_metrics, root_attrs,
+    root_changes, source_objects,
 )
 from sources import SAMPLES
 
@@ -75,6 +75,13 @@ def test_root_attrs_splits_experiment_and_names_the_fixture():
         "software": "https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest",
     }
     assert attrs["description"] == describe(["labels"])
+    assert tuple(attrs) == (*ROOT_KEYS, "fixture")
+
+
+def test_root_changes_compares_json_values_in_the_order_of_the_built_keys():
+    present = {"a": [1, 2], "b": {"x": 1}, "c": 1, "d": "kept"}
+    built = {"e": None, "c": 1.0, "b": {"x": 1}, "a": (1, 2)}
+    assert root_changes(present, built) == ["e", "c"]
 
 
 KINDS = ("images/morphology", "images/morphology_3d", "images/he_image", "images/qc", "labels", "shapes",
@@ -91,6 +98,10 @@ def test_each_kind_sentence_is_short_and_names_its_element():
         assert kind in sentence
         assert len(sentence.split()) <= 20 and sentence.count(". ") == 0 and sentence.endswith(".")
         assert "\u2014" not in sentence
+
+
+def test_each_element_of_the_full_mode_except_root_has_a_kind_sentence_and_each_sentence_an_element():
+    assert {element_kind(e) for e in ingest.ELEMENTS["full"]} - {"root"} == set(KIND_SENTENCES)
 
 
 def test_the_full_description_holds_the_sentence_of_each_kind():

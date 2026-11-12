@@ -15,7 +15,7 @@ import math
 import os
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -45,7 +45,9 @@ from check_bundle import differences, summary
 from facts import bundle_facts, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
-from root_attrs import LICENSE, citation_text, element_kind, parse_metrics, root_attrs, source_objects
+from root_attrs import (
+    LICENSE, ROOT_KEYS, citation_text, element_kind, parse_metrics, root_attrs, root_changes, source_objects,
+)
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table, diffexp_table
 from transcripts import TRANSCRIPT_SCHEMA, tile_order, write_tile, xenium_cell_id
@@ -559,9 +561,17 @@ def build_root(
     return root_attrs(sample, layouts, experiment, metrics, kinds=kinds, missing=missing, fixture=fixture)
 
 
-def write_root(writer, root_attributes: dict) -> None:
+def write_root(writer, root_attributes: dict, keys: Collection[str] | None = None) -> None:
+    """Write the ``keys`` of ``root_attributes``, all by default, after one line that lists each key that changes.
+
+    A key outside ``keys`` that changes raises before the write.
+    """
     with writer.unit("root attributes", "Write root attributes") as (root, _):
-        root.attrs.update(root_attributes)
+        changes = root_changes(root.attrs.asdict(), root_attributes)
+        print(f"root attributes: changes {', '.join(changes) or 'none'}", flush=True)
+        if keys is not None and (unnamed := [k for k in changes if k not in keys]):
+            raise ValueError(f"root attributes: --root-keys does not name these keys that change: {', '.join(unnamed)}")
+        root.attrs.update({k: v for k, v in root_attributes.items() if keys is None or k in keys})
 
 
 @dataclass(frozen=True)
@@ -638,6 +648,19 @@ def check_replace_elements(replace: set[str], selected: Sequence[str]) -> None:
     if lacking := sorted(t for t in replace if REPLACE_ELEMENTS[t] not in selected):
         raise ValueError(f"--replace-tables {', '.join(lacking)} needs the element "
                          f"{', '.join(REPLACE_ELEMENTS[t] for t in lacking)} in the run")
+
+
+def root_key_names(text: str, selected: Sequence[str]) -> set[str]:
+    """The comma-separated keys of ``--root-keys``; each must be in :data:`ROOT_KEYS`, and ``root`` the only element.
+
+    A run with another element would write it before the root step can refuse.
+    """
+    keys = set(text.split(","))
+    if unknown := keys - set(ROOT_KEYS):
+        raise ValueError(f"cannot write the root keys {', '.join(sorted(unknown))}; known: {', '.join(ROOT_KEYS)}")
+    if list(selected) != ["root"]:
+        raise ValueError("--root-keys needs --elements root alone")
+    return keys
 
 
 def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
@@ -766,7 +789,8 @@ def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[
 
 
 def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str, elements: str | None = None,
-              replace_tables: str = "", sample: str | None = None, record: Path | None = None) -> list[str]:
+              replace_tables: str = "", root_keys: str | None = None, sample: str | None = None,
+              record: Path | None = None) -> list[str]:
     """Check what needs no bundle and no write, print the plan, and return one line for each problem.
 
     With a ``sample`` its record, which is ``record`` or the committed one, must load.
@@ -797,6 +821,11 @@ def preflight(*, mode: str, branch: str, repo: str, catalog: str, namespace: str
     if selected is not None and replace:
         try:
             check_replace_elements(replace, selected)
+        except ValueError as e:
+            problems.append(str(e))
+    if selected is not None and root_keys is not None:
+        try:
+            root_key_names(root_keys, selected)
         except ValueError as e:
             problems.append(str(e))
     try:
@@ -872,13 +901,17 @@ def run() -> None:
     parser.add_argument("--preflight", action="store_true",
                         help="--mode full: check the arguments, the repo, the catalog and each table with no bundle and no "
                              "write, print the plan, and exit 1 on a problem")
+    parser.add_argument("--root-keys",
+                        help=f"--mode full with --elements root alone: write only these root attributes, comma-separated, "
+                             f"of {', '.join(ROOT_KEYS)}; another key that changes ends the run before the write. "
+                             "--preflight checks the names only, as it has no bundle to build the values from")
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
                         help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")
     args = parser.parse_args()
     if args.preflight:
         problems = preflight(mode=args.mode, branch=args.branch, repo=args.repo, catalog=args.catalog,
                              namespace=args.namespace, elements=args.elements, replace_tables=args.replace_tables,
-                             sample=args.sample, record=args.record)
+                             root_keys=args.root_keys, sample=args.sample, record=args.record)
         for problem in problems:
             print(f"PROBLEM: {problem}")
         print(f"preflight: {len(problems)} problem{'s' * (len(problems) != 1)}" if problems else "preflight: no problem")
@@ -893,10 +926,13 @@ def run() -> None:
         raise SystemExit("--rewrite is an option of --mode fixture")
     if args.replace_tables and args.mode != "full":
         raise SystemExit("--replace-tables is an option of --mode full")
+    if args.root_keys is not None and args.mode != "full":
+        raise SystemExit("--root-keys is an option of --mode full")
     try:
         replace = replace_table_names(args.replace_tables) if args.replace_tables else set()
         selected = select_elements(args.elements, ELEMENTS[args.mode])
         check_replace_elements(replace, selected)
+        root_keys = None if args.root_keys is None else root_key_names(args.root_keys, selected)
     except ValueError as e:
         raise SystemExit(str(e))
     require_same_place(args.repo, args.catalog)
@@ -975,7 +1011,7 @@ def run() -> None:
         "images/morphology_3d": lambda: write_morphology_3d(writer, bundle, pixel_size, concurrency=n),
         "images/he_image": lambda: write_he(writer, he_image, he_alignment, pixel_size, concurrency=n),
         "root": lambda: write_root(writer, prepared.root if full else build_root(
-            bundle, sample, layouts, experiment, "fixture", missing=MISSING_FROM_FIXTURE, fixture=FIXTURE)),
+            bundle, sample, layouts, experiment, "fixture", missing=MISSING_FROM_FIXTURE, fixture=FIXTURE), root_keys),
     }
     qc_selected = [e for e in selected if e.startswith(QC_PREFIX)]
     for element in selected:

@@ -5,8 +5,9 @@ from __future__ import annotations
 import calendar
 import csv
 import io
+import json
 import math
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 from minus80.ome.spatialdata import container_attrs
 from sources import Sample
@@ -27,22 +28,26 @@ PAGE_LABELS = {
     "atera-breast": {"anatomical_entity": "Breast", "disease_state": "Breast cancer"},
 }
 
+#: The keys of :func:`root_attrs` without a fixture, in order.
+ROOT_KEYS = ("spatialdata_attrs", "title", "description", "source", "documentation", "license", "citation", "reading",
+             "sample", "panel", "run", "metrics", "missing")
+
 SAMPLE_KEYS = ("sample_type", "region_name", "slide_name", "slide_id", "slide_type")
 PANEL_KEYS = ("panel_config", "panel_wta", "total_num_targets")
 
-#: One sentence for each kind of element: what it holds and its source in the 10x bundle.
+#: One sentence for each kind of element: what it holds and its source object or bundle member.
 KIND_SENTENCES = {
-    "images/morphology": "images/morphology holds the four morphology stains of the morphology_2d OME-TIFF files.",
+    "images/morphology": "images/morphology holds the four morphology stain channels of the morphology_2d OME-TIFF files.",
     "images/morphology_3d": "images/morphology_3d holds the DAPI z-stack of the morphology_3d OME-TIFF file.",
-    "images/he_image": "images/he_image holds the H&E image of the OME-TIFF beside the bundle, aligned by its CSV.",
+    "images/he_image": "images/he_image holds the H&E OME-TIFF beside the bundle, placed by the alignment CSV beside it.",
     "images/qc": "Each images/qc_<name> holds one QC raster of the analysis summary HTML.",
     "labels": "The labels group holds the nucleus and cell masks of cells.zarr.zip.",
     "shapes": (
-        "The shapes group holds the nucleus and cell polygons of cells.zarr.zip as Iceberg tables "
+        "The shapes group holds the nucleus and cell polygons of cells.zarr.zip: pinned Iceberg tables "
         "and uint8 Parquet copies."
     ),
     "points/transcripts": (
-        "points/transcripts holds the transcripts of transcripts.zarr.zip as an Iceberg table and uint8 Parquet copies."
+        "points/transcripts holds the transcripts of transcripts.zarr.zip: a pinned Iceberg table and uint8 Parquet copies."
     ),
     "tables/table": "tables/table holds the AnnData cell by gene matrix of cell_feature_matrix.zarr.zip.",
     "iceberg_tables": (
@@ -160,6 +165,14 @@ def _value(text: str):
         # JSON has no NaN, so a non-finite value stays as the text the CSV gives.
         return value if math.isfinite(value) else text
     return text
+
+
+def root_changes(present: Mapping, built: Mapping) -> list[str]:
+    """The keys of ``built`` whose JSON value differs from ``present`` or that ``present`` lacks, in the order of ``built``."""
+    def text(value):
+        return json.dumps(value, sort_keys=True)
+
+    return [k for k, v in built.items() if k not in present or text(present[k]) != text(v)]
 
 
 def root_attrs(

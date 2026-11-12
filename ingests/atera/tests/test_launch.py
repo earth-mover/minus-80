@@ -1458,3 +1458,36 @@ def test_the_ingest_step_says_which_elements_it_writes(tmp_path):
     done, calls = _run_script(tmp_path / "all")
     assert ("=== step ingest: start: the full ingest, from the local files, to the branch trial-1; the first write "
             "to Arraylake") in done.stdout
+
+
+ROOT_FLAGS = (*REMOTE_FLAGS, "--promote-after-gates", "--root-keys", "description")
+
+
+def test_root_keys_go_to_the_preflight_and_the_ingest_and_to_nothing_else(tmp_path, capsys):
+    assert launch.main(_ingest_argv(_token_file(tmp_path), "--dry-run", *ROOT_FLAGS)) == 0
+    lines = capsys.readouterr().out.splitlines()
+    flagged = [line for line in lines if "--root-keys description" in line]
+    assert len(flagged) == 2 and all("ingest.py" in line for line in flagged)
+    assert any(line.endswith("--root-keys description --preflight") for line in flagged)
+    with pytest.raises(SystemExit, match="root-keys belongs to --ingest"):
+        launch.main(_argv(_token_file(tmp_path), "--dry-run", "--root-keys", "description"))
+
+
+@pytest.mark.parametrize("flags, message", [
+    (("--root-keys", "description, title"), "--root-keys is names separated by commas"),
+    (("--elements", "root", "--root-keys", "description,colour"), "--root-keys: cannot write the root keys colour"),
+    (("--root-keys", "description"), "--root-keys needs --elements root alone"),
+    (("--elements", "root,images/morphology", "--root-keys", "description"), "--root-keys needs --elements root alone"),
+    (("--remote-bundle", "--gates", "complete", "--no-promote", "--root-keys", "description"),
+     "--remote-bundle needs --elements and --gates")])
+def test_root_keys_that_the_ingest_refuses_are_refused_before_any_launch(tmp_path, monkeypatch, flags, message):
+    monkeypatch.setattr(launch, "CoiledVm", lambda: pytest.fail("a client was built"))
+    with pytest.raises(SystemExit, match=message):
+        launch.main(_ingest_argv(_token_file(tmp_path), *flags))
+
+
+@pytest.mark.parametrize("plan", [{"root_keys": "description"}, {"elements": "labels/nucleus_labels", "root_keys": "title"},
+                                  {**REMOTE_PLAN, "elements": None, "root_keys": "description"}])
+def test_no_script_is_built_for_root_keys_without_the_root_element_alone(plan):
+    with pytest.raises(ValueError, match="needs --elements"):
+        launch.remote_script(_ingest_job(ingest=_plan(**plan)))
