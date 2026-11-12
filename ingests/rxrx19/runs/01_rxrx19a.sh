@@ -8,6 +8,16 @@
 #
 # Needs ARRAYLAKE_TOKEN (the ingest client, granted the repo) and ice-pack on
 # PATH or in ICE_PACK.
+#
+# Ran 2026-11-12 from 00:0x UTC on a laptop, from commit 1bb67cf, into main.
+#   ingest: 2 min 22 s. 57 plates, 689,193 nodes, 1,527,600 references built
+#           in 7.2 s; the embeddings (1.4 GB deflated, 64 MiB ranges from
+#           GCS at 20-27 s each) parsed at about 15,000 rows/s; nodes and
+#           embeddings committed as RZ95RTP7HPTAM0Z5R4VG at 129.5 s; ice-pack
+#           wrote 57 manifests and committed MTX2EWEF078HBAMDP0VG at 141.2 s.
+#   verify: pass in 2 min 30 s. 57 plates' wells match metadata.csv; a plate,
+#           a well and a site validate; 10 sites equal their PNGs. The plate
+#           check took 108 s: each node lookup in this snapshot took about 1 s.
 set -euo pipefail
 ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 if [[ -n $(git -C "$ROOT" status --porcelain -- src ingests/rxrx19 pyproject.toml uv.lock) ]]; then
