@@ -19,8 +19,7 @@ from minus80.core.tables import local_catalog
 from qc import QC_NAMES
 from sources import SAMPLES
 from tests.test_facts import ALIGNMENT_TEXT, Recorder, synthetic  # noqa: F401
-from tests.test_images import ALIGNMENT, MORPHOLOGY_2D, PIXEL, write_bundle
-from tests.test_ingest_tables import TILES
+from tests.test_images import MORPHOLOGY_2D, PIXEL, write_bundle
 from tests.test_replace_tables import _preflight
 from tests.test_verify import Store, full_store  # noqa: F401
 
@@ -78,7 +77,7 @@ def test_a_bundle_equal_to_its_record_has_no_difference(capsys, tmp_path, synthe
     write_record("kidney", pristine, tmp_path)
     assert _check(synthetic, alignment_file, tmp_path / "kidney.json") == 0
     out = capsys.readouterr().out
-    assert "bundle check: 0 differences" in out and _read(out)[0] > 0
+    assert "bundle check: 0 differences" in out.splitlines() and _read(out)[0] > 0
 
 
 def test_a_stain_with_another_file_name_is_a_difference_that_gives_both_names(
@@ -133,7 +132,32 @@ def test_skipping_the_stores_leaves_them_out_of_the_comparison(
     assert "stores" in full
     assert _check(synthetic, alignment_file, record, "--skip-groups", "stores") == 0
     skipped = capsys.readouterr().out
-    assert "stores" not in skipped and "bundle check: 0 differences" in skipped
+    assert "bundle check: 0 differences (not compared: stores)" in skipped.splitlines()
+    assert skipped.count("stores") == 1
+
+
+def test_a_record_that_is_not_json_is_refused_in_one_line(capsys, tmp_path, synthetic, alignment_file):  # noqa: F811
+    (tmp_path / "kidney.json").write_text("not json")
+    err = _refusal(capsys, _check(synthetic, alignment_file, tmp_path / "kidney.json"))
+    assert "kidney.json is not JSON" in err and str(tmp_path) not in err
+
+
+def _unreadable(tmp_path, text):
+    path = tmp_path / "outs.zip"
+    if text is not None:
+        path.write_text(text)
+    return path
+
+
+@pytest.mark.parametrize("text", [None, "not a zip"], ids=["an absent path", "a text file"])
+def test_a_bundle_that_does_not_open_has_its_own_exit_code_and_one_line_with_the_error_type(
+        capsys, tmp_path, synthetic, alignment_file, pristine, text):  # noqa: F811
+    write_record("kidney", pristine, tmp_path)
+    code = _check(synthetic, alignment_file, tmp_path / "kidney.json", bundle=_unreadable(tmp_path, text))
+    captured = capsys.readouterr()
+    assert code == 3 and captured.out == ""
+    assert len(captured.err.splitlines()) == 1 and "Traceback" not in captured.err
+    assert re.fullmatch(r"the bundle does not open \(\w+\)\n", captured.err) and str(tmp_path) not in captured.err
 
 
 def _bytes_read(synthetic, pristine, skip):  # noqa: F811
@@ -197,12 +221,10 @@ def _unknown_label(members):
 def test_prepare_gives_each_fact_that_a_later_step_reads(tmp_path, capsys):
     store = _inputs(tmp_path, "inputs")
     prepared = _prepare(store)
-    assert "bundle check: 0 differences" in capsys.readouterr().out
-    assert prepared.experiment["pixel_size"] == prepared.pixel_size == PIXEL
+    assert "bundle check: 0 differences (not compared: stores)" in capsys.readouterr().out.splitlines()
+    assert prepared.experiment["pixel_size"] == PIXEL
     assert prepared.methods == ["a", "b", "c", "d", "e"]
-    assert prepared.tile_plan == [("0,0", 0), ("1,0", 5), ("-1,0", 5)] and list(TILES) == [t for t, _ in prepared.tile_plan]
     assert set(prepared.qc) == set(QC_NAMES)
-    assert prepared.alignment.tolist() == ALIGNMENT.tolist()
     assert prepared.root["title"] == SAMPLES["kidney"].title and prepared.root["missing"] == MISSING_FROM_FULL
     assert "fixture" not in prepared.root
 
@@ -230,7 +252,7 @@ def test_prepare_compares_every_group_except_the_stores(tmp_path):
     inputs = _inputs(tmp_path, "inputs")
     record = _record_of(inputs)
     record["stores"][CELLS]["arrays"]["masks/0"]["shape"] = [1, 1]
-    assert _prepare(inputs, record).pixel_size == PIXEL
+    assert _prepare(inputs, record).experiment["pixel_size"] == PIXEL
     record["cells"]["count"] = 99
     with pytest.raises(ValueError, match=r"cells\.count: record 99, bundle 3"):
         _prepare(inputs, record)
@@ -244,23 +266,27 @@ def test_prepare_refuses_a_qc_label_that_the_ingest_does_not_know_when_the_recor
         _prepare(odd, record)
 
 
-def test_prepare_refuses_an_experiment_key_that_the_root_attributes_need_when_the_record_agrees(tmp_path):
+@pytest.mark.parametrize("key", ["instrument_sw_version", "pixel_size"])
+def test_prepare_refuses_an_experiment_key_that_the_ingest_needs_when_the_record_agrees(tmp_path, key):
     def drop(members):
         experiment = json.loads(members["experiment.spatial"])
-        del experiment["instrument_sw_version"]
+        del experiment[key]
         members["experiment.spatial"] = json.dumps(experiment).encode()
 
     broken = _inputs(tmp_path, "broken", drop)
-    with pytest.raises(ValueError, match="instrument_sw_version"):
+    with pytest.raises(ValueError, match=f"experiment.spatial has no key '{key}', which the ingest needs"):
         _prepare(broken, _facts(broken.bundle, broken.he))
 
 
 def _state(store):
-    """The tables' metadata files, and the snapshot of each branch of the repo."""
+    """The tables' metadata files, the snapshot of each branch, and each file of the repo and the catalog."""
     catalog = local_catalog(store.catalog)
     tables = {str(t): catalog.load_table(t).metadata_location for t in catalog.list_tables("ns")}
     repo = open_repository(store.repo)
-    return tables, {branch: repo.lookup_branch(branch) for branch in sorted(repo.list_branches())}
+    branches = {branch: repo.lookup_branch(branch) for branch in sorted(repo.list_branches())}
+    files = sorted(str(p.relative_to(store.directory)) for d in (store.repo, store.catalog) for p in d.rglob("*")
+                   if p.is_file())
+    return tables, branches, files
 
 
 def _ingest(monkeypatch, work, inputs, *args):

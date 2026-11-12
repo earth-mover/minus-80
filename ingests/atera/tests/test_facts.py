@@ -208,6 +208,12 @@ def test_load_record_refuses_another_sample_and_an_absent_file(tmp_path):
         load_record("colorectal", tmp_path)
 
 
+def test_load_record_refuses_a_file_that_is_not_json_with_its_base_name(tmp_path):
+    (tmp_path / "brain.json").write_text("{not json")
+    with pytest.raises(ValueError, match=r"^brain\.json is not JSON$"):
+        load_record("brain", tmp_path)
+
+
 def test_the_records_directory_is_beside_the_module():
     assert facts.RECORDS == facts.Path(facts.__file__).with_name("samples")
 

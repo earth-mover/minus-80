@@ -5,7 +5,7 @@
 
 By default the bundle, the H&E image and the alignment are the sample's objects, read by range request.
 A group in ``--skip-groups`` is neither read nor compared. The exit code is 0 for no difference,
-1 for a difference, and 2 for a record that cannot serve as a reference.
+1 for a difference, 2 for a record that cannot serve as a reference, and 3 for a bundle that does not open.
 """
 
 from __future__ import annotations
@@ -25,6 +25,11 @@ from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 def differences(record: dict, found: dict, skip: Collection[str] = ()) -> list[str]:
     """The lines where ``found`` differs from ``record``, with the groups in ``skip`` left out of both."""
     return compare({k: v for k, v in record.items() if k not in skip}, {k: v for k, v in found.items() if k not in skip})
+
+
+def summary(count: int, skip: Collection[str] = ()) -> str:
+    """The line that ends a check: the count of differences, and the groups in ``skip``."""
+    return f"bundle check: {count} differences" + (f" (not compared: {', '.join(skip)})" if skip else "")
 
 
 def check(
@@ -72,13 +77,17 @@ def main(argv: list[str] | None = None) -> int:
     # 10x's bucket is public, and a signed request without credentials fails.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     sample = SAMPLES[args.sample]
-    bundle, open_he, alignment_text, counters, _ = open_sources(
-        args.bundle or sample.url(BUNDLE, S3), args.he_image or sample.url(HE_IMAGE, S3),
-        args.he_alignment or sample.url(HE_ALIGNMENT, S3), args.max_bytes)
+    try:
+        bundle, open_he, alignment_text, counters, _ = open_sources(
+            args.bundle or sample.url(BUNDLE, S3), args.he_image or sample.url(HE_IMAGE, S3),
+            args.he_alignment or sample.url(HE_ALIGNMENT, S3), args.max_bytes)
+    except Exception as error:  # The text of a storage error can hold a location.
+        print(f"the bundle does not open ({type(error).__name__})", file=sys.stderr)
+        return 3
     lines = check(bundle, open_he, alignment_text, args.sample, record=record, skip=skip)
     for line in lines:
         print(line)
-    print(f"bundle check: {len(lines)} differences")
+    print(summary(len(lines), skip))
     each = ", ".join(f"{label} {c.bytes} bytes in {c.requests} requests" for label, c in counters.items())
     print(f"read {sum(c.bytes for c in counters.values())} bytes in {sum(c.requests for c in counters.values())} requests ({each})")
     return 1 if lines else 0

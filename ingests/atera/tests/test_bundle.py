@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from bundle import Bundle
+from bundle import Bundle, open_bundle
 from sources import S3, SAMPLES
 
 
@@ -37,8 +37,6 @@ def test_bundle_opens_members_locally_and_remotely(tmp_path, range_server):
 
 
 def test_open_bundle_counts_the_bytes_it_reads(tmp_path):
-    from ingest import open_bundle
-
     path = tmp_path / "outs.zip"
     path.write_bytes(_outs_zip())
     bundle, counter = open_bundle(str(path))

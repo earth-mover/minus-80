@@ -36,7 +36,7 @@ from facts import bundle_facts, write_record
 from tests.test_images import ALIGNMENT, PIXEL, _rgb_pyramid, image_members, write_bundle
 from tests.test_ingest_tables import TILES, _Bundle, _hold, _matrix_zip, _transcripts_run, _transcripts_zip
 from tests.test_qc import DENSITY, _bag, _html, _resource
-from bundle import CELLS, MATRIX, Bundle
+from bundle import CELLS, MATRIX, Bundle, open_bundle
 from ingest import (
     ICEBERG_TABLES, MISSING_FROM_FULL, catalog_org, table_attr, table_specs, write_extra_tables,
     write_labels,
@@ -560,7 +560,7 @@ class Store:
         return local_catalog(self.catalog)
 
     def bundle_zip(self, name):
-        return ingest.open_bundle(str(self.bundle))[0].member_zip(name)
+        return open_bundle(str(self.bundle))[0].member_zip(name)
 
     def edit(self, change) -> None:
         """Commit ``change(root)`` on the branch."""
@@ -719,7 +719,7 @@ def test_element_tables_of_a_full_store_name_every_missing_element(tmp_path):
 def test_images_fail_on_a_missing_element_in_full_mode_and_skip_it_in_fixture_mode(full_store, tmp_path, path):
     copy = full_store.copy(tmp_path)
     copy.edit(lambda root: root.__delitem__(path))
-    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    bundle = open_bundle(str(copy.bundle))[0]
     assert gate_images(copy.root(), bundle, str(copy.he), full=True) == [f"{path}: missing"]
     assert gate_images(copy.root(), bundle, str(copy.he)) == []
 
@@ -727,7 +727,7 @@ def test_images_fail_on_a_missing_element_in_full_mode_and_skip_it_in_fixture_mo
 def test_qc_fails_on_a_missing_element_in_full_mode_and_skips_it_in_fixture_mode(full_store, tmp_path):
     copy = full_store.copy(tmp_path)
     copy.edit(lambda root: root["images"].__delitem__("qc_mean_q_score"))
-    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    bundle = open_bundle(str(copy.bundle))[0]
     assert gate_qc(copy.root(), bundle, full=True) == ["images/qc_mean_q_score: missing"]
     assert gate_qc(copy.root(), bundle) == []
 
@@ -735,7 +735,7 @@ def test_qc_fails_on_a_missing_element_in_full_mode_and_skips_it_in_fixture_mode
 def test_images_in_full_mode_fail_a_level_that_the_group_lacks_though_it_lists_the_source_levels(full_store, tmp_path):
     copy = full_store.copy(tmp_path)
     copy.edit(lambda root: root["images/he_image"].__delitem__("s1"))
-    bundle = ingest.open_bundle(str(copy.bundle))[0]
+    bundle = open_bundle(str(copy.bundle))[0]
     errors = gate_images(copy.root(), bundle, str(copy.he), full=True)
     assert errors == ["images/he_image: marked complete, holds levels [0, 2] of 3"]
 

@@ -41,7 +41,7 @@ from bundle import (
     CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, TRANSCRIPTS, Bundle, he_readers, open_bundle, open_tiff,
     read_alignment,
 )
-from check_bundle import differences
+from check_bundle import differences, summary
 from facts import bundle_facts, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
@@ -354,24 +354,21 @@ def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
                  lambda held: raster_attrs(level_ome(f"qc_{raster.name}", axes, [shape], held, omero), transform))
 
 
-def write_qc(
-    writer: ElementWriter, bundle: Bundle, names: Sequence[str] | None = None, rasters: dict[str, QcRaster] | None = None,
-) -> None:
-    """Write the QC rasters ``names`` of the analysis summary, all by default; skip a raster that the branch holds.
+def write_qc(writer: ElementWriter, rasters: dict[str, QcRaster], names: Sequence[str] | None = None) -> None:
+    """Write the QC rasters ``names`` of ``rasters``, all by default; skip a raster that the branch holds.
 
-    ``rasters`` are the decoded rasters of the report; without them the report is decoded here.
+    ``rasters`` are the decoded rasters of the analysis summary.
     """
     if names is not None:
-        # The report is read only when a raster is missing from the branch.
+        # A raster that the branch holds needs no entry in ``rasters``.
         names = [n for n in names if not skip_held(writer, f"images/qc_{n}")]
         if not names:
             return
-    found = rasters or bundle_rasters(bundle)
-    for name in names or found:
-        if name not in found:
-            raise ValueError(f"the analysis summary has no QC raster {name}; it has {', '.join(found)}")
+    for name in names or rasters:
+        if name not in rasters:
+            raise ValueError(f"the analysis summary has no QC raster {name}; it has {', '.join(rasters)}")
         if not skip_held(writer, f"images/qc_{name}"):
-            write_qc_raster(writer, found[name])
+            write_qc_raster(writer, rasters[name])
 
 
 def table_properties(sample, layouts: str, repo: str, *, element: bool = True, **extra) -> dict[str, str]:
@@ -571,17 +568,13 @@ class Prepared:
     """The facts of a bundle that the steps of the full mode need, all read before the first write."""
 
     experiment: dict
-    pixel_size: float
     root: dict
     methods: list[str]
-    #: Each transcript tile with its first ``instance``, in the source's order.
-    tile_plan: list[tuple[str, int]]
     qc: dict[str, QcRaster]
-    #: The matrix that maps H&E pixels to morphology pixels.
-    alignment: np.ndarray
 
 
-#: The groups that the ingest's check leaves out: the ingest reads the Zarr stores themselves right after.
+#: The ingest reads the stores at their steps, and the ``members`` group pins the size of each store member.
+#: ``check_bundle.py`` compares the ``stores`` group before the download.
 INGEST_SKIPS = ("stores",)
 
 
@@ -596,19 +589,18 @@ def prepare(
     found = bundle_facts(bundle, open_he, alignment_text, INGEST_SKIPS, decoded)
     if lines := differences(record, found, INGEST_SKIPS):
         raise ValueError("\n".join(lines))
-    print("bundle check: 0 differences", flush=True)
-    # The members that the steps open must resolve to one file each.
+    print(summary(0, INGEST_SKIPS), flush=True)
+    # Each member pattern that a step opens must match its count of files.
     bundle.morphology_2d(), bundle.morphology_3d(), bundle.metrics(), bundle.report()
     experiment = bundle.experiment()
     try:
-        pixel_size = experiment["pixel_size"]
+        # The image and label steps read this key.
+        experiment["pixel_size"]
         root = build_root(bundle, sample, layouts, experiment, missing=MISSING_FROM_FULL)
     except KeyError as error:
         raise ValueError(f"experiment.spatial has no key {error.args[0]!r}, which the ingest needs") from None
-    return Prepared(
-        experiment=experiment, pixel_size=pixel_size, root=root, methods=found["polygons"]["method_names"],
-        tile_plan=tile_order(found["transcripts"]), qc=decoded or bundle_rasters(bundle), alignment=np.array(found["alignment"]),
-    )
+    return Prepared(experiment=experiment, root=root, methods=found["polygons"]["method_names"],
+                    qc=decoded or bundle_rasters(bundle))
 
 
 def check_bundle_size(bundle: Bundle, sample, layouts: str) -> None:
@@ -987,10 +979,9 @@ def run() -> None:
     qc_selected = [e for e in selected if e.startswith(QC_PREFIX)]
     for element in selected:
         if element in qc_selected:
-            # One call for all selected rasters, so the report is read once.
+            # The first QC element writes all the selected rasters.
             if element == qc_selected[0]:
-                write_qc(writer, bundle, [e.removeprefix(QC_PREFIX) for e in qc_selected],
-                         prepared.qc if full else None)
+                write_qc(writer, prepared.qc, [e.removeprefix(QC_PREFIX) for e in qc_selected])
             continue
         steps[element]()
     print(f"bundle: {counter.bytes / MIB:,.1f} MiB read in {time.monotonic() - started:,.1f} s")

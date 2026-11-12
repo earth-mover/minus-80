@@ -612,18 +612,11 @@ def test_the_flag_with_a_held_element_and_a_changed_schema_is_refused_with_the_e
         bytes = 0
         wrap = None
 
-    cells = cells_zip(tmp_path, attrs={"segmentation_methods": METHODS})
-
     class StubBundle:
-        def experiment(self):
-            return {"pixel_size": 1.0}
-
-        def member_zip(self, name):
-            return cells
+        pass
 
     def stub_prepare(*args, **kwargs):
-        return ingest.Prepared(experiment={"pixel_size": 1.0}, pixel_size=1.0, root={}, methods=METHODS, tile_plan=[],
-                               qc={}, alignment=None)
+        return ingest.Prepared(experiment={"pixel_size": 1.0}, root={}, methods=METHODS, qc={})
 
     import sys as _sys
     from unittest import mock

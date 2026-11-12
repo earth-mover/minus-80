@@ -32,8 +32,8 @@ from minus80.core.tables import row_group_bounds
 from minus80.core.zarr_copy import copy_chunks, create_copy
 from zarr.storage import LoggingStore
 
-from bundle import CELLS, TRANSCRIPTS, open_tiff
-from ingest import MASKS, member_bytes, open_bundle
+from bundle import CELLS, TRANSCRIPTS, open_bundle, open_tiff
+from ingest import MASKS, member_bytes
 from sources import BUNDLE, HE_IMAGE, S3, SAMPLES
 from tables_extra import codewords_table
 from transcripts import TRANSCRIPT_SCHEMA, write_tile

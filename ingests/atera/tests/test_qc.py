@@ -157,7 +157,7 @@ def _apply(transform, point):
 
 
 def test_write_qc_stores_each_raster_as_one_chunk_with_its_grid(qc_bundle, writer):  # noqa: F811
-    write_qc(writer, qc_bundle)
+    write_qc(writer, qc.bundle_rasters(qc_bundle))
     root = _root(writer)
     assert sorted(root["images"].group_keys()) == ["qc_mean_q_score", "qc_mean_q_score_80um", "qc_transcript_density"]
     for name, expected, label in (("transcript_density", DENSITY, "Transcript Density Map"),
@@ -184,7 +184,7 @@ def test_write_qc_stores_each_raster_as_one_chunk_with_its_grid(qc_bundle, write
 
 def test_write_qc_refuses_a_raster_the_report_lacks(qc_bundle, writer):  # noqa: F811
     with pytest.raises(ValueError, match="negative_control_probes"):
-        write_qc(writer, qc_bundle, ["negative_control_probes"])
+        write_qc(writer, qc.bundle_rasters(qc_bundle), ["negative_control_probes"])
     assert not writer.has("images/qc_negative_control_probes")
 
 
@@ -195,7 +195,7 @@ def test_a_float_raster_with_a_nan_has_a_finite_window_and_stores_the_nan(qc_bun
     bag["_resources"]["density_plot_mean_q_score"] = _resource(quality)
     with zipfile.ZipFile(tmp_path / "nan.zip", "w") as zf:
         zf.writestr("analysis_summary_nan.html", _html(bag))
-    write_qc(writer, Bundle(tmp_path / "nan.zip"), ["mean_q_score"])
+    write_qc(writer, qc.bundle_rasters(Bundle(tmp_path / "nan.zip")), ["mean_q_score"])
     group = _root(writer)["images/qc_mean_q_score"]
     np.testing.assert_array_equal(group["s0"][0], quality)
     window = group.attrs["ome"]["omero"]["channels"][0]["window"]
@@ -206,14 +206,14 @@ def test_a_float_raster_with_a_nan_has_a_finite_window_and_stores_the_nan(qc_bun
 def test_write_qc_writes_the_rasters_it_is_given_without_decoding_the_report(monkeypatch, qc_bundle, writer):  # noqa: F811
     decoded = qc.bundle_rasters(qc_bundle)
     monkeypatch.setattr(qc, "rasters", lambda html: pytest.fail("the report was decoded"))
-    write_qc(writer, qc_bundle, rasters=decoded)
+    write_qc(writer, decoded)
     assert all(writer.has(f"images/qc_{name}") for name in decoded)
 
 
 def test_a_rerun_of_write_qc_skips_held_elements(qc_bundle, writer, capsys):  # noqa: F811
-    write_qc(writer, qc_bundle)
+    write_qc(writer, qc.bundle_rasters(qc_bundle))
     capsys.readouterr()
-    write_qc(writer, qc_bundle)
+    write_qc(writer, qc.bundle_rasters(qc_bundle))
     out = capsys.readouterr().out
     assert out.count("already, skipped") == 3 and "commit" not in out
 
@@ -262,7 +262,7 @@ def test_full_mode_writes_the_qc_rasters_and_does_not_list_them_as_missing(monke
 
 @pytest.fixture
 def qc_store(qc_bundle, writer):  # noqa: F811
-    write_qc(writer, qc_bundle)
+    write_qc(writer, qc.bundle_rasters(qc_bundle))
     return writer.repo
 
 
@@ -411,7 +411,7 @@ def test_write_qc_stores_a_uint32_raster_untruncated_and_the_gate_passes(writer,
     with zipfile.ZipFile(tmp_path / "big.zip", "w") as zf:
         zf.writestr("analysis_summary_big.html", _html(bag))
     big = Bundle(tmp_path / "big.zip")
-    write_qc(writer, big, ["transcript_density"])
+    write_qc(writer, qc.bundle_rasters(big), ["transcript_density"])
     root = _root(writer)
     stored = root["images/qc_transcript_density/s0"]
     assert stored.dtype == np.uint32

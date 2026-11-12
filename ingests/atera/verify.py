@@ -44,12 +44,12 @@ from pyiceberg.schema import index_by_name
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from bundle import CELLS, MATRIX, TRANSCRIPTS, he_readers, open_tiff
+from bundle import CELLS, MATRIX, TRANSCRIPTS, he_readers, open_bundle, open_tiff
 from check_bundle import check
 from facts import load_record
 from ingest import (
-    CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS, MASKS,
-    MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, open_bundle, require_same_place,
+    CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INGEST_SKIPS, INSTANCE_KEY, LAYOUTS,
+    MASKS, MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters
 from root_attrs import source_objects
@@ -890,7 +890,7 @@ def main() -> None:
                                              counter.wrap, counter.wrap)
         gates = {
             "bundle": lambda: check(bundle, open_he, alignment_text, args.sample,
-                                    record=load_record(args.sample, path=args.record), skip=("stores",)),
+                                    record=load_record(args.sample, path=args.record), skip=INGEST_SKIPS),
             "complete": lambda: gate_complete(root), **gates,
             "source": lambda: gate_source(root, sample, LAYOUTS.read_text()),
         }

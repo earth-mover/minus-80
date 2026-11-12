@@ -369,14 +369,19 @@ def compare(record: dict, found: dict, path: str = "") -> list[str]:
 
 
 def load_record(sample_name: str, directory: Path = RECORDS, *, path: Path | None = None) -> dict:
-    """The facts on record for ``sample_name``, without the ``sample`` key. ``path`` names the file, else ``directory`` does.
+    """The facts on record for ``sample_name``, without the ``sample`` key.
+
+    The record is the file ``path``. Without ``path``, it is the file of the sample in ``directory``.
 
     A record with an error entry cannot serve as a reference. ``ValueError`` gives the path of each entry.
     """
     path = path or directory / f"{sample_name}.json"
     if not path.is_file():
         raise ValueError(f"no record of {sample_name}: {path} is absent")
-    record = json.loads(path.read_text())
+    try:
+        record = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        raise ValueError(f"{path.name} is not JSON") from None
     if record.get("sample") != sample_name:
         raise ValueError(f"{path.name} holds the record of sample {record.get('sample')!r}, not {sample_name!r}")
     del record["sample"]
