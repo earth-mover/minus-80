@@ -450,7 +450,7 @@ uv run --package atera-ingest python ingests/atera/ingest.py --sample kidney \
   --repo <scratch>/full/repo --catalog <scratch>/full/catalog --namespace ns --mode full --branch main \
   --bundle <scratch>/data/outs.zip --he-image <scratch>/data/he.ome.tif --he-alignment <scratch>/data/al.csv \
   --concurrency 2
-uv run --package atera-ingest python ingests/atera/verify.py --mode full \
+uv run --package atera-ingest python ingests/atera/verify.py --sample kidney --mode full \
   --repo <scratch>/full/repo --catalog <scratch>/full/catalog \
   --bundle <scratch>/data/outs.zip --he-image <scratch>/data/he.ome.tif \
   --gates complete,images,qc,labels,matrix,tables,polygons,table_region,copies,attrs,extra_tables,field_ids,table_index,source
@@ -555,7 +555,7 @@ The fixture ingest ran on a laptop outside us-west-2. Items (e) and (f) ran on a
   bucket only under a Virtual Chunk Access Policy. Only an org admin can add the policy.
   The policy must cover the repo's virtual chunk container.
   The container must sit at or under the policy's location.
-  Without the policy, Arraylake refuses to open the repo at all, with HTTP 400:
+  Without the policy, Arraylake refuses to open the repo. The refusal is HTTP 400. Its message reads:
   `Virtual chunk container prefix '<the managed bucket>' is not covered by any
   Virtual Chunk Access Policy on org 'earthmover-biology'.`
   The repo's container is the namespace's storage location.
@@ -657,8 +657,11 @@ The fixture ingest ran on a laptop outside us-west-2. Items (e) and (f) ran on a
     It read 965.4 MiB (1,012,334,592 bytes) in 2,979 requests.
     The Parquet file is 2,230,658,968 bytes (2.08 GiB).
     Its row count equals the source's count for the tile. Its `instance` footer range is 0 to 90,630,654.
-  - Concurrency 32 against concurrency 1: 8.0 times for the plane (12.982 / 1.615), 17.8 times for the mask (33.40 / 1.88),
-    7.2 times for the H&E (8.508 / 1.183), and 1.5 times for the stack (0.436 / 0.294).
+  - Concurrency 32 against concurrency 1 gives these ratios of the rate:
+    - the plane: 8.0 times (12.982 / 1.615);
+    - the mask: 17.8 times (33.40 / 1.88);
+    - the H&E: 7.2 times (8.508 / 1.183);
+    - the stack: 1.5 times (0.436 / 0.294).
   - The stack decodes its planes in one thread. Its rate does not rise above concurrency 8.
   - The machine family differs from (e): `m7g.xlarge` here, `m7i.xlarge`, x86, in (e). The same region.
     This record computes no ratio between the two families.

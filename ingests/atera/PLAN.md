@@ -102,12 +102,12 @@ reader finds them in the same place in every repo of the org:
 |---|---|
 | `title` | the dataset's title as the 10x dataset page gives it |
 | `description` | what the store holds and how it is laid out |
-| `source` | the four objects: URL, size, ETag and last-modified date of each |
+| `source` | the five objects, the analysis summary included: URL, size, ETag and last-modified date of each |
 | `documentation` | three URLs: the dataset page, the Atera Onboard Analysis output documentation, and the software documentation |
 | `license` | `"Creative Commons Attribution 4.0 International (CC BY 4.0)"` and its URL |
 | `citation` | `text`: the rendered citation in 10x's format, as `LAYOUTS.md` gives it; `dataset_title`; `product`: `"Atera In Situ"`; `software`: `"10x Genomics Atera Onboard Analysis v1.0.4"`, the version as the page states it; `software_version_full`: `analysis_sw_version`, such as `atera-1.0.4.1`; `instrument_software`: `instrument_sw_version`; `publisher`: `"10x Genomics"`; `published`: the dataset page's date; `url`: the dataset page; `doi`: `null`, with a note that 10x lists none |
 | `reading` | which readers open which elements, and what the shim is for |
-| `sample`, `run`, `panel`, `metrics` | `experiment.spatial` and `metrics_summary.csv`, typed |
+| `sample`, `run`, `panel`, `metrics` | `experiment.spatial` and the metrics member, typed. The kidney's member is `metrics_summary_RnD_S2_S2B_kidney_ND.csv`. The ingest finds the one member whose name starts with `metrics_summary_`. |
 | `missing` | what the store leaves out, and why |
 
 Every Iceberg table carries the same `license`, `citation` and `source` in
@@ -332,7 +332,11 @@ A refused write names the exact flag. The flag with a held element and another s
 Without it, the ingest stops before any write on a held table that differs.
 It also stops on a held `transcripts` tile that fails its checks, and the message lists every fault.
 A write to a table that holds a file of other content raises. So no stop mixes the rows of two writes.
-The flag needs the element of each named table in the run. A schema change with no row write is refused.
+The flag needs the element of each named table in the run.
+The ingest refuses the flag for a table whose element is not in the run.
+The schema change runs at the start of the run, before that table's rows.
+A stop between the two leaves the changed schema with the earlier rows at the current snapshot.
+A rerun with the flag replaces the rows. A rerun with no flag stops.
 `ingest.py --mode full --preflight` checks the arguments, the repo, the catalog and each table. It needs no bundle and writes nothing.
 Both tables keep their names, their namespace and their UUIDs.
 The fixture's `nucleus_boundaries` has a `method` column and several rows for one cell.
@@ -530,15 +534,18 @@ Each step needs approval before it writes to a shared resource.
    namespace `atera-kidney-tables`. Write level 6 of `images/morphology`, the
    two masks' lowest pyramid level, one transcript tile as a table and a
    `uint8` copy, the nucleus polygons as a table and a copy, and the whole
-   AnnData table, `X` included. Then: open it with the virtual_omics shim, in that
-   project's `spatial` environment, and with stock SpatialData 0.8; send its
-   coordinates to the zax-spatialdata project for its Iceberg source and
-   tests; check the R2 virtual references; check `add_files` on the
-   catalog; compare the stored tiles with tifffile's decode. Pass criteria: the
-   shim opens every element; stock SpatialData opens the images, the labels
-   and the table, and reports the points and shapes as absent, which is the
-   expected limit. Approval needed: creating one repo and one namespace in
-   `earthmover-biology`.
+   AnnData table, `X` included. Then run these checks:
+   - Open it with the virtual_omics shim, in that project's `spatial` environment.
+   - Open it with stock SpatialData 0.8.
+   - Send its coordinates to the zax-spatialdata project for its Iceberg source and tests.
+   - Check the R2 virtual references.
+   - Check `add_files` on the catalog.
+   - Compare the stored tiles with tifffile's decode.
+
+   Pass criteria: the shim opens every element. Stock SpatialData opens the
+   images, the labels and the table. It reports the points and shapes as
+   absent. That is the expected limit. Approval needed: creating one repo and
+   one namespace in `earthmover-biology`.
 
    The ingest itself writes with zarr, icechunk, pyarrow and pyiceberg
    through `minus80`, and never imports spatialdata. It builds the
@@ -609,18 +616,29 @@ Each step needs approval before it writes to a shared resource.
      `plane` at concurrency 1 and the transcript tile.
    - Transcript tile `3,1`, 90,630,655 rows, to a local Parquet file:
      165.2 s, 548,733 rows/s, 72.7 s of CPU. The file is 2,230,658,968 bytes.
-   - Not measured by this step: the download to the VM's disk; reads from a local file;
-     the upload of Parquet files and the table commits; the polygon tables;
-     the matrix copy; the QC rasters; `verify.py --mode full`; levels above
-     0; the checksum of a `uint8` copy on R2. A staged create of a
-     partitioned table works on the Arraylake catalog. An empty probe table
-     got its partition spec in one metadata commit on 2026-11-11, then the
-     probe was dropped.
-   - The full kidney run measured the items above, except the checksum of a `uint8` copy: the download (991 s),
-     local reads, the upload and the table commits (inside the 1,749.3 s of
-     the transcripts step), the polygon tables (16.0 s and 14.8 s), the
-     matrix copy (905.3 s), the QC rasters, levels above 0 and
-     `verify.py --mode full` (2,246 s). REPORT.md gives the counts.
+   - This step did not measure these items:
+     - the download to the VM's disk;
+     - reads from a local file;
+     - the upload of Parquet files and the table commits;
+     - the polygon tables;
+     - the matrix copy;
+     - the QC rasters;
+     - `verify.py --mode full`;
+     - levels above 0;
+     - the checksum of a `uint8` copy on R2.
+   - A staged create of a partitioned table works on the Arraylake catalog.
+     An empty probe table got its partition spec in one metadata commit on
+     2026-11-11. Then the probe was dropped.
+   - The full kidney run measured each of these items, except the checksum of a `uint8` copy:
+     - the download (991 s);
+     - local reads;
+     - the upload and the table commits, inside the 1,749.3 s of the transcripts step;
+     - the polygon tables (16.0 s and 14.8 s);
+     - the matrix copy (905.3 s);
+     - the QC rasters;
+     - levels above 0;
+     - `verify.py --mode full` (2,246 s).
+   - REPORT.md gives the counts.
 
    Estimate for one kidney sample at concurrency 32. It comes from the rates,
    not from a run. Levels above 0 add about one third, so it uses the
@@ -746,9 +764,9 @@ Each item gives the problem, the fix and the check.
    - Result: `write_tile` on tile `3,1`, 90,630,655 rows, peaked at 1,299 MiB
      of 16 GiB on an `m7g.xlarge`. `LAYOUTS.md`, item (f), has the run.
 4. **The commit unit and the resume key.**
-   - Problem: `Writer.element` commits once per element.
+   - Problem: `ElementWriter.unit` commits once per element.
      `images/morphology` and `images/morphology_3d` take hours each. A
-     failure loses the whole element. `holds()` tests only that the
+     failure loses the whole element. `ElementWriter.has` tests only that the
      element's group exists. So with partial commits, a rerun skips
      unfinished levels.
    - Fix: commit per level or per plane. Write a completion attribute last,
@@ -761,11 +779,13 @@ Each item gives the problem, the fix and the check.
      into `minus80`. A Xenium ingest needs these parts of `ingest.py` and
      `bundle.py`.
    - Fix: move `Tables`, with its FileIO writer and `local_catalog`, into
-     `minus80`. Also move the Zarr v2 read helper `read_v2_array`, `Writer`
+     `minus80`. Also move the Zarr v2 read helper `minus80.core.zarr_copy.read_array`, `ElementWriter`
      and the read counter `ReadCounter`. Replace the hand-written v2 decoder with
      zarr's own reader if zarr can read a zip member.
    - Check: the moved tests pass under `tests/`, and the ingest imports the
      code from `minus80`.
+   - Result: `TableWriter`, `ElementWriter`, `ReadCounter` with `counting_reader`,
+     and `read_array` are in `minus80.core`.
 6. **The OME version of the raster elements.**
    - Problem: the image and label elements declare `ome.version`
      `0.5-dev-spatialdata`. SpatialData requires that string. `AGENTS.md`
@@ -814,12 +834,12 @@ Each item gives the problem, the fix and the check.
       that stays open.
     - `minus80.core.zarr_copy`: the refusals and their tests.
     - `minus80.core.pyramid`: `write_page` skips a missing tile silently;
-      `_check_shape` checks only `y` and `x`; no test checks a planar page.
+      `_check_shape` checks only `y` and `x`. A core test and an ingest test check a planar page.
     - `minus80.ome.spatialdata`: checks on the input of a transform.
     - `minus80.core.tables`: partial references after a failed write, and
       `require_table` on a table with no snapshot.
     - The ingest's tests: the conftest, and a close on `Bundle`.
-    - `bundle.py` and `polygons.py`: tests of `read_v2_array`, and the loop
+    - `bundle.py` and `polygons.py`: tests of `read_array`, and the loop
       over polygons.
     - `ingest.py` and `verify.py`: `ReadCounter`, the lambdas, and repeated
       checks.
@@ -836,6 +856,9 @@ Each item gives the problem, the fix and the check.
     - `gate_copies` reads each file and array whole. Hash them in blocks.
     - `verify.chunk_members` does not handle the `/` chunk separator that
       `zarr_copy` handles.
+    - Result: `gate_copies` hashes in blocks, and `verify.chunk_members` handles the `/` separator.
+      `--repo` and `--catalog` use the one `arraylake://<org>` form.
+      `check_bundle_size` selects the bundle's row by its `_outs.zip` name.
 12. **The dry run of the full mode.**
     - Problem: the full mode needs a check on a complete store before the
       cloud run.
@@ -868,3 +891,36 @@ Each item gives the problem, the fix and the check.
     - Fact: `level_scale` gives each level a scale that sets its pixel size.
       It gives no translation.
     - The owner checks this call.
+
+## Before the next sample
+
+Open work, as present facts.
+
+- **Morphology members.** The ingest finds the morphology members by fixed
+  names (`bundle.py`). Another sample with other stain names stops at the
+  image step, after the tables. The names must be resolved by pattern and
+  checked when the bundle opens.
+- **Root attributes.** The ingest builds the root attributes in its last step.
+  A bundle with other metric or `experiment.spatial` keys stops there, after
+  every image. The attributes must be built when the bundle opens.
+- **Transforms.** No gate checks an element's transform: the image and label
+  scales, the stack's z step, the H&E affine against the alignment CSV. A
+  `transforms` gate is not written.
+- **Branch.** The full ingest writes branch `main` before the verification.
+  `docs/ingest.md` asks for a branch first for a new source. The launcher
+  accepts a branch `trial-<name>`. The owner decides for each sample.
+- **Facts of the other samples.** The other samples use analysis version 1.1.1.
+  Confirm these facts from each bundle before a write: the member names, the
+  planar H&E with 9 levels, 15 planes in the stack, 32 transcript tiles, the
+  QC labels, the metric keys.
+- **Approvals.** Each sample needs its repo, its namespace, its access policy,
+  the Coiled spend and the storage. The owner approves each one.
+- **The 3D stack.** The stack decodes its planes in one thread. It took
+  3,257.4 s of the kidney ingest's 6,829 s.
+- **The root attribute `description`.** It does not mention
+  `images/morphology_3d`, `images/he_image`, the QC rasters or
+  `iceberg_tables`. A change needs one more commit on `main` of a written
+  sample.
+- **Verification against the ingest's code.** `verify.py` checks three things
+  against the ingest's own code: the chunk-key mapping, the copied arrays'
+  metadata, the QC rasters' decode.

@@ -93,7 +93,7 @@ Read each table at the snapshot that its element pins. The table's current snaps
 
 ## Verification
 
-`verify.py --mode full` read snapshot `KB0DWEXDHY8GSRE29GQG` and the local files, on the VM that wrote the store.
+`verify.py --sample kidney --mode full` read snapshot `KB0DWEXDHY8GSRE29GQG` and the local files, on the VM that wrote the store.
 All 16 gates passed in 2,246 s. The run read 1,619.2 MiB of the bundle in 7,761 requests.
 
 | Gate | Result | Counts |
@@ -110,8 +110,8 @@ All 16 gates passed in 2,246 s. The run read 1,619.2 MiB of the bundle in 7,761 
 | `table_region` | PASS | the table's instances equal those of `cell_boundaries` |
 | `copies` | PASS | `transcripts` 30 arrays and 30 registered files, each shapes table 1 and 1; 132 blocks of 8 MiB |
 | `attrs` | PASS | 3 `iceberg_table` attributes |
-| `extra_tables` | PASS | `codewords` 53,385 rows, `diffexp_azimuth` 18,045, `diffexp_graphclust` 18,045, each as the source |
-| `field_ids` | PASS | `transcripts` 30 files, 17 fields; each shapes table 1 file, 11 fields; `codewords` 12 fields, `diffexp_azimuth` 146, `diffexp_graphclust` 86 |
+| `extra_tables` | PASS | `codewords` 53,385 rows, `diffexp_azimuth` 18,045, `diffexp_graphclust` 18,045, each as the source; field ids: `codewords` 12 fields, `diffexp_azimuth` 146, `diffexp_graphclust` 86 |
+| `field_ids` | PASS | `transcripts` 30 files, 17 fields; each shapes table 1 file, 11 fields |
 | `table_index` | PASS | `obs` 399,120 rows, 18 columns, index `barcode`; `var` 24,674 rows, 385 columns, index `feature_id` |
 | `source` | PASS | five source objects: size and ETag from a HEAD request equal the record |
 
@@ -144,6 +144,8 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - The `copies` gate hashes at most five blocks of each data file. It does not find a change in another block.
 - Booth and the Arraylake web app are not checked.
 - The overview scan is not in the store. No gate covers it.
+- No gate checks an element's transform.
+- Three checks use the ingest's own code as the reference: the chunk-key mapping, the copied arrays' metadata, the QC rasters' decode.
 
 ## Changes from the plan
 
@@ -156,7 +158,7 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 | The ingest reads the bundle from 10x's bucket by range request. | The VM downloaded the three objects to its disk once. The ingest read local files. |
 | The first measurement ran on an `m7i.xlarge`. | The full run used an `m7g.xlarge`, 4 vCPU and 16 GiB, with `--concurrency 32`. |
 | The QC rasters are `uint16` or `float32`. | All six rasters of the kidney are `uint16`, the quality maps included. |
-| The transcripts store has 28 tiles. | The kidney has 30 tiles. Tiles `-1,0` and `5,-1` hold 1 and 20 rows. |
+| The plan's first count for the kidney was 28 tiles. | The kidney has 30 tiles. Tiles `-1,0` and `5,-1` hold 1 and 20 rows. |
 | One chunk length for the columns of a transcript tile. | The columns have different chunk rows. The ingest slices a tile in whole chunks of its widest column. |
 | The 3D stack: one plane at a time. | The ingest decodes one tile from every plane and writes its shard once. |
 
@@ -229,7 +231,7 @@ The store keeps the alignment matrix as published and places the H&E by it.
 | Row | Section | Effect on this ingest |
 |---|---|---|
 | pyiceberg maps `uint32` to a signed `int` | pyiceberg | The ingest declares each `uint32` column as `int64`. |
-| pyiceberg `add_files` leaves files without field ids | pyiceberg | `write_parquet` writes the field ids. The `field_ids` gate passes on all six tables. |
+| pyiceberg `add_files` leaves files without field ids | pyiceberg | `write_parquet` writes the field ids. The `field_ids` gate passes on the three element tables. The `extra_tables` gate checks the field ids of the three other tables. |
 | SpatialData cannot open a store with no filesystem path | SpatialData | The store keeps the `uint8` copies. A read needs [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107). |
 | A regular chunk grid cannot hold a short last chunk | zarr | `declare_copy` writes a rectilinear grid. A reader needs `array.rectilinear_chunks`. |
 | `ZipStore` cannot use an open `zipfile.ZipFile` | zarr | `read_array` reads a Zarr v2 array from the open zip. |
