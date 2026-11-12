@@ -124,6 +124,10 @@ Some fields are blank in the source, and the store keeps them as `null`:
 The source does not say what a blank condition means. The store does not
 guess.
 
+`SMILES` holds ChemAxon extended SMILES (CXSMILES): 1,554 of RxRx19a's
+1,670 distinct values end in a `|c:…|` extension, which plain SMILES parsers
+reject. The store names the well annotation `cxsmiles`, value unchanged.
+
 ## embeddings.csv
 
 One row per site: `site_id`, then `feature_0` … `feature_1023` in RxRx19a and
@@ -153,6 +157,23 @@ do, as of commit `19883e707d` (October 2024):
 - **Stains.** `rxrx19a/README.md` maps the channels: `w1` Hoechst 33342
   (nucleus), `w2` Concanavalin A (membrane glycoproteins), `w3` Phalloidin
   (actin), `w4` Syto14 (RNA), `w5` Wheat germ agglutinin (Golgi). The store
-  labels RxRx19a's channels with them. `rxrx19b/README.md` maps none; its
+  labels RxRx19a's channels `DNA`, `ER`, `Actin`, `RNA` and `Golgi`, the Cell
+  Painting protocol's short names for what each stain marks, as the JUMP Cell
+  Painting data labels them, so that an app can pick a channel by a fixed key.
+  The README calls Concanavalin A's target "membrane glycoproteins"; Cell
+  Painting names that channel ER, and the store follows Cell Painting. The
+  README's stain names are in the dataset group's `channels`. `rxrx19b/README.md` maps none; its
   dataset page lists the same five stains plus MitoTracker, but nothing says
   which file is which, so the store labels RxRx19b's channels `w1` … `w6`.
+
+## Display windows
+
+The PNGs are 8-bit, and every stain uses a small part of the range: over a
+plate's Mock wells, the 99.9th percentile of the Hoechst channel is between 25
+and 90 of 255. A viewer that opened each channel at 0–255 would show the
+nuclei nearly black. Each site's omero window is its plate's, per channel:
+from the 0.1th to the 99.9th percentile of the pixels of 8 sites of the
+plate's Mock wells (uninfected, untreated), the baseline every other well is
+compared with. Every RxRx19a plate has 40 Mock wells. These 2,280 PNGs are
+the only pixels the ingest decodes. Computing the windows takes about a minute
+from a laptop, and the result is cached beside the central directories.

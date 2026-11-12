@@ -39,11 +39,14 @@ records what the bucket holds and the source's errors.
 | 2 | One repo, the datasets as top-level groups | Proposed |
 | 3 | Packed manifests, one per plate, written by ice-pack | Proposed |
 | 4 | Well names read as row letter and column number, against the README | Proposed |
-| 5 | RxRx19a's pixel size is 1.30 µm, twice the README's 0.65 | Proposed |
+| 5 | RxRx19a's pixel size is 1.30 µm, twice the README's 0.65 | Proposed; the paper's methods are not yet checked |
 | 6 | RxRx19b's channels are named `w1` … `w6` | Proposed |
 | 7 | Embeddings as a Zarr array, not a table | Decided |
 | 8 | One resolution level, no overview levels | Proposed |
 | 9 | Sites keep the source's numbers, 1 to 4 | Proposed |
+| 10 | RxRx19a's channels labeled DNA, ER, Actin, RNA, Golgi | Proposed |
+| 11 | Display windows per plate, from its Mock wells | Proposed |
+| 12 | The `SMILES` column stored as the annotation `cxsmiles` | Proposed |
 
 The repo `earthmover-biology/RxRx19` exists, with a virtual chunk container
 for `gs://rxrx/` backed by an anonymous bucket config, `rxrx`, and a public
@@ -242,6 +245,26 @@ them later as their own commit if plate views turn out to matter.
 
 **9. Site names.** Sites keep the source's numbers, 1 to 4, as in the Cell
 Painting Gallery ingest, rather than renumbering from 0.
+
+**10. Channel labels.** Labeled with the README's stain names, the channels
+can only be told apart by string matching, so an app cannot assign colors
+reliably. The labels are the Cell Painting protocol's short names, as in the
+JUMP data: `DNA`, `ER`, `Actin`, `RNA`, `Golgi`. The stain names stay in the
+dataset group's `channels`. The README calls Concanavalin A's target membrane
+glycoproteins; the label follows Cell Painting's name for its channel, ER.
+
+**11. Display windows.** With windows spanning all of uint8, a viewer shows the
+nucleus channel nearly black. Each plate's windows are the 0.1th to 99.9th
+percentiles of 8 of its Mock wells' sites, per channel, from 2,280 decoded
+PNGs in all (`LAYOUTS.md`, "Display windows"). Per plate rather than per
+dataset because the plates differ: the DNA channel's 99.9th percentile runs
+from 25 to 90 across RxRx19a's 57 plates. Mock wells because they are the
+controls that every other well is compared with.
+
+**12. CXSMILES.** Most values of `metadata.csv`'s `SMILES` column carry a
+CXSMILES `|…|` extension that plain SMILES parsers reject. The annotation is
+named `cxsmiles`, its value unchanged, rather than stripping the extension
+into a second field.
 
 ## Steps, scope and risk
 

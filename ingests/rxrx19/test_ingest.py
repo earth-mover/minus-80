@@ -44,6 +44,8 @@ def check_store(store, truth):
     blank = rows["HRCE-1_1_B03_1"]
     well = store[layout.well_path("rxrx19a", "HRCE-1", 1, "B03")].attrs.asdict()
     assert well["annotations"]["treatment"] is None and blank["treatment"] == ""
+    treated = store[layout.well_path("rxrx19a", "HRCE-1", 1, "AA02")].attrs["annotations"]
+    assert treated["cxsmiles"] == rows["HRCE-1_1_AA02_1"]["SMILES"] and "SMILES" not in treated
     assert [i["path"] for i in well["ome"]["well"]["images"]] == ["1", "2", "3", "4"]
     plate = store[layout.plate_path("rxrx19a", "HRCE-1", 1)].attrs.asdict()["ome"]["plate"]
     assert len(plate["rows"]) == 32 and len(plate["columns"]) == 48
@@ -57,6 +59,21 @@ def check_store(store, truth):
     site = store[layout.site_path("rxrx19a", "VERO-1", 1, "AB05", 3)]
     assert site.attrs["annotations"]["site_id"] == "VERO-1_1_AB05_3"
     assert site.attrs["ome"]["multiscales"][0]["name"] == "VERO-1_1_AB05_3"
+    check_windows(store, truth)
+
+
+def check_windows(store, truth):
+    """Every site's windows are its plate's, the percentiles of its Mock well's pixels, labeled DNA … Golgi."""
+    for (experiment, plate), wells in fixture.PLATES.items():
+        (mock,) = fixture.MOCK.intersection(wells)
+        for well in wells:
+            channels = store[layout.site_path("rxrx19a", experiment, plate, well, 1)].attrs["ome"]["omero"]["channels"]
+            assert [c["label"] for c in channels] == ["DNA", "ER", "Actin", "RNA", "Golgi"]
+            for channel, stored in enumerate(channels, 1):
+                pixels = np.concatenate([truth["pixels"][f"RxRx19a/images/{experiment}/Plate{plate}/{mock}_s{site}_w{channel}.png"].ravel()
+                                         for site in range(1, fixture.SITES + 1)])
+                start, end = np.percentile(pixels, layout.WINDOW_PERCENTILES)
+                assert (stored["window"]["start"], stored["window"]["end"]) == (int(start), int(np.ceil(end)))
 
 
 def test_ingest_references_every_png_and_copies_the_embeddings(tmp_path, bucket):
@@ -97,11 +114,15 @@ def test_verify_passes_on_the_written_store(tmp_path, bucket, capsys):
     assert code == 0, capsys.readouterr().out
 
 
-def test_attributes_only_rewrites_the_dataset_group(tmp_path, bucket):
-    root, _ = bucket
+def test_attributes_only_rewrites_every_group_and_keeps_the_references(tmp_path, bucket):
+    root, truth = bucket
     written(tmp_path, bucket)
+    repo = open_repository(tmp_path / "repo")
+    session = repo.writable_session("main")
+    zarr.open_group(session.store, path=layout.site_path("rxrx19a", "HRCE-1", 1, "B02", 1), mode="r+").attrs["ome"] = {}
+    session.commit("damage a site's attributes")
     snapshot = ingest.run(str(tmp_path / "repo"), "rxrx19a", attributes_only=True,
                           source_root=root.as_uri(), cache=tmp_path / "cache")
     store = zarr.open_group(open_repository(tmp_path / "repo").readonly_session("main").store, mode="r")
-    assert store["rxrx19a"].attrs["license"]["id"] == "CC-BY-4.0"
-    assert "rxrx19a/HRCE-1/Plate1" in store and snapshot
+    assert snapshot == open_repository(tmp_path / "repo").lookup_branch("main")
+    check_store(store, truth)

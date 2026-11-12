@@ -22,12 +22,14 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import io
+import json
 import os
 import subprocess
 import time
 import zlib
 from pathlib import Path
 
+import imagecodecs
 import numpy as np
 import pyarrow as pa
 import pyarrow.csv
@@ -40,7 +42,7 @@ from layout import DATASETS, Dataset
 from minus80.core.fetch import cache_dir
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, create_repo
 from minus80.core.nodes import array_document, group_document, write_nodes
-from minus80.parsers.zip.reading import stream_members
+from minus80.parsers.zip.reading import read_members, stream_members
 from minus80.parsers.zip.streaming import spans_in_file_order
 from source import Survey, license_and_readmes, rebased, survey
 
@@ -64,33 +66,79 @@ def plates_to_write(s: Survey, chosen: str | None) -> list[tuple[str, int]]:
     return wanted
 
 
+# The display windows
+#
+# A viewer opens each channel at its omero window, and a window spanning all of
+# uint8 shows a dim stain nearly black: on an HRCE field, 99.9% of the Hoechst
+# pixels are below 38. So each plate's windows come from its own Mock wells,
+# uninfected and untreated, the baseline every other well is compared with
+# (layout.WINDOW_SITES, layout.WINDOW_PERCENTILES). These are the only pixels
+# the ingest decodes, 40 PNGs a plate, and the windows are kept beside the
+# central directories, so a rerun decodes none.
+
+
+def display_windows(s: Survey, plates: list[tuple[str, int]], cache: Path | None) -> dict[tuple[str, int], list]:
+    """Each plate's display window per channel, as ``[start, end]``, from a sample of its Mock wells' sites."""
+    low, high = layout.WINDOW_PERCENTILES
+    path = (cache or Path(cache_dir()) / "rxrx19") / f"{s.dataset.key}-windows-{layout.WINDOW_SITES}-{low}-{high}.json"
+    known = json.loads(path.read_text()) if path.exists() else {}
+    missing = [(e, p) for e, p in plates if f"{e}/{p}" not in known]
+    started = reported = time.monotonic()
+    for done, (experiment, plate) in enumerate(missing, 1):
+        mock = s.metadata[(s.metadata.experiment == experiment) & (s.metadata.plate == plate)
+                          & (s.metadata.disease_condition == "Mock")]
+        if mock.empty:
+            raise ValueError(f"{experiment} Plate{plate} has no Mock wells to set its display windows from")
+        site_ids = sorted(mock.site_id)
+        chosen = site_ids[:: max(1, len(site_ids) // layout.WINDOW_SITES)][: layout.WINDOW_SITES]
+        pngs = s.pngs[s.pngs.site_id.isin(chosen)]
+        data = read_members(layout.readable(s.dataset.images), list(pngs["name"]), s.directory)
+        windows = []
+        for channel in sorted(pngs.channel.unique()):
+            pixels = np.concatenate([imagecodecs.png_decode(data[name]).ravel()
+                                     for name in pngs[pngs.channel == channel]["name"]])
+            start, end = np.percentile(pixels, [low, high])
+            windows.append([int(start), max(int(np.ceil(end)), int(start) + 1)])
+        known[f"{experiment}/{plate}"] = windows
+        if time.monotonic() - reported > 10 or done == len(missing):
+            reported = time.monotonic()
+            rate = done / (reported - started)
+            print(f"  windows: {done} of {len(missing)} plates, {rate:.1f} plates/s, "
+                  f"{(len(missing) - done) / rate:.0f} s left", flush=True)
+    if missing:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(known, indent=1))
+    return {(e, p): known[f"{e}/{p}"] for e, p in plates}
+
+
 # The groups and arrays
 #
 # Each plate is an HCS plate: a group per row, a group per well carrying the
 # well's metadata.csv fields, and a group per site holding one (c, y, x) array
 # whose chunks are the site's PNGs. Every site's array has the same zarr.json,
-# and every site's group the same document but for its name, so each is
-# encoded once per dataset (minus80.core.nodes explains why not
+# and every site's group in a plate the same document but for its name, so the
+# array is encoded once per dataset and the site once per plate (minus80.core.nodes explains why not
 # zarr.create_hierarchy). The nodes are written as bytes into the session.
 
 #: Stands in for a site's id in the encoded site document; site ids are letters, digits, '-' and '_'.
 SITE = "@@SITE@@"
 
 
-def node_documents(s: Survey, plates: list[tuple[str, int]], texts: dict) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
+def node_documents(s: Survey, plates: list[tuple[str, int]], texts: dict,
+                   windows: dict[tuple[str, int], list]) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
     """Every node of ``plates``, as ``{path: zarr.json}``, and each site's array path with its site id."""
     height, width = s.png_header["height"], s.png_header["width"]
     if height != width:
         raise ValueError(f"{s.dataset.key}: PNGs are {height} × {width}; the layout expects square images")
     d = dataclasses.replace(s.dataset, side=width)
     channels = int(s.pngs.channel.max())
-    site_template = group_document(layout.site_document(d, SITE, channels)).decode()
     array = array_document(shape=(channels, height, width), chunks=(1, height, width), dtype="uint8",
                            serializer=Png(), compressors=None, fill_value=0, dimension_names=("c", "y", "x"))
     documents = dataset_documents(d, texts)
     arrays = []
     for experiment, plate in plates:
         rows = s.metadata[(s.metadata.experiment == experiment) & (s.metadata.plate == plate)].to_dict("records")
+        site_template = group_document(layout.site_document(d, SITE, channels, windows[(experiment, plate)])).decode()
         documents[f"{d.key}/{experiment}"] = group_document(layout.experiment_document(rows[0]["cell_type"]))
         plate_path = layout.plate_path(d.key, experiment, plate)
         documents[plate_path] = group_document(
@@ -261,7 +309,7 @@ def main() -> None:
     parser.add_argument("--source-root", help="read the zips from this copy of gs://rxrx/ (the tests' fixture)")
     parser.add_argument("--cache", type=Path, help="where to keep the central directories (default: the minus80 cache)")
     parser.add_argument("--attributes-only", action="store_true",
-                        help="rewrite only the root and dataset groups' attributes, in their own commit")
+                        help="rewrite every group's attributes, leaving arrays and references, in their own commit")
     args = parser.parse_args()
 
     run(args.repo, args.dataset, plates=args.plates, branch=args.branch, embeddings=args.embeddings,
@@ -278,19 +326,20 @@ def run(repo_location: str, dataset: str, *, plates: str | None = None, branch: 
     started = time.monotonic()
     s = survey(d, cache)
     texts = license_and_readmes(s)
+    plates = plates_to_write(s, plates)
+    windows = display_windows(s, plates, cache)
+    documents, arrays = node_documents(s, plates, texts, windows)
     if attributes_only:
+        # Array documents stay as they are: rewriting them buys nothing and risks the chunk references.
+        array_paths = {path for path, _ in arrays}
+        groups = {path: document for path, document in documents.items() if path not in array_paths}
         repo = open_repo(repo_location, d)
         session = repo.writable_session(branch)
-        write_nodes(session.store, dataset_documents(d, texts))
-        if not session.has_uncommitted_changes:
-            print(f"{d.key}: the attributes on {branch} are already current", flush=True)
-            return repo.lookup_branch(branch)
-        snapshot = session.commit(f"{d.key}: the license, both READMEs, the citation and the store's choices, "
-                                  f"on the root and the {d.key} group")
-        print(f"committed {snapshot} ({time.monotonic() - started:.1f} s)", flush=True)
+        write_nodes(session.store, groups)
+        snapshot = session.commit(f"{d.key}: every group's attributes, for {len(plates)} plates")
+        print(f"{d.key}: {len(groups):,} groups rewritten; committed {snapshot} "
+              f"({time.monotonic() - started:.1f} s)", flush=True)
         return snapshot
-    plates = plates_to_write(s, plates)
-    documents, arrays = node_documents(s, plates, texts)
     references = reference_table(s, arrays)
     print(f"{d.key}: {len(plates)} plates, {len(arrays):,} sites, {len(documents):,} nodes, "
           f"{references.num_rows:,} references ({time.monotonic() - started:.1f} s)", flush=True)

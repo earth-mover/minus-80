@@ -11,7 +11,7 @@ Everything the ingest relies on is reproduced at a smaller size:
 - the dataset README in the zip, and a stand-in for its README in
   recursionpharma/rxrx-datasets at ``rxrx-datasets/rxrx19a/README.md``;
 - a metadata zip with ``RxRx19a/metadata.csv``, one row per site, including a
-  blank treatment and a blank condition;
+  blank treatment, a blank condition and a Mock well on every plate;
 - an embeddings zip with a deflated ``RxRx19a/embeddings.csv`` whose rows are
   not in metadata.csv's order.
 
@@ -42,6 +42,8 @@ PLATES = {
     ("VERO-1", 1): ["C10", "AB05"],
 }
 CELL_TYPE = {"HRCE-1": "HRCE", "VERO-1": "VERO"}
+#: One Mock well per plate, untreated as in the real data: each plate's display windows come from these.
+MOCK = {"B02", "AE47", "AB05"}
 
 #: A Unix timestamp field (UT, 9 bytes) and a Unix ids field (ux, 11 bytes): 28 bytes with their headers.
 EXTRA = struct.pack("<HHBII", 0x5455, 9, 3, 1588000000, 1588000000) + struct.pack("<HHBBIBI", 0x7875, 11, 1, 4, 1001, 4, 1002)
@@ -72,11 +74,11 @@ def build(root: Path) -> dict:
             for well in wells:
                 for site in range(1, SITES + 1):
                     site_id = f"{experiment}_{plate}_{well}_{site}"
-                    blank = site_id == "HRCE-1_1_B03_1" or well == "C10"
+                    blank = site_id == "HRCE-1_1_B03_1" or well == "C10" or well in MOCK
                     rows.append({
                         "site_id": site_id, "well_id": f"{experiment}_{plate}_{well}", "cell_type": CELL_TYPE[experiment],
                         "experiment": experiment, "plate": plate, "well": well, "site": site,
-                        "disease_condition": "" if well == "C10" else "Active SARS-CoV-2",
+                        "disease_condition": "" if well == "C10" else "Mock" if well in MOCK else "Active SARS-CoV-2",
                         "treatment": "" if blank else "Remdesivir (GS-5734)",
                         "treatment_conc": "" if blank else 0.3,
                         "SMILES": "" if blank else "CCC(CC)COC(=O)C(C)NP(=O)(OCC1C(C(C(O1)(C#N)C2=CC=C3N2N=CN=C3N)O)O)OC4=CC=CC=C4",

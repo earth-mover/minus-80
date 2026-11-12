@@ -47,7 +47,7 @@ class Dataset:
     citation: str
     doi: str
     pixel_size: float
-    stains: tuple[str, ...] | None
+    stains: tuple[tuple[str, str], ...] | None
     readme: str
 
 
@@ -67,7 +67,11 @@ def readable(url: str) -> str:
 #: 2048-pixel originals, so its pixel is taken as 1.30 µm; its README does not say which
 #: images the 0.65 describes, and RxRx1's README gives the same 0.65 for 512-pixel images.
 #: RxRx19a's README maps w1–w5 to stains; RxRx19b's README maps none, so its channels are
-#: named w1–w6.
+#: named w1–w6. Each RxRx19a channel's label is the Cell Painting protocol's short name for
+#: the compartment its stain marks (Bray et al. 2016, doi 10.1038/nprot.2016.105), as the
+#: JUMP Cell Painting data labels them, so an app can pick a channel by a stable key; the
+#: README's stain names stay in the dataset's ``channels``. The README describes
+#: Concanavalin A as marking "membrane glycoproteins"; Cell Painting names its channel ER.
 README_COMMIT = "19883e707da71da330b97e0a912e20290f87c67e"
 README_URL = "https://github.com/recursionpharma/rxrx-datasets/blob/{commit}/{folder}/README.md"
 README_RAW = "https://raw.githubusercontent.com/recursionpharma/rxrx-datasets/{commit}/{folder}/README.md"
@@ -86,11 +90,11 @@ DATASETS = {
         doi="10.1101/2020.04.21.054387",
         pixel_size=1.30,
         stains=(
-            "Hoechst 33342 (nucleus)",
-            "Concanavalin A (membrane glycoproteins)",
-            "Phalloidin (actin)",
-            "Syto14 (RNA)",
-            "Wheat germ agglutinin (Golgi)",
+            ("DNA", "Hoechst 33342 (nucleus)"),
+            ("ER", "Concanavalin A (membrane glycoproteins)"),
+            ("Actin", "Phalloidin (actin)"),
+            ("RNA", "Syto14 (RNA)"),
+            ("Golgi", "Wheat germ agglutinin (Golgi)"),
         ),
         readme=README_RAW.format(commit=README_COMMIT, folder="rxrx19a"),
     ),
@@ -122,6 +126,17 @@ ROWS, COLUMNS = plate_grid(1536)
 
 #: The fields of ``metadata.csv`` that are the same for every site of a well.
 WELL_FIELDS = ("well_id", "cell_type", "disease_condition", "treatment", "treatment_conc", "SMILES")
+
+#: A well annotation's name where it is not the CSV column's. The column ``SMILES``
+#: holds ChemAxon extended SMILES: 1,554 of RxRx19a's 1,670 values end in a ``|c:…|``
+#: extension that a plain SMILES parser rejects, so the annotation says which it is.
+ANNOTATION_NAMES = {"SMILES": "cxsmiles"}
+
+#: Each plate's display windows come from this many of its Mock wells' sites, spread
+#: evenly over them in site-id order, and run between these percentiles of each
+#: channel's pixels.
+WINDOW_SITES = 8
+WINDOW_PERCENTILES = (0.1, 99.9)
 
 #: Each member's local header carries a 28-byte extra field (a Unix timestamp and
 #: Unix ids), so its data starts 30 + name + 28 bytes after the header. The
@@ -185,7 +200,7 @@ def dataset_document(dataset: Dataset, texts: dict) -> dict:
     folder = dataset.csv.split("/")[0].lower()
     page = f"https://www.rxrx.ai/{folder}"
     channels = (
-        [{"file": f"w{i + 1}", "stain": stain} for i, stain in enumerate(dataset.stains)]
+        [{"file": f"w{i + 1}", "label": label, "stain": stain} for i, (label, stain) in enumerate(dataset.stains)]
         if dataset.stains
         else "w1 … w6, as named in the file paths; no source maps them to stains"
     )
@@ -213,6 +228,12 @@ def dataset_document(dataset: Dataset, texts: dict) -> dict:
         "readme_in_zip": {"text": texts["readme_in_zip"], "source": f"{dataset.images}, member {dataset.folder}/README.md"},
         "pixel_size": {"value": dataset.pixel_size, "unit": "micrometer", "basis": pixel},
         "channels": channels,
+        "display_windows": f"Each site's omero windows are its plate's: from the {WINDOW_PERCENTILES[0]}th to the "
+                           f"{WINDOW_PERCENTILES[1]}th percentile of each channel over {WINDOW_SITES} sites of the "
+                           "plate's Mock wells (uninfected, untreated), the baseline every other well is compared "
+                           "with",
+        "annotations": {"cxsmiles": "metadata.csv's SMILES column, which holds ChemAxon extended SMILES: most "
+                                    "values end in a |…| extension that plain SMILES parsers reject"},
         "known_errors": [{
             "where": "both READMEs, 'Well location on plate (column AA, row 2)'",
             "store": "AA02 is row AA, column 2: the letters run B–AE (30) and the numbers 02–47 (46), which fit "
@@ -242,24 +263,26 @@ def plate_document(experiment: str, plate: int, wells: list[str], field_count: i
 
 def well_document(sites: list[int], fields: dict) -> dict:
     """The well's sites and its ``metadata.csv`` fields; an empty CSV field becomes ``null``."""
-    annotations = {f: None if fields[f] == "" else fields[f] for f in WELL_FIELDS}
+    annotations = {ANNOTATION_NAMES.get(f, f): None if fields[f] == "" else fields[f] for f in WELL_FIELDS}
     return {**well_attrs([str(s) for s in sites]), "annotations": jsonable(annotations)}
 
 
-def site_document(dataset: Dataset, site_id: str, channels: int) -> dict:
+def site_document(dataset: Dataset, site_id: str, channels: int, windows: list[tuple[int, int]]) -> dict:
     """One site as an OME-Zarr image, with the pixel size and stains from ``README_COMMIT``.
 
-    A channel's label is its stain where the README names one, else its file
-    suffix (``w1`` …).
+    A channel's label is its short name where the README names its stain, else
+    its file suffix (``w1`` …). ``windows`` holds each channel's display window
+    as ``(start, end)``.
     """
-    labels = dataset.stains or tuple(f"w{c + 1}" for c in range(channels))
+    labels = [label for label, _ in dataset.stains] if dataset.stains else [f"w{c + 1}" for c in range(channels)]
     ome = image_attrs(
         name=site_id,
         dims=("c", "y", "x"),
         level_shapes=[(channels, dataset.side, dataset.side)],
         scale={"c": 1.0, "y": dataset.pixel_size, "x": dataset.pixel_size},
         units={"y": "micrometer", "x": "micrometer"},
-        omero=channel_omero([{"label": label} for label in labels], max_value=255),
+        omero=channel_omero([{"label": label, "start": start, "end": end}
+                             for label, (start, end) in zip(labels, windows, strict=True)], max_value=255),
     )
     return {"ome": ome, **image_annotation({"site_id": site_id}, source_url=dataset.images)}
 

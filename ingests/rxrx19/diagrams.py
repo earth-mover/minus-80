@@ -33,6 +33,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv
+from ingest import display_windows
 from layout import DATASETS
 from source import Survey, survey
 
@@ -274,7 +275,8 @@ def store_entries(surveys: list[Survey]) -> list:
     site_row = well_sites[well_sites.site == site].iloc[0]
     plate_doc = layout.plate_document(experiment, plate, list(plate_sites.well), int(plate_sites.site.max()))["ome"]["plate"]
     well_doc = layout.well_document(list(well_sites.site), well_sites.iloc[0].to_dict())
-    site_doc = layout.site_document(a.dataset, site_row.site_id, int(a.pngs.channel.max()))
+    windows = display_windows(a, [(experiment, plate)], None)[(experiment, plate)]
+    site_doc = layout.site_document(a.dataset, site_row.site_id, int(a.pngs.channel.max()), windows)
     multiscale = site_doc["ome"]["multiscales"][0]
     spec = layout.array_spec(a.dataset, int(a.pngs.channel.max()))
     pngs = a.pngs[(a.pngs.experiment == experiment) & (a.pngs.plate == plate) & (a.pngs.well == well) & (a.pngs.site == site)].sort_values("channel")
@@ -354,8 +356,12 @@ def store_entries(surveys: list[Survey]) -> list:
                 Line(f'  datasets: [{{path: "0", scale: [1, {a.dataset.pixel_size}, {a.dataset.pixel_size}]}}]}}],  unit: micrometer',
                      comment=f"README: 0.65 µm per pixel; doubled for the 2048 → 1024 downsampling",
                      status="changed", tag="judgment: 0.65 × 2"),
-                Line(f"  omero: {{channels: [{', '.join(label.split(' (')[0] for label in channels)}]}}",
-                     comment=f"w1–w5, per the rxrx19a README"),
+                Line(f"  omero: {{channels: [{', '.join(channels)}]}}",
+                     comment="w1–w5: the README's stains, by Cell Painting's short names",
+                     status="changed", tag="judgment: Concanavalin A as ER"),
+                Line("  windows: " + ", ".join(f"{s}–{e}" for s, e in windows),
+                     comment=f"0.1–99.9th percentile over {layout.WINDOW_SITES} Mock sites of Plate{plate}",
+                     status="added", tag="from decoded pixels"),
                 Line(comment=f"rxrx19b: scale [1, {b.dataset.pixel_size}, {b.dataset.pixel_size}] µm; channels w1–w6, because its README names no stains",
                      status="changed", tag="rxrx19b stains unknown"),
                 Line(f'annotations: {{site_id: "{site_row.site_id}", source_url: "{a.dataset.images}"}}'),
