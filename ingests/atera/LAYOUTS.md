@@ -157,7 +157,7 @@ So its value count is not on record.
 | Cells store arrays | 2,432 | 2,999 | 2,276 | 2,876 |
 | Cells store listing truncated | no | yes | no | no |
 | Counts store arrays | 419 | 309 | 370 | 405 |
-| Record error entries | none | none | qc.rasters | qc.rasters |
+| Record error entries | none | none | none | none |
 
 The alignment matrix of each sample, as three rows of three numbers:
 
@@ -206,9 +206,11 @@ Each statement below was checked between the four records.
 
 ### The error entries
 
-The colorectal and breast records each hold one error entry, at `qc.rasters`.
-It comes from the reader before it accepted `uint32`.
-A record with an error entry does not serve as a reference until the survey reads that group again.
+The first survey wrote one error entry at `qc.rasters` in the colorectal and breast records.
+The reader of that run did not accept `uint32`.
+A second survey run on 2026-11-12 read both samples again, with the reader of commit `7933960`.
+It read 152.9 MB of colorectal and 169.8 MB of breast, the same bytes as the first run.
+The two records hold no error entry. They differ from the first records in the QC group only.
 
 ## Files
 

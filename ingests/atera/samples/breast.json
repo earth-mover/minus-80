@@ -656,7 +656,90 @@
   "qc": {
     "member": "analysis_summary_RnD_S4_S4C_Breast_Cancer.html",
     "rasters": {
-      "error": "ValueError: cannot decode a raster with the header data:uint32/zip;base64; known: uint16, float32"
+      "genomic_controls": {
+        "bin_size": 20.0,
+        "dtype": "uint16",
+        "label": "Genomic Controls",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          404,
+          753
+        ],
+        "unit": "\u00b5m"
+      },
+      "mean_q_score": {
+        "bin_size": 20.0,
+        "dtype": "uint16",
+        "label": "Mean Q-Score",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          404,
+          753
+        ],
+        "unit": "\u00b5m"
+      },
+      "mean_q_score_80um": {
+        "bin_size": 80.0,
+        "dtype": "uint16",
+        "label": "Mean Q-Score 80 \u00b5m",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          101,
+          189
+        ],
+        "unit": "\u00b5m"
+      },
+      "negative_control_codewords": {
+        "bin_size": 20.0,
+        "dtype": "uint16",
+        "label": "Negative Control Codewords",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          404,
+          753
+        ],
+        "unit": "\u00b5m"
+      },
+      "negative_control_probes": {
+        "bin_size": 20.0,
+        "dtype": "uint16",
+        "label": "Negative Control Probes",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          404,
+          753
+        ],
+        "unit": "\u00b5m"
+      },
+      "transcript_density": {
+        "bin_size": 20.0,
+        "dtype": "uint32",
+        "label": "Transcript Density Map",
+        "origin": [
+          -10.0,
+          -10.0
+        ],
+        "shape": [
+          404,
+          753
+        ],
+        "unit": "\u00b5m"
+      }
     },
     "raw": {
       "bag_keys": [
@@ -802,7 +885,11 @@
           "values": 304212
         },
         "density_plot_transcript_density_map": {
-          "header": "data:uint32/zip;base64"
+          "bytes": 1216848,
+          "header": "data:uint32/zip;base64",
+          "max": 67855.0,
+          "min": 0.0,
+          "values": 304212
         }
       },
       "unit": "\u00b5m"

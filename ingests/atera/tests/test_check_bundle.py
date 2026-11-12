@@ -439,8 +439,15 @@ def test_a_fixture_run_reads_no_record_and_builds_its_root_attributes_when_the_r
 # The preflight
 
 
-def test_a_preflight_reports_a_record_that_load_record_refuses_as_a_problem(tmp_path):
-    problems = _preflight(tmp_path, branch="new", sample="colorectal")
+def _refused_record(directory, pristine, name):
+    """A record of ``name`` whose QC rasters group is an error entry, as a survey writes on a failed group."""
+    write_record(name, {**pristine, "qc": {**pristine["qc"], "rasters": {"error": "ValueError: no decode"}}}, directory)
+    return directory / f"{name}.json"
+
+
+def test_a_preflight_reports_a_record_that_load_record_refuses_as_a_problem(tmp_path, tmp_path_factory, pristine):
+    record = _refused_record(tmp_path_factory.mktemp("records"), pristine, "colorectal")
+    problems = _preflight(tmp_path, branch="new", sample="colorectal", record=record)
     assert len(problems) == 1 and "colorectal" in problems[0] and "qc.rasters" in problems[0]
     assert list(tmp_path.iterdir()) == []
 
@@ -459,8 +466,10 @@ def _preflight_cli(monkeypatch, tmp_path, *args):
     return exit.value.code
 
 
-def test_the_preflight_of_the_command_line_fails_for_a_sample_whose_record_is_refused(monkeypatch, capsys, tmp_path):
-    assert _preflight_cli(monkeypatch, tmp_path, "--sample", "breast") == 1
+def test_the_preflight_of_the_command_line_fails_for_a_sample_whose_record_is_refused(
+        monkeypatch, capsys, tmp_path, pristine):
+    record = _refused_record(tmp_path, pristine, "breast")
+    assert _preflight_cli(monkeypatch, tmp_path, "--sample", "breast", "--record", str(record)) == 1
     out = capsys.readouterr().out
     assert re.search(r"^PROBLEM: .*qc\.rasters", out, re.MULTILINE) and "preflight: 1 problem" in out
 

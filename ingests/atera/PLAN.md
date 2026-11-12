@@ -900,13 +900,6 @@ Each item gives the problem, the fix and the check.
 
 Open work, as present facts. Stage three closed the other items. The result line of each work item gives the code.
 
-- **The QC group of colorectal and breast.** Their records hold an error entry at `qc.rasters`.
-  The survey's reader stopped at the `uint32` header of the density map.
-  The reader accepts `uint32` from commit `7933960`.
-  `load_record` refuses a record with an error entry. So the bundle check of each sample exits with code 2.
-  A second survey run of the two samples must read that group again.
-  `survey.py` has no option for one group, so the run reads each whole record again.
-  The run needs the owner's approval.
 - **The transcript tables of colorectal and breast.** The kidney's tile `3,1` measured 24.6 bytes of Parquet per row.
   At that rate, the tables come to about 95 GB and 112 GB. The brain's comes to about 40 GB.
   No run measured the bytes per row of a 1.1.1 bundle.
@@ -1023,10 +1016,11 @@ Result: the survey ran on 2026-11-12 on one `m7g.xlarge` in us-west-2 and wrote 
 It read 146,999,959, 103,065,174, 152,937,056 and 169,825,963 bytes in 1,852, 1,253, 1,733 and 1,927 requests.
 These are the kidney, brain, colorectal and breast. The kidney's reads total 3.5 times the 42 MB of the plan's estimate.
 Each kidney fact of `LAYOUTS.md` and `REPORT.md` equals the record.
-The colorectal and breast records hold an error entry at `qc.rasters`: the reader did not know `uint32`.
+The first colorectal and breast records held an error entry at `qc.rasters`: the reader did not know `uint32`.
 `LAYOUTS.md` has the table in "The four bundles".
 The code is in commits `abe9142`, `b669703` and `c7033a0`. Commit `39169f5` holds the four records.
-Commit `7933960` lets the QC reader accept `uint32`. The two error entries stay until a second survey run.
+Commit `7933960` lets the QC reader accept `uint32`.
+A second survey run on 2026-11-12 wrote both records again with no error entry. `LAYOUTS.md` gives the reads.
 
 **2. Members by pattern.** The ingest finds the morphology files by `morphology_2d/ch*.ome.tif` and `morphology_3d/ch*.ome.tif`.
 It finds the metrics member and the report by one pattern each. Each pattern must match the expected count, or the open of the bundle fails.
