@@ -609,13 +609,18 @@ Each step needs approval before it writes to a shared resource.
      `plane` at concurrency 1 and the transcript tile.
    - Transcript tile `3,1`, 90,630,655 rows, to a local Parquet file:
      165.2 s, 548,733 rows/s, 72.7 s of CPU. The file is 2,230,658,968 bytes.
-   - Not measured: the download to the VM's disk; reads from a local file;
+   - Not measured by this step: the download to the VM's disk; reads from a local file;
      the upload of Parquet files and the table commits; the polygon tables;
      the matrix copy; the QC rasters; `verify.py --mode full`; levels above
      0; the checksum of a `uint8` copy on R2. A staged create of a
      partitioned table works on the Arraylake catalog. An empty probe table
      got its partition spec in one metadata commit on 2026-11-11, then the
      probe was dropped.
+   - The full kidney run measured the items above, except the checksum of a `uint8` copy: the download (991 s),
+     local reads, the upload and the table commits (inside the 1,749.3 s of
+     the transcripts step), the polygon tables (16.0 s and 14.8 s), the
+     matrix copy (905.3 s), the QC rasters, levels above 0 and
+     `verify.py --mode full` (2,246 s). REPORT.md gives the counts.
 
    Estimate for one kidney sample at concurrency 32. It comes from the rates,
    not from a run. Levels above 0 add about one third, so it uses the
@@ -653,6 +658,8 @@ Each step needs approval before it writes to a shared resource.
    count against the source arrays, and the shim and zax reads. Write
    `REPORT.md`. Approval needed: the Coiled spend and about 100 GB of R2
    storage.
+   - Result: the kidney run passed all 16 gates. The steps took 13, 14, 991,
+     377, 6,829 and 2,246 s. REPORT.md gives the counts.
 5. **Brain, colorectal, breast,** each as step 4, smallest first.
 6. **Notebook** that opens one store cold, per `AGENTS.md`.
 
@@ -675,6 +682,9 @@ an `m7g.xlarge` in us-west-2. That figure comes from step 2's second
 measurement. It is an estimate from rates. The upload of the Parquet files
 and the table commits add to it. The transcript table write is one pass over
 1 to 5 billion rows. A run that is well past its expected time stops.
+The kidney run measured these. The download took 991 s for 48,518,883,775
+bytes. The ingest took 6,829 s. The transcripts step took 1,749.3 s for
+1,186,813,834 rows, with the upload and the commit.
 
 Risks:
 
@@ -700,8 +710,9 @@ Risks:
 ## Stage two
 
 Stage two continues on the git branch `atera-ingest-plan`. It does the work
-below, in this order. Then it runs the full kidney ingest to the Arraylake
+below, in this order. Then it ran the full kidney ingest to the Arraylake
 branch `main`. The owner approved that write for the repo `atera-kidney`.
+REPORT.md gives the results.
 Each item gives the problem, the fix and the check.
 
 1. **The table's region.**
@@ -796,6 +807,8 @@ Each item gives the problem, the fix and the check.
    and their UUIDs. Item 13 gives how `--replace-tables` replaces their rows.
    It adds `cell_boundaries` as a new table. The branch `fixture` keeps its
    pinned snapshots. The ingest never overwrites their files.
+   - Result: the run ended on 2026-11-12 with all 16 gates passed.
+     REPORT.md gives the counts and the times.
 10. **Deferred minor items.** These smaller items may wait:
     - `minus80.parsers.zip.nested`: `Window.seek` and its tests, and the zip
       that stays open.
@@ -851,3 +864,7 @@ Each item gives the problem, the fix and the check.
       snapshot returns the earlier rows and columns. The earlier files keep
       their bytes and their times. A stop at each point, then a rerun, ends
       with the table of an unstopped run.
+14. **Levels above 0.**
+    - Fact: `level_scale` gives each level a scale that sets its pixel size.
+      It gives no translation.
+    - The owner checks this call.

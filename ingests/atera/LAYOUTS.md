@@ -173,6 +173,8 @@ A cell with one part is a `Polygon`. A cell with several parts is a `MultiPolygo
 An invalid ring, such as a bow-tie, stays as published.
 `cell_summary` counts the parts of each cell in `nucleus_count`.
 The kidney's `cell_boundaries` set has a polygon for every cell. So the `table_region` gate passes on its cell set.
+The full run found 397 of its 399,120 parts not valid.
+It found 1,180 of the 398,197 parts of the nucleus set not valid.
 The gate stays, because another sample can lack polygons.
 
 `cell_summary` is float64 with shape 399,120 by 8, and one chunk for each column.
@@ -194,6 +196,9 @@ Each `iceberg_table` attribute of the branch pins one snapshot of `nucleus_bound
 The `uint8` copies of the branch reference the data files of those snapshots.
 The full ingest replaces the rows of both tables in place. It deletes no snapshot and no data file.
 So the pins stay valid, and the same gates pass on the branch after the replace.
+The full ingest ran on 2026-11-11 and 2026-11-12.
+The gates `copies`, `attrs`, `field_ids` and `table_index` pass on the branch afterwards.
+Its two pinned snapshots, `5371144533979842643` and `3733681804133973613`, are readable.
 A gate reads a pinned snapshot with the schema of that snapshot, not with the current schema.
 `verify.py --gates` runs the gates that apply.
 A gate that raises prints a FAIL line with the exception, and the run goes on.
@@ -412,6 +417,7 @@ Each long gate prints a progress line every five seconds.
 | `source` | Each source object's size and ETag from a HEAD request equal this file and the root attribute `source`. A local `--bundle` skips the gate. |
 
 The gates read the snapshot that each attribute pins, never the current snapshot.
+The kidney run passed all 16 gates. REPORT.md gives the counts.
 
 ### Reading the fixture with SpatialData
 
@@ -656,11 +662,12 @@ The fixture ingest ran on a laptop outside us-west-2. Items (e) and (f) ran on a
   - The stack decodes its planes in one thread. Its rate does not rise above concurrency 8.
   - The machine family differs from (e): `m7g.xlarge` here, `m7i.xlarge`, x86, in (e). The same region.
     This record computes no ratio between the two families.
-  - Not measured: the download of the bundle to the VM's disk.
+  - Not measured by (f): the download of the bundle to the VM's disk.
     Reads from a local file: the measurement read from the bucket, and the full run reads local files.
     The upload of Parquet files to the tables' bucket, and the table commits.
     The polygon tables. The matrix copy. The QC rasters. `verify.py --mode full`. Levels above 0.
     The checksum of a `uint8` copy on R2.
+  - The full run measured the kinds in that list, except the checksum. REPORT.md gives the times.
   - A staged create of a partitioned table works on the Arraylake catalog. Measured on 2026-11-11.
     An empty probe table was created with its partition spec in one metadata commit, then dropped.
 
