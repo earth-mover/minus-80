@@ -19,11 +19,12 @@ dependencies = [
 [project.optional-dependencies]
 dicom = ["imagecodecs>=2026.8.16", "imagecodecs-zarr", "pydicom>=3.0"]
 flac = ["av", "flac-numcodecs", "soundfile"]
+fractal = ["anndata>=0.11"]
 nd2 = ["nd2>=0.10"]
 nwb = ["h5py>=3.16", "pynwb>=2.8", "virtualizarr[hdf]"]
 tables = ["pyarrow>=18", "pyiceberg[sql-sqlite]>=0.9"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
-zip = []
+zip = ["pyarrow>=17"]
 
 [dependency-groups]
 dev = [

@@ -59,6 +59,19 @@ def test_an_error_leaves_no_request_holding_the_process_open(url, range_server):
     subprocess.run([sys.executable, "-c", script], check=True, timeout=30)
 
 
+def test_a_hanging_piece_is_asked_for_again_while_later_pieces_are_fetched(url, range_server, capsys):
+    range_server.stall_once = {0}
+    got = list(iter_ranges(url, [(0, 8000)], block=1000, concurrency=2, window=8,
+                           hedge_after=0.5, progress=False))
+    assert b"".join(d for _, d in got) == DATA[:8000]
+    gets = range_server.gets()
+    # The first piece's second request comes after every later piece was asked for.
+    assert gets.count("bytes=0-999") == 2
+    assert gets[-1] == "bytes=0-999"
+    assert len(gets) == 9
+    assert "slow range [0, 1,000) of f.bin" in capsys.readouterr().out
+
+
 def test_read_range_is_one_request(url, range_server):
     assert read_range(url, 10, 5000) == DATA[10:5000]
     assert range_server.gets() == ["bytes=10-4999"]

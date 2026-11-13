@@ -103,29 +103,30 @@ per-object cost.
 
 ## Verification
 
-### Treat passing checks as a floor
+### Test the code, spot-check the store
 
-Each gate in `minus80.ome.verify` exists because a mistake got through once. No
-gate can see a wrong shape, a partial ingest or a tenfold pixel size.
+Catch a converter's bugs with tests that run the ingest end to end on a small
+fixture, where checking every plane is cheap. The finished store then needs
+only a short check of what depends on the real data:
 
-### Compare against the format's reference reader
+1. **Completeness.** Every item the source lists is in the store. Read the
+   listing from a local copy, such as the zip's central directory or the
+   bucket listing, rather than from the host.
+2. **Metadata.** The OME-Zarr documents validate.
+3. **A few pixels.** A plane or two equal the source's values, decoded by the
+   format's reference reader. For lossy codecs, use the same decoder on both
+   sides: two conformant JPEG 2000 decoders can differ by one bit.
 
-Read the store back, compare it with the source decoded by the format's
-reference reader, and report the counts. For lossy codecs, use the same decoder
-on both sides: two conformant JPEG 2000 decoders can differ by one bit.
+`REPORT.md` says what the check covered.
 
-### Keep verification to a minute
+### Keep the store check to a minute or two
 
-Never read the whole archive to verify it. Run the gates that read only
-metadata (schema, axes, pixel size, completeness against the source listing)
-on every image. Check chunk references and pixels on a sample that covers
-every distinct shape, codec and source layout: read each sampled chunk's
-reference back from the store (VirtualiZarr's `IcechunkParser`), compare its
-path, offset and length with the reference reader's index of the file, and
-decode a plane against the reference reader. Every item went through the same
-parse, so the sample stands for the rest. Checking every reference means
-reading every file's index, which for OpenCell's 12,602 TIFFs took hours from
-a laptop against the published repo.
+Count the requests a check makes to the source before you write it. Public
+archives can be slow: a single request to EBI's FTP server can take minutes,
+and one plate's verify script, which fetched 9,458 metadata documents there
+one by one, was stopped after two hours. A check that needs much of the
+source belongs in a fixture test. Don't add a gate to the store check because
+it exists for another ingest, or because a sample might miss something.
 
 ### Open the store and look
 
@@ -138,12 +139,13 @@ shell's environment.
 Every virtual array, or its group, names its source URL. The `provenance` gate
 checks this.
 
-### Check every item, not a sample
+### Check a derived layer on every item
 
-A rule that holds on the items you tried can fail on the rest. Cutting
-CAMELYON's exclusion regions from its tumour outlines worked on the slides
-tried, and erased 18 tumour islands on a slide that only the check over all 160
-found.
+When the ingest derives data by a rule, check the rule's output on every item
+while building it. A rule that holds on the items you tried can fail on the
+rest. Cutting CAMELYON's exclusion regions from its tumor outlines worked on
+the slides tried, and erased 18 tumor islands on a slide that only the check
+over all 160 found.
 
 ### Raise on a missing value instead of defaulting
 
@@ -172,6 +174,27 @@ region, and the laptop run dropped chunks. Price indexing before you start
 because local reads are bound by memory bandwidth; time the read a user sees
 against downloading the files.
 
+### Time workers before choosing threads or processes
+
+Which is faster depends on whether the work holds Python's global interpreter
+lock (GIL). Threads win when the work runs outside the GIL: waiting on network
+reads, or C code that releases the lock while it works. They share memory, so
+nothing is pickled between workers and nothing is copied. Threads lose when the
+work returns to Python often, because they queue for the lock, and adding
+threads can make the total slower. Processes avoid the lock, but pay for
+startup, pickling and memory.
+
+So time one worker against several before choosing. If the total rises with
+more workers, the work runs outside the GIL and threads are enough. If it
+falls, the workers are contending: try processes before blaming the network.
+
+The SanctSound FLAC scan is an example of the second kind. PyAV's demuxer
+returns to Python for every packet, and a 371 MB recording has 127,400. On a
+laptop, scanning a local copy ran at 1.5 GB/s in one process and 6.6 GB/s in
+eight, but at 350 MB/s with four threads and 125 MB/s with eight. On a cloud
+VM, four threads had read the bucket at 174 MB/s and eight at 62 MB/s, a drop
+that had been taken for a bandwidth limit.
+
 ### Decode only to build a derived layer, and only once
 
 When an overview needs pixels, decode the bytes that indexing already
@@ -191,11 +214,57 @@ A reader fetches the whole snapshot on open, and Icechunk's snapshot cache
 holds 500,000 nodes by default, about 45 Cell Painting plates. Ingest one file
 from each new source to a branch and inspect it before writing to `main`.
 
+### Keep enough writes in flight
+
+A copy into an object store is often limited by its uploads, not its
+decoding. The S-BIAD3228 converter kept 10 to 26 shard writes in flight, and
+decoding waited on uploads for minutes in every well, while a separate test
+reached 522 MB/s to R2 with 128 writes in flight. Measure the store's
+throughput at several concurrencies before choosing one.
+
 ### Launch cloud workers from a clean environment
 
 Coiled copies your local environment, so a macOS wheel or an editable checkout
 breaks Linux workers. It also reattaches to a live cluster of the same name,
 old code included, so name each launch's cluster uniquely.
+
+For a job that runs longer than a minute, use `coiled batch run`, and these
+rules keep it alive and visible:
+
+- **Use `coiled batch run`, not `coiled run --detach`.** A detached
+  `coiled run` stops its job about 20 s after the launching session
+  disconnects: Docker sends the container SIGTERM, then kills it 10 s later,
+  with nothing in the job's own output. A batch job runs until its command
+  exits. A two-minute counting script showed the difference: killed after
+  four lines under `coiled run --detach`, finished under `coiled batch run`.
+- **Upload one directory.** `coiled batch run` keeps only the last of several
+  `--upload` options, so stage every file in one directory and upload that.
+  The files land beside the script, in the job's working directory.
+- **Ship a built wheel and the scripts, in a plain container.** A pure-Python
+  package builds a wheel that installs on Linux; pin any git dependency the
+  workspace pins, since a wheel cannot carry the pin.
+- **Count cores with `nproc --all` or `os.cpu_count()`.** Coiled sets
+  `OMP_NUM_THREADS=1`, which makes `nproc` report one core on a 16-core VM,
+  and limits any library that reads that variable.
+- **Put the command in a script file.** Coiled can garble an inline
+  `bash -c` string with several statements.
+- **Never run a second command on a VM that is running a job.** The second
+  command disrupted the first and shut the VM down when it finished. Probe on
+  a separate VM.
+- **Pass a secret from a variable set first,** with `--secret-env
+  "NAME=$VALUE"`. Written as `NAME=$(...) coiled ... -e NAME="$NAME"`, the
+  variable expands before the assignment and the job receives an empty value.
+- **Print a timed line before and after every step, a heartbeat at a fixed
+  interval within every step, and memory from a separate loop.** A heartbeat
+  only from inside the job's own loop goes quiet exactly when the job blocks.
+  Set an expected time for each step before launching.
+- **Treat silence as a signal, and read the right logs.** `coiled batch logs`
+  arrives one to two minutes late, so check the job's state with
+  `coiled batch status` before calling it stalled. When a job stops without
+  saying why, `coiled cluster logs <id> --system` shows the machine's view,
+  such as Docker stopping the container. The VM's SSH port was not reachable
+  from outside, so build the diagnostics into the job rather than plan to
+  attach to it.
 
 ## Data beyond the images
 
@@ -245,7 +314,7 @@ anything.
 ### `REPORT.md`, after the ingest
 
 1. **What was built**, where it is, and how to open it.
-2. **Verification** against the format's reference reader, with counts.
+2. **Verification**: what the store check covered and what it found.
 3. **Changes from the plan.**
 4. **Judgement calls made.**
 5. **Problems found in the source data.**

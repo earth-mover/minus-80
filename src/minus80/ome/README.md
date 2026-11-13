@@ -45,8 +45,8 @@ scanner rounded to 13340 rows gets its true ratio rather than exactly 2.
 
 ## Versions
 
-Output is OME-Zarr 0.5 by default. Pass `version="0.6"` for the 0.6 layout,
-where a multiscale's axes sit inside a named `coordinateSystems` entry and each
+Output is OME-Zarr 0.6 by default. Pass `version="0.5"` for the 0.5 layout. In
+0.6 a multiscale's axes sit inside a named `coordinateSystems` entry and each
 level's transform names its `input` and `output`.
 
 A 0.6 document declares `"version": "0.6"`. Some ngff-zarr releases vendor a

@@ -32,6 +32,14 @@ def test_reopening_an_older_repo_reads_with_retries(tmp_path):
     assert _tries(icechunk.Repository.open(storage=storage)) == 1
 
 
+def test_a_gcs_source_gets_an_anonymous_container(tmp_path):
+    prefix = "gs://noaa-passive-bioacoustic/"
+    create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    repo = open_repository(tmp_path / "repo")
+    assert list(repo.config.virtual_chunk_containers) == [prefix]
+    assert _tries(repo) == REMOTE_READ_TRIES
+
+
 def test_more_tries_than_the_floor_are_kept(tmp_path):
     config = icechunk.RepositoryConfig.default()
     config.storage = icechunk.StorageSettings(retries=icechunk.StorageRetriesSettings(max_tries=50))
@@ -78,6 +86,6 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
 def test_an_unsupported_scheme_is_named_without_its_path():
     import pytest
 
-    with pytest.raises(ValueError, match="scheme 'gs'") as raised:
-        icechunk_io._store_for("gs://private-bucket/some/prefix/")
+    with pytest.raises(ValueError, match="scheme 'az'") as raised:
+        icechunk_io._store_for("az://private-bucket/some/prefix/")
     assert "private-bucket" not in str(raised.value) and "some/prefix" not in str(raised.value)

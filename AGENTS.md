@@ -40,13 +40,40 @@ ingest, the work is not done. That rules out:
   zero-length reference.
 - **Never decode pixels to virtualize.** Decoding happens only to build a
   derived layer, such as an overview level, and then only once.
-- **Verify, do not assert.** A claim about behaviour needs a run behind it.
-  Read the store back and compare it against the source, decoded by the
-  format's reference reader, before saying it works. Measure a number before
-  quoting one.
+- **Verify, do not assert.** A claim about behavior needs a run behind it,
+  and a number needs a measurement. Test an ingest's code on a small fixture,
+  and check the finished store with a short script that runs in a minute or
+  two and makes a handful of requests to the source (`docs/ingest.md`).
 - **Record every judgement call.** Choices the data does not determine (which
   directory is canonical, whether the file or the paper is right) go in the
   ingest's `LAYOUTS.md`, and in the report to whoever asked for the work.
+- **Write the ingest to be read.** Other people reuse an ingest as a worked
+  example, so its code must be clearly ordered and easy to follow:
+  - `ingest.py` reads top down, in the order the pipeline runs. Each section
+    opens with a block comment that says what the archive publishes there
+    and why the store holds it that way.
+  - `ingest.py` keeps the architecture and the parsing of the data. Shared
+    plumbing, such as IO, path conventions, threading and repo setup, goes
+    in a sibling module.
+  - A helper with one caller folds into its caller. Many one-line functions
+    hide the pipeline's shape.
+  - Docstrings say why, including why not the library feature, with the
+    evidence.
+  - Names are plain words, with no leading underscore.
+- **Draw the ingest.** Each ingest commits SVG figures in
+  `ingests/<archive>/diagrams/`, written by its own `diagrams.py` from real
+  values in the source listing and the store:
+  - the source: its files, directories and arrays, with real names, sizes
+    and counts;
+  - the mapping: which source files or arrays become which store nodes and
+    arrays, with each array drawn as a cube labeled by shape and chunks;
+  - the store: every level of the hierarchy, with its attributes and node
+    counts.
+
+  `minus80.diagrams` provides the building blocks and the shared style; each
+  ingest composes its own figures from them. Use short labels and mark each
+  thing's source file. Put explanations in `LAYOUTS.md`, not in the figure.
+  `PLAN.md` links the proposed figures and `REPORT.md` the built ones.
 - **Long runs report progress.** A job that runs for more than a minute prints
   a line at a steady interval: how far it has got, what is left, the current
   rate. Remote jobs forward those lines to the launching terminal.
@@ -100,8 +127,14 @@ Every other rule holds, and three become stricter:
 - An ingest imports from `minus80`, never from another ingest. Code only one
   archive needs stays in that ingest. Anything a second archive could use moves
   into `minus80`.
-- OME-Zarr output is version 0.5 metadata; ingest an older source by upgrading
-  it.
+- A finished ingest records the code it ran with, so a change to `minus80`
+  does not have to update it. Only the ingest in progress moves with
+  `minus80`. Each batch that writes a store is a numbered script under
+  `ingests/<archive>/runs/`, and its header names the commit it ran from. To
+  run a finished ingest again, check out that commit, or upgrade the ingest to
+  the current `minus80` and record that as a new run.
+- OME-Zarr output is version 0.6 metadata; ingest an older source by upgrading
+  it. A store already published in 0.5 stays 0.5 until it is re-ingested.
 - Tabular data without a Zarr convention (per-target annotations, edge lists,
   proteome-wide tables) goes to an Iceberg table beside the store, not into
   Zarr arrays.

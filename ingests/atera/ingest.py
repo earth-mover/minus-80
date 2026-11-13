@@ -70,6 +70,8 @@ REGION_KEY, INSTANCE_KEY = "region", "instance"
 TABLE_REGION = "cell_boundaries"
 #: The unit of the global coordinate system; PLAN.md, judgement call 4.
 UNIT = "micrometer"
+#: SpatialData reads OME-Zarr 0.5; the published stores hold it, so a rerun reproduces them.
+OME_VERSION = "0.5"
 #: The coordinate system between the H&E alignment and the scale into ``global``.
 MORPHOLOGY_PIXEL = "morphology_pixel"
 #: The coordinate system between the scale and the translation of a QC raster.
@@ -201,7 +203,8 @@ def write_labels(
             array = create_copy(group, "s0", json.loads(zf.read(f"{mask}/.zarray")), dimension_names=("y", "x"))
             copy_chunks(zf, mask, array, concurrency=concurrency)
             ome = label_attrs(name=name, dims=("y", "x"), level_shapes=[array.shape],
-                              scale={"y": 1.0, "x": 1.0}, source_image="../../images/morphology")
+                              scale={"y": 1.0, "x": 1.0}, source_image="../../images/morphology",
+                              version=OME_VERSION)
             group.attrs.update(raster_attrs(_level_paths(ome, [0]), scale([pixel_size] * 2, ("y", "x"), unit=UNIT)))
             # The unit commits whole, so a mask on the branch is a complete mask.
             group.attrs[COMPLETE] = True
@@ -231,7 +234,7 @@ def write_levels(writer: ElementWriter, path: str, count: int, levels: Sequence[
 def level_ome(name: str, dims: Sequence[str], shapes: Sequence[Sequence[int]], held: Sequence[int], omero: dict) -> dict:
     """The ``ome`` attributes of an image whose levels ``held`` are stored; ``shapes`` has every level of the source."""
     ome = image_attrs(name=name, dims=dims, level_shapes=[shapes[k] for k in held], scale={d: 1.0 for d in dims},
-                      omero=omero)
+                      omero=omero, version=OME_VERSION)
     return _level_paths(ome, held)
 
 

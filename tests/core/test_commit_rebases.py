@@ -56,3 +56,17 @@ def test_same_array_written_twice_refuses(tmp_path):
 
     with pytest.raises(icechunk.RebaseFailedError):
         commit(slow, "ingest")
+
+
+def test_metadata_survives_the_rebase(tmp_path):
+    repo = _repo(tmp_path / "repo")
+    slow = repo.writable_session("main")
+    _write(slow, "slow", 1)
+    other = repo.writable_session("main")
+    _write(other, "other", 2)
+    other.commit("other writer")
+
+    commit(slow, "ingest", metadata={"change": {"decision": 17, "chunks_written": 0}})
+
+    latest = next(iter(repo.ancestry(branch="main")))
+    assert latest.metadata["change"] == {"decision": 17, "chunks_written": 0}

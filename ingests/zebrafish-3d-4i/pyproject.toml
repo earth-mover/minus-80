@@ -1,0 +1,15 @@
+[project]
+name = "zebrafish-3d-4i-ingest"
+version = "0.0.0"
+description = "Convert the 3D-4i zebrafish embryo plate (BioImage Archive S-BIAD3228) into a native OME-Zarr 0.6 Icechunk store."
+requires-python = ">=3.12"
+dependencies = [
+    "arraylake>=1.7.0",
+    "minus-80[fractal,zip]",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+notebook = ["ipykernel", "matplotlib"]

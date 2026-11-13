@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from minus80.core.progress import Progress
+from minus80.core.progress import Progress, StallWatch
 
 
 @pytest.fixture
@@ -53,3 +53,43 @@ def test_scaled_unit_shows_readably():
     with Progress("fetching", 4 << 20, unit="MiB", scale=1 << 20, stream=out):
         pass
     assert out.getvalue().strip() == "fetching (4.0 MiB)"
+
+
+def test_heartbeat_prints_while_the_job_counts_nothing():
+    """A stage that counts nothing, such as a commit, still prints on the interval."""
+    from minus80.core.progress import Heartbeat
+
+    out = io.StringIO()
+    stage = ["committing"]
+    with Heartbeat(lambda: f"stage: {stage[0]}", every=0.05, stream=out):
+        time.sleep(0.3)
+    lines = out.getvalue().splitlines()
+    assert len(lines) >= 2
+    assert all(line.endswith("stage: committing") for line in lines)
+
+
+def test_heartbeat_stops_when_the_block_ends():
+    from minus80.core.progress import Heartbeat
+
+    out = io.StringIO()
+    with Heartbeat(lambda: "beat", every=0.05, stream=out):
+        pass
+    time.sleep(0.15)
+    assert out.getvalue() == ""
+
+
+def test_a_stall_prints_every_thread_and_the_log_tail_then_its_end(tmp_path):
+    log = tmp_path / "library.log"
+    log.write_text("".join(f"line {n}\n" for n in range(100)))
+    counters = {"done": 0}
+    with open(tmp_path / "out.txt", "w+") as out:
+        with StallWatch(lambda: counters["done"], after=0.3, log=str(log), tail=3, stream=out):
+            time.sleep(1.0)
+            counters["done"] += 1
+            time.sleep(0.6)
+        out.seek(0)
+        text = out.read()
+    assert "no progress for" in text
+    assert "Thread" in text and "test_progress.py" in text
+    assert "line 97" in text and "line 99" in text and "line 96" not in text
+    assert "stall ended after" in text

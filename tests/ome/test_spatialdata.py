@@ -51,9 +51,17 @@ def test_translation_follows_a_scale_in_a_sequence_and_leaves_the_channel_at_zer
     assert second["output"]["name"] == "global"
 
 
+def test_raster_attrs_refuses_a_document_that_is_not_the_0_5_layout():
+    ome = image_attrs(name="m", dims=("y", "x"), level_shapes=[(100, 200)], scale={"y": 1, "x": 1}, version="0.6")
+    with pytest.raises(ValueError, match="0.5"):
+        raster_attrs(ome, scale([0.2, 0.2], ("y", "x"), unit="micrometer"))
+
+
 def test_raster_attrs_sets_the_spatialdata_version_and_element_transform():
-    ome = image_attrs(name="m", dims=("c", "y", "x"), level_shapes=[(4, 100, 200), (4, 50, 100)], scale={"c": 1, "y": 1, "x": 1})
+    ome = image_attrs(name="m", dims=("c", "y", "x"), level_shapes=[(4, 100, 200), (4, 50, 100)], scale={"c": 1, "y": 1, "x": 1},
+                      version="0.5")
     attrs = raster_attrs(ome, scale([1, 0.2, 0.2], ("c", "y", "x"), unit="micrometer"))
+    assert [a["name"] for a in attrs["ome"]["multiscales"][0]["axes"]] == ["c", "y", "x"]
     assert attrs["ome"]["version"] == "0.5-dev-spatialdata"
     assert attrs["ome"]["multiscales"][0]["coordinateTransformations"][0]["type"] == "scale"
     assert attrs["spatialdata_attrs"] == {"version": "0.3"}

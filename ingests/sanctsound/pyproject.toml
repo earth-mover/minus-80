@@ -1,0 +1,20 @@
+[project]
+name = "sanctsound-ingest"
+version = "0.0.0"
+description = "Ingest NOAA's SanctSound hydrophone archive (gs://noaa-passive-bioacoustic) into a virtual Icechunk store."
+requires-python = ">=3.12"
+dependencies = [
+    "arraylake>=1.7.0",
+    "h5py>=3.16",
+    "minus-80[flac]",
+    "obspec-utils",
+    "obstore",
+    "pyrsktools",
+    "scipy",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+check = ["xarray"]

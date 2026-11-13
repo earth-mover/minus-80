@@ -79,6 +79,9 @@ def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str 
 
 def raster_attrs(ome: Mapping, transform: Mapping) -> dict:
     """Group attributes of an image or labels element, from an ``image_attrs`` document."""
+    # SpatialData reads the 0.5 layout under its own label; a 0.6 document would lose its axes.
+    if ome.get("version") != "0.5":
+        raise ValueError(f"a SpatialData raster needs an OME-Zarr 0.5 document, not {ome.get('version')!r}")
     ome = copy.deepcopy(dict(ome))
     ome["version"] = RASTER_OME_VERSION
     ome["multiscales"][0]["coordinateTransformations"] = [dict(transform)]

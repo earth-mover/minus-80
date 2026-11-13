@@ -136,6 +136,48 @@ the parser seek against that file. Otherwise download the file once with
 parallel range requests (`minus80.core.fetch.download_then_index`) and keep
 referencing the remote URL.
 
+### Budget CPU for the download as well as the parse
+
+A scan that reads every byte of every file uses CPU for the download, not only
+for the parse. TLS, HTTP and the kernel's network interrupts all cost CPU time.
+Size the VM for the sum of both costs, and measure the parse rate on the VM
+type you will use, because a laptop's rate does not carry over.
+
+As an example, consider a FLAC frame scan of SanctSound on Coiled c6in VMs in
+us-east-1, reading from a Google Cloud bucket (measured 2026-11-09):
+
+- Downloading cost about 3.3 CPU-seconds per GB.
+- Parsing with PyAV cost about 3 CPU-seconds per GB. One vCPU parsed about
+  450 to 520 MB/s, while one Apple laptop core parsed 1.5 GB/s.
+- The network delivered 1.7 GB/s. At about 6.5 CPU-seconds per GB in total,
+  that rate needs about 11 busy vCPUs.
+
+On a c6in.2xlarge (8 vCPUs), every read pattern that was tried plateaued
+between 780 and 840 MB/s. Run whole-file scans on a c6in.4xlarge (16 vCPUs) or
+larger.
+
+Hold each downloaded file in memory rather than in `/dev/shm` or on disk.
+Coiled's container has a 64 MB `/dev/shm`, and `coiled batch run` cannot
+enlarge it. Writing downloads to the VM's root volume ran at 210 to 520 MB/s,
+well under the network's rate.
+
+### Check every member a copy reads
+
+Bytes can arrive damaged. Copying S-BIAD3228 from EBI, three zip members in
+30 wells failed their CRC-32 check on the first read and were good on the
+second. Check each member against the checksum the format records, read a
+failing one again, and name it when it fails twice. A damaged member that is
+not checked becomes wrong pixels or looks like a corrupt source.
+
+### Keep many ranges asked for ahead on a slow host
+
+Some hosts have slow spells that hold every request. On EBI's FTP server,
+single 64 MiB ranges took from 53 to 309 s, and the same range asked for a
+second time was just as slow. A second request does not escape such a spell;
+keeping many ranges asked for ahead of the parser does, for as long as the
+spell is shorter than the window. For S-BIAD3228, 64 ranges (4 GiB) covered
+about 30 s.
+
 ## Testing
 
 ### Test with a real file from the archive
@@ -162,5 +204,9 @@ file from the target archive as the primary fixture.
 | `arraylake` reads `ARRAYLAKE_TOKEN` when first imported | set the token before importing |
 | xarray `where(..., drop=True)` raises on `StringDType` columns | `sel` or boolean `isel` |
 | A script named like a module (`attrs.py`) shadows it when run from its folder | name scripts so they cannot shadow a package |
+| PyAV's Linux wheel (19.0.2) fails on HTTPS URLs with "Input/output error"; the macOS wheel works | download first and hand PyAV bytes or a local path |
+| PyAV demuxing slows down as threads are added: 1.1 GB/s on one thread, 125 MB/s on eight | parse in spawned processes |
+| Forking a process after obstore has started its threads can deadlock | `multiprocessing.get_context("spawn")` |
+| Coiled's container has a 64 MB `/dev/shm` | hold downloads in memory |
 | `pyiceberg` maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295 | store such columns as `int64` |
 | zarr's regular chunk grid cannot hold a virtual reference to a short last chunk | `minus80.core.tables.declare_copy` uses a rectilinear grid, and a reader sets `array.rectilinear_chunks` |

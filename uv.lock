@@ -21,6 +21,8 @@ members = [
     "atera-ingest",
     "minus-80",
     "opencell-ingest",
+    "sanctsound-ingest",
+    "zebrafish-3d-4i-ingest",
 ]
 
 [[package]]
@@ -452,30 +454,30 @@ wheels = [
 
 [[package]]
 name = "boto3"
-version = "1.44.0"
+version = "1.44.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore" },
     { name = "jmespath" },
     { name = "s3transfer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/b4/da0e5fd912f51d04e9f019fea50cbb859a4ba07947c6e28262ff59c98360/boto3-1.44.0.tar.gz", hash = "sha256:5d311d2988ae560f83e5fb8a284cb57b48e2c8d444ecb78a6d6752ae1740e04a", size = 112741, upload-time = "2026-11-10T20:22:34.536Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/ab/c2d0e6b543e718af9b963e980f9e72d918c2b889cb2cc3749999f63f14f3/boto3-1.44.2.tar.gz", hash = "sha256:70c02826640da17c15067033af01667059dde5e86057c2d1227cd8523c2f24dd", size = 112796, upload-time = "2026-11-12T20:58:21.405Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/53/9c2ca547dc9fa1e9e2a0fec0096b9e25277f6864faba580ace75e0db5585/boto3-1.44.0-py3-none-any.whl", hash = "sha256:ae3009db1294fd4ca2e30d9592ead8ab56f0e270bcad0b95e555f03f7875716d", size = 140153, upload-time = "2026-11-10T20:22:31.736Z" },
+    { url = "https://files.pythonhosted.org/packages/72/ac/d6fb4b50f688b106a9be682d5146829d717bddafef04b061b6ef43d1a859/boto3-1.44.2-py3-none-any.whl", hash = "sha256:d62ff8a9eb06cab9f0b4242d7a2907a8fff9cca630e27ef736660f9d53e5b18e", size = 140157, upload-time = "2026-11-12T20:58:19.236Z" },
 ]
 
 [[package]]
 name = "botocore"
-version = "1.44.0"
+version = "1.44.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jmespath" },
     { name = "python-dateutil" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/92/480a2c685a9b02a947541a217ae615d5e78f287d833cc1b9f23dfc39e313/botocore-1.44.0.tar.gz", hash = "sha256:224efbd3ee978856da460585533ebf1b97831960e575857ca2424f33e554917b", size = 16577303, upload-time = "2026-11-10T20:22:28.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/fa/5cc188196076a432700671ef36c63fab463f41919b7a1440de906247bb16/botocore-1.44.2.tar.gz", hash = "sha256:39da314d7bab66e9da9af5531445d237beaeeab1fce0ed034bb6315d480b85ce", size = 16642983, upload-time = "2026-11-12T20:58:15.821Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/0f/82dd92901fdc21a3444eba19e23e0a8584046f8c7d6f9ae171e38ecd7dda/botocore-1.44.0-py3-none-any.whl", hash = "sha256:9055745fc16400377ac7e825ac63b8f77af17305e1c77c9a5519a648d7b2e87c", size = 16277656, upload-time = "2026-11-10T20:22:24.273Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/de/c9df76a63d82203a335b2ab02e5a976758747c9a5960b096dbc00c22f8eb/botocore-1.44.2-py3-none-any.whl", hash = "sha256:f255849e8adc413812162e100cf53c4d096d07d9fd6f1773d90fa6034f7d8980", size = 16342924, upload-time = "2026-11-12T20:58:11.603Z" },
 ]
 
 [[package]]
@@ -728,6 +730,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
+]
+
+[[package]]
+name = "cmocean"
+version = "4.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/93/6ce32a2749968071b5239c96c54a229f9cb666d1c2d2cead7246ef28282c/cmocean-4.0.3.tar.gz", hash = "sha256:37868399fb5f41b4eac596e69803f9bfaea49946514dfb2e7f48886854250d7c", size = 7145175, upload-time = "2024-04-06T01:05:26.398Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/7b/97754548e9da3d41d7334e375b2cd712e9406a3f48823a5f0a166f42d63d/cmocean-4.0.3-py3-none-any.whl", hash = "sha256:f2fc1d5e349db122ee0c9eac80bba969aa92dd2806548fce58dc8bef962f309e", size = 421873, upload-time = "2024-04-06T01:05:24.069Z" },
 ]
 
 [[package]]
@@ -1333,6 +1349,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/f8/7e33845d6b90ce1cf37cfabf25cb859277c7d3533ef1b6b1e1ca58581549/google_crc32c-1.9.0-cp315-cp315-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:f97c3806dcea41c29c04965347b0e12481561b75e0045dc7a4f69d75dec5d9b1", size = 38359, upload-time = "2026-09-24T21:38:14.983Z" },
     { url = "https://files.pythonhosted.org/packages/36/ff/556b2423f449a7515af6b8222a4d7833cbe09ff3e8d2f0b80471f5f6d02e/google_crc32c-1.9.0-cp315-cp315-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:0abe7e202c25909869c35672ab0f2fe748a7acf276eb78577332a7c38999740f", size = 36858, upload-time = "2026-09-24T21:38:15.799Z" },
     { url = "https://files.pythonhosted.org/packages/40/71/4733f1b7c921d04a2bb9b9916cf66498bf7ad0860a06289413830da83192/google_crc32c-1.9.0-cp315-cp315-win_amd64.whl", hash = "sha256:5695c8b9327e040b2aba12c6659b0acb5995314ef0af0192da66e662e011103b", size = 35534, upload-time = "2026-09-24T21:39:31.337Z" },
+]
+
+[[package]]
+name = "gsw"
+version = "3.6.23"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/dc/1d4dbe5569f299968aa6f6745c105cccc0cf700ae22717c422fb095e6b6b/gsw-3.6.23.tar.gz", hash = "sha256:d14a734addfc96445ae84c800ad642d453ff174d48d6c30c0879a4425185b82a", size = 2706350, upload-time = "2026-06-21T15:07:10.84Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/22/fe/3acd7274f19c8641b6891d3bc0d87872166b9aeb1a41fe75b522690d9c45/gsw-3.6.23-cp311-abi3-macosx_10_9_x86_64.whl", hash = "sha256:756fdf57432ff10d08bd3af9a0c97f8899c8a50b3e444b67b17984e10fbfcf38", size = 2223257, upload-time = "2026-06-21T15:06:59.585Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/cd/1ce4f60b69a4ad9a95287f4f03d4846c7e3763a6de93883e218f75c169c7/gsw-3.6.23-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:9906645d8d3a897cbd90cc58373ea3ba239a4db63708039b1a11c2dbc4b2e408", size = 2265358, upload-time = "2026-06-21T15:07:01.736Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/eb/ea5936ec1a20795194318c0885ab46288175b9cb9fbf3ab0d7c65055b9e9/gsw-3.6.23-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ca81546bdba98a0e4af6e9b738cdaa6f96de23348b8bccb8c2f3221ef166df8b", size = 2396517, upload-time = "2026-06-21T15:07:03.652Z" },
+    { url = "https://files.pythonhosted.org/packages/61/91/cc7b4a4429e596d6ff7fe6cfa8f7e2162d54a5c9b083b24cb2dcbe58db83/gsw-3.6.23-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a67daf2fe608a8fbcc88b5aef962d1f6afe79a1af2d763e29f6bbfef051b096b", size = 2437844, upload-time = "2026-06-21T15:07:05.313Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/ac/57f9df6b2fc6ffc4ba101fe31f0247b7100e0fe1b52edbd3e5d384c726a1/gsw-3.6.23-cp311-abi3-pyemscripten_2026_0_wasm32.whl", hash = "sha256:870a0e0246072ac63cb0359e9c994c98cf0607c1d8c27598e871c7bbc8464505", size = 2120219, upload-time = "2026-06-21T15:07:07.026Z" },
+    { url = "https://files.pythonhosted.org/packages/95/92/f1f4dd4cebf6a56396057e4c3722e15d9cb84505f03fd520164065e4c89c/gsw-3.6.23-cp311-abi3-win_amd64.whl", hash = "sha256:b74b5234c44c0a380547aa4e68177dc8cd077c63c58a66acb448b2eece74f7f9", size = 2183657, upload-time = "2026-06-21T15:07:08.532Z" },
 ]
 
 [[package]]
@@ -2202,6 +2235,9 @@ flac = [
     { name = "flac-numcodecs" },
     { name = "soundfile" },
 ]
+fractal = [
+    { name = "anndata" },
+]
 nd2 = [
     { name = "nd2" },
 ]
@@ -2219,6 +2255,9 @@ tiff = [
     { name = "imagecodecs-zarr" },
     { name = "tifffile" },
 ]
+zip = [
+    { name = "pyarrow" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2233,6 +2272,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anndata", marker = "extra == 'fractal'", specifier = ">=0.11" },
     { name = "av", marker = "extra == 'flac'" },
     { name = "flac-numcodecs", marker = "extra == 'flac'", git = "https://github.com/ianhi/flac-numcodecs?tag=zarr3-flac-codec-2026-10-19" },
     { name = "h5py", marker = "extra == 'nwb'", specifier = ">=3.16" },
@@ -2249,6 +2289,7 @@ requires-dist = [
     { name = "obstore", specifier = ">=0.7.0" },
     { name = "ome-zarr-models", specifier = ">=1.8" },
     { name = "pyarrow", marker = "extra == 'tables'", specifier = ">=18" },
+    { name = "pyarrow", marker = "extra == 'zip'", specifier = ">=17" },
     { name = "pydicom", marker = "extra == 'dicom'", specifier = ">=3.0" },
     { name = "pyiceberg", extras = ["sql-sqlite"], marker = "extra == 'tables'", specifier = ">=0.9" },
     { name = "pynwb", marker = "extra == 'nwb'", specifier = ">=2.8" },
@@ -2258,7 +2299,7 @@ requires-dist = [
     { name = "virtualizarr", extras = ["hdf"], marker = "extra == 'nwb'", git = "https://github.com/ianhi/VirtualiZarr?rev=83da047711558dfb4fc004db45641d28a6687f61" },
     { name = "zarr", specifier = ">=3.1.0" },
 ]
-provides-extras = ["dicom", "flac", "nd2", "nwb", "tables", "tiff", "zip"]
+provides-extras = ["dicom", "flac", "fractal", "nd2", "nwb", "tables", "tiff", "zip"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3851,6 +3892,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pyrsktools"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cmocean" },
+    { name = "gsw" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/16/57/dfe4056a329e93ed158b740ca6f1a842164cd0f46c43179841f12f6eed77/pyrsktools-1.3.0.tar.gz", hash = "sha256:cbc4e9dd1fc01bda0b78fb81d725b79994b444661455bc489712f7a3421a9579", size = 222427, upload-time = "2026-07-10T14:08:31.73Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/8e/c903c784ea42de5a622c8053f8d21c0fb78a7436b66ebf3f8e02b7f55e55/pyrsktools-1.3.0-py3-none-any.whl", hash = "sha256:4277fbb4de998419e250023c676c6a32466f646f5aec7c9cb4bf81f2457ccc5f", size = 167212, upload-time = "2026-07-10T14:08:30.374Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4200,6 +4257,39 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/6d/3fba214c1e5e0f69991677ec3bc17023f0421776975e1de0c682dca475e2/safetensors-0.8.0-cp310-abi3-win_amd64.whl", hash = "sha256:096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f", size = 355540, upload-time = "2026-06-09T07:52:27.832Z" },
     { url = "https://files.pythonhosted.org/packages/8d/fc/7eedc3510d97878876e32774eebbeb61c43f148a96e915c84229a3e967aa/safetensors-0.8.0-cp310-abi3-win_arm64.whl", hash = "sha256:f7838e5135a406ad3e02efdcb8cf2e5397d368b0154537c4fec682dbc544d452", size = 340500, upload-time = "2026-06-09T07:52:26.745Z" },
 ]
+
+[[package]]
+name = "sanctsound-ingest"
+version = "0.0.0"
+source = { virtual = "ingests/sanctsound" }
+dependencies = [
+    { name = "arraylake" },
+    { name = "h5py" },
+    { name = "minus-80", extra = ["flac"] },
+    { name = "obspec-utils" },
+    { name = "obstore" },
+    { name = "pyrsktools" },
+    { name = "scipy" },
+]
+
+[package.dev-dependencies]
+check = [
+    { name = "xarray" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
+    { name = "h5py", specifier = ">=3.16" },
+    { name = "minus-80", extras = ["flac"], editable = "." },
+    { name = "obspec-utils" },
+    { name = "obstore" },
+    { name = "pyrsktools" },
+    { name = "scipy" },
+]
+
+[package.metadata.requires-dev]
+check = [{ name = "xarray" }]
 
 [[package]]
 name = "scipy"
@@ -5157,6 +5247,33 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/47/3f/4202f4b11d2629c100ca5801dcf806826779db4eb925ff9e4d05658529a2/zarrista-0.1.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:96706a3acb1c1e623c85f08cc325ab74ade02a9bf6397a644040d50e1033d414", size = 23388185, upload-time = "2026-08-13T14:44:36.867Z" },
     { url = "https://files.pythonhosted.org/packages/e8/96/f2eb1d63d32efa2d11237e9ba3ca7b1b93f87c987bc6dce90d75657a7d55/zarrista-0.1.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:5c2c29591f49ace61e54721a921ee957ba463a6d22848df32c901cd45df1bc70", size = 24315851, upload-time = "2026-08-13T14:44:40.01Z" },
     { url = "https://files.pythonhosted.org/packages/a2/b2/f8029969d8db3ffc886cc4fbda5eca01dec7b78a6cc8e44af3103c3c30c1/zarrista-0.1.0-cp314-cp314t-win_amd64.whl", hash = "sha256:58b15682404c61bb53e10c8a17202762b43702c3fe99c9b6ea05be256113bfdd", size = 17122744, upload-time = "2026-08-13T14:44:43.036Z" },
+]
+
+[[package]]
+name = "zebrafish-3d-4i-ingest"
+version = "0.0.0"
+source = { virtual = "ingests/zebrafish-3d-4i" }
+dependencies = [
+    { name = "arraylake" },
+    { name = "minus-80", extra = ["fractal", "zip"] },
+]
+
+[package.dev-dependencies]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
+    { name = "minus-80", extras = ["fractal", "zip"], editable = "." },
+]
+
+[package.metadata.requires-dev]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
 ]
 
 [[package]]

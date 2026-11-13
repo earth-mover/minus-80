@@ -20,6 +20,7 @@ write_array(group, "waveform", table)        # group in a writable Icechunk sess
 | `scan_frames(source, url=None)` | Byte offset, byte length and sample count of every frame in one file, read with libavformat (PyAV) |
 | `chunk_table(scans, frames_per_chunk=1)` | Groups each file's frames into chunks and checks that one codec configuration decodes them all. Returns a `ChunkTable`. |
 | `ChunkTable.save` / `.load` | Round-trip a table through `.npz`, so an array can be rebuilt without reading audio again |
+| `FrameScan.save` / `.load` | Round-trip one file's scan through `.npz`, so a long scan of many files can be cached and resumed |
 | `write_array(group, name, table)` | Creates the array and sets its virtual references in the group's Icechunk store |
 
 ## What it buys
@@ -44,9 +45,11 @@ configuration (`blocksize`, `sample_rate`) serves every file that shares them.
 - **The grid is rectilinear.** Each file's last chunk ends at its last sample, and
   no chunk spans two files, so chunk lengths differ at file boundaries. Readers
   need `zarr.config.set({"array.rectilinear_chunks": True})`.
-- **Arrays are always `("time", "channel")`.** Mono has a length-1 channel axis.
-  All channels sit in one chunk, because FLAC stores every channel of a frame
-  together.
+- **Arrays are `("time", "channel")` by default.** Mono has a length-1 channel
+  axis, so mono and multichannel arrays index the same way. An archive that is
+  mono throughout can pass `channel_axis=False` for a 1-D `("time",)` array;
+  `write_array` raises if the table has more than one channel. All channels sit
+  in one chunk, because FLAC stores every channel of a frame together.
 - **Every frame is located by reading the whole file.** A SEEKTABLE could locate
   seekpoints from the first megabyte, but the block is optional: many encoders
   omit it, and where present it indexes only every few hundred frames, at

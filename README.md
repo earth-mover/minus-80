@@ -19,6 +19,7 @@ from minus80.parsers import tiff
 | --- | --- | --- |
 | [`minus80.core`](src/minus80/core/README.md) | Wrappers over VirtualiZarr: repo setup, remote-file indexing, flat-binary arrays, hybrid pyramids | in repo |
 | [`minus80.ome`](src/minus80/ome/README.md) | OME-Zarr metadata over referenced arrays: images, labels, plates, collections | in repo |
+| [`minus80.diagrams`](src/minus80/diagrams.py) | SVG building blocks and the shared style for each ingest's figures: panels, trees, links, array cubes, legends | in repo |
 
 **Parsers**: one format each, emitting VirtualiZarr chunk references. Each
 parser's reader library is an extra: `uv sync --extra dicom`.
@@ -43,7 +44,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | `idr` | Image Data Resource studies | moving |
 | `ctc` | Cell Tracking Challenge training sets | moving |
 | `dandi` | NWB recordings from the DANDI Archive, including Allen Brain Observatory 2-photon | moving |
-| `sanctsound` | SanctSound hydrophone recordings with species detections | moving |
+| `sanctsound` | SanctSound hydrophone recordings with species detections | in repo |
 | `atera` | 10x Atera whole-transcriptome in situ samples, as native SpatialData stores with Iceberg tables | kidney ingested; three samples planned |
 | `opencell` | OpenCell: 1,310 endogenously tagged human proteins, with localization and interaction tables | planned |
 

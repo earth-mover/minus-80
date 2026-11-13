@@ -3,7 +3,7 @@
 Each row is code in minus80 that exists because a library it depends on lacks
 something, and the upstream change that would let minus80 drop it.
 
-Statuses checked 2026-10-22.
+Statuses checked 2026-10-22; the zip rows and the obstore and zarr rows they cite, 2026-10-28.
 
 ## VirtualiZarr
 
@@ -22,7 +22,7 @@ Statuses checked 2026-10-22.
 | VirtualiZarr has no parser for an uncompressed, C-ordered array at a known offset, so `flat_binary` builds one from shape, dtype, offset and stride. The stride covers formats that write a header before each record. | `minus80.core.builders.flat_binary` | Add a general flat-binary parser with a stride parameter. `ENVIParser` covers one such format. | not filed |
 | The zip parser makes each member of a zip one chunk of an array, for archives of TIFFs or other non-Zarr files. `ZippedZarrParser` reads only zipped Zarr stores, and its docstring lists wrapping other formats as future work. | `minus80.parsers.zip.members` | Add a member-per-chunk helper beside `ZippedZarrParser`. | not filed |
 | `parse_zip_index` fetches the whole central directory in one request, which is 1.49 GB for an archive of 7.7 million members. `buffers` walks the local headers in order instead. | `minus80.parsers.zip.buffers` | Read the central directory in bounded pieces. | not filed |
-| `buffers` imports VirtualiZarr's private `_parse_zip64_extra` to read the sizes in a ZIP64 local header. | `minus80.parsers.zip.buffers` | Make it public. | not filed |
+| `MemberStore` reads a zipped Zarr store through zarr, inflating Deflate members. VirtualiZarr's `_ZipMetadataStore` does the same for STORED members only and is private; zarr's `ZipStore` and fsspec's zip filesystem serialize every read behind `zipfile`'s lock. | `minus80.parsers.zip.store` | A public, concurrent, inflating zip store in VirtualiZarr or zarr. | not filed |
 | `tensor_ranges` reads a safetensors header and returns each tensor's byte range, including inside a STORED zip member. | `minus80.parsers.zip.safetensors_ranges` | Add a safetensors parser. | [VirtualiZarr#367](https://github.com/zarr-developers/VirtualiZarr/issues/367), open issue |
 | `ZippedZarrParser` reads a `.zarr.zip` that is its own object. It cannot read one stored inside another zip. `member_file` opens the stored member as a seekable file, and `copy_group` copies the Zarr v2 chunks into a v3 group. | `minus80.parsers.zip.nested`, `minus80.core.zarr_copy` | Let `ZippedZarrParser` read a Zarr zip that is a member of a stored zip. | not filed |
 | `read_array` decodes a Zarr v2 array from an open `zipfile.ZipFile`. `zarr.storage.ZipStore` takes a path or a file object, not an open `ZipFile`, so a second open parses the central directory again. | `minus80.core.zarr_copy` | `ZipStore`: accept an open `ZipFile`. | not filed |
@@ -68,7 +68,8 @@ retired in favour of virtual-tiff.
 | --- | --- | --- | --- |
 | A parser walking a remote file's index makes thousands of small, partly backward reads. `remote` opens the file with a 64 KB block and a 256-block cache, through a store `registry` builds with a 300 s timeout and a retry backoff from 2 s to 60 s over 20 minutes. Walking the index of a 1,024-chunk HDF5 file was forty times slower with obspec-utils' default 1 MB read-ahead. | `minus80.core.remote`, `minus80.core.registry` | obspec-utils: add a reader configured for indexing walks. | not filed |
 | tifffile and h5py read by seeking a file, so they cannot be handed a list of byte ranges to fetch. `download_then_index` fetches a remote file with parallel range requests, and `sparse_local` writes just the regions a parser needs into a sparse local file. | `minus80.core.fetch` | obstore, possibly: add a parallel range-download helper. | not filed |
-| `iter_ranges` issues one `get_range` per block on a thread pool, because `get_ranges` merges adjacent ranges into one request even with `coalesce=0`. | `minus80.core.fetch` | obstore / object_store: make `coalesce=0` keep adjacent ranges separate, or document that it does not. | not filed |
+| `iter_ranges` issues one `get_range` per block on a thread pool, because `get_ranges` merges adjacent ranges into one request even with `coalesce=0`. | `minus80.core.fetch` | obstore / object_store: make `coalesce=0` keep adjacent ranges separate, or document that it does not. | [obstore#678](https://github.com/developmentseed/obstore/issues/678), open issue |
+| `read_range` and `iter_ranges` check that each range request returned exactly the bytes asked for, and raise `OSError` otherwise. obstore returns a short body without complaint, and a short read would pass for data: into a pre-sized file it leaves a run of zeros, and in a zip member it cuts the member short. | `minus80.core.fetch` | obstore / object_store: raise when a range response is shorter than the range asked for. | no issue found |
 | `ObjectStoreRegistry.resolve` strips the store's decoded prefix from the URL's still-encoded path, so a local file under a directory with a space or `+` gets its whole path as the key; and it returns the key undecoded, so `a+b.bin` is looked up as `a%2Bb.bin`. `store_and_key` resolves local URLs without it, and `resolve`, which reads through a caller's registry, takes a local key from the decoded path. `registry_for` still has the bug, so VirtualiZarr reads and `HDFParser` indexing of such paths fail. | `minus80.core.registry` | obspec-utils: decode the URL path before stripping the store prefix. | not filed |
 
 ## flac-numcodecs
@@ -81,6 +82,7 @@ retired in favour of virtual-tiff.
 
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
+| A zipped Zarr store is copied by streaming its members in file order, so each chunk has to be decoded from bytes as it arrives. zarr reads chunks only by asking a store for keys, and has no public call that decodes a chunk's bytes given an array's metadata, so `zarr_v2` decodes them with numcodecs, from the array's `.zarray`. | `minus80.parsers.zip.zarr_v2` | Expose decoding a chunk's bytes with an array's codec pipeline. | no issue found |
 | `submit` starts a coroutine on zarr's IO loop through the private `zarr.core.sync._get_loop`, so range GETs can be cancelled and the loop's daemon thread does not hold the interpreter open. `zarr.core.sync.sync` runs a coroutine to completion but returns no handle to cancel it. | `minus80.core.aio` | Expose a public way to submit a coroutine to zarr's IO loop and get a cancellable future. | no issue found |
 | A regular chunk grid cannot hold a virtual reference to a file's short last chunk. `declare_copy` writes a rectilinear grid, which needs the `array.rectilinear_chunks` config flag to open. | `minus80.core.tables` | Enable rectilinear chunk grids without a config flag. | not filed |
 
@@ -102,4 +104,4 @@ retired in favour of virtual-tiff.
 
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
-| `buffers` calls the private `zipfile._EndRecData` to read an end-of-central-directory record, ZIP64 included, from an archive's tail. It passes the archive's size because recent Python patch releases check the ZIP64 locator's absolute offset. | `minus80.parsers.zip.buffers` | Add a public reader for the end record. | not filed |
+| `structures` calls the private `zipfile._EndRecData` to read an end-of-central-directory record, ZIP64 included, from an archive's tail. It passes the archive's size because recent Python patch releases check the ZIP64 locator's absolute offset. | `minus80.parsers.zip.structures` | Add a public reader for the end record. | not filed |

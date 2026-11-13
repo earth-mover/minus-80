@@ -1,0 +1,288 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1945" viewBox="0 0 1400 1945">
+<rect x="0" y="0" width="1400" height="1945" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Mapping</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">source C/02, field FOV_2 → store C/02/1</text>
+<rect x="24.0" y="85.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
+<rect x="104.6" y="85.9" width="14" height="14" rx="3" fill="#1baf7a"/>
+<text x="124.6" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">store</text>
+<rect x="178.8" y="85.9" width="14" height="14" rx="3" fill="#eb6834"/>
+<text x="198.8" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">FOV_2</text>
+<line x1="253.0" y1="92.9" x2="275.0" y2="92.9" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="281.0,92.9 273.0,88.4 273.0,97.4" fill="#64748b"/>
+<text x="287.0" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">copied</text>
+<polygon points="24.0,165.9 58.0,131.9 388.0,131.9 354.0,165.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="354.0,165.9 388.0,131.9 388.0,442.8 354.0,476.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="24.0" y="165.9" width="330.0" height="310.9" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<line x1="49.0" y1="165.9" x2="49.0" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="74.0" y1="165.9" x2="74.0" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="99.1" y1="165.9" x2="99.1" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="124.1" y1="165.9" x2="124.1" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="149.1" y1="165.9" x2="149.1" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="174.1" y1="165.9" x2="174.1" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="199.2" y1="165.9" x2="199.2" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="224.2" y1="165.9" x2="224.2" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="249.2" y1="165.9" x2="249.2" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="274.2" y1="165.9" x2="274.2" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="299.3" y1="165.9" x2="299.3" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="324.3" y1="165.9" x2="324.3" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="349.3" y1="165.9" x2="349.3" y2="476.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="190.9" x2="354.0" y2="190.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="215.9" x2="354.0" y2="215.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="241.0" x2="354.0" y2="241.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="266.0" x2="354.0" y2="266.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="291.0" x2="354.0" y2="291.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="316.0" x2="354.0" y2="316.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="341.1" x2="354.0" y2="341.1" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="366.1" x2="354.0" y2="366.1" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="391.1" x2="354.0" y2="391.1" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="416.1" x2="354.0" y2="416.1" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="441.2" x2="354.0" y2="441.2" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="466.2" x2="354.0" y2="466.2" stroke="#cbd5e1" stroke-width="1"/>
+<rect x="190.6" y="165.9" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="290.9" y="210.0" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="24.0" y="290.3" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="178.5" y="382.6" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="26.0" y="394.7" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="304.0" y="426.8" width="25.0" height="25.0" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>
+<rect x="36.0" y="175.4" width="25.0" height="25.0" fill="#eb6834" fill-opacity="0.3" stroke="#eb6834" stroke-width="2"/>
+<text x="24.0" y="498.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/1/0</text>
+<text x="24.0" y="514.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 1, level 0; 7 fields</text>
+<text x="24.0" y="531.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  4 × 271 × 12425 × 13187</text>
+<text x="24.0" y="548.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 1 × 10 × 1000 × 1000</text>
+<text x="24.0" y="565.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">codec  blosc lz4 5, shuffle</text>
+<rect x="470.0" y="171.9" width="360.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="171.9" width="4" height="132.0" rx="2" fill="#eb6834"/>
+<text x="484.0" y="191.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">FOV_2 window</text>
+<text x="484.0" y="208.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">C/02/1/tables/FOV_ROI_table</text>
+<text x="484.0" y="231.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">y</text>
+<text x="538.1" y="231.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">380–1380</text>
+<text x="484.0" y="251.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">x</text>
+<text x="538.1" y="251.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">481–1481</text>
+<text x="484.0" y="271.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">z</text>
+<text x="538.1" y="271.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0–271</text>
+<text x="484.0" y="291.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">rounds</text>
+<text x="538.1" y="291.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0–3, same window</text>
+<path d="M 61.1 187.9 C 265.5 187.9 265.5 211.9 470.0 211.9" fill="none" stroke="#eb6834" stroke-width="1.6"/>
+<polygon points="470.0,211.9 462.0,207.4 462.0,216.4" fill="#eb6834"/>
+<polygon points="960.0,241.9 1050.0,151.9 1200.0,151.9 1110.0,241.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="1110.0,241.9 1200.0,151.9 1200.0,301.9 1110.0,391.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="960.0" y="241.9" width="150.0" height="150.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<polyline points="970.6,231.3 1120.6,231.3 1120.6,381.3" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="981.3,220.6 1131.3,220.6 1131.3,370.6" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="991.9,210.0 1141.9,210.0 1141.9,360.0" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="1002.5,199.4 1152.5,199.4 1152.5,349.4" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="1013.1,188.8 1163.1,188.8 1163.1,338.8" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="1023.8,178.1 1173.8,178.1 1173.8,328.1" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="1034.4,167.5 1184.4,167.5 1184.4,317.5" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<polyline points="1045.0,156.9 1195.0,156.9 1195.0,306.9" fill="none" stroke="#1baf7a" stroke-width="1"/>
+<text x="960.0" y="413.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store C/02/1/0</text>
+<text x="960.0" y="429.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">FOV_2, level 0</text>
+<text x="960.0" y="446.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  16 × 271 × 1000 × 1000</text>
+<text x="960.0" y="463.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 1 × 1 × 1000 × 1000</text>
+<text x="960.0" y="480.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shards 1 × 32 × 1000 × 1000</text>
+<text x="960.0" y="497.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">codec  blosc zstd 5, bitshuffle</text>
+<path d="M 830.0 211.9 C 895.0 211.9 895.0 316.9 960.0 316.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,316.9 952.0,312.4 952.0,321.4" fill="#64748b"/>
+<rect x="870.5" y="255.4" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="895.0" y="268.4" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<line x1="24" y1="609.8" x2="1376" y2="609.8" stroke="#cbd5e1"/>
+<text x="24.0" y="631.8" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">channels</text>
+<text x="101.9" y="631.8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round r, channel c → channel 4r + c</text>
+<rect x="24.0" y="649.8" width="330.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="649.8" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="669.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/0</text>
+<text x="38.0" y="686.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 0, omero.channels</text>
+<text x="38.0" y="709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 0</text>
+<text x="71.0" y="709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_0</text>
+<text x="38.0" y="729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 1</text>
+<text x="71.0" y="729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Pol-II-S2P</text>
+<text x="38.0" y="749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 2</text>
+<text x="71.0" y="749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">FLAG</text>
+<text x="38.0" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 3</text>
+<text x="71.0" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">PCNA</text>
+<rect x="24.0" y="791.8" width="330.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="791.8" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="811.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/1</text>
+<text x="38.0" y="828.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 1, omero.channels</text>
+<text x="38.0" y="851.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 0</text>
+<text x="71.0" y="851.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_1</text>
+<text x="38.0" y="871.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 1</text>
+<text x="71.0" y="871.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">H3K27Ac</text>
+<text x="38.0" y="891.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 2</text>
+<text x="71.0" y="891.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">bCatenin</text>
+<text x="38.0" y="911.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 3</text>
+<text x="71.0" y="911.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pH3</text>
+<rect x="24.0" y="933.8" width="330.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="933.8" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="953.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/2</text>
+<text x="38.0" y="970.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 2, omero.channels</text>
+<text x="38.0" y="993.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 0</text>
+<text x="71.0" y="993.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_2</text>
+<text x="38.0" y="1013.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 1</text>
+<text x="71.0" y="1013.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">H2B</text>
+<text x="38.0" y="1033.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 2</text>
+<text x="71.0" y="1033.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ALYREF</text>
+<text x="38.0" y="1053.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 3</text>
+<text x="71.0" y="1053.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Pol-II-S5P</text>
+<rect x="24.0" y="1075.8" width="330.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="1075.8" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="1095.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/3</text>
+<text x="38.0" y="1112.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 3, omero.channels</text>
+<text x="38.0" y="1135.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 0</text>
+<text x="71.0" y="1135.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_3</text>
+<text x="38.0" y="1155.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 1</text>
+<text x="71.0" y="1155.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Nanog</text>
+<text x="38.0" y="1175.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 2</text>
+<text x="71.0" y="1175.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">YAP</text>
+<text x="38.0" y="1195.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">c 3</text>
+<text x="71.0" y="1195.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">XRN2</text>
+<rect x="960.0" y="742.8" width="360.0" height="372.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="960.0" y="742.8" width="4" height="372.0" rx="2" fill="#1baf7a"/>
+<text x="974.0" y="762.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store C/02/1  omero.channels</text>
+<text x="974.0" y="779.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">FOV_2, 16 channels, round order</text>
+<text x="974.0" y="802.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">0</text>
+<text x="1000.0" y="802.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_0</text>
+<text x="974.0" y="822.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">1</text>
+<text x="1000.0" y="822.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Pol-II-S2P</text>
+<text x="974.0" y="842.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">2</text>
+<text x="1000.0" y="842.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">FLAG</text>
+<text x="974.0" y="862.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">3</text>
+<text x="1000.0" y="862.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">PCNA</text>
+<text x="974.0" y="882.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">4</text>
+<text x="1000.0" y="882.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_1</text>
+<text x="974.0" y="902.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">5</text>
+<text x="1000.0" y="902.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">H3K27Ac</text>
+<text x="974.0" y="922.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">6</text>
+<text x="1000.0" y="922.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">bCatenin</text>
+<text x="974.0" y="942.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">7</text>
+<text x="1000.0" y="942.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pH3</text>
+<text x="974.0" y="962.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">8</text>
+<text x="1000.0" y="962.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_2</text>
+<text x="974.0" y="982.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">9</text>
+<text x="1000.0" y="982.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">H2B</text>
+<text x="974.0" y="1002.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">10</text>
+<text x="1000.0" y="1002.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ALYREF</text>
+<text x="974.0" y="1022.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">11</text>
+<text x="1000.0" y="1022.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Pol-II-S5P</text>
+<text x="974.0" y="1042.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">12</text>
+<text x="1000.0" y="1042.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DAPI_3</text>
+<text x="974.0" y="1062.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">13</text>
+<text x="1000.0" y="1062.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Nanog</text>
+<text x="974.0" y="1082.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">14</text>
+<text x="1000.0" y="1082.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">YAP</text>
+<text x="974.0" y="1102.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">15</text>
+<text x="1000.0" y="1102.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">XRN2</text>
+<path d="M 354.0 715.8 C 657.0 715.8 657.0 828.8 960.0 828.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,828.8 952.0,824.3 952.0,833.3" fill="#64748b"/>
+<rect x="632.5" y="763.3" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="657.0" y="776.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<path d="M 354.0 857.8 C 657.0 857.8 657.0 908.8 960.0 908.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,908.8 952.0,904.3 952.0,913.3" fill="#64748b"/>
+<rect x="632.5" y="874.3" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="657.0" y="887.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<path d="M 354.0 999.8 C 657.0 999.8 657.0 988.8 960.0 988.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,988.8 952.0,984.3 952.0,993.3" fill="#64748b"/>
+<rect x="632.5" y="985.3" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="657.0" y="998.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<path d="M 354.0 1141.8 C 657.0 1141.8 657.0 1068.8 960.0 1068.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1068.8 952.0,1064.3 952.0,1073.3" fill="#64748b"/>
+<rect x="632.5" y="1096.3" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="657.0" y="1109.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<line x1="24" y1="1247.8" x2="1376" y2="1247.8" stroke="#cbd5e1"/>
+<text x="24.0" y="1269.8" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">labels</text>
+<text x="85.4" y="1269.8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">from round 1</text>
+<polygon points="24.0,1313.8 50.0,1287.8 290.0,1287.8 264.0,1313.8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="264.0,1313.8 290.0,1287.8 290.0,1514.0 264.0,1540.0" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="24.0" y="1313.8" width="240.0" height="226.1" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<line x1="42.2" y1="1313.8" x2="42.2" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="60.4" y1="1313.8" x2="60.4" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="78.6" y1="1313.8" x2="78.6" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="96.8" y1="1313.8" x2="96.8" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="115.0" y1="1313.8" x2="115.0" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="133.2" y1="1313.8" x2="133.2" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="151.4" y1="1313.8" x2="151.4" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="169.6" y1="1313.8" x2="169.6" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="187.8" y1="1313.8" x2="187.8" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="206.0" y1="1313.8" x2="206.0" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="224.2" y1="1313.8" x2="224.2" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="242.4" y1="1313.8" x2="242.4" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="260.6" y1="1313.8" x2="260.6" y2="1540.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1332.0" x2="264.0" y2="1332.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1350.2" x2="264.0" y2="1350.2" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1368.4" x2="264.0" y2="1368.4" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1386.6" x2="264.0" y2="1386.6" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1404.8" x2="264.0" y2="1404.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1423.0" x2="264.0" y2="1423.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1441.2" x2="264.0" y2="1441.2" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1459.4" x2="264.0" y2="1459.4" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1477.6" x2="264.0" y2="1477.6" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1495.8" x2="264.0" y2="1495.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1514.0" x2="264.0" y2="1514.0" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24.0" y1="1532.2" x2="264.0" y2="1532.2" stroke="#cbd5e1" stroke-width="1"/>
+<rect x="32.8" y="1320.7" width="18.2" height="18.2" fill="#eb6834" fill-opacity="0.3" stroke="#eb6834" stroke-width="2"/>
+<text x="24.0" y="1562.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source C/02/1/labels/nucleiRaw/0</text>
+<text x="24.0" y="1578.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">round 1; one of 6: cells, cyto, embryoRaw, membrane, nucleiRaw, Pol-II-S2P_foci</text>
+<text x="24.0" y="1595.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  271 × 12425 × 13187</text>
+<text x="24.0" y="1612.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 10 × 1000 × 1000</text>
+<text x="24.0" y="1629.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">dtype  uint32</text>
+<polygon points="960.0,1323.8 986.0,1297.8 1116.0,1297.8 1090.0,1323.8" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="1090.0,1323.8 1116.0,1297.8 1116.0,1427.8 1090.0,1453.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="960.0" y="1323.8" width="130.0" height="130.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="960.0" y="1475.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store C/02/1/labels/nucleiRaw/0</text>
+<text x="960.0" y="1491.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">FOV_2; 6 labels, 4 levels each</text>
+<text x="960.0" y="1508.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  271 × 1000 × 1000</text>
+<text x="960.0" y="1525.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 1 × 1000 × 1000</text>
+<text x="960.0" y="1542.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shards 271 × 1000 × 1000</text>
+<text x="960.0" y="1559.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">codec  blosc zstd 5, bitshuffle</text>
+<path d="M 51.0 1329.8 C 505.5 1329.8 505.5 1388.8 960.0 1388.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1388.8 952.0,1384.3 952.0,1393.3" fill="#64748b"/>
+<rect x="481.0" y="1350.3" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="505.5" y="1363.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<line x1="24" y1="1663.0" x2="1376" y2="1663.0" stroke="#cbd5e1"/>
+<text x="24.0" y="1685.0" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">position</text>
+<text x="101.9" y="1685.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">FOV_ROI_table row → scene translation</text>
+<rect x="24.0" y="1703.0" width="420.0" height="172.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="1703.0" width="4" height="172.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="1723.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source FOV_2 row</text>
+<text x="38.0" y="1740.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">C/02/&lt;round&gt;/tables/FOV_ROI_table</text>
+<text x="38.0" y="1763.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">x_micrometer</text>
+<text x="197.3" y="1763.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">312.65</text>
+<text x="38.0" y="1783.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">y_micrometer</text>
+<text x="197.3" y="1783.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">247</text>
+<text x="38.0" y="1803.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">len_x_micrometer</text>
+<text x="197.3" y="1803.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">650</text>
+<text x="38.0" y="1823.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">len_y_micrometer</text>
+<text x="197.3" y="1823.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">650</text>
+<text x="38.0" y="1843.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">x_micrometer_original</text>
+<text x="197.3" y="1843.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">155</text>
+<text x="38.0" y="1863.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">y_micrometer_original</text>
+<text x="197.3" y="1863.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">122.7</text>
+<rect x="960.0" y="1703.0" width="420.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="960.0" y="1703.0" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="974.0" y="1723.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store C/02  ome.scene</text>
+<text x="974.0" y="1740.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one translation per image</text>
+<text x="974.0" y="1763.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">input</text>
+<text x="1063.2" y="1763.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">intrinsic, path 1</text>
+<text x="974.0" y="1783.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">output</text>
+<text x="1063.2" y="1783.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">well</text>
+<text x="974.0" y="1803.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">translation</text>
+<text x="1063.2" y="1803.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">[0, 0, 247, 312.65]</text>
+<text x="974.0" y="1823.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="1063.2" y="1823.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">c, z, y, x  (µm)</text>
+<rect x="960.0" y="1845.0" width="420.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="960.0" y="1845.0" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="974.0" y="1865.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store C/02/1  annotations</text>
+<text x="974.0" y="1889.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">FOV_ROI_table</text>
+<text x="1077.2" y="1889.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">row kept as is</text>
+<text x="974.0" y="1909.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field</text>
+<text x="1077.2" y="1909.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">FOV_2</text>
+<path d="M 444.0 1773.0 C 702.0 1773.0 702.0 1799.0 960.0 1799.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1799.0 952.0,1794.5 952.0,1803.5" fill="#64748b"/>
+<rect x="677.5" y="1777.0" width="49.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="702.0" y="1790.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">copied</text>
+<path d="M 444.0 1793.0 C 702.0 1793.0 702.0 1885.0 960.0 1885.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1885.0 952.0,1880.5 952.0,1889.5" fill="#64748b"/>
+<rect x="683.7" y="1830.0" width="36.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="702.0" y="1843.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">kept</text>
+</svg>

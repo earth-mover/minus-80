@@ -6,7 +6,7 @@ prefix is passed to ``authorize_virtual_chunk_access``, without which Icechunk
 refuses to read virtual chunks. The containers are saved in the repo's config,
 so :func:`open_repo` can authorize them again without being told the sources.
 
-Local, ``s3://`` and ``http(s)://`` sources are supported. Any other scheme
+Local, ``s3://``, ``gs://`` and ``http(s)://`` sources are supported. Any other scheme
 raises ``ValueError``.
 """
 from __future__ import annotations
@@ -39,8 +39,9 @@ def _access_for(prefix: str):
 
     Local sources get ``LocalFileSystemAccess``. ``s3://`` gets anonymous or
     environment credentials (see :func:`minus80.core.registry.s3_anonymous`).
-    ``http(s)`` gets ``HttpAccess``, which is anonymous; the container's store
-    carries the connection settings.
+    ``gs://`` gets anonymous credentials: the Google Cloud buckets the ingests
+    reference are public archives. ``http(s)`` gets ``HttpAccess``, which is
+    anonymous; the container's store carries the connection settings.
     """
     import icechunk
 
@@ -54,6 +55,10 @@ def _access_for(prefix: str):
             else icechunk.credentials.s3_from_env_credentials()
         )
         return icechunk.credentials.Credentials.S3(cred)
+    if scheme == "gs":
+        return icechunk.credentials.Credentials.Gcs(
+            icechunk.credentials.gcs_anonymous_credentials()
+        )
     return icechunk.credentials.HttpAccess
 
 
@@ -62,7 +67,8 @@ def _store_for(prefix: str):
 
     ``s3://`` uses ``s3_store`` (the bucket's region and anonymity, see
     :func:`minus80.core.registry.s3_region`), so a repo of references into a public S3
-    bucket resolves without local credentials. Arraylake accepts S3-backed
+    bucket resolves without local credentials. ``gs://`` uses an unsigned
+    ``gcs_store``, matching the anonymous credentials. Arraylake accepts S3-backed
     containers and refuses HTTP-backed ones. ``http(s)`` uses ``http_store``
     with ``allow_http``, so plain-http origins such as a localhost server work
     as well as TLS ones.
@@ -76,6 +82,8 @@ def _store_for(prefix: str):
         return icechunk.s3_store(
             region=s3_region(urlparse(prefix).netloc), anonymous=s3_anonymous()
         )
+    if scheme == "gs":
+        return icechunk.gcs_store({"google_skip_signature": "true"})
     if scheme in ("http", "https"):
         return icechunk.http_store({"allow_http": "true"})
     raise ValueError(
@@ -133,7 +141,9 @@ MANIFEST_FETCH_CONCURRENCY = 32
 COMMIT_REBASE_TRIES = 100
 
 
-def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
+def commit(
+    session, message: str, *, metadata: dict | None = None, tries: int = COMMIT_REBASE_TRIES
+) -> str:
     """Commit a writable session, rebasing onto concurrent commits on its branch.
 
     A commit from a session that no longer sits at the branch tip fails outright.
@@ -142,11 +152,14 @@ def commit(session, message: str, *, tries: int = COMMIT_REBASE_TRIES) -> str:
     touching different nodes of the same store. A conflict the solver cannot
     resolve, such as the same array written twice differently, still raises
     ``RebaseFailedError``, because picking a winner there is the caller's call.
+
+    ``metadata`` is stored on the snapshot beside the message, so a reader of the
+    history can tell what a commit changed without diffing it.
     """
     import icechunk
 
     return session.commit(
-        message, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
+        message, metadata=metadata, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
     )
 
 
