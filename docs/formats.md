@@ -100,14 +100,14 @@ such as `flac-numcodecs`, decodes the format.
 ### Decode lossless JPEG 2000 once for a native copy
 
 10x Atera writes its OME-TIFF morphology as `uint16` JPEG 2000 tiles. They use
-the 5/3 reversible wavelet, so they are lossless. `tifffile` decodes them
+the 5/3 reversible wavelet. So they are lossless. `tifffile` decodes them
 through `imagecodecs`.
 
 The Zarr codec for them is `imagecodecs_jpeg2k`. Only Python readers with
 `imagecodecs-zarr` have it. Arraylake's web app and its Booth service do not.
 
 A native copy therefore decodes each tile once and writes it with blosc-zstd.
-`minus80.core.pyramid` does this and checks sampled tiles against tifffile.
+`minus80.core.pyramid` does this. It checks sampled tiles against tifffile.
 
 ## Indexing remote files
 
@@ -208,5 +208,5 @@ file from the target archive as the primary fixture.
 | PyAV demuxing slows down as threads are added: 1.1 GB/s on one thread, 125 MB/s on eight | parse in spawned processes |
 | Forking a process after obstore has started its threads can deadlock | `multiprocessing.get_context("spawn")` |
 | Coiled's container has a 64 MB `/dev/shm` | hold downloads in memory |
-| `pyiceberg` maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295 | store such columns as `int64` |
-| zarr's regular chunk grid cannot hold a virtual reference to a short last chunk | `minus80.core.tables.declare_copy` uses a rectilinear grid, and a reader sets `array.rectilinear_chunks` |
+| `pyiceberg` maps Arrow `uint32` to Iceberg's signed `int`. That type overflows on 4294967295 | store such columns as `int64` |
+| zarr's regular chunk grid cannot hold a virtual reference to a short last chunk | `minus80.core.tables.declare_copy` uses a rectilinear grid. A reader sets `array.rectilinear_chunks` |

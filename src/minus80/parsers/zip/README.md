@@ -31,7 +31,7 @@ belongs upstream beside `ZippedZarrParser`, which lists it as future work.
 | `zarr_v2` | Parsing, bytes only, for a zipped Zarr v2 store: `chunk_key` says which chunk of which array a member is, `ArraySpec` reads a `.zarray` and compares encodings, `decode_chunk` decodes a chunk with numcodecs, `frame_problem` finds a Blosc frame cut short without decoding it |
 | `reading` | Fetching (obstore, through `minus80.core.fetch`), then parsing with `directory`: `read_central_directory(url, registry=)` and `cached_central_directory` (kept as Parquet, checked against the archive's ETag, last-modified time or size); `read_members` fetches a few members, one request each; `stream_members` fetches many members once, in file order, as large ranges |
 | `buffers` | Reads members from bytes already fetched, without the central directory: the members in a window, and `walk_archive`, which walks a whole remote archive in order |
-| `nested` | `member_file(archive, name)` opens a STORED member as a seekable file; `member_zip(archive, name)` opens a zip stored inside a zip, from a local or a remote outer file |
+| `nested` | `member_file(archive, name)` opens a STORED member as a seekable file. `member_zip(archive, name)` opens a zip stored inside a zip, from a local or a remote outer file |
 | `safetensors_ranges` | `tensor_ranges(data, file_offset)` gives each tensor's byte range in a safetensors file, including one stored inside a zip member |
 
 The `zip` extra adds `pyarrow`, which `directory` and `reading` use to keep the central

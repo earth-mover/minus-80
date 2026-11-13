@@ -24,8 +24,8 @@ Statuses checked 2026-10-22; the zip rows and the obstore and zarr rows they cit
 | `parse_zip_index` fetches the whole central directory in one request, which is 1.49 GB for an archive of 7.7 million members. `buffers` walks the local headers in order instead. | `minus80.parsers.zip.buffers` | Read the central directory in bounded pieces. | not filed |
 | `MemberStore` reads a zipped Zarr store through zarr, inflating Deflate members. VirtualiZarr's `_ZipMetadataStore` does the same for STORED members only and is private; zarr's `ZipStore` and fsspec's zip filesystem serialize every read behind `zipfile`'s lock. | `minus80.parsers.zip.store` | A public, concurrent, inflating zip store in VirtualiZarr or zarr. | not filed |
 | `tensor_ranges` reads a safetensors header and returns each tensor's byte range, including inside a STORED zip member. | `minus80.parsers.zip.safetensors_ranges` | Add a safetensors parser. | [VirtualiZarr#367](https://github.com/zarr-developers/VirtualiZarr/issues/367), open issue |
-| `ZippedZarrParser` reads a `.zarr.zip` that is its own object. It cannot read one stored inside another zip. `member_file` opens the stored member as a seekable file, and `copy_group` copies the Zarr v2 chunks into a v3 group. | `minus80.parsers.zip.nested`, `minus80.core.zarr_copy` | Let `ZippedZarrParser` read a Zarr zip that is a member of a stored zip. | not filed |
-| `read_array` decodes a Zarr v2 array from an open `zipfile.ZipFile`. `zarr.storage.ZipStore` takes a path or a file object, not an open `ZipFile`, so a second open parses the central directory again. | `minus80.core.zarr_copy` | `ZipStore`: accept an open `ZipFile`. | not filed |
+| `ZippedZarrParser` reads a `.zarr.zip` that is its own object. It cannot read one stored inside another zip. `member_file` opens the stored member as a seekable file. `copy_group` copies the Zarr v2 chunks into a v3 group. | `minus80.parsers.zip.nested`, `minus80.core.zarr_copy` | Let `ZippedZarrParser` read a Zarr zip that is a member of a stored zip. | not filed |
+| `read_array` decodes a Zarr v2 array from an open `zipfile.ZipFile`. `zarr.storage.ZipStore` takes a path or a file object, not an open `ZipFile`. So a second open parses the central directory again. | `minus80.core.zarr_copy` | `ZipStore`: accept an open `ZipFile`. | not filed |
 
 ## Icechunk
 
@@ -84,21 +84,21 @@ retired in favour of virtual-tiff.
 | --- | --- | --- | --- |
 | A zipped Zarr store is copied by streaming its members in file order, so each chunk has to be decoded from bytes as it arrives. zarr reads chunks only by asking a store for keys, and has no public call that decodes a chunk's bytes given an array's metadata, so `zarr_v2` decodes them with numcodecs, from the array's `.zarray`. | `minus80.parsers.zip.zarr_v2` | Expose decoding a chunk's bytes with an array's codec pipeline. | no issue found |
 | `submit` starts a coroutine on zarr's IO loop through the private `zarr.core.sync._get_loop`, so range GETs can be cancelled and the loop's daemon thread does not hold the interpreter open. `zarr.core.sync.sync` runs a coroutine to completion but returns no handle to cancel it. | `minus80.core.aio` | Expose a public way to submit a coroutine to zarr's IO loop and get a cancellable future. | no issue found |
-| A regular chunk grid cannot hold a virtual reference to a file's short last chunk. `declare_copy` writes a rectilinear grid, which needs the `array.rectilinear_chunks` config flag to open. | `minus80.core.tables` | Enable rectilinear chunk grids without a config flag. | not filed |
+| A regular chunk grid cannot hold a virtual reference to a file's short last chunk. `declare_copy` writes a rectilinear grid. That grid opens only with the `array.rectilinear_chunks` config flag. | `minus80.core.tables` | Enable rectilinear chunk grids without a config flag. | not filed |
 
 ## SpatialData
 
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
-| SpatialData cannot open a store that has no filesystem path. The ingest keeps each points and shapes Parquet file as a `uint8` array, which `declare_copy` references from the repo. | `minus80.core.tables` | Open points and shapes from a store without a filesystem path. | [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107), open PR |
+| SpatialData cannot open a store that has no filesystem path. The ingest keeps each points and shapes Parquet file as a `uint8` array. `declare_copy` makes that array in the repo, and its chunks reference the file. | `minus80.core.tables` | Open points and shapes from a store without a filesystem path. | [spatialdata#1107](https://github.com/scverse/spatialdata/pull/1107), open PR |
 
 ## pyiceberg
 
 | Workaround | Module | Upstream | Status |
 | --- | --- | --- | --- |
-| pyiceberg maps Arrow `uint32` to Iceberg's signed `int`, which overflows on 4294967295. The ingest declares such columns as `int64`. | `ingests/atera/transcripts.py` | Map unsigned integers to a type that holds their range. | not filed |
-| pyiceberg `add_files` leaves files without field ids. It registers each file as written and sets the table's `schema.name-mapping.default`. `write_parquet` gives each column the field id of the table schema, and pyiceberg 0.12.0 `add_files` accepts such a file. The field ids stay the chosen form. | `minus80.core.tables` | zax: read a file without field ids through the table's name mapping, as the Iceberg spec allows. | Done in zax on 2026-11-11: zax reads name-mapped files (`ingests/atera/LAYOUTS.md`, check (d)) |
-| pyiceberg 0.12.0 gives pyarrow the vended storage credentials as static keys, with no refresh. The Arraylake catalog vends write credentials for 1,080 s and keeps one for 972 s. So an upload that starts late in that time outlives its credential, and a part fails with `SignatureDoesNotMatch`. `TableWriter` loads the table again after an `OSError` and repeats the upload, up to `UPLOAD_ATTEMPTS`. | `minus80.core.tables` | Refresh the vended credentials of a FileIO before they expire, from `s3.session-token-expires-at-ms`. | not filed |
+| pyiceberg maps Arrow `uint32` to Iceberg's signed `int`. That type overflows on 4294967295. The ingest declares such columns as `int64`. | `ingests/atera/transcripts.py` | Map unsigned integers to a type that holds their range. | not filed |
+| pyiceberg `add_files` leaves files without field ids. It registers each file as it is. It sets the table's `schema.name-mapping.default`. `write_parquet` gives each column the field id of the table schema. pyiceberg 0.12.0 `add_files` accepts such a file. The field ids stay the chosen form. | `minus80.core.tables` | zax: read a file without field ids through the table's name mapping, as the Iceberg spec allows. | Done in zax on 2026-11-11: zax reads name-mapped files (`ingests/atera/LAYOUTS.md`, check (d)) |
+| pyiceberg 0.12.0 gives pyarrow the vended storage credentials as static keys, with no refresh. The Arraylake catalog vends write credentials for 1,080 s. It keeps one credential for 972 s. So an upload that starts late in that time lasts longer than its credential. A part then fails with `SignatureDoesNotMatch`. `TableWriter` loads the table again after an `OSError`. Then it repeats the upload, up to `UPLOAD_ATTEMPTS`. | `minus80.core.tables` | Refresh the vended credentials of a FileIO before they expire, from `s3.session-token-expires-at-ms`. | not filed |
 
 ## Python standard library
 

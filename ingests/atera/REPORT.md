@@ -23,7 +23,8 @@ The run took place on 2026-11-11 and 2026-11-12. The sample is one of four. "Not
 | `points/transcripts` | Iceberg table in 30 partitions and 30 `uint8` copies | | `transcripts.zarr.zip` |
 | `tables/table` | AnnData, `X` CSR `(399120, 24674)`, 599,212,411 stored values | | `cell_feature_matrix.zarr.zip`, chunks copied unchanged |
 
-The root attributes hold the title, citation, licence, source objects, sample and run records, and the list of what the store lacks.
+The root attributes hold the title, the citation, the licence and the source objects.
+They also hold the sample and run records and the list of what the store lacks.
 The root attribute `iceberg_tables` pins three tables that annotate no element.
 The root attribute `reading` says which reader opens which element.
 The root attribute `description` has one sentence for each kind of element that the store holds.
@@ -76,8 +77,13 @@ The `fixture` branch is unchanged. A check from a laptop, with no read of the so
 The VM downloaded the three source objects once, one stream each: 48,518,883,775 bytes in 991 s.
 It checked each size and recomputed each multipart ETag. Then it read local files.
 
-Three operations were checked on Arraylake before the run, on tables that were made for the check and dropped.
-They are a staged create of a partitioned table, a schema change with one delete and two adds in one commit, and an overwrite of one partition.
+Before the run, a check tested three operations on Arraylake.
+The check made its own tables and dropped them after. The three operations are these:
+
+- a staged create of a partitioned table;
+- a schema change with one delete and two adds in one commit;
+- an overwrite of one partition.
+
 In each case the earlier snapshot read its rows after a fresh load.
 
 ### How to open it
@@ -90,7 +96,7 @@ zax-spatialdata reads the Iceberg tables through the Arraylake catalog.
 It checks each `iceberg_table` attribute against the table UUID and snapshot.
 The root attribute `reading` says which reader opens which element.
 These reads ran on the `fixture` branch. Nobody ran them on `main`.
-To read `main`, use the branch name `main` in place of `fixture`. That change is not tested.
+To read `main`, use the branch name `main` in place of `fixture`. Nobody tested that change.
 Read each table at the snapshot that its element pins. The table's current snapshot can differ.
 
 ## Verification
@@ -134,7 +140,8 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - Each transcripts tile has the row count and the `instance` range of the source tile. The ranges leave no gap across tiles.
 - Each row group of a tile starts after the last one. The Parquet footers give this.
 - Each polygon table has one row per cell of its set. `part_count` equals the source rows of every cell.
-- For each Parquet data file, the first block, the last block and three blocks between equal the `uint8` copy, by hash.
+- For each Parquet data file, five blocks equal the `uint8` copy, by hash.
+  These are the first block, the last block and three blocks between.
 - Each source object's size and ETag equal the record in the root attribute `source`.
 
 ### What the gates do not prove
@@ -144,7 +151,7 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - The `transcripts` check proves contiguity at row-group granularity.
   It does not find a repeat inside one row group that has the right minimum, maximum and count.
 - The `copies` gate hashes at most five blocks of each data file. It does not find a change in another block.
-- Booth and the Arraylake web app are not checked.
+- Nobody checked Booth and the Arraylake web app.
 - The overview scan is not in the store. No gate covers it.
 - The run had no gate for an element's transform. `PLAN.md`, "Steps, scope and risk", "The run of each sample", adds the gate `transforms`. On 2026-11-12 it passed on snapshot `DCHK9523X4W5TSC4V5X0`, with the gate `labels`.
 - Two checks use the ingest's own decoders as the reference: the QC rasters' decode and `zarr_copy.read_array`.
@@ -186,7 +193,8 @@ The estimate read the bundle from 10x's bucket. The run read local files.
 
 ## Judgement calls made
 
-The numbered calls of `PLAN.md` follow. The owner has not yet checked calls 5, 7, 13 and 14, and the call on levels above 0.
+The numbered calls of `PLAN.md` follow. Calls 5, 7, 13 and 14 and the call on levels above 0 are open.
+The owner checks them.
 
 | # | Call | As built |
 |---|---|---|
@@ -207,7 +215,7 @@ The numbered calls of `PLAN.md` follow. The owner has not yet checked calls 5, 7
 
 Open calls, for the owner to check:
 
-- **Call 5.** The H&E is decoded, not copied. One rule serves all four samples.
+- **Call 5.** The ingest decodes the H&E. It does not copy it. One rule serves all four samples.
 - **Call 7.** The 3D stack took 3,257.4 s of the ingest.
 - **Call 13.** SpatialData has no element type for a table that annotates no element.
 - **Call 14.** A strict validator, `ome-zarr-models` 1.8.1, rejects the string `0.5-dev-spatialdata`.
@@ -342,7 +350,7 @@ Each table's current snapshot equals its pin on `main`.
 | `instances` | 50 of 50 centroids in their own label | 50 of 50 |
 | `polygons` finding | 4,142 invalid nucleus polygons | 2,925 invalid nucleus polygons |
 
-The metrics CSV of each sample states no count of invalid polygons, so each finding fails no gate.
+The metrics CSV of each sample states no count of invalid polygons. So each finding fails no gate.
 
 The first colorectal run stopped after 5,219 s, 2,127 s into its ingest.
 An upload of tile `1,2` failed with `SignatureDoesNotMatch`.
@@ -354,7 +362,7 @@ The breast run used the code before that commit. None of its uploads failed.
 
 ## Not done
 
-- **The overview scan.** `images/overview_scan` is not written. The ingest does not place the scan. `PLAN.md`, call 6, gives the test for it.
+- **The overview scan.** The ingest did not write `images/overview_scan`. The ingest does not place the scan. `PLAN.md`, call 6, gives the test for it.
 - **Booth.** Nobody checked whether Booth serves an element as tiles.
 - **Reads on `main`.** The SpatialData and zax reads ran on the `fixture` branch only.
 - **What `missing` lists.** The root attribute `missing` lists the overview scan and three bundle members.

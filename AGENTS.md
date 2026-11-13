@@ -87,25 +87,28 @@ ingest, the work is not done. That rules out:
 
 ### Native ingests
 
-An ingest copies the source's bytes only when reads in place would put a load on
-the source that its owner did not provide for. A public bucket that serves
-downloads, not range reads from every user, is such a case.
+An ingest copies the source's bytes in one case only. In that case, reads in
+place put a load on the source. The source's owner did not provide for that
+load. A public bucket that serves downloads, not range reads from every user,
+is such a case.
 Our convenience is not a reason. The ingest's `PLAN.md` states the reason.
 
 A native ingest relaxes two rules:
 
 - **It decodes pixels once.** It does so only when no codec that every reader has
-  can decode the source's chunks. It copies a chunk's bytes unchanged when one can.
+  can decode the source's chunks. It copies a chunk's bytes unchanged when such
+  a codec can decode them.
 - **It chooses the chunking for the reader.** The source's storage unit is the
   default. A different chunk shape needs a stated reason.
 
-Every other rule holds, and three become stricter:
+Every other rule holds. Three rules become stricter:
 
 - **Verify each copied byte and each decoded tile against the source.** Compare
   copied chunks with the source bytes. Compare decoded tiles with the format's
   reference reader, on a sample that covers every level and layout.
 - **Record the source objects.** The root attributes hold each object's URL, size,
-  ETag and date, with the licence and the citation the publisher asks for.
+  ETag and date. They also hold the licence and the citation that the publisher
+  asks for.
 - **Run beside the data.** The ingest runs in the source's region. A run from
   elsewhere measures nothing about the ingest.
 
