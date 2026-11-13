@@ -17,7 +17,7 @@ from minus80.parsers import tiff
 
 | Module | What it does | Status |
 | --- | --- | --- |
-| [`minus80.core`](src/minus80/core/README.md) | Wrappers over VirtualiZarr: repo setup, remote-file indexing, flat-binary arrays, hybrid pyramids | in repo |
+| [`minus80.core`](src/minus80/core/README.md) | Wrappers over VirtualiZarr: repo setup, remote-file indexing, flat-binary arrays, hybrid pyramids. Native copies, resumable element writes and Iceberg tables beside a store | in repo |
 | [`minus80.ome`](src/minus80/ome/README.md) | OME-Zarr metadata over referenced arrays: images, labels, plates, collections | in repo |
 | [`minus80.diagrams`](src/minus80/diagrams.py) | SVG building blocks and the shared style for each ingest's figures: panels, trees, links, array cubes, legends | in repo |
 
