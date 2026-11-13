@@ -45,7 +45,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | `ctc` | Cell Tracking Challenge training sets | moving |
 | `dandi` | NWB recordings from the DANDI Archive, including Allen Brain Observatory 2-photon | moving |
 | `sanctsound` | SanctSound hydrophone recordings with species detections | in repo |
-| `atera` | 10x Atera whole-transcriptome in situ samples, as native SpatialData stores with Iceberg tables | in repo |
+| `atera` | 10x Atera whole-transcriptome in situ samples, as native SpatialData stores with Iceberg tables | four samples ingested |
 | `opencell` | OpenCell: 1,310 endogenously tagged human proteins, with localization and interaction tables | in repo |
 | `zebrafish-3d-4i` | 3D-4i zebrafish embryos (BioImage Archive S-BIAD3228), as a native OME-Zarr 0.6 HCS plate | in repo |
 
