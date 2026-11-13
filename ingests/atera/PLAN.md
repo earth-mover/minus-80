@@ -576,7 +576,9 @@ It also ran the gates `transforms` and `labels` on the kidney's `main` (`REPORT.
     `codeword_index` for `codewords` and `Feature ID` for the other two.
 14. **The OME version of the raster elements.** The plan's author made this
     call. The owner checks it. Decided: keep `0.5-dev-spatialdata`.
-    SpatialData requires that string. `AGENTS.md` asks for OME-Zarr 0.5 metadata.
+    SpatialData requires that string. `AGENTS.md` asks for OME-Zarr 0.6 metadata.
+    SpatialData reads only the 0.5 layout, so the Atera ingest pins 0.5 and differs from that rule.
+    `raster_attrs` refuses any other version.
     Evidence from 2026-11-11: `ome-zarr-models` 1.8.1 rejects the version string and
     nothing else. It accepts the attributes with `0.5`. SpatialData 0.8.0
     parses the stored transforms and gives the expected points. Nobody checked Booth.
