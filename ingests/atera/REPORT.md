@@ -319,9 +319,38 @@ These are the facts that the run measured:
 - The decoded checks of `labels` and `matrix` passed. 13 of 20 mask chunks and all 20 chunks of `X` hold values.
 - The verification read 855.0 MiB of local files and sent 4,533 requests.
 
+### The colorectal and breast samples
+
+Both samples are Atera 1.1.1 bundles. Each run used one `m7g.xlarge` in us-west-2 and the branch `trial-20261112`.
+Every gate of the full mode passed. Then `promote.py` moved `main` to the verified snapshot.
+Each table's current snapshot equals its pin on `main`.
+
+| | Colorectal | Breast |
+|---|---|---|
+| Repo | `earthmover-biology/atera-colorectal` | `earthmover-biology/atera-breast` |
+| `main` | `SG4W57AMEJYGKZT9K250` | `PGYV9R98EKVJRE85J2Z0` |
+| download (s) | 1,720 | 3,650 |
+| check (s) | 610 | 738 |
+| ingest (s) | 5,694, on a resumed branch | 8,460 |
+| verify (s) | 2,824 | 3,023 |
+| all steps (s) | 10,957 | 15,976 |
+| transcript rows | 3,855,378,414 | 4,565,138,232 |
+| transcript Parquet | 32 files, 94,261,428,301 bytes, 24.45 B/row | 36 files, 111,209,408,071 bytes, 24.36 B/row |
+| `instances` | 50 of 50 centroids in their own label | 50 of 50 |
+| `polygons` finding | 4,142 invalid nucleus polygons | 2,925 invalid nucleus polygons |
+
+The metrics CSV of each sample states no count of invalid polygons, so each finding fails no gate.
+
+The first colorectal run stopped after 5,219 s, 2,127 s into its ingest.
+An upload of tile `1,2` failed with `SignatureDoesNotMatch`.
+The cause was a vended storage credential that expired during the upload. `docs/upstream.md` gives the mechanism.
+That run left five elements and eight tiles on the trial branch. `main` did not move.
+Commit `7f1acc2` repeats such an upload with a new credential.
+The rerun skipped the held elements and tiles. It repeated two uploads, and both passed.
+The breast run used the code before that commit. None of its uploads failed.
+
 ## Not done
 
-- **Two samples.** The colorectal and breast samples are not ingested. Each needs its repo and its access policy.
 - **The overview scan.** `images/overview_scan` is not written. The ingest does not place the scan. `PLAN.md`, call 6, gives the test for it.
 - **Booth.** Nobody checked whether Booth serves an element as tiles.
 - **Reads on `main`.** The SpatialData and zax reads ran on the `fixture` branch only.

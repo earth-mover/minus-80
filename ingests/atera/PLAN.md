@@ -900,15 +900,15 @@ Each item gives the problem, the fix and the check.
 
 Open work, as present facts. Stage three closed the other items. The result line of each work item gives the code.
 
-- **The transcript tables of colorectal and breast.** The brain's table measured 22.94 bytes of Parquet per row.
-  At that rate, the tables come to about 88 GB and 105 GB. The storage approval of each sample uses these estimates.
+- **The trial branches.** Each of the four repos keeps its branch `trial-20261112` or `trial-20261112-description`.
+  Each one is at the snapshot of `main`. A deletion needs the owner's approval.
+- **The credentials of an upload.** `TableWriter` repeats an upload whose vended credential expired, up to three attempts.
+  One upload must end within the 1,080 s of a new credential. `docs/upstream.md` gives the upstream fix.
 - **The stain names inside the OME-XML.** The record holds the file names of the morphology members.
   It does not hold the channel names inside the files.
   The ingest takes the channel names from the OME-XML when it writes.
   So the bundle check finds a renamed stain file, but not a changed name inside a file.
   The dry run of 2026-11-12 showed this. A record key for the names needs a second survey run of each sample.
-- **The trial branch of the kidney.** The branch `trial-20261112-description` stays on `atera-kidney`, at the snapshot of `main`.
-  A deletion needs the owner's approval.
 - **Gates with the ingest's code.** The gate `qc` decodes the report with the ingest's decoder, `qc.bundle_rasters`.
   The gates `tables`, `polygons`, `masks` and `instances` decode `cell_index`, `cell_summary` and `cell_id` with `read_array`.
   The ingest decodes these arrays with the same function.
@@ -1340,6 +1340,10 @@ A reader of a table's current snapshot sees those rows.
 
 ## The runs of colorectal and breast
 
+Result: on 2026-11-12 and 2026-11-13 both samples passed every gate, and the promote step moved each `main`.
+`REPORT.md`, "The colorectal and breast samples", gives the facts.
+The first colorectal run stopped on an expired upload credential. Commit `7f1acc2` fixed the cause, and a rerun resumed.
+
 The colorectal and breast samples take the path of the brain. Each needs its own approvals.
 Their records hold no error entry since the second survey run of 2026-11-12.
 The plan's author recommends both runs after the brain's run passes and moves `main`.
@@ -1351,7 +1355,7 @@ The brain's run is the first real run of a 1.1.1 bundle. A defect there would st
    Run it with `--dry-run` just before the launch. It must print four `exists` lines.
 2. **The spend.** One `m7g.xlarge` in us-west-2, Coiled workspace `earthmover-devs`, for at most the limit below.
 3. **The storage.** The transcript Parquet files come to about 88 GB (colorectal) and 105 GB (breast).
-   These figures use the brain's measured 22.94 bytes per row.
+   These figures use the brain's measured 22.94 bytes per row. The runs measured 94.3 GB and 111.2 GB.
    No run measured the stored size of the images, labels and matrix.
 4. **The run.** It is the first write to the sample's repo, on the branch `trial-<date>`.
 
