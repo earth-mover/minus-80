@@ -10,7 +10,7 @@ import csv
 import json
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,7 +18,7 @@ import numpy as np
 import qc
 import tifffile
 from bundle import (
-    CELLS, MATRIX, METRICS_PATTERN, MORPHOLOGY_2D_PATTERN, MORPHOLOGY_3D_PATTERN, REPORT_PATTERN, TRANSCRIPTS, Bundle,
+    CELLS, METRICS_PATTERN, MORPHOLOGY_2D_PATTERN, MORPHOLOGY_3D_PATTERN, REPORT_PATTERN, TRANSCRIPTS, Bundle,
     open_tiff, read_alignment,
 )
 from minus80.core.pyramid import physical_sizes
@@ -34,8 +34,6 @@ DEFAULT_MAX_BYTES = 200_000_000
 HEADER_LIMIT = 1 << 20
 #: The longest message that an error entry keeps.
 MESSAGE_LIMIT = 500
-#: The cap of metadata members that one store listing reads.
-STORE_MEMBERS = 3000
 #: A URL, a name of the source bucket, or an absolute path with all that follows it. A record holds no location.
 _LOCATION = re.compile(rf"""\S*://\S*|\S*{re.escape(urlparse(S3).netloc)}\S*|['"(\[]?(?<![\w.~-])/.*""")
 
@@ -203,59 +201,6 @@ def cell_facts(bundle: Bundle) -> dict:
             "cell_summary_columns": attribute(zf, "cell_summary/.zattrs", "column_names")}
 
 
-def _array_facts(zf, member: str) -> dict:
-    meta = json.loads(zf.read(member))
-    compressor = meta.get("compressor")
-    return {"dtype": meta.get("dtype"), "shape": meta.get("shape"), "chunks": meta.get("chunks"),
-            "compressor": compressor.get("id") if isinstance(compressor, dict) else None}
-
-
-def store_facts(bundle: Bundle, member: str, *, first_tile_only: bool = False) -> dict:
-    """The arrays and groups of the Zarr v2 store that ``member`` holds as a zip.
-
-    Each array has its dtype, shape, chunks, compressor id and the sorted keys of its attributes.
-    Each group with attributes has their sorted keys. An empty ``.zattrs`` is left out.
-    Only ``.zarray`` and ``.zattrs`` members are read, at most ``STORE_MEMBERS``. Past that, ``truncated`` is true.
-    With ``first_tile_only`` the store has one directory of arrays for each tile under ``grid``.
-    The tiles are the directories that hold arrays, not the ``grid_keys``. Only the arrays of one tile are listed.
-    That tile is the first one with rows when the grid attributes name it, else the first directory in name order.
-    """
-    zf = bundle.member_zip(member)
-    names = zf.namelist()
-    skip, found = (), {}
-    if first_tile_only:
-        directories = sorted({n.split("/")[1] for n in names
-                              if n.startswith("grid/") and n.endswith("/.zarray") and n.count("/") >= 3})
-        keys, counts = attribute(zf, "grid/.zattrs", "grid_keys"), attribute(zf, "grid/.zattrs", "grid_number_objects")
-        try:
-            first = first_tile(keys, counts)
-        except ValueError:
-            first = None
-        listed = first if first in directories else next(iter(directories), None)
-        skip = tuple(f"grid/{d}/" for d in directories if d != listed)
-        found["tiles"] = {"count": len(directories), "listed": listed,
-                          "directories_equal_grid_keys": isinstance(keys, list) and sorted(keys) == directories}
-    wanted = [n for n in names if n.rpartition("/")[2] in (".zarray", ".zattrs") and not n.startswith(skip)]
-    arrays, attrs = {}, {}
-    for name in wanted[:STORE_MEMBERS]:
-        base, _, leaf = name.rpartition("/")
-        if leaf == ".zarray":
-            arrays[base] = group(_array_facts, zf, name)
-        else:
-            attrs[base] = group(lambda n=name: sorted(json.loads(zf.read(n))))
-    groups = {}
-    for base, keys in attrs.items():
-        if not keys:
-            continue
-        if base in arrays and isinstance(arrays[base], dict) and "error" not in arrays[base]:
-            arrays[base]["attrs"] = keys
-        elif base not in arrays:
-            groups[base] = keys
-    if len(wanted) > STORE_MEMBERS:
-        found |= {"truncated": True, "members_not_read": len(wanted) - STORE_MEMBERS}
-    return {**found, "arrays": arrays, "groups": groups}
-
-
 def rasters_facts(rasters: dict) -> dict:
     """The rasters as the ingest sees them: element name, label, dtype, shape, bin size, origin and unit."""
     return {name: {"label": r.label, "dtype": str(r.array.dtype), "shape": list(r.array.shape),
@@ -304,36 +249,33 @@ def diffexp_facts(bundle: Bundle) -> dict:
 
 
 def bundle_facts(
-    bundle: Bundle, open_he: Callable, alignment_text: Callable, skip: Collection[str] = (), decoded: dict | None = None,
+    bundle: Bundle, open_he: Callable, alignment_text: Callable, decoded: dict | None = None,
 ) -> dict:
     """The facts of one bundle, as plain JSON values.
 
     ``open_he`` returns the open H&E image and ``alignment_text`` the text of the alignment CSV.
     Each is called inside its own group, so a failure on either leaves the other groups in the record.
-    A group in ``skip`` is not read and is not in the result. The QC group decodes its rasters into ``decoded``.
+    The QC group decodes its rasters into ``decoded``.
     The groups run in order, the cheap ones first. When ``ByteLimit`` is raised, the group in progress
     and every later group become error entries, and the earlier groups stay.
     """
     steps = [
-        (("members",), lambda: dict(sorted(bundle.sizes.items()))),
-        (("experiment",), lambda: experiment_facts(bundle)),
-        (("metrics",), lambda: metrics_facts(bundle)),
-        (("report",), lambda: report_facts(bundle)),
-        (("alignment",), lambda: read_alignment(alignment_text()).tolist()),
-        (("cells",), lambda: cell_facts(bundle)),
-        (("transcripts",), lambda: transcript_facts(bundle)),
-        (("diffexp",), lambda: diffexp_facts(bundle)),
-        (("polygons",), lambda: polygon_facts(bundle)),
-        (("qc",), lambda: qc_facts(bundle, decoded)),
-        (("morphology_2d",), lambda: morphology_facts(bundle, MORPHOLOGY_2D_PATTERN)),
-        (("morphology_3d",), lambda: morphology_facts(bundle, MORPHOLOGY_3D_PATTERN)),
-        (("he_image",), lambda: he_facts(open_he)),
-        (("stores", CELLS), lambda: store_facts(bundle, CELLS)),
-        (("stores", TRANSCRIPTS), lambda: store_facts(bundle, TRANSCRIPTS, first_tile_only=True)),
-        (("stores", MATRIX), lambda: store_facts(bundle, MATRIX)),
+        ("members", lambda: dict(sorted(bundle.sizes.items()))),
+        ("experiment", lambda: experiment_facts(bundle)),
+        ("metrics", lambda: metrics_facts(bundle)),
+        ("report", lambda: report_facts(bundle)),
+        ("alignment", lambda: read_alignment(alignment_text()).tolist()),
+        ("cells", lambda: cell_facts(bundle)),
+        ("transcripts", lambda: transcript_facts(bundle)),
+        ("diffexp", lambda: diffexp_facts(bundle)),
+        ("polygons", lambda: polygon_facts(bundle)),
+        ("qc", lambda: qc_facts(bundle, decoded)),
+        ("morphology_2d", lambda: morphology_facts(bundle, MORPHOLOGY_2D_PATTERN)),
+        ("morphology_3d", lambda: morphology_facts(bundle, MORPHOLOGY_3D_PATTERN)),
+        ("he_image", lambda: he_facts(open_he)),
     ]
     found, stopped = {}, None
-    for path, read in (step for step in steps if step[0][0] not in skip):
+    for name, read in steps:
         if stopped is None:
             try:
                 value = group(read)
@@ -341,10 +283,7 @@ def bundle_facts(
                 stopped = f"ByteLimit: {limit}"
         if stopped is not None:
             value = {"error": stopped}
-        if len(path) == 1:
-            found[path[0]] = value
-        else:
-            found.setdefault(path[0], {})[path[1]] = value
+        found[name] = value
     return found
 
 

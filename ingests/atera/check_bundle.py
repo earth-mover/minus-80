@@ -1,13 +1,12 @@
 """Compare one Atera bundle with the committed record of its sample and print each difference.
 
     check_bundle.py --sample S [--bundle PATH] [--he-image PATH] [--he-alignment PATH] [--record PATH]
-                    [--skip-groups a,b] [--max-bytes N]
+                    [--max-bytes N]
 
 By default the bundle, the H&E image and the alignment are the sample's objects, read by range request.
 Without ``--bundle``, a HEAD request of each source object compares its size and ETag with LAYOUTS.md.
-A group in ``--skip-groups`` is neither read nor compared. The exit code is 0 for no difference,
-1 for a difference, 2 for a record that cannot serve as a reference, 3 for a bundle that does not open,
-and 4 for a check that did not finish.
+The exit code is 0 for no difference, 1 for a difference, 2 for a record that cannot serve as a reference,
+3 for a bundle that does not open, and 4 for a check that did not finish.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from pathlib import Path
 
 from bundle import Bundle, he_readers, open_bundle
@@ -25,23 +24,18 @@ from root_attrs import LAYOUTS, head_differences, http_head, source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, S3, SAMPLES
 
 
-def differences(record: dict, found: dict, skip: Collection[str] = ()) -> list[str]:
-    """The lines where ``found`` differs from ``record``, with the groups in ``skip`` left out of both."""
-    return compare({k: v for k, v in record.items() if k not in skip}, {k: v for k, v in found.items() if k not in skip})
-
-
-def summary(count: int, skip: Collection[str] = ()) -> str:
-    """The line that ends a check: the count of differences, and the groups in ``skip``."""
-    return f"bundle check: {count} differences" + (f" (not compared: {', '.join(skip)})" if skip else "")
+def summary(count: int) -> str:
+    """The line that ends a check: the count of differences."""
+    return f"bundle check: {count} differences"
 
 
 def check(
     bundle: Bundle, open_he: Callable, alignment_text: Callable, sample_name: str, *,
-    record: dict | None = None, skip: Collection[str] = (),
+    record: dict | None = None,
 ) -> list[str]:
     """The difference lines between ``bundle`` and ``record``, which is the sample's committed record by default."""
     record = load_record(sample_name) if record is None else record
-    return differences(record, bundle_facts(bundle, open_he, alignment_text, skip), skip)
+    return compare(record, bundle_facts(bundle, open_he, alignment_text))
 
 
 def open_sources(
@@ -66,14 +60,10 @@ def main(argv: list[str] | None = None, head: Callable = http_head) -> int:
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default the sample's object")
     parser.add_argument("--he-alignment", help="the alignment CSV, a URL or a local path; by default the sample's object")
     parser.add_argument("--record", type=Path, help="the record file; by default the sample's committed record")
-    parser.add_argument("--skip-groups", default="", help="groups to leave out of the check, separated by commas")
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES, help="the ceiling of the bytes read")
     args = parser.parse_args(argv)
-    skip = [g for g in args.skip_groups.split(",") if g]
     try:
         record = load_record(args.sample, path=args.record)
-        if unknown := [g for g in skip if g not in record]:
-            raise ValueError(f"no group {', '.join(unknown)} on record; the groups are {', '.join(record)}")
     except ValueError as error:
         print(error, file=sys.stderr)
         return 2
@@ -88,7 +78,7 @@ def main(argv: list[str] | None = None, head: Callable = http_head) -> int:
         print(f"the bundle does not open ({type(error).__name__})", file=sys.stderr)
         return 3
     try:
-        lines = check(bundle, open_he, alignment_text, args.sample, record=record, skip=skip)
+        lines = check(bundle, open_he, alignment_text, args.sample, record=record)
         if not args.bundle:
             lines += head_differences(source_objects(LAYOUTS.read_text(), sample), head)
     except Exception as error:  # Exit code 1 means a difference, and the text of the error can hold a location.
@@ -96,7 +86,7 @@ def main(argv: list[str] | None = None, head: Callable = http_head) -> int:
         return 4
     for line in lines:
         print(line)
-    print(summary(len(lines), skip))
+    print(summary(len(lines)))
     each = ", ".join(f"{label} {c.bytes} bytes in {c.requests} requests" for label, c in counters.items())
     print(f"read {sum(c.bytes for c in counters.values())} bytes in {sum(c.requests for c in counters.values())} requests ({each})")
     return 1 if lines else 0

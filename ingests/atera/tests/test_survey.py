@@ -104,7 +104,7 @@ def test_a_ceiling_passed_late_keeps_every_earlier_group(monkeypatch, capsys, tm
     assert _limit_run(monkeypatch, tmp_path, synthetic, "--max-bytes", str(total - 1)) == 1
     out = capsys.readouterr().out
     record = read_records(out, ["kidney"])["kidney"]
-    assert record["transcripts"]["number_rnas"] and record["stores"]["cell_feature_matrix.zarr.zip"]["error"]
+    assert record["transcripts"]["number_rnas"] and record["he_image"]["error"]
     assert "kidney: error entries at" in out and "kidney" in failed_samples(out)
 
 

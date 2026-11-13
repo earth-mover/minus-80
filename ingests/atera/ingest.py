@@ -41,8 +41,8 @@ from bundle import (
     CELLS, DIFFEXP_AZIMUTH, DIFFEXP_GRAPHCLUST, MATRIX, TRANSCRIPTS, Bundle, he_readers, open_bundle, open_tiff,
     read_alignment,
 )
-from check_bundle import differences, summary
-from facts import bundle_facts, load_record
+from check_bundle import summary
+from facts import bundle_facts, compare, load_record
 from polygons import GEO_POLYGONS, POLYGON_SCHEMA, polygon_table
 from qc import QC_NAMES, QcRaster, bundle_rasters
 from root_attrs import (
@@ -582,11 +582,6 @@ class Prepared:
     qc: dict[str, QcRaster]
 
 
-#: The ingest reads the stores at their steps, and the ``members`` group pins the size of each store member.
-#: ``check_bundle.py`` compares the ``stores`` group before the download.
-INGEST_SKIPS = ("stores",)
-
-
 def prepare(
     bundle: Bundle, sample, layouts: str, open_he: Callable, alignment_text: Callable, *, record: dict,
 ) -> Prepared:
@@ -595,10 +590,10 @@ def prepare(
     ``ValueError`` gives the difference lines, or the fact that the bundle lacks. The check reads no pixel and no table row.
     """
     decoded = {}
-    found = bundle_facts(bundle, open_he, alignment_text, INGEST_SKIPS, decoded)
-    if lines := differences(record, found, INGEST_SKIPS):
+    found = bundle_facts(bundle, open_he, alignment_text, decoded)
+    if lines := compare(record, found):
         raise ValueError("\n".join(lines))
-    print(summary(0, INGEST_SKIPS), flush=True)
+    print(summary(0), flush=True)
     # Each member pattern that a step opens must match its count of files.
     bundle.morphology_2d(), bundle.morphology_3d(), bundle.metrics(), bundle.report()
     experiment = bundle.experiment()

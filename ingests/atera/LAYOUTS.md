@@ -113,7 +113,7 @@ It read metadata and index arrays only, by range request. It wrote nothing to Ar
 
 ### The facts of each sample
 
-Every number comes from the record.
+Every number comes from the record, except the rows of store arrays.
 The QC grids come from the report's `dimensions` and `horizontal_bin_count`, with 20 µm bins and 80 µm bins.
 In all four samples, the four other 20 µm maps hold as many values as the 20 µm grid.
 The 80 µm map holds as many values as the 80 µm grid.
@@ -159,6 +159,8 @@ So its value count is not on record.
 | Counts store arrays | 419 | 309 | 370 | 405 |
 | Record error entries | none | none | none | none |
 
+The three rows of store arrays are facts of the survey of 2026-11-12. The records of that survey held them.
+
 The alignment matrix of each sample, as three rows of three numbers:
 
 - kidney: `0.008566778149855193,1.288853807979006,914.1373717471324`; `-1.288853807979006,0.008566778149855193,32040.595506861275`; `0.0,0.0,1.0`.
@@ -196,13 +198,13 @@ Each statement below was checked between the four records.
   The brain, colorectal and breast tiles hold up to 101,948,261, 334,725,210 and 323,473,738 rows. The kidney's largest holds 90,630,655.
 - **The density map is `uint32` in colorectal and breast.** The other maps are `uint16`. The survey's reader knew `uint16` and `float32` only, so it stopped at the header.
 - **The gene count is 24,677 in the three 1.1.1 samples.** The kidney has 24,674.
-  `gene_offset` has these rows in the first listed tile, and `var/feature_id` in the counts store has the same count.
+  `gene_offset` has these rows in the first tile with rows. The survey found the same count in `var/feature_id` of the counts store.
 - **The diffexp files differ in columns.** The azimuth file has 146, 86, 128 and 143 columns. The graphclust file has 86, 80, 74 and 80.
-- **The cells store has 2,432, 2,999, 2,276 and 2,876 arrays.**
-  The brain's listing stops at the survey's cap of 3,000 members.
-  The record marks it `truncated` and counts 36 members not read.
-  This is a limit of the survey. It is no fact of the bundle.
-  The brain record lacks the group entries `""` and `gridded_polygon_sets/1` of the cells store for the same reason.
+- **The cells store had 2,432, 2,999, 2,276 and 2,876 arrays in the survey.**
+  The survey's listing stopped at a cap of 3,000 members. So the brain's count was truncated.
+  The brain record of the survey counted 36 members not read.
+  This was a limit of the survey. It is no fact of the bundle.
+  For this reason, the brain's survey record lacked the group entries `""` and `gridded_polygon_sets/1` of the cells store.
 
 ### The error entries
 
@@ -523,7 +525,7 @@ Each long gate prints a progress line every five seconds.
 
 | Gate | What it checks in the full store |
 |---|---|
-| `bundle` | The bundle equals the sample's record in `samples/`, in every group except `stores`. It runs first. |
+| `bundle` | The bundle equals the sample's record in `samples/`, in every group. It runs first. |
 | `complete` | Each element of `ELEMENTS["full"]` is present. Images and labels carry `minus80:complete`. Points and shapes carry their table pin. |
 | | The root attribute `iceberg_tables` has an entry for each extra table. The root attribute `missing` lists what the full mode leaves out. |
 | | The root attribute `description` has the sentence of `KIND_SENTENCES` for each kind of element that the store holds. |

@@ -64,7 +64,7 @@ from bundle import CELLS, MATRIX, TRANSCRIPTS, he_readers, open_bundle, open_tif
 from check_bundle import check
 from facts import load_record
 from ingest import (
-    CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INGEST_SKIPS, INSTANCE_KEY, LAYOUTS,
+    CELL_SET, DIFFEXP_TABLES, ELEMENTS, EXTRA_TABLES, FIXTURE_TILE, ICEBERG_TABLES, INSTANCE_KEY, LAYOUTS,
     MASKS, MISSING_FROM_FULL, NUCLEUS_SET, TABLE_REGION, catalog_org, require_same_place,
 )
 from qc import QC_NAMES, bundle_rasters, data_bag
@@ -1248,7 +1248,7 @@ def main() -> None:
     if full:
         gates = {
             "bundle": lambda: check(bundle, open_he, alignment_text, args.sample,
-                                    record=load_record(args.sample, path=args.record), skip=INGEST_SKIPS),
+                                    record=load_record(args.sample, path=args.record)),
             "complete": lambda: gate_complete(root), **gates,
             "source": lambda: gate_source(root, sample, LAYOUTS.read_text()),
         }

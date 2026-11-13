@@ -10,7 +10,7 @@ import zarr
 
 import check_bundle
 import ingest
-from bundle import CELLS, Bundle
+from bundle import Bundle
 from facts import bundle_facts, load_record, write_record
 from ingest import MISSING_FROM_FULL, prepare, write_root
 from minus80.core.elements import ElementWriter
@@ -18,7 +18,7 @@ from minus80.core.icechunk_io import create_repo, open_repository
 from minus80.core.tables import local_catalog
 from qc import QC_NAMES
 from sources import SAMPLES
-from tests.test_facts import ALIGNMENT_TEXT, Recorder, synthetic  # noqa: F401
+from tests.test_facts import ALIGNMENT_TEXT, synthetic  # noqa: F401
 from tests.test_images import MORPHOLOGY_2D, PIXEL, write_bundle
 from tests.test_replace_tables import _preflight
 from tests.test_verify import Store, full_store  # noqa: F401
@@ -115,27 +115,6 @@ def test_a_record_of_another_sample_is_refused_in_one_line(capsys, tmp_path, syn
     assert "'brain'" in err
 
 
-def test_a_group_that_does_not_exist_is_refused_in_one_line(capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
-    write_record("kidney", pristine, tmp_path)
-    err = _refusal(capsys, _check(synthetic, alignment_file, tmp_path / "kidney.json", "--skip-groups", "store"))
-    assert "store" in err
-
-
-def test_skipping_the_stores_leaves_them_out_of_the_comparison(
-        capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
-    changed = json.loads(json.dumps(pristine))
-    changed["stores"][CELLS]["arrays"]["masks/0"]["shape"] = [1, 1]
-    write_record("kidney", changed, tmp_path)
-    record = tmp_path / "kidney.json"
-    assert _check(synthetic, alignment_file, record) == 1
-    full = capsys.readouterr().out
-    assert "stores" in full
-    assert _check(synthetic, alignment_file, record, "--skip-groups", "stores") == 0
-    skipped = capsys.readouterr().out
-    assert "bundle check: 0 differences (not compared: stores)" in skipped.splitlines()
-    assert skipped.count("stores") == 1
-
-
 def test_a_record_that_is_not_json_is_refused_in_one_line(capsys, tmp_path, synthetic, alignment_file):  # noqa: F811
     (tmp_path / "kidney.json").write_text("not json")
     err = _refusal(capsys, _check(synthetic, alignment_file, tmp_path / "kidney.json"))
@@ -158,19 +137,6 @@ def test_a_bundle_that_does_not_open_has_its_own_exit_code_and_one_line_with_the
     assert code == 3 and captured.out == ""
     assert len(captured.err.splitlines()) == 1 and "Traceback" not in captured.err
     assert re.fullmatch(r"the bundle does not open \(\w+\)\n", captured.err) and str(tmp_path) not in captured.err
-
-
-def _bytes_read(synthetic, pristine, skip):  # noqa: F811
-    """The bytes that ``check`` reads from the bundle file, which the tiny synthetic bundle's block cache hides from a counter."""
-    he = synthetic.he.read_bytes()
-    with Recorder(synthetic.path) as file:
-        check_bundle.check(Bundle(synthetic.path, file), lambda: io.BytesIO(he), lambda: ALIGNMENT_TEXT, "kidney",
-                           record=pristine, skip=skip)
-    return sum(end - start for start, end in file.reads)
-
-
-def test_skipping_the_stores_reads_fewer_bytes(synthetic, pristine):  # noqa: F811
-    assert _bytes_read(synthetic, pristine, ("stores",)) < _bytes_read(synthetic, pristine, ())
 
 
 def test_the_byte_limit_turns_the_groups_not_read_into_differences(capsys, tmp_path, synthetic, alignment_file, pristine):  # noqa: F811
@@ -300,7 +266,7 @@ def _unknown_label(members):
 def test_prepare_gives_each_fact_that_a_later_step_reads(tmp_path, capsys):
     store = _inputs(tmp_path, "inputs")
     prepared = _prepare(store)
-    assert "bundle check: 0 differences (not compared: stores)" in capsys.readouterr().out.splitlines()
+    assert "bundle check: 0 differences" in capsys.readouterr().out.splitlines()
     assert prepared.experiment["pixel_size"] == PIXEL
     assert prepared.methods == ["a", "b", "c", "d", "e"]
     assert set(prepared.qc) == set(QC_NAMES)
@@ -327,11 +293,9 @@ def test_prepare_refuses_a_bundle_that_differs_from_its_record_with_the_differen
     assert all(": record " in line for line in lines)
 
 
-def test_prepare_compares_every_group_except_the_stores(tmp_path):
+def test_prepare_refuses_a_cell_count_that_differs_from_the_record(tmp_path):
     inputs = _inputs(tmp_path, "inputs")
     record = _record_of(inputs)
-    record["stores"][CELLS]["arrays"]["masks/0"]["shape"] = [1, 1]
-    assert _prepare(inputs, record).experiment["pixel_size"] == PIXEL
     record["cells"]["count"] = 99
     with pytest.raises(ValueError, match=r"cells\.count: record 99, bundle 3"):
         _prepare(inputs, record)
