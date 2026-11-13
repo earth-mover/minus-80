@@ -15,6 +15,17 @@ Iceberg tables beside the repo. The same Parquet files also appear inside the
 repo as `uint8` arrays at the SpatialData paths. Python SpatialData reads
 those through a shim, and zax reads the tables directly.
 
+**Status.** All four samples are ingested. Every gate passed, and `main` of each repo is at the verified snapshot:
+
+| Repo | `main` |
+|---|---|
+| `atera-kidney` | `DCHK9523X4W5TSC4V5X0` |
+| `atera-brain` | `KQQGSNM0K4Z4HQT3R050` |
+| `atera-colorectal` | `SG4W57AMEJYGKZT9K250` |
+| `atera-breast` | `PGYV9R98EKVJRE85J2Z0` |
+
+`REPORT.md` gives the results of each run. "Steps, scope and risk", "Open items", lists the work that remains.
+
 **Asked of the reviewer:** approve the layout and the steps, and decide the
 judgement calls below. Each has a recommended default.
 
@@ -32,26 +43,10 @@ judgement calls below. Each has a recommended default.
 | 10 | Namespace names | One namespace per repo, `<repo>-tables`, as `cellpainting-gallery-tables` does. |
 | 11 | A docs change | Add a "native ingests" section to `AGENTS.md` that states the exception to the zero-copy rules and why. |
 
-Nothing is written to a shared resource before approval. The fixture, each
-sample's full run, and the docs change each need approval in turn (see "Steps,
-scope and risk").
+Nothing is written to a shared resource before approval. "Steps, scope and
+risk" lists each approval.
 
-Decisions already made, in discussion on 2026-11-10:
-
-- Native copy, not virtual references. 10x publishes the bundles as downloads
-  in `s3://10x.files`, and a store of references would send every reader's
-  range reads there.
-- Four samples, smallest bundle first: kidney, brain, colorectal, breast.
-- Org `earthmover-biology`, with the org's default managed bucket (Cloudflare R2).
-- Points and shapes in Iceberg tables, with the `iceberg_table` attribute
-  contract agreed with the zax-spatialdata project, and `uint8` copies in the
-  repo. No `file:` arrays anywhere else.
-- Images decoded once from their lossless JPEG 2000 tiles and written with
-  blosc-zstd, chunked like the `zebrafish-3d-4i` repo. Booth and the Arraylake
-  web app cannot read `imagecodecs_jpeg2k`.
-- The QC density rasters from the HTML report become small image elements.
-  The reports' thumbnails, plots and UI stay out.
-- The ingest runs on Coiled in us-west-2, next to the source bucket.
+"Judgement calls" gives the decisions of the owner.
 
 ## The archive
 
@@ -84,6 +79,7 @@ a pixel size of 0.21249222 µm, a z step of 3 µm, and the segmentation stain
 set `atera_cell_segmentation_stains_v1`. The three fresh-frozen samples are
 three regions of one slide, S4, from one run. The brain sample assigns 45
 percent of its transcripts to cells; the others assign 84 to 88 percent.
+`LAYOUTS.md`, "The four bundles", gives each difference between the samples.
 
 **Licence and attribution.** The datasets are licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), which permits a
@@ -93,7 +89,7 @@ dataset, by example:
 > PBMCs from C57BL/6 mice (v1, 150x150), Single Cell Immune Profiling Dataset
 > by Cell Ranger v3.1.0, 10x Genomics, (2019, July 24).
 
-So a dataset citation names the dataset's title, the product, the software and
+So a dataset citation gives the dataset's title, the product, the software and
 its full version, 10x Genomics, and the publication date. Software is cited as
 "10x Genomics Atera Onboard Analysis v1.0.0", with the version stated. The
 page lists no publication for Atera, so there is no DOI to cite. No trademark
@@ -129,7 +125,7 @@ sizes:
 
 | Member | Format | Size | In the store |
 |---|---|---|---|
-| `morphology_2d/ch000{0..3}_*.ome.tif` | 4 OME-TIFF pyramids, one channel each, 8 levels, 1024 tiles, lossless JPEG 2000, `uint16` | 7.0 GB | `images/morphology`, decoded, zstd |
+| `morphology_2d/ch000{0..3}_*.ome.tif` | 4 OME-TIFF pyramids, one channel each, 8 or 9 levels, 1024 tiles, lossless JPEG 2000, `uint16` | 7.0 GB | `images/morphology`, decoded, zstd |
 | `morphology_3d/ch0000_dapi_3d.ome.tif` | one OME-TIFF pyramid, 13 or 15 planes, same tiling and codec | 20.8 GB | `images/morphology_3d` |
 | `cells.zarr.zip` | Zarr v2 "CellSegmentationDataset 6.3": two `uint32` masks, two polygon sets, a gridded polygon copy, a cell summary | 0.5 GB | `labels/*`, `shapes/*`, chunks copied |
 | `cell_feature_matrix.zarr.zip` | Zarr v2 AnnData: CSR `X` of `int32`, `obs`, `var`, `obsm` | 1.3 GB | `tables/table`, chunks copied |
@@ -165,15 +161,15 @@ the store from Icechunk and the tables from Iceberg.
   and `coordinateTransformations` into a named coordinate system.
 - Raster elements are OME-Zarr 0.5 multiscales. A 2D image is `(c, y, x)`;
   a 3D image is `(c, z, y, x)`; labels are `(y, x)`.
-- Points and shapes are Parquet in the element group. The spec names no slot
+- Points and shapes are Parquet in the element group. The spec gives no slot
   for a table outside the store, so the `iceberg_table` attribute is
   minus-80's own, beside `spatialdata_attrs`.
-- A table names its region, its region key and its instance key, and the
+- A table states its region, its region key and its instance key, and the
   instance key matches the labels' integer values.
 
 ### The tree
 
-One repo per sample, named `atera-kidney`, `atera-brain`, `atera-colorectal`,
+One repo per sample, `atera-kidney`, `atera-brain`, `atera-colorectal` and
 `atera-breast`. One Iceberg namespace per repo, `<repo>-tables`.
 
 ```
@@ -197,6 +193,9 @@ points/transcripts                  iceberg_table + points.parquet/part.<i>.parq
 tables/table                        AnnData: X CSR int32, obs, var, obsm; region cell_boundaries, instance key instance
 ```
 
+The ingest does not write `images/overview_scan` and `shapes/region_outline`.
+The root attribute `missing` says why.
+
 The root attribute `iceberg_tables` pins `codewords`, `diffexp_azimuth` and
 `diffexp_graphclust`. These tables annotate no element. Each entry has the keys
 of an `iceberg_table` attribute, without `geometry_column`. The store has no
@@ -208,6 +207,10 @@ Iceberg tables in `<repo>-tables`: `transcripts`, `cell_boundaries`,
 and the nine category flags. So `feature_name` in the transcripts table has a
 source a reader can check. The root attributes stay under 30 kB, because a
 reader fetches the snapshot, and the snapshot holds them, on every open.
+
+The root attribute `description` gives each kind of element that the store
+holds: `images/morphology_3d`, `images/he_image`, the QC rasters and
+`iceberg_tables`.
 
 ### Axes, units, levels
 
@@ -228,6 +231,7 @@ reader fetches the snapshot, and the snapshot holds them, on every open.
   source's chunk shape, `(518, 1771)` for the kidney, because their chunks
   copy byte for byte. The 3D stack uses shards of `(z, 1024, 1024)` with
   inner chunks of `(1, 1024, 1024)`, as the zebrafish repo shards along z.
+  The H&E takes the page's tile size as its chunk.
 - Codec for decoded images: blosc with zstd and shuffle. Copied chunks keep
   the source's blosc settings.
 - Channel names from the OME-XML: DAPI, ATP1A1/CD45/E-Cadherin, 18S,
@@ -261,6 +265,9 @@ Transcripts, one row per decoded transcript, from the source tile arrays:
 | `bbox` | struct of four float64 | the point itself, for file pruning |
 
 Every `uint32` source column is `int64` in both tables. Iceberg has no unsigned type. pyiceberg maps `uint32` to the signed `int`. 10x's sentinel 4294967295 overflows that type.
+
+The ingest builds each tile in row slices and writes them as row groups with one `ParquetWriter`.
+So the memory of a tile does not grow with its rows. `LAYOUTS.md`, item (f), gives the peak.
 
 Polygons, one row per cell that has a polygon in the set, from `polygon_sets/<i>`:
 
@@ -308,7 +315,7 @@ expiration and no garbage collection for Iceberg tables (its catalog docs,
 "Snapshot expiration"). So only a caller can delete a data file. The ingest
 never expires or compacts these tables. A rewrite replaces a table's files in
 one overwrite snapshot, and the old files stay in the bucket. Each table's
-properties name the repo that references its files.
+properties give the repo that references its files.
 
 The name of each data file holds a hash of its bytes. The ingest never
 overwrites an object, so other bytes never take a referenced name. A rerun
@@ -329,46 +336,34 @@ dropped, points and shapes are Iceberg-only, and the shim scans the table.
 The fixture on Arraylake used neither fallback: the catalog accepted
 `add_files`, and the repo references the files through its container.
 
-The full ingest replaces the rows of `transcripts` and `nucleus_boundaries` in place.
-It needs the flag `--replace-tables transcripts,nucleus_boundaries`.
-The flag accepts every table that the full mode writes. For a single-write table it means the overwrite path.
-A refused write names the exact flag. The flag with a held element and another schema is refused before any change.
-Without it, the ingest stops before any write on a held table that differs.
-It also stops on a held `transcripts` tile that fails its checks, and the message lists every fault.
-A write to a table that holds a file of other content raises. So no stop mixes the rows of two writes.
-The flag needs the element of each named table in the run.
-The ingest refuses the flag for a table whose element is not in the run.
-The schema change runs at the start of the run, before that table's rows.
-A stop between the two leaves the changed schema with the earlier rows at the current snapshot.
-A rerun with the flag replaces the rows. A rerun with no flag stops.
-`ingest.py --mode full --preflight` checks the arguments, the repo, the catalog and each table. It needs no bundle and writes nothing.
-Both tables keep their names, their namespace and their UUIDs.
-The fixture's `nucleus_boundaries` has a `method` column and several rows for one cell.
-The full table has `part_count` and `methods` instead of `method`, and one row per cell.
-One schema commit adds `part_count` and `methods` and deletes `method`. One overwrite snapshot then replaces the rows.
+**Held tables.** The flag `--replace-tables <names>` lets the full ingest replace the rows of a table that the catalog holds.
+The kidney's run used `--replace-tables transcripts,nucleus_boundaries`, because the `fixture` branch pins both.
+The flag accepts every table that the full mode writes, and needs the element of each table in the run.
+Without the flag, the ingest stops before any write on a held table that differs.
+A schema change runs in one commit at the start of the run, before that table's rows.
+One overwrite snapshot then replaces the rows. Each table keeps its name, its namespace and its UUID.
 The ingest keeps a held `transcripts` tile that passes its row count and its `instance` range.
-It replaces a failing tile in the one overwrite snapshot that adds the tile's file.
+It replaces a failing tile in the overwrite snapshot that adds the tile's file.
 It removes a held tile outside the plan in a snapshot of its own.
+A write to a table that holds a file of other content raises. So no stop mixes the rows of two writes.
 A rerun with the flag ends with the table of an unstopped run. A second run changes nothing.
-The ingest deletes no snapshot and no data file. Earlier snapshots and their files remain.
-The `fixture` branch reads its pinned snapshots, and the pins stay valid.
-pyiceberg scans a snapshot with the schema of that snapshot, so the `method` column stays readable.
-The `uint8` copies of the `fixture` branch reference the earlier files. No run rewrites them.
+The ingest deletes no snapshot and no data file. So the pins of the `fixture` branch stay valid.
+pyiceberg scans a snapshot with the schema of that snapshot.
+`ingest.py --mode full --preflight` checks the arguments, the repo, the catalog and each table. It needs no bundle and writes nothing.
 
-Shapes tables carry an `instance` column that equals the cell mask label. It
-is the `index_column`. The source's `cell_index` stays as a column.
-
-The owner decided the table's region on 2026-11-11. On the Arraylake branch
-`main`, `tables/table` annotates `cell_boundaries` only. It has one row per
-cell: 399,120 rows for the kidney. Its `region_key` is `region` and its
+**The table's region.** On `main`, `tables/table` annotates `cell_boundaries` only.
+It has one row per cell: 399,120 rows for the kidney. Its `region_key` is `region` and its
 `instance_key` is `instance`. `instance` equals the cell mask label.
 `labels/cell_labels` and `shapes/nucleus_boundaries` join to a table row by
 the same `instance`. So a join from the table to the shapes or the labels
 never shifts by one. A SpatialData table row annotates one instance of one
 element. So a table on two elements would need every row twice.
+The fixture's table annotates `cell_labels`.
+The gate `table_region` checks that the set of `obs.instance` equals the set of `cell_boundaries.instance`.
+It also checks that `cell_id` agrees for each instance.
 
-The fixture's table annotates `cell_labels`. "Stage two" lists the change to
-`cell_boundaries` and its verify gate.
+Shapes tables carry an `instance` column that equals the cell mask label. It
+is the `index_column`. The source's `cell_index` stays as a column.
 
 ### Layouts considered and rejected
 
@@ -443,12 +438,53 @@ decoders.
 
 Tested on 2026-11-11: zax reads the fixture's Iceberg tables on the R2
 endpoint (`LAYOUTS.md`, check (d)). Decode and write throughput on a Coiled
-VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
+VM in us-west-2 (step 2; `LAYOUTS.md`, check (e) and item (f)).
+
+Measured on 2026-11-11 with `measure.py` (step 2), on an `m7g.xlarge` (Graviton, 4 vCPU, 16 GiB) in us-west-2:
+
+- Concurrency 32 gives 8.0 times the rate of concurrency 1 for the plane, 17.8 for the mask, 7.2 for the H&E and 1.5 for the stack.
+- The stack's rate does not rise above concurrency 8.
+- The peak memory of each part is under 1.3 GiB. Transcript tile `3,1`, 90,630,655 rows, peaked at 1,299 MiB.
+- That tile's Parquet file is 2,230,658,968 bytes: 24.6 bytes per row.
+- The machine token can write to the repo.
+- The estimate from these rates was 8,854 s for the kidney's measured kinds. `REPORT.md`, "Changes from the plan", compares it with the run.
+
+`LAYOUTS.md`, item (f), has every number.
+
+Tested on 2026-11-11 and 2026-11-12, on a laptop with synthetic bundles, local repos and local catalogs:
+the full mode, a stop and a resume, and the trial-branch flow.
+`LAYOUTS.md`, "The dry run of the full mode" and "The dry run of the trial-branch flow", give the results.
+
+Tested on 2026-11-12 on a Coiled VM: the survey of the four bundles (`LAYOUTS.md`, "The four bundles"),
+and the gates `transforms` and `labels` on the kidney's `main` (`REPORT.md`, "What the gates do not prove").
 
 ## Judgement calls
 
-1. **Mask order.** The cells store names its polygon sets `["nucleus",
-   "cell"]` and its masks `0` and `1`. The order is not stated to match.
+**Decisions of the owner.**
+
+- Native copy, not virtual references. 10x publishes the bundles as downloads
+  in `s3://10x.files`, and a store of references would send every reader's
+  range reads there.
+- Four samples, smallest bundle first: kidney, brain, colorectal, breast.
+- Org `earthmover-biology`, with the org's default managed bucket (Cloudflare R2).
+- Points and shapes in Iceberg tables, with the `iceberg_table` attribute
+  contract agreed with the zax-spatialdata project, and `uint8` copies in the
+  repo. No `file:` arrays anywhere else.
+- Images decoded once from their lossless JPEG 2000 tiles and written with
+  blosc-zstd, chunked like the `zebrafish-3d-4i` repo. Booth and the Arraylake
+  web app cannot read `imagecodecs_jpeg2k`.
+- The QC density rasters from the HTML report become small image elements.
+  The reports' thumbnails, plots and UI stay out.
+- The ingest runs on Coiled in us-west-2, next to the source bucket.
+- On `main`, `tables/table` annotates `cell_boundaries` only (2026-11-11).
+- The survey of the bundles runs on Coiled, not on a laptop.
+- Each sample's run writes a trial branch first. `main` moves to that snapshot after every gate passes.
+- The plan's author creates each repo, tables namespace and access policy with the Python client.
+  The owner approves each one first.
+- The layout of `main` stays as the kidney has it. The kidney's data got one later commit, for the root attribute `description` only.
+
+1. **Mask order.** The cells store gives its polygon sets the names `["nucleus",
+   "cell"]` and its masks the names `0` and `1`. The order is not stated to match.
    Decided: `masks/0` is nucleus and `masks/1` is cell. Evidence: the
    fixture's `masks` gate sampled 50 nucleus centroids. `masks/0` label areas
    match `cell_summary.nucleus_area`, and `masks/1` label areas match
@@ -489,6 +525,7 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
    The stack keeps shards of `(z, 1024, 1024)`. The ingest writes one shard at a time.
    It decodes one tile from every plane, then writes the shard once.
    A plane by plane write rewrites each shard once for each plane.
+   The decode of one position runs in up to 4 threads on an `m7g.xlarge`: the plane count or the CPU count, whichever is less.
    This entry holds no measurement of the stack without shards.
    This is the plan author's call. The owner checks it.
 8. **Transcript partitioning.** The source tiles are a spatial grid already.
@@ -514,7 +551,6 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
     copy's bytes equal its Parquet file. The shim read both copies through
     Arraylake with no credentials of its own. Each sample's repo needs the
     same policy for its own namespace.
-
 13. **Tables that annotate no element.** The plan's author made this call.
     The owner checks it. The codewords and the two differential expression
     tables sit in the namespace. The root attribute `iceberg_tables` pins
@@ -522,13 +558,30 @@ VM in us-west-2 (step 2; `LAYOUTS.md`, check (e)).
     no element type for a table that annotates no element. A root attribute
     adds no node that a SpatialData reader must skip. The index column is
     `codeword_index` for `codewords` and `Feature ID` for the other two.
-
 14. **The OME version of the raster elements.** The plan's author made this
-    call. The owner checks it. Decided: keep `0.5-dev-spatialdata`. Evidence
-    from 2026-11-11: `ome-zarr-models` 1.8.1 rejects the version string and
+    call. The owner checks it. Decided: keep `0.5-dev-spatialdata`.
+    SpatialData requires that string, and `AGENTS.md` asks for OME-Zarr 0.5 metadata.
+    Evidence from 2026-11-11: `ome-zarr-models` 1.8.1 rejects the version string and
     nothing else, and accepts the attributes with `0.5`. SpatialData 0.8.0
-    parses the stored transforms and gives the expected points. Stage two,
-    item 6, gives the reason to keep the string. Booth is not checked.
+    parses the stored transforms and gives the expected points. Booth is not checked.
+    `LAYOUTS.md`, "The OME version check", gives the text.
+
+**Levels above 0.** `level_scale` gives each level a scale that sets its pixel size.
+It gives no translation. The plan's author made this call. The owner checks it.
+
+**Calls on the flow of each run.** The plan's author made these calls. The owner checks each of them.
+
+- The remote script moves `main` by itself when every gate passed. It does not wait for a person.
+- A failed gate leaves `main` where it was and keeps the trial branch for a look.
+- The machine is an `m7g.xlarge` with `--concurrency 32`. The launcher sets the disk from the sample's download size.
+- The kidney's `description` commit ran on a VM. It read the bundle by range request and wrote the root attributes only.
+- The QC rasters' decode has no second decoder. `REPORT.md` keeps that limit.
+- The survey writes one record file for each sample, `samples/<sample>.json`. The bundle check compares a bundle with that file.
+- The bundle check runs before the download, by range request. It runs again on the local file before the ingest.
+- A rerun on the same trial branch resumes. A fix that changes written arrays uses another trial branch name.
+  A fix that changes a table's rows uses `--replace-tables`. No run deletes a branch, a table or an object.
+- `main` moves only forward: its snapshot must be an ancestor of the trial snapshot.
+- The plan's author runs the setup script with the owner's login. The machine token has no right to set a policy.
 
 ## Steps, scope and risk
 
@@ -555,498 +608,92 @@ Each step needs approval before it writes to a shared resource.
    through `minus80`, and never imports spatialdata. It builds the
    SpatialData attributes from the spec, as `minus80.ome` builds OME-Zarr's.
 
-   Where each part ran. All parts ran on a laptop outside us-west-2. The
-   fixture on a local repo and catalog ran on 2026-11-10. The fixture on
-   Arraylake ran on 2026-11-11. The decision is that the ingest runs on
-   Coiled in us-west-2. The fixture ran on a laptop. `verify.py` and the
-   SpatialData checks against Arraylake also ran on the laptop. The laptop's
-   times do not predict the ingest. `LAYOUTS.md`, "Fixture findings", gives
-   the results.
-
-   Criterion failed: stock SpatialData 0.8.0 cannot open an Icechunk store
-   at all.
-
-   The zax-spatialdata project refused the fixture on three points: data
-   files without field ids, the index of `obs` and `var` also in
-   `column-order`, and an `instance` column that may be null. The rewrite on
-   2026-11-11 fixed all three on branch `fixture`. `LAYOUTS.md`, "The
-   rewrite", gives the new coordinates.
-2. **Throughput on Coiled.** Done on 2026-11-11 with `measure.py`, on one
-   `m7i.xlarge` (4 vCPU) in us-west-2, on the scratch branch
-   `measure-2026-11-11`. All numbers below are from that VM. The 1-vCPU runs
-   ran under `taskset -c 0`, which pins the process to one vCPU.
-   - One full-resolution DAPI plane, 1,848 tiles, 1 vCPU: 1,204.8 s wall,
-     284.5 s CPU for the whole process, 1.53 tiles/s, 2.97 MiB/s decoded.
-   - The same plane on 4 vCPU: 911.2 s wall, 2.03 tiles/s.
-   - One label mask, 2,048 chunks, 1 vCPU: 968.3 s wall, 2.12 chunks/s,
-     0.12 MiB/s. This time holds both the source reads and the writes.
-   - 955.3 s of the 1-vCPU plane is inside the array writes: 0.55 s per
-     written chunk. The cause of the 0.55 s is not measured.
-   - The process used 0.15 s of CPU per tile, for decode and write together.
-
-   Expected time for one kidney sample with one serial writer, derived from
-   the 1-vCPU rates. The second measurement below gives the estimate for the
-   full run. The images are 4 2D planes and 13 3D planes. Three assumptions follow. The 3D
-   planes have the 2D planes' size. Levels 1 to 7 add 655 tiles per plane,
-   from the halved shapes in 1024-pixel tiles. A lower-level tile costs the
-   same as a level-0 tile. So each plane has 2,503 tiles, and the sample
-   has 42,551 tiles.
-   - Images, one serial writer: 42,551 x 0.652 s = 27,740 s, 7.7 hours wall.
-   - Masks, one serial writer: 2 x 968.3 s = 1,937 s, 0.5 hours wall.
-   - Images and masks together: about 8.2 hours wall.
-   - CPU for the images: 42,551 x 0.154 s = 6,550 s of CPU, 1.8 CPU hours.
-
-   These figures leave out the table, the transcripts, the H&E image and
-   the download. The 3D stack goes into shards of 13 planes. A plane-by-plane
-   write of a shard can rewrite the shard. Step 2 did not measure that.
-
-   Second measurement, with concurrent writes. Done on 2026-11-11 with
-   `measure.py`, one Coiled VM for each launch. The VM is an `m7g.xlarge`
-   (Graviton, `aarch64`, 4 vCPU, 16 GiB) in us-west-2. `launch.py` started it.
-   It wrote to the scratch branch `measure-2026-11-11` with the Arraylake
-   machine token. So the machine token can write to the repo. The branch does
-   not remain. Each part measured a subset from the middle of its source, and
-   passed its check. `LAYOUTS.md`, "Fixture findings", item (f), has every
-   number. This is a different machine family from the first measurement, so
-   the two runs have no ratio.
-   - Rates at concurrency 1, 8 and 32 (tiles/s, chunks/s or positions/s):
-     plane 1.615, 11.018, 12.982; mask 1.88, 15.04, 33.40; stack 0.294,
-     0.439, 0.436; H&E 1.183, 6.419, 8.508.
-   - Concurrency 32 against concurrency 1: 8.0 times for the plane, 17.8
-     times for the mask, 7.2 times for the H&E, 1.5 times for the stack.
-   - The stack decodes its planes in one thread. Its rate does not rise
-     above concurrency 8.
-   - Peak memory of each part: under 1.3 GiB. The largest, 1,299 MiB, is
-     `plane` at concurrency 1 and the transcript tile.
-   - Transcript tile `3,1`, 90,630,655 rows, to a local Parquet file:
-     165.2 s, 548,733 rows/s, 72.7 s of CPU. The file is 2,230,658,968 bytes.
-   - This step did not measure these items:
-     - the download to the VM's disk;
-     - reads from a local file;
-     - the upload of Parquet files and the table commits;
-     - the polygon tables;
-     - the matrix copy;
-     - the QC rasters;
-     - `verify.py --mode full`;
-     - levels above 0;
-     - the checksum of a `uint8` copy on R2.
-   - A staged create of a partitioned table works on the Arraylake catalog.
-     An empty probe table got its partition spec in one metadata commit on
-     2026-11-11. Then the probe was dropped.
-   - The full kidney run measured each of these items, except the checksum of a `uint8` copy:
-     - the download (991 s);
-     - local reads;
-     - the upload and the table commits, inside the 1,749.3 s of the transcripts step;
-     - the polygon tables (16.0 s and 14.8 s);
-     - the matrix copy (905.3 s);
-     - the QC rasters;
-     - levels above 0;
-     - `verify.py --mode full` (2,246 s).
-   - REPORT.md gives the counts.
-
-   Estimate for one kidney sample at concurrency 32. It comes from the rates,
-   not from a run. Levels above 0 add about one third, so it uses the
-   factor 4/3.
-   - 2D morphology: 4 x 1,848 x 4/3 = 9,856 tiles at 12.98 tiles/s: 759 s,
-     about 13 minutes.
-   - 3D stack: 1,848 x 4/3 = 2,464 positions at 0.436 positions/s: 5,651 s,
-     about 94 minutes.
-   - H&E: 1,008 x 4/3 = 1,344 tiles at 8.51 tiles/s: 158 s, about 3 minutes.
-   - Two masks: 4,096 chunks at 33.4 chunks/s: 123 s, about 2 minutes.
-   - Transcripts, Parquet files only: 1,186,813,834 rows at 548,733 rows/s:
-     2,163 s, about 36 minutes. The 30 files total about 29.2 GB at the
-     tile's 24.6 bytes per row. Their upload is not measured.
-   - Sum: 759 + 5,651 + 158 + 123 + 2,163 = 8,854 s, about 2.5 hours. The
-     unmeasured steps add to it. The 3D stack is 64 percent of the sum.
+   Result: the fixture ran on a laptop, on 2026-11-10 and 2026-11-11.
+   Stock SpatialData 0.8.0 cannot open an Icechunk store at all, so that criterion failed.
+   `LAYOUTS.md`, "Fixture findings" and "The rewrite", give the results.
+2. **Throughput on Coiled.** `measure.py` measures the decode and the write of each kind on one VM in us-west-2.
+   It writes to a scratch branch that does not remain.
+   Result: "What has been tested" gives the rates. They set the machine and the concurrency of step 4.
 3. **Docs change.** The `AGENTS.md` section (call 11), and a `formats.md`
    note on JPEG 2000 in OME-TIFF: lossless 5/3 tiles decode once with
    `imagecodecs`; Booth cannot read the codec. Approval needed: the rules
    change.
-4. **Kidney, full.** On a Coiled VM in us-west-2. The machine is an
-   `m7g.xlarge` (4 vCPU, 16 GiB) with `--concurrency` 32. The plan author
-   chose both from the second measurement. The owner confirms them before
-   the full run. The peak memory of each part is under 1.3 GiB. The plane's
-   CPU time, 48 s for 300 tiles, is far below 4 vCPU x its 23.1 s wall time
-   at concurrency 32, which is 92 s. The stack decodes in one thread, so
-   more vCPU do not shorten the largest step with the present code. The
-   estimate is about 2.5 hours for the measured kinds. Step 2 gives the
-   arithmetic. Several writer sessions on one branch need a merge or one
-   branch per writer, not measured. The checksum on the R2 bucket is not
-   measured. The disk must hold the 45.7 GB bundle and the 2.8 GB H&E, and
-   one tile's Parquet file at a time, 2.1 GiB for the largest. Download the bundle and the H&E once, and verify their ETags. Read
-   members in place. Write the tables, then the elements. "Stage two", item 4,
-   sets the commit unit. Verify per `docs/ingest.md`: every image level against tifffile
-   on a sample of tiles, every copied chunk by checksum, every table's row
-   count against the source arrays, and the shim and zax reads. Write
-   `REPORT.md`. Approval needed: the Coiled spend and about 100 GB of R2
-   storage.
-   - Result: the kidney run passed all 16 gates. The steps took 13, 14, 991,
-     377, 6,829 and 2,246 s. REPORT.md gives the counts.
+4. **Kidney, full.** One run of the launcher's ingest form, as "The run of each sample" gives.
+   Approval needed: the Coiled spend and about 100 GB of R2 storage.
+   Result: the run ended on 2026-11-12 with all 16 gates passed.
+   A later run wrote the root attribute `description` on a trial branch and moved `main`.
+   `REPORT.md`, "Timings" and "The description commit", give the facts.
 5. **Brain, colorectal, breast,** each as step 4, smallest first.
+   The survey of step 5a comes first.
+   - **5a. The survey.** `survey.py` reads the metadata of each bundle by range request on one VM.
+     It downloads no bundle, writes nothing to Arraylake, and reads no pixel, transcript column or matrix chunk.
+     It writes each record as `samples/<sample>.json`. The kidney is a control: its record must equal `LAYOUTS.md`.
+     `LAYOUTS.md`, "The four bundles", gives the facts and the differences from the kidney.
+   - Approvals of each sample: the setup on Arraylake, the Coiled spend, the storage and the run.
+   - Result: all three runs passed every gate and moved `main`.
+     `REPORT.md`, "The brain sample" and "The colorectal and breast samples", give the facts.
 6. **Notebook** that opens one store cold, per `AGENTS.md`.
 
-**Shared-package work.** Code that a second archive could use goes into
-`minus80`, with tests, and reuses what is there first:
+### The run of each sample
 
-| Need | Reuse | Add |
-|---|---|---|
-| Arraylake repos as targets | `minus80.core.icechunk_io.arraylake_repository`, on `main` | nothing |
-| OME-Zarr 0.5 image, label and multiscale metadata | `minus80.ome.image_attrs`, `label_attrs` | the SpatialData element attributes: `spatialdata_attrs` and `coordinateTransformations` |
-| A native pyramid whose every level comes from the source | `minus80.core.multiscale`, which writes a virtual level 0 and computed levels | a path that writes decoded source levels as real chunks, with shards |
-| JPEG 2000 tiles out of an OME-TIFF | tifffile's `page.decode`, which calls `imagecodecs` | `minus80.core.pyramid`: it decodes each tile once and writes it. It is in `core`, not `parsers.tiff`, because it writes real chunks and builds no references. |
-| Zarr v2 chunks inside a stored zip, inside a stored zip | `minus80.parsers.zip`, which addresses members as chunks | a v2-to-v3 metadata translation and a byte copy of each chunk |
-| Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
+**The setup on Arraylake.** `setup_sample.py --sample <sample> --org <org>` sets up four pieces:
+the repo, the tables namespace, the virtual chunk container and the access policy.
+It reads the namespace's location from the catalog at run time. No file holds it, and the script prints no bucket name and no prefix.
+It first checks the bucket: the org's default bucket must be the kidney's bucket.
+The sample's repo and namespace, where they exist, must be on that bucket too.
+Each piece prints `exists`, `created`, `would create` or `DIFFERS`. A piece that differs stops the script with exit code 1.
+`--dry-run` reads the org and creates nothing.
+The script refuses a public or wider policy. It refuses a prefix segment that is empty, `.`, `..` or holds a space.
+Run the dry run just before each launch. It must print four `exists` lines.
+The ingest writes to the catalog before it checks the virtual chunk container.
+So a missing piece fails about 30 minutes into the run.
 
-Expected runtime per sample has three parts. The download takes minutes at
-an estimated 1 GB/s inside the region. The images, masks and transcript
-Parquet files of the kidney take about 2.5 hours wall at concurrency 32 on
-an `m7g.xlarge` in us-west-2. That figure comes from step 2's second
-measurement. It is an estimate from rates. The upload of the Parquet files
-and the table commits add to it. The transcript table write is one pass over
-1 to 5 billion rows. A run that is well past its expected time stops.
-The kidney run measured these. The download took 991 s for 48,518,883,775
-bytes. The ingest took 6,829 s. The transcripts step took 1,749.3 s for
-1,186,813,834 rows, with the upload and the commit.
+**The command.** One VM runs each sample:
 
-Risks:
+```
+uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
+  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-<sample> \
+  --ingest --sample <sample> --repo arraylake://earthmover-biology/atera-<sample> \
+  --catalog arraylake://earthmover-biology --namespace atera-<sample>-tables \
+  --branch trial-<date> --concurrency 32 --max-minutes <limit> --token-file <path>
+```
 
-- **Access policy per repo** (call 12). Each sample's repo opens only when
-  an org admin's Virtual Chunk Access Policy covers its container. Each
-  sample's step needs that policy before the ingest starts.
-- **Table region.** The fixture's table annotates `cell_labels`. The decision
-  for `main` is `cell_boundaries`, joined to the labels and nuclei by
-  `instance`. "Stage two" lists the change and its gate. zax reads the tables
-  on the R2 endpoint: `LAYOUTS.md`, check (d).
-- **The Python read path** rests on unreleased spatialdata patches and the
-  virtual_omics shim. The fixture showed it: released SpatialData 0.8.0
-  cannot open an Icechunk store, and PR #1107 with its patches and the shim
-  opens every element. Readers outside our notebooks need those until
-  spatialdata PR #1107 or the `parquet_fs_fallback` hook lands.
-- **Booth and OME-Zarr 0.5.** Whether Booth serves a SpatialData image
-  element as tiles is untested. It does not change the store. The elements declare
-  `ome.version` `0.5-dev-spatialdata`. "Stage two", item 6, tests one element.
-- **Node count.** About 15 images with 8 levels, 2 labels, 2 shapes and one
-  table. The points have one part per source tile, 30 to 37 parts. That is a
-  few hundred nodes per repo, far under the 500,000-node snapshot cache.
+- `<date>` is the UTC date of the launch, as `YYYYMMDD`. The launcher uses that name when `--branch` is absent.
+- `<path>` is the file of the Arraylake machine token.
+- `<limit>` comes from "The time limit".
+- The command has no `--gates`. So the verification runs every gate of the full mode, and then `promote.py` moves `main`.
+- The command has no `--replace-tables` when the catalog holds no table of the sample.
+- The command has no `--disk`. The launcher sets the disk from the downloads.
+- The launcher uploads the committed code of the local checkout, so the run needs no push.
+- With `--dry-run`, the launcher contacts nothing, reads no token, and prints the disk and the job timeout.
 
-## Stage two
+The remote steps are environment, preflight, bundle-remote, space, download, check, bundle-local, ingest, verify and promote.
+After the run, check that the cluster stopped. Then add the sample's section to `REPORT.md`.
 
-Stage two continues on the git branch `atera-ingest-plan`. It does the work
-below, in this order. Then it ran the full kidney ingest to the Arraylake
-branch `main`. The owner approved that write for the repo `atera-kidney`.
-REPORT.md gives the results.
-Each item gives the problem, the fix and the check.
+**The disk.** The disk is the downloads in GiB, rounded up, plus 40 GiB of overhead.
+The launcher rounds that up to a multiple of 25 GiB.
+The overhead holds 10 GiB for the scratch Parquet file of the largest tile, 10 for the uv environment, 10 for the system, and 10 of margin.
+The space step needs the downloads and 10 GiB free.
+The largest tile is in the colorectal sample: 334,725,210 rows, about 8.2e9 bytes at 24.6 bytes per row. It fits the 10 GiB.
+The disks were 100 GiB for the brain, 125 GiB for the colorectal and 150 GiB for the breast.
 
-1. **The table's region.**
-   - Problem: the fixture's table annotates `cell_labels`. The decision in
-     "The tables" is `cell_boundaries`.
-   - Fix: `write_table` writes `cell_boundaries` to `obs/region` and to
-     `write_table_keys`.
-   - Check: a new verify gate. The set of `obs.instance` equals the set of
-     `cell_boundaries.instance`. `cell_id` agrees for each instance. The
-     `instances` gate checks only the mask.
-2. **The 3D stack in shards.**
-   - Problem: `write_page` writes one plane at a time. zarr's sharding codec
-     reads, merges and writes the whole shard on each partial write. So each
-     shard of 13 planes is written 13 times. Each write also leaves an orphan
-     object in the Icechunk session. Two writers on planes of one shard
-     conflict.
-   - Fix: decode one `(row, col)` tile from every plane, then write its shard
-     once. The other choice is no shards for the 3D stack. A measurement of
-     both decides. Judgement call 7 records the decision.
-   - Check: a test counts the writes of each shard. `check_page` compares
-     sampled tiles on every plane.
-3. **Transcript tiles in memory.**
-   - Problem: `tile_table` builds a whole tile in memory. The largest kidney
-     tile has about 90 million rows. An estimate puts its peak memory well
-     above the 15 GiB of an `m7i.xlarge`. No run measured it.
-   - Fix: build each tile in row slices of a few million rows. Write the
-     slices as row groups with one `ParquetWriter`. Build `cell_id` with
-     Arrow compute, not with NumPy string arrays.
-   - Check: a test compares a sliced tile with a whole tile. A run on the VM
-     measures the peak memory of the largest tile.
-   - Result: `write_tile` on tile `3,1`, 90,630,655 rows, peaked at 1,299 MiB
-     of 16 GiB on an `m7g.xlarge`. `LAYOUTS.md`, item (f), has the run.
-4. **The commit unit and the resume key.**
-   - Problem: `ElementWriter.unit` commits once per element.
-     `images/morphology` and `images/morphology_3d` take hours each. A
-     failure loses the whole element. `ElementWriter.has` tests only that the
-     element's group exists. So with partial commits, a rerun skips
-     unfinished levels.
-   - Fix: commit per level or per plane. Write a completion attribute last,
-     and resume on it. Several writers use the fork-and-merge method of
-     `docs/ingest.md`, "Commit often, and merge parallel writers once".
-   - Check: a test stops a run after one level and runs it again. The result
-     equals one run without a stop.
-5. **Shared code into `minus80`.**
-   - Problem: `AGENTS.md` says that code a second archive could use moves
-     into `minus80`. A Xenium ingest needs these parts of `ingest.py` and
-     `bundle.py`.
-   - Fix: move `Tables`, with its FileIO writer and `local_catalog`, into
-     `minus80`. Also move the Zarr v2 read helper `minus80.core.zarr_copy.read_array`, `ElementWriter`
-     and the read counter `ReadCounter`. Replace the hand-written v2 decoder with
-     zarr's own reader if zarr can read a zip member.
-   - Check: the moved tests pass under `tests/`, and the ingest imports the
-     code from `minus80`.
-   - Result: `TableWriter`, `ElementWriter`, `ReadCounter` with `counting_reader`,
-     and `read_array` are in `minus80.core`.
-6. **The OME version of the raster elements.**
-   - Problem: the image and label elements declare `ome.version`
-     `0.5-dev-spatialdata`. SpatialData requires that string. `AGENTS.md`
-     asks for OME-Zarr 0.5 metadata. A 0.5 reader that checks the string can
-     refuse the element.
-   - Fix: record the version as a judgement call here and in `LAYOUTS.md`.
-   - Check: open one element with `ome-zarr-models` and with Booth before
-     the full ingest. Record both results.
-   - Result: `ome-zarr-models` 1.8.1 rejects both elements on the version
-     string only. SpatialData 0.8.0 parses their transforms. Booth is not
-     checked. Judgement call 14 and "The OME version check" in `LAYOUTS.md`
-     give the text.
-7. **The H&E image.**
-   - Problem: the kidney H&E has Deflate tiles. The brain H&E has
-     uncompressed planar tiles. The Zarr core has no codec for the zlib
-     stream of a Deflate tile. It has one for uncompressed planar tiles. The
-     "Native ingests" rule says to copy a chunk's bytes unchanged when one
-     can.
-     `write_page` always decodes. Its default chunk is `(1024, 1024)`,
-     whatever the H&E tile size is.
-   - Fix: the ingest decodes the H&E of every sample, one rule for all four
-     samples. Judgement call 5 records the reason. The ingest passes the
-     page's tile size as the chunk, as `measure.py` does.
-   - Check: the `images` gate on every H&E level, against tifffile.
-8. **Concurrent chunk writes and a second measurement.**
-   - Problem: each written chunk took 0.55 s on the VM. The cause is not
-     measured. Step 2 measured no concurrent chunk writes.
-   - Fix: write chunks concurrently inside one process. Measure again on a
-     Coiled VM in us-west-2, with the machine token, not a personal one.
-   - Check: the measurement gives the time per chunk and the peak memory.
-     It sets the machine size for step 4.
-   - Result: done on 2026-11-11 on an `m7g.xlarge` with the machine token.
-     Concurrency 32 gives 8.0 times the rate of concurrency 1 for the plane,
-     17.8 for the mask, 7.2 for the H&E and 1.5 for the stack. The peak
-     memory of each part is under 1.3 GiB. Step 4 states the machine size
-     and the concurrency. `LAYOUTS.md`, item (f), has the numbers.
-9. **The full kidney ingest** to the Arraylake branch `main`, as step 4.
-   It keeps the fixture's two tables, `transcripts` and `nucleus_boundaries`,
-   and their UUIDs. Item 13 gives how `--replace-tables` replaces their rows.
-   It adds `cell_boundaries` as a new table. The branch `fixture` keeps its
-   pinned snapshots. The ingest never overwrites their files.
-   - Result: the run ended on 2026-11-12 with all 16 gates passed.
-     REPORT.md gives the counts and the times.
-10. **Deferred minor items.** These smaller items may wait:
-    - `minus80.parsers.zip.nested`: `Window.seek` and its tests, and the zip
-      that stays open.
-    - `minus80.core.zarr_copy`: the refusals and their tests.
-    - `minus80.core.pyramid`: `write_page` skips a missing tile silently;
-      `_check_shape` checks only `y` and `x`. A core test and an ingest test check a planar page.
-    - `minus80.ome.spatialdata`: checks on the input of a transform.
-    - `minus80.core.tables`: partial references after a failed write, and
-      `require_table` on a table with no snapshot.
-    - The ingest's tests: the conftest, and a close on `Bundle`.
-    - `bundle.py` and `polygons.py`: tests of `read_array`, and the loop
-      over polygons.
-    - `ingest.py` and `verify.py`: `ReadCounter`, the lambdas, and repeated
-      checks.
-    - Prose fixes in this file and in `docs/upstream.md`.
-11. **Small fixes.**
-    - `--repo` and `--catalog` both use `arraylake://<org>` for the org.
-    - State which virtual chunk container the full ingest uses: the table's
-      `data/` prefix, or the namespace's storage location.
-    - `require_table` creates a partitioned table and its partition spec in one staged create.
-    - Run the full ingest with a service token, or a token limited to the
-      repo, not a personal token. `REPORT.md` records which.
-    - `check_bundle_size` takes the first source object as the bundle. Match
-      the object by its `_outs.zip` suffix.
-    - `gate_copies` reads each file and array whole. Hash them in blocks.
-    - `verify.chunk_members` does not handle the `/` chunk separator that
-      `zarr_copy` handles.
-    - Result: `gate_copies` hashes in blocks, and `verify.chunk_members` handles the `/` separator.
-      `--repo` and `--catalog` use the one `arraylake://<org>` form.
-      `check_bundle_size` selects the bundle's row by its `_outs.zip` name.
-12. **The dry run of the full mode.**
-    - Problem: the full mode needs a check on a complete store before the
-      cloud run.
-    - Fix: none. The run found no fault in `ingest.py` or `verify.py`.
-    - Check: on 2026-11-11, on a laptop, a synthetic bundle, a local repo and
-      a local catalog. All 13 gates that ran passed. `masks` and `instances`
-      need the real bundle. Two runs that SIGINT stopped, one in the
-      transcript tiles and one in `images/morphology`, resumed to the store
-      of an unstopped run. The arrays are equal. Only the ids of the six
-      tables differ. This measures no speed. `LAYOUTS.md`, "The dry run of
-      the full mode", has the commands and the results.
-13. **Replace the held tables in place.**
-    - Problem: the full ingest writes `transcripts` and `nucleus_boundaries`,
-      which the `fixture` branch pins. The held `nucleus_boundaries` has
-      another schema. The held `transcripts` tile `0,0` starts at `instance` 0,
-      and on `main` it starts at 1. The ingest stops on both by default.
-    - Fix: `ingest.py --mode full --replace-tables transcripts,nucleus_boundaries`.
-      `require_table` evolves the schema in one commit with `update_schema`.
-      `write_transcripts` keeps a tile that passes its checks.
-      It replaces a failing tile in one overwrite snapshot.
-      It removes a tile outside the plan in a snapshot first.
-      `partition_bounds` reads the schema of the snapshot it is given.
-    - Check: tests on a local catalog build the fixture's two tables and
-      elements by hand. They run the replace. Then they run the gates
-      `copies`, `attrs` and `field_ids` on the fixture. All pass. A scan of each earlier
-      snapshot returns the earlier rows and columns. The earlier files keep
-      their bytes and their times. A stop at each point, then a rerun, ends
-      with the table of an unstopped run.
-14. **Levels above 0.**
-    - Fact: `level_scale` gives each level a scale that sets its pixel size.
-      It gives no translation.
-    - The owner checks this call.
+**The bundle check.** `facts.bundle_facts` reads every fact that a later step needs.
+It builds the root attributes, resolves each member, reads the QC labels and the transcript grid, and opens each TIFF header.
+`check_bundle.py` compares the facts with `samples/<sample>.json`. A difference is one line that gives the fact and both values.
+Its exit code is 0 for no difference, 1 for a difference, 2 for a record that cannot serve, 3 for a bundle that does not open, and 4 for a check that did not finish.
+Without `--bundle`, it also compares the size and ETag of each source object by a HEAD request.
+The group `members` of the facts pins the size of each store member.
+The launcher runs the check by range request before the download, and again on the local files.
+`ingest.prepare` runs the comparison before the first write. The verification runs it as the gate `bundle`.
+Each of the three scripts takes `--record` for a record file outside `samples/`. A record with an error entry stops each of them.
+The ingest finds the members by pattern: `morphology_2d/ch*.ome.tif`, `morphology_3d/ch*.ome.tif`, `metrics_summary*.csv` and `analysis_summary*.html`.
+A `*` matches inside one path segment. The patterns must match 4, 1, 1 and 1 members, or `ValueError` stops the step.
 
-## Before the next sample
-
-Open work, as present facts. Stage three closed the other items. The result line of each work item gives the code.
-
-- **The trial branches.** Each of the four repos keeps its branch `trial-20261112` or `trial-20261112-description`.
-  Each one is at the snapshot of `main`. A deletion needs the owner's approval.
-- **The credentials of an upload.** `TableWriter` repeats an upload whose vended credential expired, up to three attempts.
-  One upload must end within the 1,080 s of a new credential. `docs/upstream.md` gives the upstream fix.
-- **The stain names inside the OME-XML.** The record holds the file names of the morphology members.
-  It does not hold the channel names inside the files.
-  The ingest takes the channel names from the OME-XML when it writes.
-  So the bundle check finds a renamed stain file, but not a changed name inside a file.
-  The dry run of 2026-11-12 showed this. A record key for the names needs a second survey run of each sample.
-- **Gates with the ingest's code.** The gate `qc` decodes the report with the ingest's decoder, `qc.bundle_rasters`.
-  The gates `tables`, `polygons`, `masks` and `instances` decode `cell_index`, `cell_summary` and `cell_id` with `read_array`.
-  The ingest decodes these arrays with the same function.
-  The docstring of `verify.py` lists each use of the ingest's code. A defect in shared code can pass these gates.
-- **The gate `matrix` on real data.** Its metadata and decoded checks ran only on synthetic data.
-  `transforms` and `labels` passed on the kidney's `main`. The brain's run is the first real run of `matrix` in this form.
-- **The threads of the stack.** No run measured their gain.
-  With one thread, the stack took 3,257.4 s of the kidney ingest's 6,829 s.
-- **The read limit of the bundle check.** `check_bundle.py` reads at most 200,000,000 bytes by default.
-  The launcher gives no `--max-bytes`.
-  The survey read 152.9 MB of the colorectal bundle and 169.8 MB of the breast bundle.
-- **Calls for the owner to check.**
-  - The ingest and the gate `bundle` do not compare the group `stores`. `check_bundle.py` compares it before the download.
-  - A person can still run `ingest.py --mode full --branch main` by hand. Only the launcher requires a trial branch.
-  - The preflight does not test that `main` is an ancestor of the trial branch. `promote.py` tests it at the end.
-- **Approvals.** Each sample needs its setup, the Coiled spend, the storage and the run.
-  The owner approves each one. "The run of the next sample" lists them for the brain.
-
-## Stage three
-
-Stage three prepares the ingest of the brain, colorectal and breast samples.
-It closes each item of "Before the next sample". It does not ingest a sample.
-Each sample's run is a later step with its own approval.
-
-### Intent
-
-The kidney run proved the flow on one bundle of analysis version 1.0.4.
-The three other bundles have version 1.1.1 and are larger.
-A difference between the versions must stop a run at its start, not after hours.
-A reader of `main` must never see a store that the verification did not pass.
-
-### Goals
-
-1. The facts of each 1.1.1 bundle are on record before any write.
-2. A bundle that differs from the record stops the run before the download.
-3. A fault inside a bundle stops the ingest when the bundle opens, before the first write.
-4. The verification checks where each element is in `global`.
-5. `main` of a sample's repo moves only to a snapshot that passed every gate.
-6. The 3D stack takes less time.
-7. The store's own description lists each kind of element it holds.
-
-### Not goals
-
-- A change of the layout of `main`. The kidney's layout stays.
-- A change of the kidney's data. Its `main` gets one commit, for the root attribute `description` only.
-- The overview scan. It stays out.
-- A second measurement run. Each sample's own run gives its times.
-- A move of ingest code into `minus80` beyond what an item below needs.
-
-### Decisions of the owner
-
-- **The survey runs on Coiled.** It does not run on a laptop.
-- **A trial branch first.** Each sample's run writes a branch `trial-<name>`.
-  `main` moves to that snapshot after every gate passes.
-- **The setup on Arraylake.** The plan's author creates each repo, each tables namespace and each access policy with the Python client.
-  The owner approves each one first.
-- **The order.** Brain, then colorectal, then breast: the smallest bundle first.
-
-### Calls of the plan's author
-
-The owner checks each of these.
-
-- The remote script moves `main` by itself when every gate passed. It does not wait for a person.
-- A failed gate leaves `main` at the repo's first commit and keeps the trial branch for a look.
-- The work continues on the git branch `atera-ingest-plan`.
-- The machine stays `m7g.xlarge` with `--concurrency 32`. The launcher sets the disk from the sample's download size.
-- The kidney's `description` commit runs on a VM. The step reads the bundle by range request and writes the root attributes only.
-- The QC rasters' decode has no second decoder. `REPORT.md` keeps that limit.
-- The survey writes one record file for each sample, `samples/<sample>.json`. The bundle check compares a bundle with that file.
-- The bundle check runs before the download, by range request. It runs again on the local file before the ingest.
-- A rerun on the same trial branch resumes. A fix that changes written arrays uses another trial branch name.
-  A fix that changes a table's rows uses `--replace-tables`. No run deletes a branch, a table or an object.
-- `main` moves only forward: its snapshot must be an ancestor of the trial snapshot.
-- The kidney's `description` commit also goes through a trial branch and the move of `main`. It is the first use of that move.
-- The plan's author runs the setup script with the owner's login. The machine token has no right to set a policy.
-
-### The work
-
-**1. The survey.** A script `survey.py` reads metadata from the four bundles and prints one record for each sample.
-It runs on one VM through the launcher's script form. It reads by range request and downloads no bundle.
-It writes nothing to Arraylake.
-It reads metadata and the small index arrays: no pixel, no transcript column, no matrix chunk.
-It prints the bytes that it read from each bundle.
-The record holds:
-
-- the member names of the bundle, with sizes;
-- the keys of `experiment.spatial` and the analysis version;
-- the name of the metrics member and its keys;
-- for each morphology file and the H&E: levels, shapes, tile size, compression, planar or interleaved, the OME pixel sizes;
-- the plane count of the 3D stack;
-- the transcript grid: the tile keys, the rows of each tile, the chunk rows of each column;
-- the polygon sets: rows, unique cells, the method codes;
-- the `cell_summary` columns;
-- the QC labels, units, bin counts and data types of the analysis summary;
-- the columns of the two differential expression files;
-- the alignment matrix.
-
-The kidney is in the survey as a control. Its record must equal what `LAYOUTS.md` holds.
-The survey writes each record as `samples/<sample>.json`. The file is committed.
-`LAYOUTS.md` gets a table of the differences between the samples. A difference from the kidney is a finding with its number.
-
-Result: the survey ran on 2026-11-12 on one `m7g.xlarge` in us-west-2 and wrote the four records.
-It read 146,999,959, 103,065,174, 152,937,056 and 169,825,963 bytes in 1,852, 1,253, 1,733 and 1,927 requests.
-These are the kidney, brain, colorectal and breast. The kidney's reads total 3.5 times the 42 MB of the plan's estimate.
-Each kidney fact of `LAYOUTS.md` and `REPORT.md` equals the record.
-The first colorectal and breast records held an error entry at `qc.rasters`: the reader did not know `uint32`.
-`LAYOUTS.md` has the table in "The four bundles".
-The code is in commits `abe9142`, `b669703` and `c7033a0`. Commit `39169f5` holds the four records.
-Commit `7933960` lets the QC reader accept `uint32`.
-A second survey run on 2026-11-12 wrote both records again with no error entry. `LAYOUTS.md` gives the reads.
-
-**2. Members by pattern.** The ingest finds the morphology files by `morphology_2d/ch*.ome.tif` and `morphology_3d/ch*.ome.tif`.
-It finds the metrics member and the report by one pattern each. Each pattern must match the expected count, or the open of the bundle fails.
-Result: commit `abe9142`. The patterns in `bundle.py` are the two above, `metrics_summary*.csv` and `analysis_summary*.html`.
-A `*` matches inside one path segment. Each pattern must match 4, 1, 1 and 1 members, or `ValueError` stops the step.
-`ingest.prepare` opens each pattern before the first write.
-Limit: the record holds the file names, not the stain names inside the OME-XML.
-
-**3. A check when the bundle opens.** One function reads every fact that a later step needs.
-It builds the root attributes and resolves each member.
-It reads the QC labels and the transcript grid, and it opens each TIFF header.
-It compares each fact with the sample's record file. A difference is one line that gives the fact and both values.
-The ingest calls it before the first write. The verification calls it too.
-The remote script runs it twice: by range request before the download, and on the local file before the ingest.
-Result: commits `78425ff` and `23d4ba7`. `facts.bundle_facts` reads the facts. `check_bundle.py` compares them with `samples/<sample>.json`.
-Its exit code is 0 for no difference and 1 for a difference.
-It is 2 for a record that cannot serve and 3 for a bundle that does not open.
-It is 4 for a check that did not finish.
-`ingest.prepare` runs the comparison before the first write. It also builds the root attributes and resolves each member.
-The verification runs the comparison as the gate `bundle`.
-The ingest and the gate `bundle` leave out the group `stores`. The group `members` pins the size of each store member.
-`check_bundle.py` compares `stores` too. The launcher runs it by range request and again on the local files.
-Without `--bundle`, `check_bundle.py` also compares the size and ETag of each source object by a HEAD request.
-Each of the three scripts takes `--record` for a record file outside `samples/`.
-A record with an error entry stops each of them.
-On 2026-11-12 the kidney's check read 147.0 MB by range request and found no difference.
-
-**4. A `transforms` gate.** It compares each element's transform with the source:
+**Verification.** `verify.py` runs gate by gate, per `docs/ingest.md`.
+It compares every image level against tifffile on a sample of tiles, and every copied chunk by checksum.
+It compares every table's row count against the source arrays, and checks the shim and zax reads.
+`REPORT.md`, "Verification", lists the gates and what each compares.
+The gate `transforms` compares each element's transform with the source:
 
 - each image and label level's scale, against the `experiment.spatial` pixel size and the level shapes;
 - the stack's z step, against the OME-XML;
@@ -1054,205 +701,49 @@ On 2026-11-12 the kidney's check read 147.0 MB by range request and found no dif
 - each QC raster's scale and translation, against the report's bins and origin;
 - where each stored transform maps the corners of each level: four of a plane, eight of the stack.
 
-The gate computes each expected value from the source and not from the ingest's functions.
+The gate computes each expected value from the source, not from the ingest's functions.
 A stored number must equal its source number within a relative error of 1e-9.
-The alignment CSV is a 3 by 3 matrix in `(x, y)` order. It maps H&E pixels to morphology pixels, as `LAYOUTS.md` records.
-Result: commits `66e4779`, `0c485be` and `8fc2fe4`. The gate `transforms` runs in both modes, after the gate `images`.
-It parses the pixel size, the level shapes, `PhysicalSizeZ`, the alignment CSV and the report's bins itself.
-It maps the corners of each level into `global`. A far corner of each level must map to the far corner of level 0.
-The four corners of a plane fix the affine of the H&E.
-The gate also binds each stored axis name to its array dimension, by the axis order that `LAYOUTS.md` records.
-Limits: the gate reads the first multiscale of each element only.
+The alignment CSV is a 3 by 3 matrix in `(x, y)` order. It maps H&E pixels to morphology pixels.
+A far corner of each level must map to the far corner of level 0.
+The gate binds each stored axis name to its array dimension, by the axis order that `LAYOUTS.md` records.
+It reads the first multiscale of each element only.
 It does not compare the input and output axes of a transform with the stored axes.
-It ran in the dry run of 2026-11-12, on synthetic data.
-On 2026-11-12 `verify.py --gates transforms,labels` ran on the kidney's `main`, snapshot `DCHK9523X4W5TSC4V5X0`.
-It ran on one `m7g.xlarge` and read the source by range request: 308.9 MiB in 3,504 requests.
-Both gates passed. `transforms` checked 11 elements. `labels` decoded 20 chunks of each mask, and 15 held cell labels.
 
-**5. A trial branch, then `main`.** The launcher's ingest form writes `trial-<name>`.
-After `=== all steps passed` for the verification, a last step moves `main` to the trial branch's snapshot.
-The step refuses when the snapshot of `main` is not an ancestor of the trial snapshot.
-So `main` moves only forward, and the table pins of the verified snapshot stay as written.
-A trial branch has the name `trial-<date>`, or `trial-<date>-<n>` for a later try.
-A failed gate, or a stop in the ingest, keeps the trial branch. A rerun on that branch resumes.
-Result: on 2026-11-12 the kidney's `description` run moved `main` on Arraylake with the machine token.
-`main` went from `KB0DWEXDHY8GSRE29GQG` to `DCHK9523X4W5TSC4V5X0`, the snapshot that the verification read.
-The verification of a later run can read either branch.
-The code is in commits `6690c8f`, `aa177bc`, `7fae98a`, `8371860` and `b74c7b2`.
-`verify.py --snapshot-file` writes the snapshot that the gates read. It writes it only when at least one gate ran and none failed.
-`promote.py --expect` refuses a trial snapshot other than that one. So a later commit on the trial branch moves nothing.
-The launcher refuses `--gates` unless the run has exactly one of `--no-promote` and `--promote-after-gates`.
-With `--remote-bundle` the only element is `root`, and each gate is one of `complete`, `attrs` and `source`.
-
-**6. Threads for the stack.** `write_stack` decodes the planes of one position in a thread pool.
-The bound on pending bytes stays. A test compares the result with the one-thread result.
-Result: commits `29c3ba0` and `bda3c5f`. `minus80.core.pyramid.write_stack` takes `decoders`, the thread count of the decode.
-The calling thread reads the tile bytes, so no thread seeks the shared file.
-The ingest sets `decoders` to the plane count or the CPU count, whichever is less. That is 4 on an `m7g.xlarge`.
-A test on JPEG 2000 tiles of 13 planes compares the threaded result with the one-thread result.
-Limit: no run measured the gain.
-
-**7. The `description`.** The root attribute names `images/morphology_3d`, `images/he_image`, the QC rasters and `iceberg_tables`.
-The kidney gets one commit with it, on a trial branch. The gates `complete`, `attrs` and `source` run on that branch, then `main` moves.
-The `complete` gate checks that the text names each element kind that the store holds.
-Result: on 2026-11-12 one run wrote the kidney's root with `--root-keys description` on `trial-20261112-description`.
-The ingest printed `root attributes: changes description`. The gates `complete`, `attrs` and `source` passed.
-`main` moved forward by that one commit. The six tables kept their snapshots, and `fixture` stayed as it was.
-The code is in commits `4733622` and `038a50f`. `ingest.py --root-keys` writes only the root keys that it gets.
-It needs `--elements root` alone and the full mode. It prints each root key that changes.
-A change to another key stops the ingest before the write. The launcher passes `--root-keys` to the ingest.
-
-**8. Checks with their own reference.** The chunk-key mapping moves to one function in `minus80.core.zarr_copy`.
-The matrix and label gates also compare decoded values of sampled chunks with the source's decode.
-The gate for copied arrays' metadata reads each source `.zarray` field itself.
-Result: commits `c85ca1a` and `abfa50f`. `minus80.core.zarr_copy.chunk_key` gives the key of a chunk.
-The ingest and the hash comparison of the gates use it.
 The gates `labels` and `matrix` also read 20 chunks through zarr, from the first chunk to the last.
-Each equals the source's decode by `zarr_copy.read_region`, which uses no chunk key. So a chunk under a wrong key fails.
+Each must equal the source's decode by `zarr_copy.read_region`, which uses no chunk key. So a chunk under a wrong key fails.
 At least one sampled chunk must hold a value other than the fill value.
 The gate `matrix` also compares every chunk of `X/indptr`.
 The gate `labels`, and the gate `matrix` in full mode, compare each metadata field with the source `.zarray`.
-Limits: `read_region` reads the source through `zarr_copy.v2_spec`, as the copy does.
-The gate `qc` and the gates that use `read_array` keep the ingest's decoders. "Before the next sample" lists them.
+The gate `complete` checks that the `description` gives each element kind that the store holds.
 
-**9. The setup on Arraylake.** A script creates, for one sample: the repo, the tables namespace, and the access policy for the namespace's prefix.
-It has a dry run. It prints no bucket name and no prefix.
-It reads the namespace's location from the catalog at run time. No file holds it.
-Each piece that exists and is as wanted is skipped. A piece that exists and differs stops the script.
-Result: commits `a4aef18`, `624120a`, `44630e6` and `cfea757`. The script is `setup_sample.py --sample <sample> --org <org>`.
-It sets up four pieces: the repo, the tables namespace, the virtual chunk container and the access policy.
-It first checks the bucket. The org's default bucket must be the kidney's bucket.
-The sample's repo and namespace, where they exist, must be on that bucket too.
-Each piece prints `exists`, `created`, `would create` or `DIFFERS`. A piece that differs stops the script with exit code 1.
-`--dry-run` reads the org and creates nothing.
-The script refuses a public or wider policy. It refuses a prefix segment that is empty, `.`, `..` or holds a space.
-On 2026-11-12 the dry run gave four `exists` for the kidney and four `would create` for the brain.
-Limit: the script has not run for real. It needs a login with the right to set a policy.
+**The trial branch, then `main`.** The launcher's ingest form writes `trial-<name>`, and refuses another branch.
+A trial branch has the name `trial-<date>`, or `trial-<date>-<n>` for a later try.
+`verify.py --snapshot-file` writes the snapshot that the gates read. It writes it only when at least one gate ran and none failed.
+After the verification passes, `promote.py --expect` moves `main` to that snapshot.
+It refuses another trial snapshot, so a later commit on the trial branch moves nothing.
+It refuses when the snapshot of `main` is not an ancestor of the trial snapshot.
+So `main` moves only forward, and the table pins of the verified snapshot stay as written.
+The launcher refuses `--gates` unless the run has exactly one of `--no-promote` and `--promote-after-gates`.
+With `--remote-bundle` the only element is `root`, and each gate is one of `complete`, `attrs` and `source`.
+`ingest.py --root-keys` writes only the root keys that it gets. It needs `--elements root` alone and the full mode.
+It prints each root key that changes. A change to another key stops the ingest before the write.
 
-### Facts that change stage three
-
-- The density map of the colorectal and breast reports is `uint32`. The QC reader accepts `uint32`.
-- The breast has 9 morphology levels in the four 2D files and in the stack. The other samples have 8.
-- The largest tile is in the colorectal sample: 334,725,210 rows. The kidney's largest has 90,630,655 rows. The ratio is 3.7.
-- The transcript rows are 1,640,508,930, 3,855,378,414 and 4,565,138,232 for the brain, colorectal and breast.
-- Estimate of the transcript tables. The kidney's tile `3,1` measured 24.6 bytes per row of Parquet.
-  That is 2,230,658,968 bytes for 90,630,655 rows.
-  Then 1,640,508,930 x 24.6 is 40.4e9, 3,855,378,414 x 24.6 is 94.8e9, and 4,565,138,232 x 24.6 is 112.3e9.
-  The tables come to about 40 GB, 95 GB and 112 GB.
-- Estimate of the scratch file of the largest tile. 334,725,210 x 24.6 is 8.2e9 bytes, or 7.7 GiB.
-  The launcher allows 10 GiB for this file.
-
-### The run of one sample
-
-Each run needs the owner's approval of the repo, the spend and the storage.
-
-1. The setup script, after approval.
-2. The launcher's ingest form, on one VM. The ingest writes `trial-<name>`, and the last step moves `main`.
-   The steps are environment, preflight, bundle-remote, space, download, check, bundle-local, ingest, verify and promote.
-3. A check that the cluster stopped.
-4. `REPORT.md` gets a section for the sample: the counts, the times, the findings.
-5. The reader project gets the `main` snapshot and the table pins.
-
-### Sizes
-
-| Sample | Bundle | H&E | Download |
-|---|---|---|---|
-| brain | 48,858,124,574 | 6,519,718,813 | 55.4 GB |
-| colorectal | 75,341,543,536 | 5,067,976,962 | 80.4 GB |
-| breast | 89,305,623,909 | 7,318,928,225 | 96.6 GB |
-
-The kidney's download took 991 s for 48.5 GB, and its ingest 6,829 s.
-The survey gives each sample's transcript rows, pixels and planes.
-The estimate of a run scales the kidney's times. The download and the file check scale by bytes.
-The transcripts scale by rows. Each image scales by its pixels and planes.
-The estimate assumes no gain from the stack's threads. The time limit is twice the estimate.
-
-### Left to the builder
-
-- The names and signatures of functions.
-- The form of the survey's record, if `LAYOUTS.md` can hold it as tables.
-- The thread count of the stack's decode.
-- The test data for a 1.1.1 layout. It has a planar H&E with 9 levels and a stack of 15 planes.
-  It has 9 morphology levels and a `uint32` density map.
-
-## The run of the next sample
-
-The next sample is the brain, `Atera_v1_WTA_S4A_Brain_Hippocampus_ND_FF`.
-Its record, `samples/brain.json`, holds no error entry.
-
-Result: the brain's run of 2026-11-12 passed every step. `REPORT.md`, "The brain sample", gives the facts.
-`main` of `atera-brain` is at `KQQGSNM0K4Z4HQT3R050`. The run took 9,203 s against an estimate of 14,718.6 s.
-
-### The approvals
-
-The owner gives each of these approvals before the run:
-
-1. **The setup.** `setup_sample.py --sample brain --org earthmover-biology` creates the repo `atera-brain`.
-   It also creates the namespace `atera-brain-tables`, the virtual chunk container and the access policy.
-   Its dry run of 2026-11-12 printed `would create` for each of the four pieces.
-   The plan's author runs it with the owner's login.
-2. **The spend.** One `m7g.xlarge` in us-west-2, Coiled workspace `earthmover-devs`, for at most 491 minutes.
-3. **The storage.** The transcript Parquet files come to about 40 GB, at the kidney's 24.6 bytes per row.
-   No run measured the stored size of the brain's images, labels and matrix.
-   The kidney's approval was for about 100 GB of storage.
-4. **The run.** It is the first write to `atera-brain`, on the branch `trial-<date>`.
-   Its last step moves `main` to the verified snapshot.
-
-A push of the git branch and a pull request are a separate question.
-The launcher uploads the committed code of the local checkout, so the run needs no push.
-
-### The command
-
-Run `setup_sample.py --sample brain --org earthmover-biology --dry-run` just before the launch.
-It must print four `exists` lines.
-The ingest writes to the catalog before it checks the virtual chunk container.
-So a missing piece fails about 30 minutes into the run.
-
-```
-uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
-  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-brain \
-  --ingest --sample brain --repo arraylake://earthmover-biology/atera-brain \
-  --catalog arraylake://earthmover-biology --namespace atera-brain-tables \
-  --branch trial-<date> --concurrency 32 --max-minutes 491 --token-file <path>
-```
-
-- `<date>` is the UTC date of the launch, as `YYYYMMDD`. The launcher uses that name when `--branch` is absent.
-- `<path>` is the file of the Arraylake machine token.
-- The command has no `--gates`. So the verification runs every gate of the full mode, and then `promote.py` moves `main`.
-- The command has no `--replace-tables`. The catalog holds no table of the brain.
-- The command has no `--disk`. The launcher sets the disk from the downloads.
-- The remote steps are environment, preflight, bundle-remote, space, download, check, bundle-local, ingest, verify and promote.
-
-### The disk
-
-On 2026-11-12, the command with `--dry-run` and `--branch trial-20261112` contacted nothing and read no token.
-It printed `disk_size='100'`, `job_timeout='491 minutes'` and this line:
-
-```
-disk: 55,377,843,512 bytes of downloads are 52 GiB, plus 40 GiB of overhead is 92 GiB at least; this launch has 100 GiB
-```
-
-So the disk is 100 GiB: 92 GiB rounded up to a multiple of 25 GiB.
-The space step needs 64,565,685 KiB free: the downloads and 10 GiB for the scratch file of one tile.
-The brain's largest tile has 101,948,261 rows. At 24.6 bytes per row, its file is about 2.5e9 bytes.
-
-### The time limit
-
-The rule is twice the estimate. The estimate scales each time of the kidney's run by a quantity of the brain.
+**The time limit.** The limit is twice the estimate, rounded up to a whole minute.
+The estimate scales each step time of the kidney's run by the ratio of one quantity of the sample to the kidney's.
 The kidney's times come from `REPORT.md`, "Timings" and "The description commit".
-The brain's quantities come from `samples/brain.json`, and the kidney's from `samples/kidney.json`.
+The quantities come from `samples/<sample>.json` and `LAYOUTS.md`.
+The download and the file check scale by bytes. The bundle checks scale by the survey's reads.
+The transcripts scale by rows. Each image and the labels scale by the pixels of level 0, and the stack also by planes.
+The matrix scales by its stored values. The QC rasters scale by bins.
+The verification scales by the largest ratio of a gate's input.
+That is the pixels for the brain, and the stored values of the matrix for the colorectal and the breast.
+A ratio below 1 keeps the kidney's time, because no run measured the fixed cost of a step.
+A step with no quantity keeps the kidney's time: environment, preflight, `iceberg_tables`, the root and promote.
+The kidney's ingest held no bundle check, so the estimate adds one for `ingest.prepare`.
+The estimate counts no gain from the threads of the stack.
+The rates of `LAYOUTS.md`, item (f), read from 10x's bucket. The run reads local files, so the estimate uses the run's times.
 
-These are the ratios:
-
-- Downloads: 55,377,843,512 / 48,518,883,775 bytes = 1.1414. The bytes are the bundle, the H&E and the alignment CSV.
-- Bundle check: 103,065,174 / 146,999,959 bytes = 0.7011. These are the survey's reads of each bundle.
-- Pixels of level 0: (42548 x 61369) / (33139 x 56644) = 2,611,128,212 / 1,877,125,516 = 1.3910.
-- Stack: 15 / 13 planes x 1.3910 = 1.6050.
-- H&E pixels of level 0: (45694 x 34152) / (42169 x 23628) = 1,560,541,488 / 996,369,132 = 1.5662.
-- Transcript rows: 1,640,508,930 / 1,186,813,834 = 1.3823.
-- QC bins of the 20 µm grid: (453 x 653) / (353 x 603) = 1.3897.
-- Stored values of the matrix: 258,265,955 / 599,212,411 = 0.4310.
-- Polygon rows: 91,431 / 399,120 for the cells and 90,238 / 398,197 for the nuclei, both under 0.23.
+The worked example for the brain:
 
 | Step | Kidney (s) | Ratio | Brain (s) |
 |---|---|---|---|
@@ -1263,10 +754,10 @@ These are the ratios:
 | download | 991 | 1.1414 | 1,131.1 |
 | check | 377 | 1.1414 | 430.3 |
 | bundle-local | 77 | 0.7011 | 54.0 |
-| ingest: the bundle check of `ingest.prepare`, an added estimate | not measured; 77 assumed | 0.7011 | 54.0 |
-| ingest: `tables/table` | 905.3 | 1, not 0.4310 | 905.3 |
-| ingest: two labels | 32.6 + 37.3 = 69.9 | 1.3910 | 97.2 |
-| ingest: two shapes | 16.0 + 14.8 = 30.8 | 1, not 0.23 | 30.8 |
+| ingest: the bundle check of `ingest.prepare`, an added estimate | 77 assumed | 0.7011 | 54.0 |
+| ingest: `tables/table` | 905.3 | below 1, so 1 | 905.3 |
+| ingest: two labels | 69.9 | 1.3910 | 97.2 |
+| ingest: two shapes | 30.8 | below 1, so 1 | 30.8 |
 | ingest: `points/transcripts` | 1,749.3 | 1.3823 | 2,418.0 |
 | ingest: `iceberg_tables` | 30.5 | 1 | 30.5 |
 | ingest: six QC rasters | 17.9 | 1.3897 | 24.9 |
@@ -1274,49 +765,34 @@ These are the ratios:
 | ingest: `images/morphology_3d` | 3,257.4 | 1.6050 | 5,228.2 |
 | ingest: `images/he_image` | 68.5 | 1.5662 | 107.3 |
 | ingest: root attributes | 1.6 | 1 | 1.6 |
-| ingest: the rest, 6,829 less 6,756.2 | 72.8 | 1 | 72.8 |
-| ingest, in all | 6,829 | | 9,840.0 |
+| ingest: the rest | 72.8 | 1 | 72.8 |
 | verify: the gates of the kidney's run | 2,246 | 1.3910 | 3,124.2 |
 | verify: the gate `bundle` | 77 | 0.7011 | 54.0 |
 | promote | 4 | 1 | 4.0 |
 | Sum | | | 14,718.6 |
 
-The kidney's 6,829 s of ingest held no bundle check. So the row of `ingest.prepare` is an added estimate.
-It uses the 77 s of the check by range request. The other kidney rows of the ingest add up to 6,829 s.
-The estimate is 14,718.6 s, or 245.3 minutes.
-Twice the estimate is 29,437.2 s, or 490.6 minutes. The limit is 491 minutes.
-The kidney's run took 10,470 s in its six steps. The kidney's limit was 480 minutes.
+The ratios:
 
-The assumptions, one on each line:
+- Downloads: 55,377,843,512 / 48,518,883,775 bytes = 1.1414: the bundle, the H&E and the alignment CSV.
+- Bundle check: 103,065,174 / 146,999,959 bytes = 0.7011, the survey's reads.
+- Pixels of level 0: (42548 x 61369) / (33139 x 56644) = 1.3910. The masks have the shape of level 0.
+- Stack: 15 / 13 planes x 1.3910 = 1.6050.
+- H&E pixels of level 0: (45694 x 34152) / (42169 x 23628) = 1.5662.
+- Transcript rows: 1,640,508,930 / 1,186,813,834 = 1.3823.
+- QC bins of the 20 µm grid: (453 x 653) / (353 x 603) = 1.3897.
+- The brain's matrix and polygons are smaller than the kidney's.
 
-- The time of a step is in proportion to its quantity.
-- A brain quantity below the kidney's keeps the kidney's time, because no run measured the fixed cost of a step.
-- A step with no quantity keeps the kidney's time: environment, preflight, `iceberg_tables`, the root and promote.
-- `check_bundle.py` reads the bytes that the survey read. The kidney's check by range request took 77 s.
-- The check on local files takes as long as the check by range request. No run measured it.
-- The brain's masks have the shape of level 0 of the morphology, (42548, 61369).
-- The record lacks `masks/0`, because the survey's listing of the cells store stopped at its cap.
-- The shape of the masks comes from the index of the brain bundle of 2026-11-10.
-- A pyramid scales as its level 0. The two extra H&E levels of the brain add under 0.01 percent of the pixels.
-- The brain's H&E is planar and uncompressed. The kidney's is interleaved Deflate. No run measured the decode cost of either.
-- The stack scales by planes times pixels. The decode threads of commit `29c3ba0` can make it faster. The estimate counts no gain.
-- The transcripts step holds the upload and the commits. It scales by rows.
-- The kidney's log gives no time for each gate. So the whole verification scales by 1.3910, the ratio of the pixels.
-- That is the largest ratio of a gate's input. The `images` gate reads 161 pages for the brain against 143.
-- The gate `transforms` reads headers, the CSV and attributes only. The estimate counts 0 s for it.
-- The rates of `LAYOUTS.md`, item (f), read from 10x's bucket. The run reads local files, so the estimate uses the run's times.
+The estimate is 14,718.6 s, or 245.3 minutes. Twice the estimate is 490.6 minutes. The limit is 491 minutes.
+The same rule gives 679 minutes for the colorectal and 786 minutes for the breast. The kidney's limit was 480 minutes.
+The runs took 9,203 s, 10,957 s and 15,976 s. `REPORT.md` compares each step with its estimate.
 
-### If the run fails
-
-A rerun resumes on the trial branch of the failed run, so it needs the same `--branch`.
+**If the run fails.** A rerun resumes on the trial branch of the failed run, so it needs the same `--branch`.
 Without `--branch`, the launcher uses `trial-<date>` with the UTC date of the launch.
 So a rerun on another day gets another branch. Give the branch on every rerun.
 
-A rerun starts on another VM, so it repeats each step:
+A rerun starts on another VM, so it repeats the download, the file check and every gate.
 
-- The download and the file check run again. For the brain they take about 26 minutes.
-- The verification runs every gate again. For the brain it takes about 52 minutes.
-
+The ingest commits each image level, and marks each image complete with the attribute `minus80:complete`.
 The ingest skips each unit that the trial branch holds by a commit.
 These units are `tables/table`, each label, each shape, `points/transcripts`, each image level, each QC raster and `iceberg_tables`.
 The ingest skips a held transcripts tile when its row count and `instance` range are correct.
@@ -1328,158 +804,80 @@ That form needs the owner's approval.
 
 A failed run leaves these items behind:
 
-- the trial branch and its chunks in `atera-brain`;
-- the tables of the namespace `atera-brain-tables`, with the snapshots that the run wrote;
+- the trial branch and its chunks in the sample's repo;
+- the tables of the sample's namespace, with the snapshots that the run wrote;
 - the four pieces of the setup: the repo, the namespace, the virtual chunk container and the access policy;
 - the logs of the job in Coiled.
 
 The VM stops on every exit path of the script, and the server stops it at `--max-minutes`.
-No gate verified the current snapshot of each table.
-A reader of a table's current snapshot sees those rows.
-`main` of `atera-brain` pins no table, so a reader of `main` sees no data of the failed run.
+No gate verified the current snapshot of each table, so a reader of that snapshot sees those rows.
+`main` of a new repo pins no table, so a reader of `main` sees no data of the failed run.
+`REPORT.md`, "The colorectal and breast samples", gives the one failed run and its rerun.
 
-## The runs of colorectal and breast
+### Shared-package work
 
-Result: on 2026-11-12 and 2026-11-13 both samples passed every gate, and the promote step moved each `main`.
-`REPORT.md`, "The colorectal and breast samples", gives the facts.
-The first colorectal run stopped on an expired upload credential. Commit `7f1acc2` fixed the cause, and a rerun resumed.
+Code that a second archive could use goes into `minus80`, with tests, and reuses what is there first:
 
-The colorectal and breast samples take the path of the brain. Each needs its own approvals.
-Their records hold no error entry since the second survey run of 2026-11-12.
-The plan's author recommends both runs after the brain's run passes and moves `main`.
-The brain's run is the first real run of a 1.1.1 bundle. A defect there would stop the two longer runs too.
+| Need | Reuse | Add |
+|---|---|---|
+| Arraylake repos as targets | `minus80.core.icechunk_io.arraylake_repository`, on `main` | nothing |
+| OME-Zarr 0.5 image, label and multiscale metadata | `minus80.ome.image_attrs`, `label_attrs` | the SpatialData element attributes: `spatialdata_attrs` and `coordinateTransformations` |
+| A native pyramid whose every level comes from the source | `minus80.core.multiscale`, which writes a virtual level 0 and computed levels | a path that writes decoded source levels as real chunks, with shards |
+| JPEG 2000 tiles out of an OME-TIFF | tifffile's `page.decode`, which calls `imagecodecs` | `minus80.core.pyramid`: it decodes each tile once and writes it. It is in `core`, not `parsers.tiff`, because it writes real chunks and builds no references. |
+| Zarr v2 chunks inside a stored zip, inside a stored zip | `minus80.parsers.zip`, which addresses members as chunks | a v2-to-v3 metadata translation and a byte copy of each chunk |
+| Iceberg tables with the `iceberg_table` attribute and the `uint8` copy | `minus80.core.icechunk_io.create_repo`'s virtual chunk containers | a `minus80.core.tables` module: write Parquet with pyarrow, register with `add_files`, pin the snapshot in the attribute, declare the copy |
 
-### The approvals of each sample
+`TableWriter`, `ElementWriter`, `ReadCounter` with `counting_reader`, and `read_array` are in `minus80.core`.
+`minus80.core.zarr_copy.chunk_key` gives the key of a chunk, for the ingest and for the gates' hash comparison.
 
-1. **The setup.** `setup_sample.py --sample <sample> --org earthmover-biology` creates the four pieces.
-   Run it with `--dry-run` just before the launch. It must print four `exists` lines.
-2. **The spend.** One `m7g.xlarge` in us-west-2, Coiled workspace `earthmover-devs`, for at most the limit below.
-3. **The storage.** The transcript Parquet files come to about 88 GB (colorectal) and 105 GB (breast).
-   These figures use the brain's measured 22.94 bytes per row. The runs measured 94.3 GB and 111.2 GB.
-   No run measured the stored size of the images, labels and matrix.
-4. **The run.** It is the first write to the sample's repo, on the branch `trial-<date>`.
+### Risks
 
-### The commands
+- **Access policy per repo** (call 12). Each sample's repo opens only when
+  an org admin's Virtual Chunk Access Policy covers its container. Each
+  sample's step needs that policy before the ingest starts.
+- **The Python read path** rests on unreleased spatialdata patches and the
+  virtual_omics shim. The fixture showed it: released SpatialData 0.8.0
+  cannot open an Icechunk store, and PR #1107 with its patches and the shim
+  opens every element. Readers outside our notebooks need those until
+  spatialdata PR #1107 or the `parquet_fs_fallback` hook lands.
+- **Booth and OME-Zarr 0.5.** Whether Booth serves a SpatialData image
+  element as tiles is untested. It does not change the store. The elements declare
+  `ome.version` `0.5-dev-spatialdata` (call 14).
+- **Node count.** About 15 images with 8 levels, 2 labels, 2 shapes and one
+  table. The points have one part per source tile, 30 to 37 parts. That is a
+  few hundred nodes per repo, far under the 500,000-node snapshot cache.
+- **Tables outside the verification.** A reader of a table's current snapshot, not of a pin on `main`, can see rows that no gate verified.
 
-```
-uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
-  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-colorectal \
-  --ingest --sample colorectal --repo arraylake://earthmover-biology/atera-colorectal \
-  --catalog arraylake://earthmover-biology --namespace atera-colorectal-tables \
-  --branch trial-<date> --concurrency 32 --max-minutes 679 --token-file <path>
-```
+### Open items
 
-```
-uv run --package atera-ingest --extra launch python ingests/atera/launch.py \
-  --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --name atera-breast \
-  --ingest --sample breast --repo arraylake://earthmover-biology/atera-breast \
-  --catalog arraylake://earthmover-biology --namespace atera-breast-tables \
-  --branch trial-<date> --concurrency 32 --max-minutes 786 --token-file <path>
-```
-
-The notes on the brain's command apply to each: `<date>`, `<path>`, no `--gates`, no `--replace-tables`, no `--disk`.
-On 2026-11-12, the command with `--dry-run` printed the disk of each sample. It contacted nothing and read no token.
-
-### The time limits
-
-The rule and the kidney's times are those of the brain. A ratio below 1 keeps the kidney's time.
-The brain's assumptions hold, with these three changes:
-
-- The verification scales by the ratio of the matrix's stored values, not of the pixels.
-  The gate `matrix` hashes every chunk of `X`, and the matrix ratio is the largest ratio of a gate's input.
-- The records hold the shape of each mask. It equals level 0 of the morphology, so the labels scale by its pixels.
-- The H&E of each sample is planar and uncompressed, as the brain's. No run measured its decode cost.
-
-#### colorectal
-
-These are the ratios against the kidney:
-
-- Downloads: 80,409,520,624 / 48,518,883,775 bytes = 1.6573.
-- Bundle check: 152,937,056 / 146,999,959 bytes = 1.0404. These are the survey's reads.
-- Pixels of level 0: (37836 x 61353) / (33139 x 56644) = 1.2367.
-- Stack: 13 / 13 planes x 1.2367 = 1.2367.
-- H&E pixels of level 0: (46690 x 26286) / (42169 x 23628) = 1.2318.
-- Transcript rows: 3,855,378,414 / 1,186,813,834 = 3.2485.
-- QC bins of the 20 µm grid: (403 x 653) / (353 x 603) = 1.2363.
-- Stored values of the matrix: 1,313,675,832 / 599,212,411 = 2.1923.
-- Polygon rows: 446,777 / 399,120 cells = 1.1194; 445,269 / 398,197 nuclei = 1.1182.
-
-| Step | Kidney (s) | Ratio | Colorectal (s) |
-|---|---|---|---|
-| environment | 13 | 1.0000 | 13.0 |
-| preflight | 14 | 1.0000 | 14.0 |
-| bundle-remote | 77 | 1.0404 | 80.1 |
-| space | 0 | 1.0000 | 0.0 |
-| download | 991 | 1.6573 | 1,642.4 |
-| check | 377 | 1.6573 | 624.8 |
-| bundle-local | 77 | 1.0404 | 80.1 |
-| ingest: the bundle check of `ingest.prepare`, an added estimate | 77 | 1.0404 | 80.1 |
-| ingest: `tables/table` | 905.3 | 2.1923 | 1,984.7 |
-| ingest: two labels | 69.9 | 1.2367 | 86.4 |
-| ingest: two shapes | 30.8 | 1.1194 | 34.5 |
-| ingest: `points/transcripts` | 1,749.3 | 3.2485 | 5,682.6 |
-| ingest: `iceberg_tables` | 30.5 | 1.0000 | 30.5 |
-| ingest: six QC rasters | 17.9 | 1.2363 | 22.1 |
-| ingest: `images/morphology` | 625.0 | 1.2367 | 772.9 |
-| ingest: `images/morphology_3d` | 3,257.4 | 1.2367 | 4,028.3 |
-| ingest: `images/he_image` | 68.5 | 1.2318 | 84.4 |
-| ingest: root attributes | 1.6 | 1.0000 | 1.6 |
-| ingest: the rest | 72.8 | 1.0000 | 72.8 |
-| verify: the gates of the kidney's run | 2,246 | 2.1923 | 4,924.0 |
-| verify: the gate `bundle` | 77 | 1.0404 | 80.1 |
-| promote | 4 | 1.0000 | 4.0 |
-| Sum | | | 20,343.4 |
-
-The estimate is 20,343.4 s, or 339.1 minutes.
-Twice the estimate is 40,686.9 s, or 678.1 minutes. The limit is 679 minutes.
-
-The disk is 125 GiB: 75 GiB of downloads and 40 GiB of overhead are 115 GiB at least.
-The largest tile has 334,725,210 rows. At 24.6 bytes per row, its scratch file is about 8.2e+09 bytes.
-The space step keeps 10 GiB for that file, so the file fits.
-
-#### breast
-
-These are the ratios against the kidney:
-
-- Downloads: 96,624,552,262 / 48,518,883,775 bytes = 1.9915.
-- Bundle check: 169,825,963 / 146,999,959 bytes = 1.1553. These are the survey's reads.
-- Pixels of level 0: (37930 x 70735) / (33139 x 56644) = 1.4293.
-- Stack: 13 / 13 planes x 1.4293 = 1.4293.
-- H&E pixels of level 0: (52963 x 33455) / (42169 x 23628) = 1.7783.
-- Transcript rows: 4,565,138,232 / 1,186,813,834 = 3.8465.
-- QC bins of the 20 µm grid: (404 x 753) / (353 x 603) = 1.4292.
-- Stored values of the matrix: 1,482,175,790 / 599,212,411 = 2.4735.
-- Polygon rows: 485,985 / 399,120 cells = 1.2176; 489,641 / 398,197 nuclei = 1.2296.
-
-| Step | Kidney (s) | Ratio | Breast (s) |
-|---|---|---|---|
-| environment | 13 | 1.0000 | 13.0 |
-| preflight | 14 | 1.0000 | 14.0 |
-| bundle-remote | 77 | 1.1553 | 89.0 |
-| space | 0 | 1.0000 | 0.0 |
-| download | 991 | 1.9915 | 1,973.6 |
-| check | 377 | 1.9915 | 750.8 |
-| bundle-local | 77 | 1.1553 | 89.0 |
-| ingest: the bundle check of `ingest.prepare`, an added estimate | 77 | 1.1553 | 89.0 |
-| ingest: `tables/table` | 905.3 | 2.4735 | 2,239.3 |
-| ingest: two labels | 69.9 | 1.4293 | 99.9 |
-| ingest: two shapes | 30.8 | 1.2296 | 37.9 |
-| ingest: `points/transcripts` | 1,749.3 | 3.8465 | 6,728.8 |
-| ingest: `iceberg_tables` | 30.5 | 1.0000 | 30.5 |
-| ingest: six QC rasters | 17.9 | 1.4292 | 25.6 |
-| ingest: `images/morphology` | 625.0 | 1.4293 | 893.3 |
-| ingest: `images/morphology_3d` | 3,257.4 | 1.4293 | 4,655.8 |
-| ingest: `images/he_image` | 68.5 | 1.7783 | 121.8 |
-| ingest: root attributes | 1.6 | 1.0000 | 1.6 |
-| ingest: the rest | 72.8 | 1.0000 | 72.8 |
-| verify: the gates of the kidney's run | 2,246 | 2.4735 | 5,555.6 |
-| verify: the gate `bundle` | 77 | 1.1553 | 89.0 |
-| promote | 4 | 1.0000 | 4.0 |
-| Sum | | | 23,574.0 |
-
-The estimate is 23,574.0 s, or 392.9 minutes.
-Twice the estimate is 47,148.0 s, or 785.8 minutes. The limit is 786 minutes.
-
-The disk is 150 GiB: 90 GiB of downloads and 40 GiB of overhead are 130 GiB at least.
-The largest tile has 323,473,738 rows. At 24.6 bytes per row, its scratch file is about 8.0e+09 bytes.
-The space step keeps 10 GiB for that file, so the file fits.
+- **The trial branches.** Each of the four repos keeps its branch `trial-20261112` or `trial-20261112-description`.
+  Each one is at the snapshot of `main`. A deletion needs the owner's approval.
+- **The credentials of an upload.** `TableWriter` repeats an upload whose vended credential expired, up to three attempts.
+  One upload must end within the 1,080 s of a new credential. `docs/upstream.md` gives the upstream fix.
+- **The stain names inside the OME-XML.** The record holds the file names of the morphology members.
+  It does not hold the channel names inside the files.
+  The ingest takes the channel names from the OME-XML when it writes.
+  So the bundle check finds a renamed stain file, but not a changed name inside a file.
+  A record key for the names needs a second survey run of each sample.
+- **Gates with the ingest's code.** The gate `qc` decodes the report with the ingest's decoder, `qc.bundle_rasters`.
+  The gates `tables`, `polygons`, `masks` and `instances` decode `cell_index`, `cell_summary` and `cell_id` with `read_array`.
+  The ingest decodes these arrays with the same function.
+  The docstring of `verify.py` lists each use of the ingest's code. A defect in shared code can pass these gates.
+- **The threads of the stack.** No run compared the stack with and without threads.
+  `REPORT.md`, "The brain sample", gives the stack's time against its estimate.
+- **The read limit of the bundle check.** `check_bundle.py` reads at most 200,000,000 bytes by default.
+  The launcher gives no `--max-bytes`.
+  The survey read 152.9 MB of the colorectal bundle and 169.8 MB of the breast bundle.
+- **Calls for the owner to check.**
+  - A person can still run `ingest.py --mode full --branch main` by hand. Only the launcher requires a trial branch.
+  - The preflight does not test that `main` is an ancestor of the trial branch. `promote.py` tests it at the end.
+- **Minor code items.** These smaller items wait:
+  - `minus80.parsers.zip.nested`: `Window.seek` and its tests, and the zip that stays open.
+  - `minus80.core.zarr_copy`: the refusals and their tests.
+  - `minus80.core.pyramid`: `write_page` skips a missing tile silently; `_check_shape` checks only `y` and `x`.
+  - `minus80.ome.spatialdata`: checks on the input of a transform.
+  - `minus80.core.tables`: partial references after a failed write, and `require_table` on a table with no snapshot.
+  - The ingest's tests: the conftest, and a close on `Bundle`.
+  - `bundle.py` and `polygons.py`: tests of `read_array`, and the loop over polygons.
+  - `ingest.py` and `verify.py`: `ReadCounter`, the lambdas, and repeated checks.
+  - Prose fixes in `docs/upstream.md`.
