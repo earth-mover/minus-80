@@ -850,8 +850,6 @@ Code that a second archive could use goes into `minus80`, with tests, and reuses
 
 ### Open items
 
-- **The trial branches.** Each of the four repos keeps its branch `trial-20261112` or `trial-20261112-description`.
-  Each one is at the snapshot of `main`. A deletion needs the owner's approval.
 - **The credentials of an upload.** `TableWriter` repeats an upload whose vended credential expired, up to three attempts.
   One upload must end within the 1,080 s of a new credential. `docs/upstream.md` gives the upstream fix.
 - **The stain names inside the OME-XML.** The record holds the file names of the morphology members.

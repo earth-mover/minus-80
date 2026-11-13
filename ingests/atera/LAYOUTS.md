@@ -249,7 +249,7 @@ is `region` and its `instance_key` is `instance`, which equals the cell mask lab
 A SpatialData table row annotates one instance of one element.
 So a table on two elements would need every row twice.
 The fixture's table annotates `cell_labels`, as this file records.
-PLAN.md, "Stage two", lists the code change and its verify gate.
+PLAN.md, "Proposed layout", "The tables", gives the code change and its verify gate.
 
 ### `instance` in each table
 

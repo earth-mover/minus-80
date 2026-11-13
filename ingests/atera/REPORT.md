@@ -146,7 +146,7 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 - The `copies` gate hashes at most five blocks of each data file. It does not find a change in another block.
 - Booth and the Arraylake web app are not checked.
 - The overview scan is not in the store. No gate covers it.
-- The run had no gate for an element's transform. `PLAN.md`, "Stage three", item 4, adds the gate `transforms`. On 2026-11-12 it passed on snapshot `DCHK9523X4W5TSC4V5X0`, with the gate `labels`.
+- The run had no gate for an element's transform. `PLAN.md`, "Steps, scope and risk", "The run of each sample", adds the gate `transforms`. On 2026-11-12 it passed on snapshot `DCHK9523X4W5TSC4V5X0`, with the gate `labels`.
 - Two checks use the ingest's own decoders as the reference: the QC rasters' decode and `zarr_copy.read_array`.
   The `tables` and `polygons` gates decode `polygon_sets/*/cell_index` with `read_array`.
   The `masks`, `instances` and `polygons` gates get `cell_summary` and `cell_id` from `read_array`.
@@ -166,6 +166,8 @@ The median label area is 26.82 µm² for nuclei and 57.21 µm² for cells.
 | The plan's first count for the kidney was 28 tiles. | The kidney has 30 tiles. Tiles `-1,0` and `5,-1` hold 1 and 20 rows. |
 | One chunk length for the columns of a transcript tile. | The columns have different chunk rows. The ingest slices a tile in whole chunks of its widest column. |
 | The 3D stack: one plane at a time. | The ingest decodes one tile from every plane and writes its shard once. |
+| One commit for each element, and a resume on the element's group. | A stop inside an element left a group that looked complete. The ingest commits each level and resumes on `minus80:complete`. |
+| The survey reads about 42 MB of the kidney's bundle. | The survey read 147.0 MB, 3.5 times the estimate. |
 
 The ingest wrote each image level as one commit.
 It marks each image complete with the attribute `minus80:complete`, and it resumes on that attribute.
@@ -334,6 +336,7 @@ Each table's current snapshot equals its pin on `main`.
 | ingest (s) | 5,694, on a resumed branch | 8,460 |
 | verify (s) | 2,824 | 3,023 |
 | all steps (s) | 10,957 | 15,976 |
+| estimate (s), half of the time limit | 20,343.4 | 23,574.0 |
 | transcript rows | 3,855,378,414 | 4,565,138,232 |
 | transcript Parquet | 32 files, 94,261,428,301 bytes, 24.45 B/row | 36 files, 111,209,408,071 bytes, 24.36 B/row |
 | `instances` | 50 of 50 centroids in their own label | 50 of 50 |
