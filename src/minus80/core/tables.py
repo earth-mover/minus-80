@@ -1,10 +1,10 @@
 """Iceberg tables from Parquet files, and their ``uint8`` copies in an Icechunk repo.
 
 A :class:`TableWriter` writes each Parquet file itself, so the footer carries GeoParquet
-``geo`` and pandas index metadata, and registers the files with ``add_files``.
+``geo`` and pandas index metadata. It registers the files with ``add_files``.
 Each column can carry the field id of the table's schema, so a reader needs no name mapping.
-:func:`declare_copy` then references the same files from the repo, so a Python
-reader sees the file and a reader of the ``iceberg_table`` attribute uses the table.
+:func:`declare_copy` then references the same files from the repo.
+So a Python reader sees the file, and a reader of the ``iceberg_table`` attribute uses the table.
 Each reference carries the file's last-modified time, so a changed file fails to read.
 
 A copy's last chunk is shorter than the others, so its grid is rectilinear. A reader
@@ -106,7 +106,7 @@ def parquet_schema(
     """
     if field_ids is not None:
         schema = pa.schema([_with_field_id(f, field_ids) for f in schema], schema.metadata)
-    # pyarrow describes the columns from an empty frame, so no data is copied.
+    # pyarrow describes the columns from an empty frame, so it copies no data.
     frame = schema.empty_table().to_pandas()
     pandas_meta = json.loads(pa.Schema.from_pandas(frame, preserve_index=False).metadata[b"pandas"])
     pandas_meta["index_columns"] = [index_column]
@@ -146,7 +146,7 @@ def data_file(io, location: str) -> DataFile:
 
     The time is the checksum of each copy's references, so it has one-second resolution:
     Icechunk keeps whole seconds and refuses a chunk whose object is newer than its checksum.
-    So the time is rounded up, and a change within that second goes undetected.
+    So the function rounds the time up, and no check finds a change within that second.
     Raises when ``io`` states no time for the file.
     """
     # Only a PyArrowFileIO has a public filesystem to ask; the FileIO and InputFile APIs state no time.
@@ -251,11 +251,12 @@ def require_table(
 ):
     """The table ``identifier``, created when absent and partitioned by identity on ``partition_by``.
 
-    An existing table with another identity partition spec raises ``ValueError``; the spec is not evolved.
-    A column that ``schema`` marks non-nullable becomes required in an existing table too,
-    when every current data file states 0 nulls in it. Otherwise it raises ``ValueError``.
-    An existing table whose columns differ from ``schema`` raises ``ValueError``, unless ``evolve``:
-    then one schema commit adds each missing column, as optional with a new field id, and deletes each other column.
+    An existing table with another identity partition spec raises ``ValueError``; the function does not evolve the spec.
+    A column that ``schema`` marks non-nullable becomes required in an existing table too.
+    The condition: every current data file states 0 nulls in it. Otherwise it raises ``ValueError``.
+    An existing table whose columns differ from ``schema`` raises ``ValueError``, unless ``evolve``.
+    With ``evolve``, one schema commit adds each missing column, as optional with a new field id.
+    The same commit deletes each other column.
     A kept column of another type raises ``ValueError`` in both cases.
     """
     if catalog.table_exists(identifier):
@@ -309,8 +310,8 @@ def register_files(
 ) -> TableRef:
     """Add ``files`` to the table ``identifier``, creating it when absent.
 
-    A new table is partitioned by identity on ``partition_by``. A file the current snapshot
-    already holds is not added again, so a rerun returns the same snapshot. With ``replace``,
+    The function partitions a new table by identity on ``partition_by``. It does not add a file
+    that the current snapshot holds, so a rerun returns the same snapshot. With ``replace``,
     one overwrite snapshot also removes every other file from the table; the objects stay.
     ``replace_partitions`` removes, in the same snapshot, the other files of those partition values.
     """
@@ -393,7 +394,7 @@ def _copy_array(group: zarr.Group, path: str, file: DataFile, chunk: int) -> zar
         failed = group.store.set_virtual_refs(
             array_path=array.path, chunks=specs, validate_containers=True
         )
-        # Icechunk returns the indices of references it drops; the array would read as fill.
+        # Icechunk returns the indices of references it drops; else the array reads as fill.
         if failed:
             raise ValueError(
                 f"{len(failed)} references match no virtual chunk container, first {location}"
@@ -409,7 +410,7 @@ def declare_copy(
     One file gives the array at ``path``. Several give ``path/part.<i>.parquet``.
     The group must live in a writable session whose repo has a container for each location.
     The last chunk of a file is its remainder, so the grid is rectilinear. Unlike the
-    regular grid of the ``file:`` convention, reading needs ``array.rectilinear_chunks``.
+    regular grid of the ``file:`` convention, a reader needs ``array.rectilinear_chunks``.
     """
     with zarr.config.set({"array.rectilinear_chunks": True}):
         if len(files) == 1:
@@ -423,7 +424,7 @@ def declare_copy(
 def local_catalog(directory: Path):
     """The SQLite catalog in ``directory``, whose warehouse is ``directory`` too.
 
-    The warehouse URL is not percent-encoded, because pyiceberg reads a ``file://`` path as it is.
+    The function does not percent-encode the warehouse URL, because pyiceberg reads a ``file://`` path as it is.
     """
     from pyiceberg.catalog.sql import SqlCatalog
 
@@ -472,8 +473,8 @@ UPLOAD_ATTEMPTS = 3
 def _put(io, source: Path, url: str) -> None:
     """Make the object at ``url`` hold ``source``'s bytes; a complete object stays as it is.
 
-    The name holds a hash of the bytes. A local object is renamed into place, so it is complete.
-    A remote object is written in place, so its size is checked before and after the write.
+    The name holds a hash of the bytes. The function renames a local object into place, so it is complete.
+    It writes a remote object in place, so it checks the size before and after the write.
     """
     if url.startswith("file://"):
         if not file_path(url).exists():
@@ -516,7 +517,7 @@ def snapshot_schema(table, snapshot_id: int | None = None):
 def partition_bounds(table, files: Sequence, column: str, snapshot_id: int | None = None) -> dict:
     """The (min, max) of ``column`` in each partition value of ``files``, as :func:`partition_files` gives them.
 
-    ``column`` is looked up in the schema of ``snapshot_id``, or the current schema without one.
+    The function looks up ``column`` in the schema of ``snapshot_id``, or the current schema without one.
     A data file with no bounds for ``column`` raises ``ValueError``.
     """
     from pyiceberg.conversions import from_bytes
@@ -536,7 +537,7 @@ def partition_bounds(table, files: Sequence, column: str, snapshot_id: int | Non
 def row_group_bounds(stream, column: str) -> list[tuple]:
     """The ``(min, max, rows)`` of ``column`` in each row group of a Parquet file, from the footer only.
 
-    ``KeyError`` names an absent column. A row group without statistics raises ``ValueError``.
+    ``KeyError`` gives an absent column. A row group without statistics raises ``ValueError``.
     """
     metadata = pq.ParquetFile(stream).metadata
     index = next((i for i in range(metadata.num_columns) if metadata.schema.column(i).path == column), None)
@@ -597,7 +598,7 @@ class TableWriter:
         """Write a table, or a Parquet file at a path, as the one file of ``name``, and register it.
 
         A table gets the field ids of the Iceberg schema, ``index_column`` (default: the writer's) and ``geo`` in the footer.
-        A file at a path is used as it is, and takes no ``geo``. See :meth:`write_parts` for the rest.
+        The writer uses a file at a path as it is, with no ``geo``. See :meth:`write_parts` for the rest.
         Without ``replace``, a table that holds a live file of other content raises ``ValueError``; an equal write is a no-op.
         """
         if isinstance(table_or_path, Path):
@@ -658,16 +659,17 @@ class TableWriter:
     def write_parts(self, name: str, paths: Sequence[Path], *, replace=False, replace_partitions: Sequence = ()) -> TableRef:
         """Write each Parquet file of ``paths`` into the table ``name``, and register all in one snapshot.
 
-        Without ``replace`` the files are added to the table and its earlier files stay.
+        Without ``replace`` the writer adds the files to the table, and its earlier files stay.
         The returned :class:`TableRef` lists only ``paths``' files; :meth:`ref` lists all of the table's.
 
         A file name holds a hash of the file's bytes, so other bytes never take an existing name.
-        A complete object under that name is reused. A remote object of another size raises ``ValueError``.
-        A local file goes to a unique ``.part`` name first, then replaces the final name; a crash leaves that file, which no later write uses.
+        The writer reuses a complete object under that name. A remote object of another size raises ``ValueError``.
+        A local file goes to a unique ``.part`` name first, then replaces the final name.
+        A crash leaves that file, which no later write uses.
         With ``replace``, the files replace every file the table holds. A failure after the table
         snapshot and before the repo commit leaves one extra snapshot; the next run converges.
         ``replace_partitions`` replaces the files of those partition values, in the same snapshot.
-        A table of several files is the caller's to keep right: :meth:`write` refuses a second file, this does not.
+        The caller keeps a table of several files correct: :meth:`write` refuses a second file, this method does not.
         """
         return self._register(self.require(name, **self._spec(name)), name, paths, replace, replace_partitions)
 
@@ -688,7 +690,7 @@ class TableWriter:
                   *, exclusive: bool = False) -> TableRef:
         urls = [f"{iceberg.location()}/data/{name}-{_content_name(path)}.parquet" for path in paths]
         if exclusive and not replace:
-            # One write is the whole table, so another live file would mix two writes' rows.
+            # One write is the whole table, so another live file mixes the rows of two writes.
             other = [t.file.file_path for t in iceberg.scan().plan_files() if t.file.file_path not in urls]
             if other:
                 raise HeldFilesError(f"{self.namespace}.{name} holds {len(other)} data file{'s' * (len(other) != 1)} "

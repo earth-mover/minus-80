@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 import shapely
 from minus80.core.zarr_copy import read_array
 
-#: A row's bounds, for file pruning by column statistics.
+#: A row's bounds, so that column statistics can prune files.
 BBOX = pa.struct([(n, pa.float64()) for n in ("xmin", "ymin", "xmax", "ymax")])
 
 # Iceberg has no unsigned type, so the source's uint32 columns are int64 here.
@@ -46,8 +46,8 @@ def polygon_table(zf: zipfile.ZipFile, set_index: int, cell_ids: np.ndarray) -> 
 
     ``vertices`` rows interleave x and y (x0, y0, x1, y1, ...); ``num_vertices`` counts the pairs.
     A cell with one part is a ``Polygon``, a cell with several a ``MultiPolygon`` in source order.
-    A ring with under 3 vertices, more vertices than its row holds, or a non-finite coordinate raises ``ValueError`` naming the row.
-    An invalid ring, such as a bow-tie, is kept as published: the source's errors are reproduced.
+    A ring with under 3 vertices, more vertices than its row holds, or a non-finite coordinate raises ``ValueError`` with the row.
+    The function keeps an invalid ring, such as a bow-tie, as published: it reproduces the source's errors.
     """
     names = set(zf.namelist())
 

@@ -266,7 +266,7 @@ def test_bundle_facts_reads_no_pixel_no_transcript_column_no_vertex_and_no_matri
     monkeypatch.setattr(zipfile.ZipFile, "open", record)
     with Recorder(synthetic.path) as bundle_file, Recorder(synthetic.he) as he_file:
         bundle_facts(Bundle(synthetic.path, bundle_file), lambda: he_file, lambda: ALIGNMENT_TEXT)
-    # A zarr chunk of the inner zips opens as a zip member; only the two index arrays and metadata may open.
+    # A zarr chunk of the inner zips opens as a zip member. Only the two index arrays and metadata may open.
     assert opened and [n for n in opened if not _chunk_is_read_by_the_facts(n)] == []
     # A buffered read next to a tile header reaches into the tile, but never reads a whole tile.
     for reads, tiles in ((bundle_file.reads, _tile_ranges_of_bundle(synthetic.path)),
@@ -297,7 +297,7 @@ def test_a_tiff_without_ome_xml_gives_an_empty_pixel_size(tmp_path):
         assert facts.pixel_sizes(tif.pages.first) == {}
 
 
-# A bundle that differs from the kidney's layout: each fact that can still be read is in the record.
+# A bundle that differs from the kidney's layout: each fact that the reader can still read is in the record.
 
 def test_three_morphology_2d_files_are_recorded_with_their_count_and_no_error(tmp_path, synthetic):
     gone = sorted(n for n in synthetic.members if n.startswith("morphology_2d/"))[0]
@@ -447,7 +447,7 @@ def test_a_negative_method_code_is_recorded_with_a_question_mark(tmp_path, synth
     assert found["polygons"]["sets"]["0"]["methods"] == {"3:d": 1, "-1:?": 1, "4:e": 1}
 
 
-# The byte ceiling: the groups read before it stay, the group in progress and the later ones are error entries.
+# The byte ceiling: the groups read before it stay. The current group and the later ones become error entries.
 
 class _Limit:
     """The progress hook that the survey's ceiling is."""

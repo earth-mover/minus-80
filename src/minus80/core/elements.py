@@ -1,8 +1,9 @@
 """Write an OME-Zarr element in units, one commit per unit, and mark the element complete.
 
-A run that stops between units keeps what it committed. A rerun asks :meth:`ElementWriter.has`
-which units the branch holds and writes the rest; :meth:`ElementWriter.finish` then sets
-:data:`COMPLETE` on the element's group, so a reader tells a whole element from a part.
+A run that stops between units keeps what it committed.
+A rerun asks :meth:`ElementWriter.has` which units the branch holds, and writes the rest.
+Then :meth:`ElementWriter.finish` sets :data:`COMPLETE` on the element's group.
+So a reader tells a whole element from a part.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from .icechunk_io import commit
 from .progress import MIB, Progress
 from .remote import ReadCounter
 
-#: The group attribute that is true once every unit of the element is committed.
+#: The group attribute that is true once the writer committed every unit of the element.
 COMPLETE = "minus80:complete"
 
 
@@ -42,7 +43,7 @@ class ElementWriter:
     def has(self, path: str) -> bool:
         """True when the branch has a node at ``path``, so a rerun skips that unit.
 
-        A unit is held only when its commit exists. A unit that raised was never committed.
+        A unit counts as held only when its commit exists. A unit that raised has no commit.
         """
         root = self._root()
         return root is not None and path in root

@@ -1,8 +1,8 @@
 """Download the objects that the ingest reads, once each, and check them against the sizes and ETags of LAYOUTS.md.
 
-``download`` makes one streaming GET for each object. It continues a broken stream from the byte reached, at most
-5 times, and it stops before any byte is kept when the response disagrees with the record. ``check`` reads each file
-on disk: it compares the size, and the ETag when that is the MD5 of the file or of its parts.
+``download`` makes one streaming GET for each object. It continues a broken stream from the byte that it reached, at most 5 times.
+It stops before it keeps a byte when the response disagrees with the record. ``check`` reads each file on disk.
+It compares the size, and also the ETag when the ETag is the MD5 of the file or of its parts.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ from root_attrs import source_objects
 from sources import BUNDLE, HE_ALIGNMENT, HE_IMAGE, SAMPLES
 
 LAYOUTS = Path(__file__).with_name("LAYOUTS.md")
-#: The suffix of each object that the ingest reads; the others of LAYOUTS.md are read from the bundle or not at all.
+#: The suffix of each object that the ingest reads.
+#: The ingest reads the other objects of LAYOUTS.md from the bundle, or not at all.
 READ_SUFFIXES = (BUNDLE, HE_IMAGE, HE_ALIGNMENT)
 RETRIES = 5
 CHUNK = 1 << 20
@@ -32,7 +33,7 @@ MAX_PART_MIB = 5120
 
 
 class FetchError(Exception):
-    """An object differs from the record, or the download failed for good."""
+    """An object differs from the record, or the download failed after every retry."""
 
 
 def wanted(sample) -> list[dict]:
@@ -42,7 +43,7 @@ def wanted(sample) -> list[dict]:
 
 
 def part_size(size: int, parts: int) -> int | None:
-    """The one part size, a whole number of MiB, that gives ``parts`` parts for ``size`` bytes; ``None`` if none or several."""
+    """The one part size, a whole number of MiB, that gives ``parts`` parts for ``size`` bytes. ``None`` if no size or several sizes fit."""
     fits = [m * MIB for m in range(1, MAX_PART_MIB + 1) if -(-size // (m * MIB)) == parts]
     return fits[0] if len(fits) == 1 else None
 
@@ -51,7 +52,7 @@ def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.s
              every: float = 10.0) -> None:
     """Stream ``obj`` to ``directory`` / its name. A response that disagrees with the record raises ``FetchError``.
 
-    Only a network error, a 5xx or a 429 is retried. A local write error stops at once. When the file is whole, a
+    The function retries only a network error, a 5xx or a 429. A local write error stops at once. When the file is whole, a
     ``.fetched`` file beside it records what the response said.
     """
     target = directory / obj["name"]
@@ -61,7 +62,7 @@ def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.s
         return
     have, attempt = (partial.stat().st_size if partial.exists() else 0), 0
     if have == obj["size"]:
-        # Whole, but no response was seen, so no record is written and the check treats the file as of unknown origin.
+        # The file is whole, but the function saw no response. So no record exists, and the check treats the file as of unknown origin.
         partial.rename(target)
         out(f"{obj['name']}: a whole {partial.name} from an earlier run was renamed; no response seen, no record")
         return
@@ -113,7 +114,7 @@ def download(obj: dict, directory: Path, *, retries: int = RETRIES, sleep=time.s
 
 
 def _write_error(obj: dict, partial: Path, error: OSError) -> FetchError:
-    """A local write error as a ``FetchError``, which no retry catches; it names the file, not its directory."""
+    """A local write error as a ``FetchError``, which no retry catches; its message gives the file, not its directory."""
     return FetchError(f"{obj['name']}: cannot write {partial.name}: {error.strerror or error}")
 
 
@@ -141,10 +142,11 @@ def _fetched(obj: dict, directory: Path) -> bool:
 
 
 def check(obj: dict, directory: Path, *, out=print) -> list[str]:
-    """The size of the file, and its MD5 or multipart ETag where one can be recomputed, against the record.
+    """The size of the file, and its MD5 or multipart ETag where the function can recompute it, against the record.
 
-    A multipart ETag is the MD5 of the parts' MD5s, so it needs the part size. It is recomputed only when exactly one
-    whole-MiB part size fits the size and the part count; the line printed says so.
+    A multipart ETag is the MD5 of the parts' MD5s, so it needs the part size.
+    The function recomputes it only when exactly one whole-MiB part size fits the size and the part count.
+    The printed line says so.
     """
     path, name = directory / obj["name"], obj["name"]
     if not path.exists():

@@ -812,7 +812,7 @@ def test_a_remote_object_of_the_same_size_with_other_bytes_is_reused(tmp_path):
     altered[4] ^= 0xFF
     path.write_bytes(bytes(altered))
     writer.write("t", ready, replace=True)
-    # Only the size is checked, so the altered object stays.
+    # The check reads only the size, so the altered object stays.
     assert path.read_bytes() == bytes(altered)
 
 
@@ -983,7 +983,7 @@ def test_a_write_after_evolving_carries_the_evolved_field_ids_and_the_earlier_sn
     table = writer.catalog.load_table("ns.t")
     footer = pq.read_schema(file_path(ref.files[0].location))
     assert {f.name: int(f.metadata[b"PARQUET:field_id"]) for f in footer} == index_by_name(table.schema())
-    # pyiceberg scans a snapshot with the schema that snapshot was written under.
+    # pyiceberg scans a snapshot with the schema of that snapshot's write.
     earlier = table.scan(snapshot_id=first.snapshot_id).to_arrow()
     assert earlier.column_names == ["instance", "grid_tile", "old"]
     assert earlier["old"].to_pylist() == [5, 6]

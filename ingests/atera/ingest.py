@@ -3,7 +3,7 @@
 The script has two modes. ``fixture`` writes the fixture of PLAN.md, "Steps, scope and risk", step 1.
 ``full`` writes every element of PLAN.md, "The tree", except the ones that ``MISSING_FROM_FULL`` lists.
 Each mode writes onto a branch, one commit per element, or per level for an image.
-The bundle is read in place by range requests.
+The script reads the bundle in place by range requests.
 """
 
 from __future__ import annotations
@@ -215,7 +215,7 @@ def write_levels(writer: ElementWriter, path: str, count: int, levels: Sequence[
 
     ``write_level(group, level)`` writes the array and ``attrs(held)`` gives the group attributes for
     the levels held. Each commit lists exactly the levels it holds, so every commit is a valid store.
-    ``levels`` of ``None`` means all ``count`` levels, and the element is marked complete after the last.
+    ``levels`` of ``None`` means all ``count`` levels. The function marks the element complete after the last level.
     """
     wanted = sorted(range(count) if levels is None else levels)
     held = [k for k in wanted if skip_held(writer, f"{path}/s{k}")]
@@ -232,7 +232,7 @@ def write_levels(writer: ElementWriter, path: str, count: int, levels: Sequence[
 
 
 def level_ome(name: str, dims: Sequence[str], shapes: Sequence[Sequence[int]], held: Sequence[int], omero: dict) -> dict:
-    """The ``ome`` attributes of an image whose levels ``held`` are stored; ``shapes`` has every level of the source."""
+    """The ``ome`` attributes of an image that stores the levels ``held``; ``shapes`` has every level of the source."""
     ome = image_attrs(name=name, dims=dims, level_shapes=[shapes[k] for k in held], scale={d: 1.0 for d in dims},
                       omero=omero, version=OME_VERSION)
     return _level_paths(ome, held)
@@ -345,7 +345,7 @@ def write_qc_raster(writer: ElementWriter, raster: QcRaster) -> None:
          translation([0.0, raster.origin[1], raster.origin[0]], axes, input_system=QC_SCALED, input_unit=UNIT,
                      unit=UNIT)],
         axes, unit=UNIT)
-    # The display window spans the finite values: the dtype's range would show a map of small counts as black.
+    # The display window spans the finite values: the dtype's range shows a map of small counts as black.
     top = raster.array[np.isfinite(raster.array)].max()
     omero = channel_omero([{"label": raster.label}], max_value=max(math.ceil(top), 1))
 
@@ -398,7 +398,7 @@ def table_attr(tables: TableWriter, name: str, ref, *, geo=None, index_column: s
 
 
 def table_specs(properties: dict, methods: list[str]) -> dict[str, dict]:
-    """Each Iceberg table's schema, partitioning and properties, known before any element is written."""
+    """Each Iceberg table's schema, partitioning and properties, known before the ingest writes any element."""
     polygons = {
         "schema": POLYGON_SCHEMA,
         "properties": {**properties, "geo": json.dumps(GEO_POLYGONS), "method_names": json.dumps(methods)},
@@ -491,12 +491,12 @@ def write_transcripts(
 ) -> None:
     """Write ``tiles`` of the transcripts, or every tile when ``None``, one table snapshot per tile.
 
-    ``instance`` counts the rows of ``tiles`` in the order given. A tile that the table holds is skipped;
-    a held tile with another row count or ``instance`` range raises, and so does a held tile outside the plan.
+    ``instance`` counts the rows of ``tiles`` in the order given. The function skips a tile that the table holds.
+    A held tile with another row count or ``instance`` range raises. A held tile outside the plan raises too.
     That check covers every held tile and runs before the first write, so a raise leaves the table as it was.
     With ``replace`` the first tile replaces the table's files.
-    With ``replace_held`` a failing held tile is replaced in the one snapshot that adds its file,
-    and one snapshot first removes the tiles outside the plan. The files stay in storage.
+    With ``replace_held``, one snapshot first removes the tiles outside the plan.
+    Then one snapshot for each failing held tile replaces that tile and adds its file. The files stay in storage.
     """
     zf = bundle.member_zip(TRANSCRIPTS)
     grid = json.loads(zf.read("grid/.zattrs"))
@@ -517,7 +517,7 @@ def write_transcripts(
         if (outside or faults) and not replace_held:
             raise ValueError("; ".join([*(f"tile {t}: {m}" for t, m in faults.items()),
                                         *([f"the table holds tiles outside the plan: {', '.join(outside)}"] if outside else [])]))
-        # A failing tile with no rows has nothing to write, so it only goes.
+        # A failing tile with no rows has nothing to write, so the function only removes it.
         if replace_held and (dropped := [*outside, *(t for t in faults if not counts[t])]):
             tables.remove_partitions("transcripts", dropped)
             print(f"tiles {', '.join(dropped)}: removed from the table", flush=True)
@@ -639,7 +639,7 @@ def replace_table_names(text: str) -> set[str]:
 def check_replace_elements(replace: set[str], selected: Sequence[str]) -> None:
     """Raise ``ValueError`` when a table of ``replace`` has no element in ``selected``.
 
-    A schema change with no row write would leave the table with the schema and the earlier rows.
+    A schema change with no row write leaves the table with the changed schema and the earlier rows.
     """
     if lacking := sorted(t for t in replace if REPLACE_ELEMENTS[t] not in selected):
         raise ValueError(f"--replace-tables {', '.join(lacking)} needs the element "
@@ -649,7 +649,7 @@ def check_replace_elements(replace: set[str], selected: Sequence[str]) -> None:
 def root_key_names(text: str, selected: Sequence[str]) -> set[str]:
     """The comma-separated keys of ``--root-keys``; each must be in :data:`ROOT_KEYS`, and ``root`` the only element.
 
-    A run with another element would write it before the root step can refuse.
+    A run with another element writes that element before the root step can refuse.
     """
     keys = set(text.split(","))
     if unknown := keys - set(ROOT_KEYS):
@@ -670,7 +670,7 @@ def select_elements(text: str | None, available: Sequence[str]) -> list[str]:
 
 
 def _preflight_table(catalog, namespace: str, name: str, specs: dict, replace: set[str], problems: list[str]) -> str | None:
-    """Print the plan for table ``name`` and add a problem if nothing covers its difference; its data prefix if it exists."""
+    """Print the plan for table ``name`` and add a problem if nothing covers its difference. Returns its data prefix if it exists."""
     identifier = f"{namespace}.{name}"
     if not catalog.table_exists(identifier):
         print(f"{name}: absent; the ingest creates it", flush=True)
@@ -738,7 +738,10 @@ def _open_existing_repo(repo: str, prefixes: list[str]):
 
 
 def report_held_replacements(writer, replace: set[str]) -> None:
-    """Print one line for each table of ``replace`` whose element the branch holds: the run skips the element, so the rows stay."""
+    """Print one line for each table of ``replace`` whose element the branch holds.
+
+    The run skips that element, so the rows stay.
+    """
     for name in (n for n in REPLACEABLE if n in replace):
         element = REPLACE_ELEMENTS[name]
         if writer.has_attribute(element) if element == ICEBERG_TABLES else writer.has(element):
@@ -748,7 +751,7 @@ def report_held_replacements(writer, replace: set[str]) -> None:
 def held_element_conflicts(catalog, namespace: str, specs: dict, replace: set[str], handle, branch: str) -> list[str]:
     """One line for each table of ``replace`` with another schema whose element ``branch`` holds.
 
-    The run would change the schema and skip the rows, because it skips a held element.
+    Such a run changes the schema and skips the rows, because it skips a held element.
     """
     if handle is None or branch not in handle.list_branches():
         return []
@@ -765,7 +768,7 @@ def held_element_conflicts(catalog, namespace: str, specs: dict, replace: set[st
 
 
 def _preflight_repo(repo: str, branch: str, prefixes: list[str], problems: list[str]):
-    """Print whether the repo opens and whether ``branch`` exists or can start from ``main``; the repo, or ``None``."""
+    """Print whether the repo opens and whether ``branch`` exists or can start from ``main``. Returns the repo, or ``None``."""
     try:
         handle = _open_existing_repo(repo, prefixes)
     except Exception as e:  # Any failure to open is a problem to report; the text has no location.
@@ -890,16 +893,16 @@ def run() -> None:
     parser.add_argument("--record", type=Path,
                         help="--mode full: the record of the sample's bundle; by default the sample's committed record")
     parser.add_argument("--elements", help="write only these elements, comma-separated, of the mode's elements")
-    parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
+    parser.add_argument("--bundle", help="a local outs.zip; by default the script reads the bundle from 10x's bucket")
     parser.add_argument("--replace-tables", default="",
                         help=f"--mode full: replace the rows of these held tables in place, comma-separated, of "
                              f"{', '.join(REPLACEABLE)}; the earlier snapshots and their files stay")
     parser.add_argument("--preflight", action="store_true",
                         help="--mode full: check the arguments, the repo, the catalog and each table with no bundle and no "
-                             "write, print the plan, and exit 1 on a problem")
+                             "write. Then print the plan, and exit 1 on a problem")
     parser.add_argument("--root-keys",
                         help=f"--mode full with --elements root alone: write only these root attributes, comma-separated, "
-                             f"of {', '.join(ROOT_KEYS)}; another key that changes ends the run before the write. "
+                             f"of {', '.join(ROOT_KEYS)}. Another key that changes ends the run before the write. "
                              "--preflight checks the names only, as it has no bundle to build the values from")
     parser.add_argument("--rewrite", type=rewrite_elements, default=set(),
                         help=f"write only these held elements again, comma-separated, of {', '.join(REWRITABLE)}")

@@ -186,7 +186,7 @@ def polygon_set_facts(zf, names: set[str], key: str, methods) -> dict:
 
 
 def polygon_facts(bundle: Bundle) -> dict:
-    """The polygon sets that the store holds. Only ``cell_index`` and ``method`` of each set are read."""
+    """The polygon sets that the store holds. The function reads only ``cell_index`` and ``method`` of each set."""
     zf = bundle.member_zip(CELLS)
     names = set(zf.namelist())
     methods = attribute(zf, ".zattrs", "segmentation_methods")
@@ -214,9 +214,9 @@ def report_facts(bundle: Bundle) -> dict:
 
 
 def qc_facts(bundle: Bundle, decoded: dict | None = None) -> dict:
-    """The raw view and the ingest's view of the first report member. The report is read and decoded once.
+    """The raw view and the ingest's view of the first report member. The function reads and decodes the report once.
 
-    The decoded rasters go into ``decoded`` when it is given.
+    The decoded rasters go into ``decoded`` if the caller gives it.
     """
     names = bundle.matching(REPORT_PATTERN)
     if not names:
@@ -243,7 +243,7 @@ def header_facts(bundle: Bundle, name: str) -> dict:
 
 
 def diffexp_facts(bundle: Bundle) -> dict:
-    """The column count and first two column names of each ``diffexp_genes`` CSV. Only its header line is read."""
+    """The column count and first two column names of each ``diffexp_genes`` CSV. The function reads only the header line."""
     return {n: group(header_facts, bundle, n) for n in bundle.names
             if n.startswith(DIFFEXP_PREFIX) and n.endswith(".csv")}
 
@@ -254,10 +254,11 @@ def bundle_facts(
     """The facts of one bundle, as plain JSON values.
 
     ``open_he`` returns the open H&E image and ``alignment_text`` the text of the alignment CSV.
-    Each is called inside its own group, so a failure on either leaves the other groups in the record.
+    Each runs inside its own group, so a failure of one leaves the other groups in the record.
     The QC group decodes its rasters into ``decoded``.
-    The groups run in order, the cheap ones first. When ``ByteLimit`` is raised, the group in progress
-    and every later group become error entries, and the earlier groups stay.
+    The groups run in order, the cheap ones first.
+    When a read raises ``ByteLimit``, the current group and every later group become error entries.
+    The earlier groups stay.
     """
     steps = [
         ("members", lambda: dict(sorted(bundle.sizes.items()))),

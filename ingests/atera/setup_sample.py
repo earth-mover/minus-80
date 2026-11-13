@@ -4,9 +4,9 @@
     setup_sample.py --sample brain --org <org>
 
 Each piece prints one line: ``exists``, ``created``, ``would create`` or ``DIFFERS (<what>)``.
-A piece that exists as wanted is skipped. A piece that differs stops the script with exit 1.
+The script skips a piece that exists as wanted. A piece that differs stops the script with exit 1.
 The namespace's storage location stays in memory and never appears in the output.
-Needs a login (``al auth login``) with the right to create repos and to set an access policy.
+The script needs a login (``al auth login``) with the right to create repos and to set an access policy.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import NamedTuple
 
 from sources import SAMPLES
 
-#: The sample that is set up already: a new sample must use the same bucket.
+#: The sample with a finished setup: each other sample must use the same bucket.
 REFERENCE = "kidney"
 
 
@@ -36,7 +36,7 @@ class Namespace(NamedTuple):
 
 
 def split_location(bucket_url: str, prefix: str) -> tuple[str, str]:
-    """The location and the sub-prefix of a namespace; raises ``ValueError`` when the prefix names no directory."""
+    """The location and the sub-prefix of a namespace; raises ``ValueError`` when the prefix gives no directory."""
     subprefix = prefix.strip("/")
     segments = subprefix.split("/")
     if not any(segments):
@@ -146,7 +146,7 @@ def _check_bucket(org: Org, repo: str, namespace: str, own: Namespace | None) ->
 
 
 def plan(sample_name: str, org: Org, *, dry_run: bool) -> tuple[list[str], bool]:
-    """Check and, unless ``dry_run``, create the pieces in order; the printed lines and whether all went well.
+    """Check and, unless ``dry_run``, create the pieces in order. Returns the printed lines and whether every piece passed.
 
     A dry run calls only the reading methods. Each check runs before the write that it guards.
     """

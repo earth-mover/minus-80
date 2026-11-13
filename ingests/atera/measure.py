@@ -1,4 +1,4 @@
-"""Measure the ingest's write paths on a subset of the work: a plane, a mask, a stack column, the H&E and one tile.
+"""Measure the ingest's write paths on a subset: a plane, a mask, a stack column, the H&E and one tile.
 
 PLAN.md, "Steps, scope and risk", step 2. Each run does one ``--part`` and prints one JSON line last.
 A store part writes under ``measure/<part>-c<concurrency>/`` of a ``measure-`` branch, in one commit.
@@ -191,13 +191,13 @@ def measure_plane(repo, branch: str, group: str, page, counter, *, tiles: int, s
     array = create_level(root.require_group(group), name, (samples, page.imagelength, page.imagewidth), page.dtype,
                          dims=("c", "y", "x"), chunk=(page.tilelength, page.tilewidth))
     before, clock = (counter.bytes, counter.requests), Clock()
-    # Counted from here, so the array's metadata write is not in the chunk writes.
+    # The count starts here, so the chunk writes exclude the array's metadata write.
     store.counter.clear()
     with Progress(f"{array.path}: decoding {tiles:,} tiles", total=tiles, unit="tiles") as progress:
         target = TimedWrites(array, progress)
         written = write_page(target, TileWindow(page, start, tiles), (0,) if samples == 1 else (), concurrency=concurrency)
     result = finish(repo, session, store, clock, array.path, counter, before, f"Measure {array.path}")
-    # A tile of fill values stores no chunk; ``store_sets`` counts the chunks that were stored.
+    # A tile of fill values stores no chunk; ``store_sets`` counts the stored chunks.
     empty = written * samples - result["store_sets"]
     return rated(result | {"write_s": target.seconds, "start": start, "empty_chunks": empty}, written, "tiles")
 
@@ -389,7 +389,7 @@ def run_part(args) -> int:
         errors, source = check_plane(repo, result, page, tiles, start), f"{plane} level 0"
     elif args.part == "he":
         he_url = args.he_image or sample.url(HE_IMAGE, S3)
-        # The object is read as write_he reads it, through the counter.
+        # Read the object as write_he reads it, through the counter.
         page = open_tiff(reader(as_url(he_url), wrap=counter.wrap)).series[0].levels[0].pages[0]
         tiles = min(args.limit, grid_tiles(page))
         start = middle_start(grid_tiles(page), tiles)
@@ -438,7 +438,7 @@ def parse(argv=None) -> argparse.Namespace:
     target.add_argument("--local", help="a local repo directory")
     parser.add_argument("--branch", required=True, help=f"a scratch branch; its name starts with {BRANCH_PREFIX}")
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
-    parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
+    parser.add_argument("--bundle", help="a local outs.zip; by default the script reads the bundle from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--part", choices=(*PARTS, "all"), required=True)
     parser.add_argument("--limit", type=int, help=f"the part's work, by default {LIMITS}; tile takes none")

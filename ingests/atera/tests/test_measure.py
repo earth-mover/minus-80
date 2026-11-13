@@ -60,7 +60,7 @@ def test_a_branch_that_does_not_start_with_measure_is_refused_before_anything_op
 
 
 @pytest.mark.parametrize("part, limit, count, sets", [
-    # The synthetic plane has 2 x 3 tiles; the H&E has 3 channels for each tile; the stack has 3 positions.
+    # The synthetic plane has 2 x 3 tiles. The H&E has 3 channels for each tile, and the stack has 3 positions.
     ("plane", 4, 4, 4),
     ("mask", 3, 3, 3),
     ("stack", 2, 2, 2),

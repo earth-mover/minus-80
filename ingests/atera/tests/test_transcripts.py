@@ -132,7 +132,7 @@ def test_write_tile_writes_one_row_group_per_slice(zf, codewords, tables, tmp_pa
     assert json.loads(file.schema_arrow.metadata[b"pandas"])["index_columns"] == ["instance"]
     assert b"geo" not in file.schema_arrow.metadata
     assert pq.read_table(path).equals(tile_table(zf, "0,0", codewords, first_instance=3))
-    # The Iceberg table accepts the file as it is written.
+    # The Iceberg table accepts the written file as it is.
     ref = tables.write_parts("transcripts", [path])
     assert len(ref.files) == 1
 

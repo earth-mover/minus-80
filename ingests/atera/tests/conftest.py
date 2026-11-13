@@ -2,7 +2,7 @@ import sys
 import importlib.util
 from pathlib import Path
 
-# Reuse the root suite's range server; a package import of ``tests`` would find this directory.
+# Reuse the root suite's range server; a package import of ``tests`` finds this directory.
 _root = Path(__file__).parents[3] / "tests" / "conftest.py"
 _spec = importlib.util.spec_from_file_location("root_conftest", _root)
 _module = importlib.util.module_from_spec(_spec)

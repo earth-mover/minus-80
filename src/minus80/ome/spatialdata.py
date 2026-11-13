@@ -53,7 +53,7 @@ def scale(factors: Sequence[float], axes: Sequence[str], *, system: str = "globa
           unit: str, input_system: str | None = None, input_unit: str = PLACEHOLDER_UNIT) -> dict:
     """``unit`` is the unit of the output system's space axes.
 
-    ``input_system`` and ``input_unit`` name the input system, for a transform that follows another in a sequence.
+    ``input_system`` and ``input_unit`` give the input system, for a transform that follows another in a sequence.
     """
     return _transform("scale", {"scale": list(factors)}, axes, axes, system, unit, input_system, input_unit)
 
@@ -79,7 +79,7 @@ def sequence(transforms: Sequence[Mapping], axes: Sequence[str], *, system: str 
 
 def raster_attrs(ome: Mapping, transform: Mapping) -> dict:
     """Group attributes of an image or labels element, from an ``image_attrs`` document."""
-    # SpatialData reads the 0.5 layout under its own label; a 0.6 document would lose its axes.
+    # SpatialData reads the 0.5 layout under its own label; a 0.6 document loses its axes.
     if ome.get("version") != "0.5":
         raise ValueError(f"a SpatialData raster needs an OME-Zarr 0.5 document, not {ome.get('version')!r}")
     ome = copy.deepcopy(dict(ome))

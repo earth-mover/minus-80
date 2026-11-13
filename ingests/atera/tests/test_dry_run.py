@@ -28,7 +28,7 @@ BRANCH = "trial-dry"
 #: The gates that a synthetic bundle serves. ``masks`` samples 50 cells, and the bundle has 3.
 #: ``instances`` reads a cell centroid outside the bundle's small masks.
 SERVED = [g for g in verify.GATES["full"] if g not in ("masks", "instances")]
-#: The line of the ingest after which the driver sends SIGINT: the start of a level of the stack after the first.
+#: The ingest line after which the driver sends SIGINT: the start of a stack level after the first.
 STOP_LINE = "images/morphology_3d/s1: reading"
 #: Keys of a table pin that each catalog sets for itself.
 OWN_IDS = ("snapshot_id", "table_uuid")

@@ -107,7 +107,7 @@ class _CountedStore:
 def counting_reader(url: str, *, registry: ObjectStoreRegistry | None = None) -> tuple[BlockStoreReader, ReadCounter]:
     """:func:`reader` and the :class:`ReadCounter` for every read it makes.
 
-    The counter wraps the store before the reader is built, so it sees every block the reader fetches.
+    The counter wraps the store before the function builds the reader, so it sees every block the reader fetches.
     """
     counter = ReadCounter()
     return reader(url, registry=registry, wrap=counter.wrap), counter

@@ -359,7 +359,7 @@ ARRAYLAKE = "arraylake://"
 class UncoveredSourceError(ValueError):
     """A source prefix falls under none of the repo's virtual chunk containers.
 
-    The text names neither the prefixes nor the containers, so a log does not show a storage location;
+    The text gives neither the prefixes nor the containers, so a log does not show a storage location;
     ``uncovered`` and ``containers`` hold them.
     """
 
@@ -380,7 +380,7 @@ def arraylake_repository(location: str, *, source_prefixes: list[str] | None = N
     beyond the name: a reader that adds containers of its own is refused.
     Each of ``source_prefixes`` must fall under one of the repo's containers,
     or the references written would not be readable; that raises
-    ``UncoveredSourceError`` (a ``ValueError``) naming the setup the repo lacks. The session commits with
+    ``UncoveredSourceError`` (a ``ValueError``) that gives the setup the repo lacks. The session commits with
     :data:`MANIFEST_FETCH_CONCURRENCY` and reads with at least
     :data:`REMOTE_READ_TRIES`, as a repo from :func:`create_repo` does. Needs the
     ``arraylake`` package and a login (``al auth login``) or ``ARRAYLAKE_TOKEN``.

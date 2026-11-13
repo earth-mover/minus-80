@@ -3,10 +3,12 @@
     check_bundle.py --sample S [--bundle PATH] [--he-image PATH] [--he-alignment PATH] [--record PATH]
                     [--max-bytes N]
 
-By default the bundle, the H&E image and the alignment are the sample's objects, read by range request.
-Without ``--bundle``, a HEAD request of each source object compares its size and ETag with LAYOUTS.md.
-The exit code is 0 for no difference, 1 for a difference, 2 for a record that cannot serve as a reference,
-3 for a bundle that does not open, and 4 for a check that did not finish.
+By default the script reads the sample's objects by range request: the bundle, the H&E image and the alignment.
+Without ``--bundle``, the script sends a HEAD request for each source object.
+It compares the size and the ETag of each object with LAYOUTS.md.
+The exit code is 0 for no difference and 1 for a difference.
+It is 2 for a record that cannot serve as a reference.
+It is 3 for a bundle that does not open and 4 for a check that did not finish.
 """
 
 from __future__ import annotations

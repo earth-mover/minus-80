@@ -114,7 +114,7 @@ def _name(location: str) -> str:
 
 
 def full_elements() -> list[str]:
-    """The elements of the full tree: those that the full mode of the ingest writes, but the root attributes."""
+    """The elements of the full tree: those that the full mode of the ingest writes, except the root attributes."""
     return [e for e in ELEMENTS["full"] if e != "root"]
 
 
@@ -162,7 +162,7 @@ def level_errors(root, path: str, count: int, full: bool = False) -> list[str]:
 def gate_images(root, bundle, he_url: str, *, full: bool = False) -> list[str]:
     """Four sampled tiles of every stored level of each image element against tifffile's decode.
 
-    The 3D stack is compared on every plane. ``he_url`` is read only when the store has the H&E element.
+    The gate compares the 3D stack on every plane. It reads ``he_url`` only when the store has the H&E element.
     A full store must hold each element with every level; a fixture skips an element that it lacks.
     """
     errors, work = [], []
@@ -252,7 +252,7 @@ def _system(transform: dict, end: str) -> tuple | None:
 def _sequence_errors(path: str, transform: dict) -> list[str]:
     """A sequence ends in ``global``, and each step starts in the system where the step before it ends.
 
-    A step that states no system is not compared.
+    The check skips a step that states no system.
     """
     if transform["type"] != "sequence":
         return []
@@ -333,10 +333,10 @@ def coarse_bins(plot: dict) -> dict[str, float]:
 
 
 def gate_transforms(root, bundle, open_he: Callable, alignment_text: Callable, *, full: bool) -> list[str]:
-    """The axes, the shape and the place in ``global`` of the corners of each level of each image and label element.
+    """The axes, the shape and the ``global`` place of the corners of each level of each image and label element.
 
     Each expected place and shape comes from the source, and the gate computes it without the ingest's transform code.
-    ``open_he`` and ``alignment_text`` are called only when the store has the H&E element.
+    The gate calls ``open_he`` and ``alignment_text`` only when the store has the H&E element.
     A full store must hold each element; a fixture skips an element that it lacks, with a printed line.
     """
     errors, pixel_size = [], bundle.experiment()["pixel_size"]
@@ -385,7 +385,7 @@ def gate_transforms(root, bundle, open_he: Callable, alignment_text: Callable, *
     extent, origin = plot["dimensions"], dict(zip("xy", plot["origin_data"]))
     coarse, fine = coarse_bins(plot), extent["width"] / plot["horizontal_bin_count"]
     for name in rasters:
-        # The element of a coarse map has the name of its key in the bag; each other raster has the fine grid.
+        # The element of a coarse map has the name of its key in the bag. Each other raster has the fine grid.
         bin_size = coarse.get(name, fine)
         # One map of one channel; its rows run along y and its columns along x.
         sizes = [(1, math.ceil(extent["height"] / bin_size), math.ceil(extent["width"] / bin_size))]
@@ -438,7 +438,7 @@ def compare_chunks(
 ) -> list[str]:
     """Chunks of the v2 array at ``prefix`` against the stored array at ``path``, by hash: ``members``, or all.
 
-    The stored chunk count must equal the member count, so a missing chunk fails even when it is not compared.
+    The stored chunk count must equal the member count. So a missing chunk fails even when the gate does not compare it.
     """
     errors, ndim = [], len(json.loads(zf.read(f"{prefix}/.zarray"))["shape"])
     present = chunk_members(zf, prefix)
@@ -458,8 +458,8 @@ def compare_chunks(
 def compare_decoded(root, zf, pairs: Sequence[tuple[str, str]], sample: int) -> list[str]:
     """``sample`` chunks of each ``(store path, zip prefix)``: the values read through zarr equal the source's decode.
 
-    The chunks are spread evenly over the source's chunk grid, from the first to the last.
-    ``read_region`` decodes the source; no chunk key is involved, so a stored chunk under a wrong key fails.
+    The sample spreads the chunks evenly over the source's chunk grid, from the first to the last.
+    ``read_region`` decodes the source with no chunk key, so a stored chunk under a wrong key fails.
     A sample with no value other than the fill value fails: two equal chunks of fill value hide a moved one.
     """
     errors, names = [], set(zf.namelist())
@@ -573,7 +573,7 @@ def _metadata_errors(array, zarray: dict, label: str) -> list[str]:
         "endian": codecs.get("bytes", {}).get("endian"),
     }
     differing = [k for k in expected if found[k] != expected[k]]
-    # Two fill values compare only in one dtype; a differing dtype is reported above.
+    # Two fill values compare only in one dtype; the check above reports a differing dtype.
     if expected["dtype"] == found["dtype"] and not np.array_equal(
             _fill(zarray.get("fill_value"), expected["dtype"]), _fill(metadata["fill_value"], found["dtype"]),
             equal_nan=found["dtype"].startswith("float")):
@@ -632,7 +632,7 @@ def gate_matrix(root, matrix, *, full: bool = False) -> list[str]:
 def element_tables(root, *, full: bool = False) -> dict[str, dict]:
     """``iceberg_table`` attribute by element path.
 
-    A full store must hold a table for each of the full tree's points and shapes elements; ``ValueError`` names the others.
+    A full store must hold a table for each of the full tree's points and shapes elements; ``ValueError`` gives the others.
     """
     found = {}
     for kind in ("points", "shapes"):
@@ -712,7 +712,7 @@ def _transcript_errors(path: str, catalog, attr, grid: dict) -> list[str]:
 def gate_tables(root, catalog, cells, transcripts, *, full: bool = False) -> list[str]:
     """Each table's row count against the source.
 
-    A full store's transcripts are compared tile by tile. A fixture's are compared with tile ``FIXTURE_TILE``.
+    The gate compares a full store's transcripts tile by tile. It compares a fixture's transcripts with tile ``FIXTURE_TILE``.
     """
     errors = []
     for path, attr in element_tables(root, full=full).items():
@@ -866,7 +866,7 @@ def _plural(count: int, noun: str) -> str:
 
 
 def _repeats(path: str, noun: str, values: np.ndarray) -> list[str]:
-    """One error when ``values`` repeat, naming the first repeated value."""
+    """One error when ``values`` repeat, with the first repeated value."""
     unique, counts = np.unique(values, return_counts=True)
     if not len(repeated := unique[counts > 1]):
         return []
@@ -956,7 +956,7 @@ def gate_table_region(root, catalog, *, full: bool = False) -> list[str]:
 def gate_extra_tables(root, catalog, transcripts, bundle) -> list[str]:
     """Each table of the root attribute ``iceberg_tables`` against its source.
 
-    The pin is in the catalog, the row count equals the source, the index has no repeat, and the files carry field ids.
+    The pin is in the catalog, and the row count equals the source. The index has no repeat, and the files carry field ids.
     """
     pins = root.attrs.get(ICEBERG_TABLES)
     if not pins:
@@ -989,7 +989,7 @@ def _sha(data: bytes) -> str:
 
 
 def copy_orders(transcripts) -> dict[str, list[str]]:
-    """The tile of each data file of a copied table, in the order of the copy's arrays: the source tiles with rows."""
+    """The tile of each data file of a copied table, in the order of the copy's arrays: each source tile with rows."""
     grid = json.loads(transcripts.read("grid/.zattrs"))
     counts = dict(zip(grid["grid_keys"], grid["grid_number_objects"], strict=True))
     return {"points/transcripts": [t for t, _ in tile_order(grid) if counts[t]]}
@@ -1020,7 +1020,7 @@ def gate_copies(root, catalog, orders: dict | None = None, *, full: bool = False
 
     The copies hold as many bytes as the files, and each copy's chunk edges are the file's reference boundaries.
     A block is ``COPY_CHUNK`` bytes. Each copy compares its first block, its last and ``COPY_SAMPLES`` between,
-    by hash; a changed byte in another block is not found. ``orders`` gives the partition order of a partitioned table's files.
+    by hash. The gate does not find a changed byte in another block. ``orders`` gives the partition order of a partitioned table's files.
     """
     errors, checks = [], []
     for path, attr in element_tables(root, full=full).items():
@@ -1147,7 +1147,7 @@ def run_gates(gates: dict, names: list[str]) -> list[str]:
     for name in names:
         try:
             errors = gates[name]()
-        except Exception as e:  # A gate that cannot run on this store is a failed gate, and the run goes on.
+        except Exception as e:  # A gate that cannot run on this store is a failed gate, and the run continues.
             errors = [f"raised {type(e).__name__}: {e}"]
         print(f"{name} {'FAIL' if errors else 'PASS'}", flush=True)
         for error in errors[:20]:
@@ -1192,7 +1192,7 @@ def main() -> None:
                         help="fixture skips an element that the branch lacks; full fails on it")
     parser.add_argument("--branch", help="the branch to read; by default fixture for --mode fixture, main for --mode full")
     parser.add_argument("--sample", choices=sorted(SAMPLES), required=True)
-    parser.add_argument("--bundle", help="a local outs.zip; by default the bundle is read from 10x's bucket")
+    parser.add_argument("--bundle", help="a local outs.zip; by default the script reads the bundle from 10x's bucket")
     parser.add_argument("--he-image", help="the H&E OME-TIFF, a URL or a local path; by default 10x's object")
     parser.add_argument("--he-alignment", help="the H&E alignment CSV, a URL or a local path; by default 10x's object")
     parser.add_argument("--record", type=Path,

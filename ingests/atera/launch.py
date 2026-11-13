@@ -1,4 +1,4 @@
-"""Run a script, or the full ingest and its verification, on one Coiled VM from a clean copy of the committed code.
+"""Run a script, or the full ingest and its verification, on one Coiled VM from the committed code only.
 
     launch.py --vm-type m7g.xlarge --region us-west-2 --workspace earthmover-devs --disk 100 --name atera-measure \
         -- measure.py --part all ...
@@ -48,7 +48,8 @@ TIME_LIMIT_CODE = 124
 UPLOAD = "<git archive of HEAD>"
 #: The log service delivers late, and an event can arrive with a timestamp older than the newest one.
 LOG_WINDOW_MS = 120_000
-#: The longest the launcher reads the log after the task ends, and the empty reads in a row that end it earlier.
+#: The longest time that the launcher reads the log after the task ends.
+#: Also the count of empty reads in a row that end the read earlier.
 DRAIN_SECONDS, DRAIN_EMPTY_READS = 60, 2
 #: Consecutive failed status calls, while the task runs, that end the run: 30 polls of 10 s are five minutes.
 #: Before the task runs no failure counts.
@@ -57,8 +58,8 @@ MAX_FAILURES = 30
 RUNNING_TASK = ("assigned", "running")
 #: The longest the launcher waits for the cluster to report ``stopping`` or ``stopped`` after the stop request.
 STOP_SECONDS = 60
-#: The disk beyond the downloads, in GiB: 10 for the scratch Parquet file of the largest transcript tile (2,230,658,968
-#: bytes measured), 10 for the uv environment and its cache, 10 for the image and the system, 10 of margin.
+#: The disk beyond the downloads, in GiB. 10 for the scratch Parquet file of the largest transcript tile (2,230,658,968 bytes, measured).
+#: Also 10 for the uv environment and its cache, 10 for the image and the system, and 10 of margin.
 OVERHEAD_GIB = 40
 #: The part of the overhead that the data directory needs after the environment exists: the tile's scratch file.
 TILE_SCRATCH_GIB = 10
@@ -82,7 +83,7 @@ class StatusError(Exception):
 
 
 class Status(NamedTuple):
-    """The cluster's state, the task's state and the task's exit code; each is ``None`` until it is known."""
+    """The cluster's state, the task's state and the task's exit code; each is ``None`` until the service reports it."""
 
     cluster: str | None
     task: str | None
@@ -118,9 +119,10 @@ class Job:
     """One launch. The token is not part of it.
 
     ``minutes`` is the launcher's time limit, ``None`` for none. ``status_failures`` is the number of failed status
-    calls in a row, while the task runs, that end the run; ``None`` means never, so a lost network does not end the job.
-    ``stops`` says when the launcher stops the VM: ``always`` on every exit path (a script), ``viewer`` only when the
-    start fails, at the time limit and when the job ends (the ingest), ``never`` (an attached launcher).
+    calls in a row, while the task runs, that end the run. ``None`` means never, so a lost network does not end the job.
+    ``stops`` says when the launcher stops the VM. ``always`` stops it on every exit path, for a script.
+    ``viewer`` stops it only when the start fails, at the time limit and when the job ends, for the ingest.
+    ``never`` is for an attached launcher.
     """
 
     name: str
@@ -147,7 +149,7 @@ def unique_name(prefix: str) -> str:
 
 
 def read_token(path: Path) -> str:
-    """The token in ``path``, without surrounding whitespace; a missing or empty file exits."""
+    """The token in ``path``, without surrounding whitespace. A missing or empty file makes the function exit."""
     try:
         token = path.read_text().strip()
     except OSError:
@@ -181,7 +183,7 @@ def default_disk_gib(sample: str, remote_bundle: bool = False) -> int:
 
 
 def names_fault(flag: str, text: str) -> str | None:
-    """The fault of ``text`` unless it is names with no empty one and no whitespace, comma-separated."""
+    """The fault of ``text``, unless it is comma-separated names with no empty name and no whitespace."""
     if any(not name or re.search(r"\s", name) for name in text.split(",")):
         return f"--{flag} is names separated by commas, each non-empty and with no whitespace: {text!r}"
     return None
@@ -509,7 +511,7 @@ class CoiledVm:
         if gone and not self.cluster_id:
             state = "absent"
         elif not self.cluster_id:
-            # Nothing found by name and the delete did not say it was absent: a person must look.
+            # The lookup by name found nothing, and the delete did not report the cluster absent: a person must look.
             state = "unknown (no cluster found by name)"
         else:
             # The state read right after the request is the old one, so wait for it to change.
@@ -570,11 +572,11 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
         interval: float = 10) -> int:
     """Start ``job`` on ``vm``, forward its lines, and return its exit code.
 
-    ``job.stops`` says on which paths the VM stops. Nothing asks for the log before a task runs, and a failed call
-    is one line and the next poll tries again.
+    ``job.stops`` says on which paths the VM stops. The function asks for no log before a task runs.
+    A failed call prints one line, and the next poll tries again.
     """
 
-    # Looked up at the call, so a test can replace ``time.sleep``.
+    # The function looks up ``time.sleep`` at each call, so a test can replace it.
     clock, sleep = clock or time.monotonic, sleep or time.sleep
 
     def say(text):
@@ -586,7 +588,7 @@ def run(vm, job: Job, token: str, *, out: Callable[[str], object] = print, clock
             say(f"{what}: {type(error).__name__}: {error}{more}")
 
     def drain():
-        # The log lags the task, so read until it stays empty before the VM, and its log, go.
+        # The log lags the task. So read until the log stays empty, before the VM and its log disappear.
         began, empty, streak = clock(), 0, 0
         while empty < DRAIN_EMPTY_READS and clock() - began < DRAIN_SECONDS:
             try:
@@ -680,10 +682,10 @@ def plan_text(job: Job) -> str:
 ARRAYLAKE = "arraylake://"
 NOTE = (
     "With --ingest the launcher is a viewer of the job. It never stops the VM on Ctrl-C, SIGTERM, SIGHUP, a closed "
-    "terminal or a status error, except at its own --max-minutes limit and when the start fails; it stops the VM "
-    "when the job ends. A dead launcher does not stop the job: the job ends by itself, at --max-minutes on the "
-    "server, or when a person runs launch.py --stop <cluster id> --workspace <ws>. Follow a job again with "
-    "launch.py --attach <cluster id> --workspace <ws>; an attached launcher never stops the cluster. A script "
+    "terminal or a status error, except at its own --max-minutes limit. It also stops the VM when the start fails "
+    "and when the job ends. A stopped launcher does not stop the job. The job ends by itself, or at --max-minutes "
+    "on the server. A person can also run launch.py --stop <cluster id> --workspace <ws>. Follow a job again with "
+    "launch.py --attach <cluster id> --workspace <ws>. An attached launcher never stops the cluster. A script "
     "(after --) stops the VM on every exit path. The ingest form writes the branch trial-<name>, never main. Its "
     "last step, promote.py, moves main forward to the snapshot that the verification read. The step runs only after "
     "the verify step passed, and it refuses a trial branch that holds a later commit. With --gates the verify step "
@@ -693,7 +695,7 @@ NOTE = (
 
 
 def check_ingest(args, fail) -> None:
-    """Exit unless the ingest form's arguments are consistent; nothing has been uploaded or launched yet."""
+    """Exit unless the ingest form's arguments are consistent. This check runs before any upload or launch."""
     repo = re.fullmatch(rf"{ARRAYLAKE}([^/\s]+)/([^/\s]+)", args.repo)
     catalog = re.fullmatch(rf"{ARRAYLAKE}([^/\s]+)", args.catalog)
     if not repo:
@@ -746,7 +748,7 @@ def check_ingest(args, fail) -> None:
 
 
 def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
-    """The options and the command after ``--``; each form's missing or conflicting option exits."""
+    """The options and the command after ``--``. A missing or conflicting option of either form makes the function exit."""
     own, command = (argv[: argv.index("--")], argv[argv.index("--") + 1:]) if "--" in argv else (argv, [])
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=NOTE)
@@ -824,7 +826,7 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
 def stop_cluster(ref: str, workspace: str, vm=None, dry_run: bool = False) -> int:
     """Print the name and the state of the cluster ``ref`` (id or name), delete it, and print the state after.
 
-    With ``dry_run`` it prints what it would delete and deletes nothing.
+    With ``dry_run`` it prints the cluster to delete and deletes nothing.
     """
     import coiled
     import coiled.v2
@@ -849,7 +851,7 @@ def stop_cluster(ref: str, workspace: str, vm=None, dry_run: bool = False) -> in
 
 
 def interruptible(call: Callable[[], int]) -> int:
-    """Run ``call``; an interrupt ends with the shell's code 130 and no traceback, after ``run`` has done its part."""
+    """Run ``call``; an interrupt ends with the shell's code 130 and no traceback, after ``run`` completes its part."""
     try:
         return call()
     except KeyboardInterrupt:

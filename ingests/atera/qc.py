@@ -93,7 +93,7 @@ def rasters(html: str) -> dict[str, QcRaster]:
 
 
 def raw(html: str) -> dict:
-    """What the data bag holds. A value that the ingest does not know is recorded, never refused.
+    """What the data bag holds. The function records a value that the ingest does not know, and never refuses it.
     A bag that is no dict gives its type name only.
 
     ``references`` holds each ``density_plot`` key, other than ``bins``, whose value is a resource reference.

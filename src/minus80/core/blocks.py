@@ -1,7 +1,7 @@
 """Compare two readers of the same bytes on a bounded sample of blocks, by SHA-256.
 
 The sample holds the first block, the last block and a seeded set of blocks between them.
-A difference inside an unsampled block is not found.
+The comparison does not find a difference inside an unsampled block.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ RangeReader = Callable[[int, int], bytes]
 def sampled_blocks(size: int, block: int, samples: int, seed: int = 0) -> list[int]:
     """The indices of the first block, the last block and ``samples`` blocks between, ascending.
 
-    Every block is sampled when the blocks outside the first and the last number ``samples`` or fewer.
+    The sample holds every block when the blocks outside the first and the last number ``samples`` or fewer.
     """
     count = -(-size // block)
     if count <= samples + 2:
@@ -35,7 +35,7 @@ def compare_blocks(
 ) -> tuple[list[int], list[int]]:
     """The sampled block indices and those whose SHA-256 differs between the readers.
 
-    Each reader gets one range of at most ``block`` bytes per sampled block, and ``size`` is the length of both sources.
+    Each reader gets one range of at most ``block`` bytes per sampled block. ``size`` is the length of both sources.
     """
     sampled = sampled_blocks(size, block, samples, seed)
     differing = []

@@ -20,8 +20,8 @@ class Bucket:
 
     def __init__(self, objects: dict[str, tuple[bytes, str]]):
         self.objects, self.requests, self.cut_at, self.cut_requests = objects, [], 0, 0
-        # What the object becomes after the first request, the number of leading requests that fail with 503,
-        # whether the server ignores Range, and whether it leaves out Content-Length.
+        # What the object becomes after the first request, and the number of leading requests that fail with 503.
+        # Also whether the server ignores Range, and whether it leaves out Content-Length.
         self.after_first, self.fail_requests, self.ignore_range, self.no_length = None, 0, False, False
         bucket = self
 
@@ -61,7 +61,7 @@ class Bucket:
                     self.wfile.write(body)
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
-                    pass  # The client stopped reading, as a test of an early stop makes it do.
+                    pass  # The client closed the stream early, as a test of an early stop makes it do.
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()

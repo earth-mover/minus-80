@@ -53,7 +53,7 @@ TRANSCRIPT_SCHEMA = pa.schema(
 )
 
 def xenium_cell_id(prefix: np.ndarray, suffix: np.ndarray) -> np.ndarray:
-    """Xenium cell ids: the prefix as 8 hex nibbles, 0 to 15 as a to p, most significant first, then ``-`` and the suffix."""
+    """Xenium cell ids: the prefix as 8 hex nibbles, most significant first, then ``-`` and the suffix. A nibble 0 to 15 is a to p."""
     shifts = np.arange(28, -4, -4, dtype=np.uint32)
     nibbles = ((prefix.astype(np.uint32)[:, None] >> shifts) & 0xF).astype(np.uint8) + ord("a")
     letters = np.ascontiguousarray(nibbles).view("S8").ravel().astype("U8")

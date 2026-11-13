@@ -1,7 +1,7 @@
 """Copy Zarr v2 arrays from a zip into a Zarr v3 group, chunk bytes unchanged.
 
 Zarr v3's blosc, transpose and vlen-utf8 codecs read v2 chunk bytes as they are.
-Only the metadata is rewritten. A v2 feature with no v3 equivalent raises
+The copy rewrites only the metadata. A v2 feature with no v3 equivalent raises
 ``NotImplementedError``, because a chunk that decodes wrong is worse than no copy.
 """
 
@@ -139,13 +139,13 @@ def copy_chunks(
 ) -> int:
     """Write each chunk member under ``prefix`` to its v3 key. Returns the count.
 
-    Members are read one at a time; at most ``concurrency`` writes run at once.
+    The function reads the members one at a time; at most ``concurrency`` writes run at once.
     ``names`` is the member set of ``zf``, for a caller that listed the zip already.
     """
     if concurrency < 1:
         raise ValueError(f"concurrency must be at least 1, got {concurrency}")
     prototype = default_buffer_prototype()
-    # A v2 array of zero dimensions has the one chunk "0"; v3 names it "c".
+    # A v2 array of zero dimensions has the one chunk "0"; v3 calls it "c".
     keys = {
         member: f"{array.path}/c" if array.ndim == 0 else chunk_key(array.path, prefix, member)
         for member in chunk_members(zf, prefix, names=names)
@@ -266,7 +266,7 @@ def _read_block(
             if codec is not None:
                 raw = numcodecs.get_codec(dict(codec)).decode(raw)
         chunk = np.frombuffer(raw, dtype=dtype).reshape(spec.chunks, order=spec.order)
-        # Edge chunks are stored padded to the full chunk shape.
+        # The store pads edge chunks to the full chunk shape.
         origin = [i * c for i, c in zip(index, spec.chunks)]
         first = [max(o, lo) for o, (lo, _) in zip(origin, bounds)]
         last = [min(o + c, hi) for o, c, (_, hi) in zip(origin, spec.chunks, bounds)]
@@ -279,8 +279,8 @@ def _read_block(
 def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None = None) -> np.ndarray:
     """Decode a whole Zarr v2 array of numeric dtype from ``zf``; a missing chunk is the fill value.
 
-    ``zf`` is an open zip, because ``ZipStore`` cannot use one and would parse the central directory again.
-    ``names`` is the member set; pass it when reading several arrays, so ``namelist()`` runs once.
+    ``zf`` is an open zip, because ``ZipStore`` cannot use one and parses the central directory again.
+    ``names`` is the member set; pass it for several arrays, so ``namelist()`` runs once.
     """
     return _read_block(zf, path, names, ())
 
@@ -288,7 +288,7 @@ def read_array(zf: zipfile.ZipFile, path: str, *, names: Collection[str] | None 
 def read_rows(
     zf: zipfile.ZipFile, path: str, start: int, stop: int, *, names: Collection[str] | None = None
 ) -> np.ndarray:
-    """Decode rows ``start:stop`` of a Zarr v2 array of numeric dtype; only the chunks they touch are read.
+    """Decode rows ``start:stop`` of a Zarr v2 array of numeric dtype; the function reads only the chunks that they touch.
 
     The result is ``array[start:stop]``, with ``read_array``'s rules for fill and ``names``.
     """
@@ -300,6 +300,6 @@ def read_region(
 ) -> np.ndarray:
     """Decode ``region`` of a Zarr v2 array of numeric dtype: one ``(start, stop)`` for each leading axis.
 
-    Only the chunks the region touches are read, with ``read_array``'s rules for fill and ``names``.
+    The function reads only the chunks that the region touches, with ``read_array``'s rules for fill and ``names``.
     """
     return _read_block(zf, path, names, region)

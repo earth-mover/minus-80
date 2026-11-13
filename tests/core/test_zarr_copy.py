@@ -528,7 +528,7 @@ def test_read_region_equals_the_slice_of_the_whole_array(tmp_path, order):
 def test_read_region_reads_only_the_chunks_the_region_touches(tmp_path):
     data = np.arange(6 * 4, dtype="<i4").reshape(6, 4)
     zf = _v2_zip(tmp_path, x=dict(data=data, chunks=(3, 2), compressors=None))
-    # Only chunk (1, 1) is left; a region inside it needs no other.
+    # Only chunk (1, 1) remains; a region inside it needs no other.
     gap = _without_members(tmp_path, zf, "x/0.0", "x/0.1", "x/1.0")
     assert np.array_equal(read_region(gap, "x", [(3, 6), (2, 4)]), data[3:6, 2:4])
 

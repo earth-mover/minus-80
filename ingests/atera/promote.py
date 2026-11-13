@@ -1,7 +1,7 @@
 """Move branch main of a repo forward to the snapshot of a verified trial branch.
 
-The move is a reset of main, guarded to fail if main moved since the read.
-The snapshot of main must be an ancestor of the trial snapshot, so no commit of main is lost.
+The move is a reset of main. A guard makes it fail if main moved after the read.
+The snapshot of main must be an ancestor of the trial snapshot, so the move loses no commit of main.
 With ``--expect`` the trial snapshot must be the given one, so a commit after the verification moves nothing.
 The script never deletes a branch, a tag or a snapshot.
 """
@@ -24,8 +24,8 @@ def promote(repo, source: str, target: str = "main", *, expect: str | None = Non
             dry_run: bool = False) -> tuple[str, str]:
     """Return (old snapshot of target, snapshot of source).
 
-    Move target to the snapshot of source, unless the snapshots are equal or dry_run is set.
-    When expect is given, the snapshot of source must be expect.
+    Move target to the snapshot of source, unless the snapshots are equal or dry_run is true.
+    With expect, the snapshot of source must be expect.
     """
     if not source.startswith(TRIAL_PREFIX):
         raise Refusal(f"the source {source} does not start with {TRIAL_PREFIX}")

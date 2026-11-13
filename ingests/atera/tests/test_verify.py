@@ -177,7 +177,7 @@ def test_field_ids_fails_a_file_column_the_table_lacks(tmp_path, with_ids):
 
 
 def _pinned_fixture(tmp_path):
-    """A repo whose ``points/transcripts`` pins a table snapshot that a later append left behind."""
+    """A repo whose ``points/transcripts`` pins a table snapshot that precedes a later append."""
     tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
     tables.require("transcripts", schema=SCHEMA, properties={})
     repo = create_repo(tmp_path / "repo", [], prefixes=[tables.data_prefix("transcripts")])
@@ -218,7 +218,7 @@ SETS = {"nucleus_boundaries": 0, "cell_boundaries": 1}
 def _polygon_root(tmp_path, replacements=None):
     """A root with both polygon elements, each pinning a table of the real polygon sets of ``cells_zip``.
 
-    ``replacements`` maps a table name to a table that is written in place of the set's own.
+    ``replacements`` maps a table name to a table that the function writes in place of the set's own.
     """
     zf = cells_zip(tmp_path)
     tables = TableWriter(local_catalog(tmp_path / "c"), "ns", catalog_name="local", org="local")
@@ -315,7 +315,7 @@ def test_polygons_with_a_contradicted_count_still_fails_its_other_checks(tmp_pat
 def test_tables_counts_the_cells_of_a_polygon_set_not_its_rows(tmp_path):
     root, tables, zf = _polygon_root(tmp_path)
     transcripts = zip_v2_store(tmp_path, "transcripts", {"grid/0,0/location": (np.zeros((2, 3), "float32"), {})})
-    # The root has no transcripts element, so only the shapes are counted.
+    # The root has no transcripts element, so the count holds only the shapes.
     assert gate_tables(root, tables.catalog, zf, transcripts) == []
 
 
@@ -617,8 +617,8 @@ def _diffexp(columns: int) -> str:
 def brain_members(directory: Path) -> dict:
     """A bundle with the layout facts of the brain's record, analysis 1.1.1, at a small size.
 
-    The record gives the member names, the levels, the planes, the tile keys, the QC labels and grids, the metrics keys,
-    the method names, the ``cell_summary`` columns, the diffexp column counts and the gene count.
+    The record gives the member names, the levels, the planes, the tile keys, and the QC labels and grids.
+    It also gives the metrics keys, the method names, the ``cell_summary`` columns, the diffexp column counts and the gene count.
     """
     morphology = BRAIN["morphology_2d"]["files"]
     stack = _only(BRAIN["morphology_3d"]["files"])
@@ -766,7 +766,7 @@ def test_every_gate_of_a_full_store_passes_and_a_local_bundle_skips_the_source_g
 @pytest.mark.parametrize("mode", ["fixture", "full"])
 def test_the_gate_names_of_each_mode_are_the_gates_that_main_builds(monkeypatch, full_store, mode):
     built = []
-    # The recorder stands in for the run of the gates only; main builds the gates itself.
+    # The recorder replaces only the run of the gates; main builds the gates itself.
     monkeypatch.setattr(verify, "run_gates", lambda gates, names: built.append(tuple(gates)) or [])
     assert _verify(monkeypatch, full_store, "--mode", mode, "--branch", "main") == 0
     assert built == [verify.GATES[mode]]
@@ -1450,7 +1450,7 @@ def test_row_groups_fail_a_first_row_group_that_does_not_start_at_the_tile_origi
 # gate_copies pairs each file with its own copy
 
 def _two_file_copy(tmp_path):
-    """A table of two tiles whose data files have the same size, and a repo with one copy of each in tile order."""
+    """A table of two tiles with data files of one size. Also a repo with one copy of each file, in tile order."""
     from minus80.core.tables import write_parquet
 
     schema = pa.schema([pa.field("instance", pa.int64(), nullable=False), ("grid_tile", pa.string()),
@@ -1782,7 +1782,7 @@ def test_transforms_take_the_bin_size_of_the_coarse_raster_from_its_key_in_the_b
     other.write_inputs(change)
     errors = gate_transforms(full_store.root(), open_bundle(str(other.bundle))[0],
                              *he_readers(str(full_store.he), str(full_store.alignment)), full=True)
-    # The bag of this bundle has no 80 um key, so the source gives the fine grid for the element of that name.
+    # This bundle's bag has no 80 um key. So the source gives the fine grid for the element of that name.
     assert errors[0] == "images/qc_mean_q_score_80um s0: shape (1, 1, 2), the source has (1, 4, 6)"
     assert _levels(errors) == {"images/qc_mean_q_score_80um s0"}
 
@@ -2019,7 +2019,7 @@ def test_compare_decoded_reads_the_first_and_the_last_chunk(tmp_path):
     data[39] = 0
     data[20] = 0
     commit(session, "change the last chunk and chunk 3")
-    # Two regions are the first and the last chunk, so the change in chunk 3 is not read.
+    # Two regions are the first and the last chunk, so no read reaches the change in chunk 3.
     assert compare_decoded(_main_root(repo), zf, [("tables/table/X/data", "X/data")], 2) == [
         "tables/table/X/data: chunk (6,): 1 of 4 values differ from the source's decode"]
     errors = compare_decoded(_main_root(repo), zf, [("tables/table/X/data", "X/data")], 20)

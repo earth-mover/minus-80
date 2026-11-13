@@ -31,9 +31,9 @@ _FAILED = re.compile(r"(\S+): FAILED \w+: .*")
 
 
 def _split(text: str, size: int) -> list[str]:
-    """``text`` in parts of at most ``size`` characters. A part does not end in a space, which a log could strip.
+    """``text`` in parts of at most ``size`` characters. A part does not end in a space, which a log can strip.
 
-    A text with no other place to split is split anywhere.
+    The function splits a text with no other split point at any place.
     """
     parts, start = [], 0
     while start < len(text):
@@ -95,8 +95,8 @@ def read_records(log_text: str, samples: Sequence[str] | None = None) -> dict[st
     """The record of each sample in ``log_text``. The log can hold unrelated lines and identical duplicate lines.
 
     A sample needs a ``begin`` line, every part and an ``end`` line with a matching count and digest.
-    A sample that fails any of these raises ``ValueError`` that names it. Duplicates that disagree raise it too.
-    A ``FAILED`` line before the last ``begin`` line leaves a partial record, which is returned.
+    A sample that fails any of these raises ``ValueError`` with its name. Duplicates that disagree raise it too.
+    A ``FAILED`` line before the last ``begin`` line leaves a partial record, and the function returns it.
     A ``FAILED`` line after the last ``begin`` line, or with no ``begin`` line, raises.
     The result holds the samples in ``samples``, or every sample in the log when ``samples`` is ``None``.
     A sample in ``samples`` with no marker line at the start of a line raises.

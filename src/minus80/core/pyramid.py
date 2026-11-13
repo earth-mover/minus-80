@@ -165,7 +165,7 @@ def _write_all(array: zarr.Array, writes, concurrency: int, write_bytes: int) ->
             array[region] = data
             count += 1
         return count
-    # Decoding stays in this thread; the pending cap bounds the tiles held in memory.
+    # The decode stays in this thread; the pending cap bounds the tiles held in memory.
     limit = max(1, min(2 * concurrency, PENDING_BYTES // write_bytes))
     pending: deque = deque()
     pool = ThreadPoolExecutor(concurrency)
@@ -178,7 +178,7 @@ def _write_all(array: zarr.Array, writes, concurrency: int, write_bytes: int) ->
         for future in pending:
             future.result()
     finally:
-        # On an error, queued writes are dropped and running ones finish before it propagates.
+        # On an error, the pool drops queued writes, and running ones finish before the error propagates.
         pool.shutdown(cancel_futures=True)
     return count
 

@@ -27,8 +27,8 @@ def done(code):
 class FakeVm:
     """The thing that starts and stops a VM, scripted: the launcher's own logic runs for real.
 
-    ``states`` are the results of the successive ``poll`` calls and ``reads`` those of ``new_lines``; the last state
-    repeats, a read list that runs out gives nothing, and an exception in either list is raised.
+    ``states`` are the results of the successive ``poll`` calls and ``reads`` those of ``new_lines``. The last state
+    repeats, and a read list that runs out gives nothing. The fake raises an exception that either list holds.
     A log read in a state with no running task raises ``error``, as the log service does.
     """
 
@@ -68,7 +68,7 @@ class FakeVm:
 
 
 class Ticks:
-    """A clock that advances ``step`` seconds each time it is read."""
+    """A clock that advances ``step`` seconds each time a caller reads it."""
 
     def __init__(self, step=60):
         self.now, self.step = 0.0, step
