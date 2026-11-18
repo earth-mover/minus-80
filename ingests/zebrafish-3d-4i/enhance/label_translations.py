@@ -194,11 +194,9 @@ def main() -> None:
         "but the copy gave them their image's translations, which place a coarse pixel at "
         "the block's center. This adds (2^k - 1)/2 x 0.65 um to each label level's y and x "
         "translation: 0.325, 0.975 and 2.275 um at levels 1, 2 and 3. Only the label "
-        "groups' metadata changes; every label pixel is still the source's (PLAN.md "
-        f"decision 17).\n\n{checked}"
+        "groups' metadata changes; every label pixel is still the source's.\n\n" + checked
     )
     metadata = change(
-        plan_decision=17,
         summary="Each label level's y and x translation moves onto the pixel the level keeps.",
         reason="Label levels keep the bottom-right pixel of each block but carried the "
         "image's block-center translations, which placed level 3 about half a pixel off.",

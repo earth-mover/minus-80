@@ -626,14 +626,15 @@ default; from London, 64 in flight doubled throughput.
 
     Only major checkpoints get a tag: `source-copy` now, and one after
     decision 19, when the store has its rebuilt levels. Every commit instead
-    describes itself, so the history alone says what happened. The message's
+    describes itself, so the history alone says what happened. Messages and
+    metadata name no decision numbers, which mean nothing to a reader who
+    has not seen this plan. The message's
     first line names the change; its body says what changed, why, and how it
     was checked. The commit's metadata holds the same facts as fields under
     `change`:
 
     | Field | Example (decision 17) |
     |---|---|
-    | `plan_decision` | `17` |
     | `summary` | one sentence: what changed |
     | `reason` | one sentence: why |
     | `kind` | `metadata` (no chunks written) or `pixels` |
@@ -643,6 +644,7 @@ default; from London, 64 in flight doubled throughput.
     | `checked` | what was read back and what it showed |
     | `parent_tag` | the last tag below this commit: `source-copy` |
     | `code` | the git commit of the script that made the change, and the script's path |
+    | `plan` | a link to this plan at that git commit |
 
 
 16. **Channel colors.** The source gives each channel an `omero` color, and

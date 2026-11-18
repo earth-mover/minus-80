@@ -117,10 +117,9 @@ def main() -> None:
         "ALYREF all 0000FF, so a viewer shows three of its stains in one blue. Each round "
         "now shows DAPI blue and its other three channels green, magenta and yellow. Each "
         "channel's source color is kept as source_color in its annotations.channels entry; "
-        "display windows are unchanged (PLAN.md decision 16).\n\n" + checked
+        "display windows are unchanged.\n\n" + checked
     )
     metadata = change(
-        plan_decision=16,
         summary="Each round's channels are colored blue (DAPI), green, magenta and yellow.",
         reason="The source's colors repeat within a round, so a viewer drew three of a "
         "round's four stains in the same blue.",

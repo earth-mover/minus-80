@@ -18,6 +18,8 @@ from pathlib import Path
 REPO = "arraylake://earthmover-biology/zebrafish-3d-4i"
 BRANCH = "enhance"
 PARENT_TAG = "source-copy"
+GITHUB = "https://github.com/earth-mover/minus-80"
+PLAN = "ingests/zebrafish-3d-4i/PLAN.md"
 
 
 def code_ref(*scripts: Path) -> dict:
@@ -38,12 +40,11 @@ def code_ref(*scripts: Path) -> dict:
     sha = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=top, check=True, capture_output=True, text=True
     ).stdout.strip()
-    return {"commit": sha, "paths": paths}
+    return {"commit": sha, "paths": paths, "urls": [f"{GITHUB}/blob/{sha}/{p}" for p in paths]}
 
 
 def change(
     *,
-    plan_decision: int,
     summary: str,
     reason: str,
     kind: str,
@@ -53,12 +54,16 @@ def change(
     checked: str,
     code: dict,
 ) -> dict:
-    """The commit metadata for one improvement, with the fields of PLAN.md decision 15."""
+    """The commit metadata for one improvement, with the fields of PLAN.md decision 15.
+
+    Commit messages and metadata are read by people who have never seen the
+    plan, so they name no decision numbers; ``plan`` links the plan as it
+    stood when the change was made.
+    """
     if kind not in ("metadata", "pixels"):
         raise ValueError(f"kind is 'metadata' or 'pixels', not {kind!r}")
     return {
         "change": {
-            "plan_decision": plan_decision,
             "summary": summary,
             "reason": reason,
             "kind": kind,
@@ -68,6 +73,7 @@ def change(
             "checked": checked,
             "parent_tag": PARENT_TAG,
             "code": code,
+            "plan": f"{GITHUB}/blob/{code['commit']}/{PLAN}" if code else None,
         }
     }
 

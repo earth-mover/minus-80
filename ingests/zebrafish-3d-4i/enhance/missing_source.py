@@ -317,10 +317,9 @@ def main() -> None:
         f"labels/{NAME}, a label image with one value per damaged chunk position; "
         "image-label.properties gives each value's level, array, channel, source member and "
         "reason. Level k marks damage in the source's level k only. Images without damage "
-        "get the label all 0, which stores no chunks (PLAN.md decision 18).\n\n" + checked
+        "get the label all 0, which stores no chunks.\n\n" + checked
     )
     metadata = change(
-        plan_decision=18,
         summary=f"Every image has labels/{NAME}, one label value per damaged source chunk.",
         reason="The damaged chunks were listed only in attributes, which a viewer cannot draw.",
         kind="pixels",
