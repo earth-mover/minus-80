@@ -83,8 +83,16 @@ def well_images(root, well: str) -> list[str]:
     return [f"{well}/{i['path']}" for i in dict(root[well].attrs)["ome"]["well"]["images"]]
 
 
+#: Labels the store derives rather than copies: the damaged source chunks.
+DERIVED_LABELS = {"missing_source"}
+
+
 def complete(root, source: dict[str, dict[int, set[str]]]) -> list[str]:
-    """Every well, round and label the source holds is in the store."""
+    """Every well, round and label the source holds is in the store.
+
+    Commits after ``source-copy`` add one label of their own,
+    :data:`DERIVED_LABELS`, which the source does not hold.
+    """
     stored = plate_wells(root)
     if missing := sorted(set(source) - set(stored)):
         return [f"the plate lacks the source's wells {missing}"]
@@ -98,6 +106,7 @@ def complete(root, source: dict[str, dict[int, set[str]]]) -> list[str]:
             if got != rounds:
                 problems.append(f"{name}: rounds {got}, the source's well holds {rounds}")
             got = sorted(dict(image["labels"].attrs)["ome"]["labels"]) if "labels" in image else []
+            got = [g for g in got if g not in DERIVED_LABELS]
             if got != labels:
                 problems.append(f"{name}: labels {got}, the source's well holds {labels}")
     return problems
