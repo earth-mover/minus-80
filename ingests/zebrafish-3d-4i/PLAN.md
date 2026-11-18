@@ -46,11 +46,11 @@ copy.
 | 12 | Copy pyramid levels 1 to 3 from the source, rebuild later | Most field origins fall between coarse pixels, so each field's copied level is a pixel larger than half, a quarter or an eighth of 1000, with a per-level offset; a later commit rebuilds the levels from level 0 | Decided |
 | 13 | Read damaged source chunks as missing, and record them | 1,244 chunk members are empty files and some are cut short; no reader can decode them. Each reads as the fill value, 0, and each image lists the damaged chunks inside its field | Decided 2026-10-28 |
 | 14 | Convert by streaming each well's bytes once, in file order | Reading each member as its own request through zarr would take about 1.5 hours a well from EBI (estimated from a partial run), with the network idle most of the time. Each well is one contiguous region of the zip that holds its own metadata, so the converter reads it in file order as 64 MiB ranges and processes one channel of one array at a time. Fetching and parsing stay apart: zip streaming and zipped-Zarr chunk decoding in `minus80`, the plate's own logic in the ingest; the zip's central directory is the only index, and no VirtualiZarr code is involved | Sequence approved 2026-10-28; to build and measure |
-| 15 | Improve the store in commits on top of the copy, each described in its own metadata | `main` at tag `source-copy` is the faithful copy, with the source's own metadata. Each improvement below is its own commit, whose message and metadata say what changed, why and how it was checked; only major checkpoints get a tag | Proposed 2026-11-02 |
-| 16 | Distinct channel colors | Each round's four channels become blue (DAPI), green, magenta and yellow; the source's color is kept as `source_color` in each channel's annotation | Proposed 2026-11-02 |
-| 17 | Correct the label levels' translations | Coarse label levels keep the bottom-right pixel of each block, while image levels average the block, but both carry the image's translations. Shifting each label level by (2^k − 1)/2 level-0 pixels places it exactly; metadata only | Proposed 2026-11-02 |
-| 18 | A `missing_source` label image on every image | One label value per damaged source chunk, with `properties` naming the channel, the source member and the reason, from the image's existing `empty_source_chunks` and `unreadable_source_chunks` lists | Proposed 2026-11-02 |
-| 19 | Rebuild levels 1 to 3 from level 0, with full-depth shards at the coarsest levels | Exact 500, 250 and 125 pixel levels, one translation per level, no fringe of zero filler; level 3 (and level 2 if measurement favors it) as one shard per channel | Proposed 2026-11-02; shard sizes to measure |
+| 15 | Improve the store in commits on top of the copy, each described in its own metadata | `main` at tag `source-copy` is the faithful copy, with the source's own metadata. Each improvement below is its own commit, whose message and metadata say what changed, why and how it was checked; only major checkpoints get a tag | Approved 2026-11-18 |
+| 16 | Distinct channel colors | Each round's four channels become blue (DAPI), green, magenta and yellow; the source's color is kept as `source_color` in each channel's annotation | Approved 2026-11-18 |
+| 17 | Correct the label levels' translations | Coarse label levels keep the bottom-right pixel of each block, while image levels average the block, but both carry the image's translations. Shifting each label level by (2^k − 1)/2 level-0 pixels places it exactly; metadata only | Approved 2026-11-18 |
+| 18 | A `missing_source` label image on every image | One label value per damaged source chunk, with `properties` naming the channel, the source member and the reason, from the image's existing `empty_source_chunks` and `unreadable_source_chunks` lists | Approved 2026-11-18 |
+| 19 | Rebuild levels 1 to 3 from level 0, with full-depth shards at the coarsest levels | Exact 500, 250 and 125 pixel levels, one translation per level, no fringe of zero filler; level 3 (and level 2 if measurement favors it) as one shard per channel | Approved 2026-11-18; shard sizes to measure |
 
 **Settled by the step 3 trial, by measurement:**
 
@@ -674,6 +674,17 @@ default; from London, 64 in flight doubled throughput.
     label spec allows this: a label image is any integer image in its
     parent's coordinate system, and `properties` takes any keys per label
     value. It is built from the existing lists and reads no pixels.
+
+    Two details the lists settle (measured 2026-11-18 on the store's
+    attributes). First, each source level was stored, and damaged, on its
+    own: 638 damaged chunk positions fall inside fields, 277 at level 0 and
+    361 at levels 1 to 3, and a damaged chunk at level 2 zeroes level 2
+    only. Level k of `missing_source` therefore marks the damage in the
+    source's level k, and its levels are not downsamplings of one another
+    until decision 19 rebuilds them from level 0. Second, three chunk
+    positions are damaged in two arrays at once (an image channel and a
+    label, or two channels). One label value marks each position, and its
+    properties list both members.
 
 19. **Rebuilt levels and their shards.** Decision 12 copied the source's
     coarse pixels, so each field's level is a pixel wider than 1000 / 2^k

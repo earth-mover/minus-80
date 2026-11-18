@@ -72,6 +72,36 @@ def change(
     }
 
 
+def image_paths(root) -> list[str]:
+    """Every image the plate lists, as ``well/field``, in plate order."""
+    return [
+        f"{well['path']}/{image['path']}"
+        for well in root.attrs["ome"]["plate"]["wells"]
+        for image in root[well["path"]].attrs["ome"]["well"]["images"]
+    ]
+
+
+def check_session(session, *, updated_groups=frozenset(), new_groups=frozenset(), new_arrays=frozenset(),
+                  chunks_under=None) -> None:
+    """Stop unless the session changed exactly the nodes named, before anything is committed.
+
+    Paths are given without a leading slash. ``chunks_under`` is the set of
+    arrays allowed to have written chunks; None means no chunk was written.
+    """
+    diff = session.status()
+    for kind, expected in (("updated_groups", updated_groups), ("new_groups", new_groups),
+                           ("new_arrays", new_arrays)):
+        got = {p.lstrip("/") for p in getattr(diff, kind)}
+        if got != set(expected):
+            raise SystemExit(f"{kind} differ from the plan: {sorted(got ^ set(expected))[:10]}")
+    chunked = {p.lstrip("/") for p in diff.updated_chunks}
+    if chunked - set(chunks_under or ()):
+        raise SystemExit(f"chunks written outside the plan: {sorted(chunked - set(chunks_under or ()))[:10]}")
+    others = (diff.deleted_groups, diff.deleted_arrays, diff.updated_arrays, diff.moved_nodes)
+    if any(others):
+        raise SystemExit(f"the session deleted, moved or redefined nodes: {diff}")
+
+
 def enhance_session(repo):
     """A writable session on :data:`BRANCH`, which starts at :data:`PARENT_TAG` if it is new."""
     if BRANCH not in repo.list_branches():
