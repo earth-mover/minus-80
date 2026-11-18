@@ -704,6 +704,31 @@ default; from London, 64 in flight doubled throughput.
     coarse pixels are ours rather than the authors', and `source-copy` keeps
     theirs.
 
+    Settled by measurement on 2026-11-18:
+
+    - **The method.** The source's coarse image pixels are a cascade of
+      2 x 2 means rounded half up: each level from the level above, not
+      from level 0. On C/02/0, C/04/1 and C/05/3, whose origins fall on a
+      level-3 block boundary, that rule matches every pixel of levels 1 to
+      3 in 40 planes of three channels; rounding half to even, or averaging
+      level 0 directly, matches 54 to 88% at level 1 and less below. The
+      rebuild uses the same rule, so on those fields it reproduces the
+      source exactly outside its damaged chunks. Labels keep the
+      bottom-right pixel of each block, which matches the source exactly.
+    - **`missing_source`** takes the largest value of each block, so a
+      coarse pixel is marked when any pixel it averages is. Its coarse
+      footprints from decision 18 no longer affect any pixel and are
+      dropped from its properties.
+    - **Shards.** On E/04/3 a full-depth shard compresses to about 8.4 MB
+      at level 2 and 2.1 MB at level 3, against about 1 MB and 0.25 MB for
+      32 planes. Both levels take one shard over all planes. Level 1 keeps
+      32-plane shards of about 14 MB. A plane read touches one inner chunk
+      whatever the shard depth, so the choice changes only whole-volume
+      reads and the number of objects.
+    - **The run.** The coarse levels come to about 133 GB compressed over
+      the plate, about $12 of AWS egress to R2, plus about an hour of one
+      m6i.8xlarge. The job reads each level 0 once and commits once.
+
 ## Steps, scope and risk
 
 | Step | What it does | Writes | Approval |

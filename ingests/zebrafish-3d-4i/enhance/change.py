@@ -12,6 +12,7 @@ refuses to run from a script with uncommitted edits.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -22,8 +23,20 @@ GITHUB = "https://github.com/earth-mover/minus-80"
 PLAN = "ingests/zebrafish-3d-4i/PLAN.md"
 
 
+#: Where the enhance scripts sit in the repository, for a job that runs them
+#: from a copy outside any git checkout.
+ENHANCE_DIR = "ingests/zebrafish-3d-4i/enhance"
+
+
 def code_ref(*scripts: Path) -> dict:
-    """The git commit and repository paths of ``scripts``, which must be committed."""
+    """The git commit and repository paths of ``scripts``, which must be committed.
+
+    A cloud job has no checkout. Its launcher refuses uncommitted code and
+    passes the commit as ``MINUS80_CODE_COMMIT``, which is used instead.
+    """
+    if sha := os.environ.get("MINUS80_CODE_COMMIT"):
+        paths = [f"{ENHANCE_DIR}/{s.name}" for s in scripts]
+        return {"commit": sha, "paths": paths, "urls": [f"{GITHUB}/blob/{sha}/{p}" for p in paths]}
     top = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"], cwd=scripts[0].parent,
@@ -88,13 +101,24 @@ def image_paths(root) -> list[str]:
 
 
 def check_session(session, *, updated_groups=frozenset(), new_groups=frozenset(), new_arrays=frozenset(),
-                  chunks_under=None) -> None:
+                  replaced_arrays=frozenset(), chunks_under=None) -> None:
     """Stop unless the session changed exactly the nodes named, before anything is committed.
 
-    Paths are given without a leading slash. ``chunks_under`` is the set of
-    arrays allowed to have written chunks; None means no chunk was written.
+    Paths are given without a leading slash. ``replaced_arrays`` were deleted
+    and created again at the same path, which Icechunk may report as deleted
+    and new or as updated. ``chunks_under`` is the set of arrays allowed to
+    have written chunks; None means no chunk was written.
     """
     diff = session.status()
+    replaced = set(replaced_arrays)
+    if replaced:
+        touched = {p.lstrip("/") for kind in ("deleted_arrays", "updated_arrays", "new_arrays")
+                   for p in getattr(diff, kind)}
+        if missing := replaced - touched:
+            raise SystemExit(f"arrays not replaced: {sorted(missing)[:10]}")
+        if extra := touched - replaced - set(new_arrays):
+            raise SystemExit(f"arrays changed outside the plan: {sorted(extra)[:10]}")
+        new_arrays = set(new_arrays) | ({p.lstrip("/") for p in diff.new_arrays} & replaced)
     for kind, expected in (("updated_groups", updated_groups), ("new_groups", new_groups),
                            ("new_arrays", new_arrays)):
         got = {p.lstrip("/") for p in getattr(diff, kind)}
@@ -103,7 +127,8 @@ def check_session(session, *, updated_groups=frozenset(), new_groups=frozenset()
     chunked = {p.lstrip("/") for p in diff.updated_chunks}
     if chunked - set(chunks_under or ()):
         raise SystemExit(f"chunks written outside the plan: {sorted(chunked - set(chunks_under or ()))[:10]}")
-    others = (diff.deleted_groups, diff.deleted_arrays, diff.updated_arrays, diff.moved_nodes)
+    others = (diff.deleted_groups, diff.moved_nodes,
+              *(() if replaced else (diff.deleted_arrays, diff.updated_arrays)))
     if any(others):
         raise SystemExit(f"the session deleted, moved or redefined nodes: {diff}")
 
