@@ -107,24 +107,41 @@ class Heartbeat:
     counters the job updates, never wait on the job. It names the stage the
     job is in and its counters, so that a line read alone says where the job
     is.
+
+    A heartbeat is a Python thread, so it falls silent when another thread
+    holds the GIL without releasing it, and so does :class:`StallWatch`.
+    ``silent_after`` covers that case: every beat re-arms
+    :func:`faulthandler.dump_traceback_later`, whose timer runs on a C thread
+    that needs no GIL. If no beat arrives for ``silent_after`` seconds, it
+    prints every thread's stack to stderr, and again each time that much
+    longer passes.
     """
 
-    def __init__(self, describe: Callable[[], str], *, every: float = 30.0, stream=None):
-        self.describe, self.every = describe, every
+    def __init__(self, describe: Callable[[], str], *, every: float = 30.0, stream=None,
+                 silent_after: float | None = None):
+        self.describe, self.every, self.silent_after = describe, every, silent_after
         self.stream = stream if stream is not None else sys.stdout
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._beat, name="heartbeat", daemon=True)
 
     def __enter__(self) -> Self:
+        self._arm()
         self._thread.start()
         return self
 
     def __exit__(self, *exc) -> None:
         self._stop.set()
         self._thread.join()
+        if self.silent_after is not None:
+            faulthandler.cancel_dump_traceback_later()
+
+    def _arm(self) -> None:
+        if self.silent_after is not None:
+            faulthandler.dump_traceback_later(self.silent_after, repeat=True, file=sys.stderr)
 
     def _beat(self) -> None:
         while not self._stop.wait(self.every):
+            self._arm()
             try:
                 line = self.describe()
             except Exception as error:  # noqa: BLE001 - a broken line must not stop the beat

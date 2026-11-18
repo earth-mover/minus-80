@@ -92,7 +92,7 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).parent))
 from change import (  # noqa: E402
-    PARENT_TAG, REPO, change, check_session, code_ref, enhance_session, image_paths,
+    PARENT_TAG, REPO, change, check_session, code_ref, enhance_session, image_paths, open_root,
 )
 
 from minus80.core.icechunk_io import arraylake_repository, commit  # noqa: E402
@@ -225,8 +225,8 @@ def prepare(root: zarr.Group, path: str) -> tuple[list[str], list[tuple]]:
 class Tally:
     """What the tasks have done so far, for the progress lines and the stall watch."""
 
-    def __init__(self, tasks: int) -> None:
-        self.tasks, self.done, self.read_bytes = tasks, 0, 0
+    def __init__(self, tasks: int, meter) -> None:
+        self.tasks, self.done, self.read_bytes, self.meter = tasks, 0, 0, meter
         self.started = time.monotonic()
         self.lock = threading.Lock()
 
@@ -240,10 +240,12 @@ class Tally:
         rate = self.read_bytes / elapsed / 1e9 if elapsed else 0.0
         left = (self.tasks - self.done) * elapsed / self.done if self.done else float("nan")
         return (f"rebuilding: {self.done} of {self.tasks} tasks, {self.read_bytes / 1e9:.0f} GB of "
-                f"level 0 decoded, {rate:.2f} GB/s, about {left / 60:.0f} min left")
+                f"level 0 decoded, {rate:.2f} GB/s; {self.meter.bytes / 1e9:.1f} GB in "
+                f"{self.meter.writes} shards written, {self.meter.running} in flight; "
+                f"about {left / 60:.0f} min left")
 
-    def signature(self) -> tuple[int, int]:
-        return self.done, self.read_bytes
+    def signature(self) -> tuple[int, int, int]:
+        return self.done, self.read_bytes, self.meter.writes
 
 
 def rebuild(root: zarr.Group, path: str, label: str | None, channel: int | None, tally: Tally) -> None:
@@ -359,9 +361,9 @@ def main() -> None:
     code = None if dry_run else code_ref(here, here.with_name("change.py"))
     repo = arraylake_repository(REPO)
     session = enhance_session(repo)
-    root = zarr.open_group(session.store, mode="r+")
-    source = zarr.open_group(repo.readonly_session(tag=PARENT_TAG).store, mode="r")
-    before = zarr.open_group(repo.readonly_session(snapshot_id=session.snapshot_id).store, mode="r")
+    root, meter = open_root(session, "r+", name="enhance")
+    source, _ = open_root(repo.readonly_session(tag=PARENT_TAG), name=PARENT_TAG)
+    before, _ = open_root(repo.readonly_session(snapshot_id=session.snapshot_id), name="before")
 
     paths = args.images.split(",") if args.images else image_paths(root)
     replaced, tasks = [], []
@@ -371,16 +373,16 @@ def main() -> None:
         tasks += t
     print(f"set up {len(replaced)} arrays in {len(paths)} images; {len(tasks)} tasks", flush=True)
 
-    tally = Tally(len(tasks))
+    tally = Tally(len(tasks), meter)
     # Large tasks first, so the pool does not end on one long label.
     tasks.sort(key=lambda t: t[1] is None)
-    with Heartbeat(tally.line), StallWatch(tally.signature, after=120.0), \
+    with Heartbeat(tally.line, silent_after=180.0), StallWatch(tally.signature, after=120.0), \
             ThreadPoolExecutor(args.workers) as pool:
         for future in [pool.submit(rebuild, root, *task, tally) for task in tasks]:
             future.result()
     print(tally.line(), flush=True)
 
-    reread = zarr.open_group(session.store, mode="r")
+    reread, _ = open_root(session, name="enhance")
     rng = random.Random(19)
     lines = []
     for n, path in enumerate(paths, start=1):

@@ -50,11 +50,14 @@ class MeteredStore(WrapperStore[Store]):
 
     A write that takes longer than ``slow`` seconds is reported on its own
     line. ``str()`` returns ``name`` without asking the wrapped store. zarr
-    formats the store's name each time it opens or creates an array, on its
-    event loop, and Icechunk's store describes itself with a blocking read of
-    its session (``icechunk-python/src/store.rs``). That was suspected of
-    stalling array creation during the S-BIAD3228 copy, but no stall ever
-    reproduced; returning ``name`` avoids the read either way.
+    formats the store's name each time it opens a node, on its event loop,
+    and Icechunk's store describes itself with a blocking read of its session
+    (``icechunk-python/src/store.rs``). With many threads reading and writing
+    one writable session, that read can hang with the GIL held, and every
+    thread then waits on the event loop. Icechunk 2.3.0 did this with 48
+    threads rebuilding S-BIAD3228's pyramid levels: the event loop's stack
+    ended in ``IcechunkStore.__str__``, called from zarr's
+    ``_read_metadata_v3``. Returning ``name`` avoids the read.
     """
 
     def __init__(self, store: Store, meter: Meter, *, name: str = "store", slow: float = 20.0) -> None:

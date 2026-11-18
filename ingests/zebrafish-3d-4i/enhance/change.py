@@ -133,6 +133,21 @@ def check_session(session, *, updated_groups=frozenset(), new_groups=frozenset()
         raise SystemExit(f"the session deleted, moved or redefined nodes: {diff}")
 
 
+def open_root(session, mode: str = "r", name: str = "icechunk"):
+    """The session's root group and the meter counting its writes.
+
+    zarr reaches the session through :class:`~minus80.core.metered.MeteredStore`,
+    whose ``str()`` does not read the session; with many threads on one
+    session, Icechunk's own ``str()`` can hang the process.
+    """
+    import zarr
+
+    from minus80.core.metered import Meter, MeteredStore
+
+    meter = Meter()
+    return zarr.open_group(MeteredStore(session.store, meter, name=name), mode=mode), meter
+
+
 def enhance_session(repo):
     """A writable session on :data:`BRANCH`, which starts at :data:`PARENT_TAG` if it is new."""
     if BRANCH not in repo.list_branches():

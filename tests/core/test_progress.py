@@ -93,3 +93,13 @@ def test_a_stall_prints_every_thread_and_the_log_tail_then_its_end(tmp_path):
     assert "Thread" in text and "test_progress.py" in text
     assert "line 97" in text and "line 99" in text and "line 96" not in text
     assert "stall ended after" in text
+
+
+def test_heartbeat_dumps_stacks_when_it_falls_silent(capfd):
+    from minus80.core.progress import Heartbeat
+
+    with Heartbeat(lambda: "beat", every=10.0, silent_after=0.2):
+        # The first beat is 10 s away, so the watchdog fires as if the GIL were held.
+        time.sleep(0.5)
+    err = capfd.readouterr().err
+    assert "Thread" in err or "Current thread" in err
