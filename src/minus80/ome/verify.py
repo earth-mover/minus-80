@@ -195,17 +195,19 @@ def _grey(array) -> np.ndarray:
     return data.mean(0) if data.ndim == 3 else data
 
 
-def _correlation(fine: np.ndarray, coarse: np.ndarray) -> float:
+def _correlation(fine: np.ndarray, coarse: np.ndarray, factors: tuple[float, float] | None = None) -> float:
     """How well the finer level, block-averaged, predicts the coarser one.
 
     Each level of a scanner pyramid is an area average of the one above, so a
     correct pair correlates near one and a wrong page or directory near zero.
     The ratio is rounded to the nearest integer per axis and both planes are
     cropped to the overlap, which forgives the scanner rounding a 26681-row
-    level to 13340 rather than 13340.5.
+    level to 13340 rather than 13340.5. ``factors`` is the ratio of the two
+    levels' declared pixel sizes; without it the ratio of their shapes is
+    used, which is wrong for a level cropped short of the one above.
     """
-    fy, fx = (max(1, round(fine.shape[0] / coarse.shape[0])),
-              max(1, round(fine.shape[1] / coarse.shape[1])))
+    ratios = factors or (fine.shape[0] / coarse.shape[0], fine.shape[1] / coarse.shape[1])
+    fy, fx = max(1, round(ratios[0])), max(1, round(ratios[1]))
     ny, nx = min(coarse.shape[0], fine.shape[0] // fy), min(coarse.shape[1], fine.shape[1] // fx)
     down = fine[:ny * fy, :nx * fx].reshape(ny, fy, nx, fx).mean((1, 3))
     a, b = down.ravel(), coarse[:ny, :nx].ravel()
@@ -224,8 +226,8 @@ def levels_aligned(root, sample: int) -> list[str]:
     base divides into; a mis-stated scale is off by a factor, not a pixel. A
     level may also stop short of level 0's extent by less than one of its own
     chunks when it ends on a whole chunk: some Philips scanners crop a reduced
-    level to whole tiles instead of rescaling it, so 21 of CAMELYON17's
-    Philips slides have a level 64 pixels narrower than level 0 halved.
+    level to whole tiles instead of rescaling it, so 44 of CAMELYON17's 200
+    Philips slides have levels up to a tile shorter than level 0 halved.
     And each level small enough to read whole must be what the next finer one
     averages down to. That catches a level whose *pixels* are not what its
     metadata says, such as the wrong page or directory, which no arithmetic on
@@ -255,7 +257,7 @@ def levels_aligned(root, sample: int) -> list[str]:
         small = [p for p in paths if max(image[p].shape) <= 2048]
         planes = [_grey(image[p]) for p in small]
         for (pa, a), (pb, b) in zip(zip(small, planes), zip(small[1:], planes[1:])):
-            r = _correlation(a, b)
+            r = _correlation(a, b, (by_path[pb][-2] / by_path[pa][-2], by_path[pb][-1] / by_path[pa][-1]))
             if r < LEVEL_CORRELATION:
                 problems.append(f"{name}/{pb}: correlates {r:.2f} with {pa} averaged down; "
                                 f"expected at least {LEVEL_CORRELATION}")
