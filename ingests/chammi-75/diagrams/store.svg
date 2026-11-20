@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="792" viewBox="0 0 1180 792">
+<rect x="0" y="0" width="1180" height="792" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">The store</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CHAMMI-75 training set, CC BY 4.0 and CC0 studies</text>
+<rect x="520.0" y="99.9" width="560.0" height="116.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="99.9" width="4" height="116.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="119.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
+<text x="534.0" y="143.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">studies</text>
+<text x="602.1" y="143.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3</text>
+<text x="534.0" y="163.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images</text>
+<text x="602.1" y="163.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">346</text>
+<text x="534.0" y="183.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">PNGs</text>
+<text x="602.1" y="183.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">850</text>
+<text x="534.0" y="203.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">licenses</text>
+<text x="602.1" y="203.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">CC-BY-4.0, CC0-1.0</text>
+<rect x="520.0" y="231.9" width="560.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="231.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="251.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;study&gt;/</text>
+<text x="534.0" y="275.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">license</text>
+<text x="595.1" y="275.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">CC-BY-4.0</text>
+<text x="534.0" y="295.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">example</text>
+<text x="595.1" y="295.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">nidr0006</text>
+<rect x="520.0" y="323.9" width="560.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="323.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="343.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;stack&gt;/</text>
+<text x="534.0" y="367.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">example</text>
+<text x="602.1" y="367.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1388x1040_ch1-2-4</text>
+<text x="534.0" y="387.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">channels</text>
+<text x="602.1" y="387.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">nucleus, bright-field, nucleus</text>
+<rect x="520.0" y="415.9" width="560.0" height="96.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="415.9" width="4" height="96.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="435.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">ch&lt;slot&gt;/0</text>
+<text x="534.0" y="459.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="581.1" y="459.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">image:image, y:space, x:space</text>
+<text x="534.0" y="479.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunk</text>
+<text x="581.1" y="479.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one PNG</text>
+<text x="534.0" y="499.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">codec</text>
+<text x="581.1" y="499.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">imagecodecs_png</text>
+<rect x="520.0" y="527.9" width="560.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="527.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="547.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">index/&lt;column&gt;</text>
+<text x="534.0" y="571.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">rows</text>
+<text x="581.1" y="571.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">346</text>
+<text x="534.0" y="591.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">shape</text>
+<text x="581.1" y="591.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(image,)</text>
+<rect x="520.0" y="619.9" width="560.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="619.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="639.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">cells/</text>
+<text x="534.0" y="663.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">cells</text>
+<text x="588.1" y="663.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">30,340</text>
+<text x="534.0" y="683.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
+<text x="588.1" y="683.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">area, background, image_start, position</text>
+<rect x="520.0" y="711.9" width="560.0" height="56.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="711.9" width="4" height="56.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="731.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">OME/</text>
+<text x="534.0" y="755.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">series</text>
+<text x="588.1" y="755.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8 images</text>
+<circle cx="24.0" cy="111.9" r="4.5" fill="#0f172a"/>
+<text x="35.0" y="116.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
+<text x="35.0" y="132.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">title, licenses, decisions, contents</text>
+<line x1="51.3" y1="111.9" x2="518.0" y2="111.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 116.9 V 243.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="243.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="248.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;study&gt;/</text>
+<text x="129.6" y="248.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×3</text>
+<text x="57.0" y="264.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">the study's license</text>
+<line x1="152.3" y1="243.9" x2="518.0" y2="243.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 248.9 V 335.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="335.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="340.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;stack&gt;/</text>
+<text x="151.6" y="340.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×4</text>
+<text x="79.0" y="356.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one size and channel set</text>
+<line x1="174.3" y1="335.9" x2="518.0" y2="335.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 340.9 V 427.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="427.9" r="4.5" fill="#0f172a"/>
+<text x="101.0" y="432.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">ch&lt;slot&gt;/0</text>
+<text x="190.3" y="432.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×8</text>
+<text x="101.0" y="448.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr image, one channel slot</text>
+<line x1="212.9" y1="427.9" x2="518.0" y2="427.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 116.9 V 539.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="539.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="544.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">index/&lt;column&gt;</text>
+<text x="179.6" y="544.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×34</text>
+<text x="57.0" y="560.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one row per image</text>
+<line x1="209.5" y1="539.9" x2="518.0" y2="539.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 116.9 V 631.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="631.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="636.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">cells/</text>
+<text x="57.0" y="652.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">positions on the image axis</text>
+<line x1="115.0" y1="631.9" x2="518.0" y2="631.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 116.9 V 723.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="723.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="728.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">OME/</text>
+<text x="57.0" y="744.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">bioformats2raw series</text>
+<line x1="98.3" y1="723.9" x2="518.0" y2="723.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+</svg>
