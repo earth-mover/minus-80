@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1158" viewBox="0 0 1180 1158">
+<rect x="0" y="0" width="1180" height="1158" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Mapping: slide GTEX-111FC-0225</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">each DICOM instance becomes one array; each frame one chunk</text>
+<rect x="24.0" y="105.9" width="380.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="105.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="125.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">29ad89e9-abbb….dcm</text>
+<text x="38.0" y="142.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">177.7 MB</text>
+<text x="38.0" y="165.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ImageType</text>
+<text x="113.1" y="165.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME</text>
+<text x="38.0" y="185.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">matrix</text>
+<text x="113.1" y="185.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">38544 × 37847</text>
+<text x="38.0" y="205.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frames</text>
+<text x="113.1" y="205.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">25,438 of 240 × 240</text>
+<text x="38.0" y="225.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ETag</text>
+<text x="113.1" y="225.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">"70eb9fe9c83ffdec0fc2c</text>
+<polygon points="700.0,119.9 714.0,105.9 792.6,105.9 778.6,119.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="778.6,119.9 792.6,105.9 792.6,185.9 778.6,199.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="700.0" y="119.9" width="78.6" height="80.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="700.0" y="221.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image/0</text>
+<text x="700.0" y="238.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 38544 × 37847 · chunks 3 × 240 × 240</text>
+<text x="700.0" y="255.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + jpeg</text>
+<path d="M 404.0 155.9 C 549.0 155.9 549.0 159.9 694.0 159.9" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="694.0,159.9 686.0,155.4 686.0,164.4" fill="#2a78d6"/>
+<rect x="496.8" y="148.9" width="104.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="549.0" y="161.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">frames → chunks</text>
+<rect x="24.0" y="285.9" width="380.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="285.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="305.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">41c143e8-17ca….dcm</text>
+<text x="38.0" y="322.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">19.6 MB</text>
+<text x="38.0" y="345.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ImageType</text>
+<text x="113.1" y="345.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME</text>
+<text x="38.0" y="365.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">matrix</text>
+<text x="113.1" y="365.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9636 × 9461</text>
+<text x="38.0" y="385.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frames</text>
+<text x="113.1" y="385.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,640 of 240 × 240</text>
+<text x="38.0" y="405.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ETag</text>
+<text x="113.1" y="405.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">"070bb94a6dc261db83c7b</text>
+<polygon points="700.0,299.9 714.0,285.9 792.5,285.9 778.5,299.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="778.5,299.9 792.5,285.9 792.5,365.9 778.5,379.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="700.0" y="299.9" width="78.5" height="80.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="700.0" y="401.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image/1</text>
+<text x="700.0" y="418.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 9636 × 9461 · chunks 3 × 240 × 240</text>
+<text x="700.0" y="435.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + jpeg</text>
+<path d="M 404.0 335.9 C 549.0 335.9 549.0 339.9 694.0 339.9" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="694.0,339.9 686.0,335.4 686.0,344.4" fill="#2a78d6"/>
+<rect x="496.8" y="328.9" width="104.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="549.0" y="341.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">frames → chunks</text>
+<rect x="24.0" y="465.9" width="380.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="465.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="485.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">cf219854-83ce….dcm</text>
+<text x="38.0" y="502.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">2.3 MB</text>
+<text x="38.0" y="525.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ImageType</text>
+<text x="113.1" y="525.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME</text>
+<text x="38.0" y="545.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">matrix</text>
+<text x="113.1" y="545.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2409 × 2365</text>
+<text x="38.0" y="565.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frames</text>
+<text x="113.1" y="565.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">110 of 240 × 240</text>
+<text x="38.0" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ETag</text>
+<text x="113.1" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">"3ed55418817493d692565</text>
+<polygon points="700.0,479.9 714.0,465.9 792.5,465.9 778.5,479.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="778.5,479.9 792.5,465.9 792.5,545.9 778.5,559.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="700.0" y="479.9" width="78.5" height="80.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<line x1="708.0" y1="479.9" x2="708.0" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="715.9" y1="479.9" x2="715.9" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="723.9" y1="479.9" x2="723.9" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="731.9" y1="479.9" x2="731.9" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="739.9" y1="479.9" x2="739.9" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="747.8" y1="479.9" x2="747.8" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="755.8" y1="479.9" x2="755.8" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="763.8" y1="479.9" x2="763.8" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="771.7" y1="479.9" x2="771.7" y2="559.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="487.9" x2="778.5" y2="487.9" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="495.8" x2="778.5" y2="495.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="503.8" x2="778.5" y2="503.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="511.8" x2="778.5" y2="511.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="519.8" x2="778.5" y2="519.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="527.7" x2="778.5" y2="527.7" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="535.7" x2="778.5" y2="535.7" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="543.7" x2="778.5" y2="543.7" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="551.6" x2="778.5" y2="551.6" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="700.0" y1="559.6" x2="778.5" y2="559.6" stroke="#cbd5e1" stroke-width="1"/>
+<text x="700.0" y="581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image/2</text>
+<text x="700.0" y="598.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 2409 × 2365 · chunks 3 × 240 × 240</text>
+<text x="700.0" y="615.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + jpeg</text>
+<path d="M 404.0 515.9 C 549.0 515.9 549.0 519.9 694.0 519.9" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="694.0,519.9 686.0,515.4 686.0,524.4" fill="#2a78d6"/>
+<rect x="496.8" y="508.9" width="104.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="549.0" y="521.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">frames → chunks</text>
+<rect x="24.0" y="645.9" width="380.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="645.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="665.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">03b104da-cb18….dcm</text>
+<text x="38.0" y="682.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">2.0 MB</text>
+<text x="38.0" y="705.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ImageType</text>
+<text x="113.1" y="705.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">THUMBNAIL</text>
+<text x="38.0" y="725.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">matrix</text>
+<text x="113.1" y="725.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">768 × 754</text>
+<text x="38.0" y="745.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frames</text>
+<text x="113.1" y="745.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 of 768 × 754</text>
+<text x="38.0" y="765.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ETag</text>
+<text x="113.1" y="765.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">"cd8adcef9cd8eda945b15</text>
+<polygon points="700.0,659.9 714.0,645.9 792.5,645.9 778.5,659.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="778.5,659.9 792.5,645.9 792.5,725.9 778.5,739.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="700.0" y="659.9" width="78.5" height="80.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="700.0" y="761.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">thumbnail/0</text>
+<text x="700.0" y="778.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 768 × 754 · chunks 3 × 768 × 754</text>
+<text x="700.0" y="795.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + bytes</text>
+<path d="M 404.0 695.9 C 549.0 695.9 549.0 699.9 694.0 699.9" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="694.0,699.9 686.0,695.4 686.0,704.4" fill="#2a78d6"/>
+<rect x="496.8" y="688.9" width="104.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="549.0" y="701.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">frames → chunks</text>
+<rect x="24.0" y="825.9" width="380.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="825.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="845.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">247d5049-ab61….dcm</text>
+<text x="38.0" y="862.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">3.3 MB</text>
+<text x="38.0" y="885.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ImageType</text>
+<text x="113.1" y="885.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">OVERVIEW</text>
+<text x="38.0" y="905.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">matrix</text>
+<text x="113.1" y="905.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">629 × 1600</text>
+<text x="38.0" y="925.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frames</text>
+<text x="113.1" y="925.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 of 629 × 1600</text>
+<text x="38.0" y="945.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ETag</text>
+<text x="113.1" y="945.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">"4b6f22f2ae5baee560df1</text>
+<polygon points="700.0,839.9 714.0,825.9 794.0,825.9 780.0,839.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="780.0,839.9 794.0,825.9 794.0,857.4 780.0,871.4" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="700.0" y="839.9" width="80.0" height="31.5" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="700.0" y="893.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">overview/0</text>
+<text x="700.0" y="910.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 629 × 1600 · chunks 3 × 629 × 1600</text>
+<text x="700.0" y="927.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + bytes</text>
+<path d="M 404.0 875.9 C 549.0 875.9 549.0 855.6 694.0 855.6" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="694.0,855.6 686.0,851.1 686.0,860.1" fill="#2a78d6"/>
+<rect x="496.8" y="856.8" width="104.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="549.0" y="869.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">frames → chunks</text>
+<rect x="24.0" y="1005.9" width="380.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="1005.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="1025.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">every instance's header</text>
+<text x="38.0" y="1042.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">DICOM JSON</text>
+<text x="38.0" y="1065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixel data</text>
+<text x="120.1" y="1065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">excluded</text>
+<rect x="700.0" y="1005.9" width="460.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="700.0" y="1005.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="714.0" y="1025.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">dicom</text>
+<text x="714.0" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
+<text x="761.1" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint8 · one zstd chunk</text>
+<text x="714.0" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">keys</text>
+<text x="761.1" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">image/0 … overview</text>
+<path d="M 404.0 1045.9 C 552.0 1045.9 552.0 1045.9 700.0 1045.9" fill="none" stroke="#2a78d6" stroke-width="1.6"/>
+<polygon points="700.0,1045.9 692.0,1041.4 692.0,1050.4" fill="#2a78d6"/>
+<rect x="509.0" y="1036.9" width="85.9" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="1049.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">one document</text>
+<rect x="24.0" y="1117.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="1128.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source object</text>
+<rect x="149.7" y="1117.9" width="14" height="14" rx="3" fill="#1baf7a"/>
+<text x="169.7" y="1128.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">store node</text>
+<line x1="256.1" y1="1124.9" x2="278.1" y2="1124.9" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="284.1,1124.9 276.1,1120.4 276.1,1129.4" fill="#64748b"/>
+<text x="290.1" y="1128.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced in place, pinned to the ETag</text>
+</svg>

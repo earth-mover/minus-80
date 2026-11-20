@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="859" viewBox="0 0 1180 859">
+<rect x="0" y="0" width="1180" height="859" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Store: OME-Zarr 0.6 in Icechunk</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">GTEx whole-slide images from NCI Imaging Data Commons</text>
+<circle cx="24.0" cy="109.9" r="4.5" fill="#0f172a"/>
+<text x="35.0" y="114.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
+<text x="35.0" y="130.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">title · idc_version · codecs · left_out</text>
+<line x1="51.3" y1="109.9" x2="518.0" y2="109.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 114.9 V 209.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="209.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="214.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">gtex</text>
+<text x="57.0" y="230.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">license · source_DOI · citations</text>
+<line x1="98.3" y1="209.9" x2="518.0" y2="209.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 214.9 V 309.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="309.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="314.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;donor&gt;</text>
+<text x="143.3" y="314.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×971</text>
+<text x="79.0" y="330.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">PatientID</text>
+<line x1="180.6" y1="309.9" x2="518.0" y2="309.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 314.9 V 409.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="409.9" r="4.5" fill="#0f172a"/>
+<text x="101.0" y="414.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;slide&gt;</text>
+<text x="165.3" y="414.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×25,503</text>
+<text x="101.0" y="430.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">specimen · idc · source_prefix</text>
+<line x1="224.5" y1="409.9" x2="518.0" y2="409.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 414.9 V 509.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="509.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="514.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image</text>
+<text x="123.0" y="530.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">multiscale, 3 levels here</text>
+<line x1="172.6" y1="509.9" x2="518.0" y2="509.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 414.9 V 609.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="609.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="614.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">thumbnail</text>
+<text x="123.0" y="630.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one level</text>
+<line x1="205.9" y1="609.9" x2="518.0" y2="609.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 414.9 V 709.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="709.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="714.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">overview</text>
+<text x="123.0" y="730.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one level, no unit</text>
+<line x1="197.6" y1="709.9" x2="518.0" y2="709.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 414.9 V 809.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="809.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="814.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">dicom</text>
+<text x="123.0" y="830.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">uint8 JSON</text>
+<line x1="172.6" y1="809.9" x2="518.0" y2="809.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<rect x="520.0" y="95.9" width="636.0" height="96.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="95.9" width="4" height="96.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="115.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
+<text x="534.0" y="139.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">idc_version</text>
+<text x="623.2" y="139.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">v25</text>
+<text x="534.0" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">codecs</text>
+<text x="623.2" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">bytes, transpose, zstd, blosc, jpeg, jpeg2k</text>
+<text x="534.0" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">left_out</text>
+<text x="623.2" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0 slides</text>
+<rect x="520.0" y="195.9" width="636.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="195.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="215.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">gtex</text>
+<text x="534.0" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">license</text>
+<text x="616.1" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">CC BY 4.0</text>
+<text x="534.0" y="259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">source_DOI</text>
+<text x="616.1" y="259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10.5281/zenodo.11099099</text>
+<rect x="520.0" y="395.9" width="636.0" height="96.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="395.9" width="4" height="96.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="415.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">GTEX-111FC-0225</text>
+<text x="534.0" y="439.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">tissue</text>
+<text x="602.1" y="439.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Adipose tissue</text>
+<text x="534.0" y="459.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">stain</text>
+<text x="602.1" y="459.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">hematoxylin stain + water soluble eosin stain</text>
+<text x="534.0" y="479.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">fixative</text>
+<text x="602.1" y="479.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">PAXgene Tissue System</text>
+<rect x="520.0" y="495.9" width="636.0" height="96.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="520.0" y="495.9" width="4" height="96.0" rx="2" fill="#1baf7a"/>
+<text x="534.0" y="515.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image</text>
+<text x="534.0" y="539.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="595.1" y="539.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">c, y, x (µm)</text>
+<text x="534.0" y="559.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="595.1" y="559.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 38544 × 37847 @ 0.4942 µm</text>
+<text x="534.0" y="579.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunk</text>
+<text x="595.1" y="579.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 240 × 240 · transpose + jpeg</text>
+</svg>

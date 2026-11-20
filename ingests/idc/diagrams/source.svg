@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="373" viewBox="0 0 1180 373">
+<rect x="0" y="0" width="1180" height="373" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Source: GTEx slides in IDC's bucket</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">s3://idc-open-data/&lt;crdc_series_uuid&gt;/&lt;crdc_instance_uuid&gt;.dcm · IDC v25</text>
+<rect x="24.0" y="99.9" width="520.0" height="212.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="99.9" width="4" height="212.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="119.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">collection gtex</text>
+<text x="38.0" y="136.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">idc-index sm_instance_index</text>
+<text x="38.0" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slides</text>
+<text x="113.1" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">25,503 series</text>
+<text x="38.0" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">donors</text>
+<text x="113.1" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">971</text>
+<text x="38.0" y="199.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">instances</text>
+<text x="113.1" y="199.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">128,708</text>
+<text x="38.0" y="219.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">bytes</text>
+<text x="113.1" y="219.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8.6 TB</text>
+<text x="38.0" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">VOLUME</text>
+<text x="113.1" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">77,702 · 8.4 TB JPEG</text>
+<text x="38.0" y="259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">THUMBNAIL</text>
+<text x="113.1" y="259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">25,503 · uncompressed</text>
+<text x="38.0" y="279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OVERVIEW</text>
+<text x="113.1" y="279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">25,503 · uncompressed</text>
+<text x="38.0" y="299.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels</text>
+<text x="113.1" y="299.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 on 85, 3 on 24,140, 4 on 1,278</text>
+<circle cx="580.0" cy="113.9" r="4.5" fill="#0f172a"/>
+<text x="591.0" y="118.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">s3://idc-open-data/</text>
+<path d="M 580.0 118.9 V 153.9 H 597.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="602.0" cy="153.9" r="4.5" fill="#0f172a"/>
+<text x="613.0" y="158.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">a5532813…/</text>
+<text x="702.3" y="158.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×25,503</text>
+<text x="613.0" y="174.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">GTEX-111FC-0225</text>
+<path d="M 602.0 158.9 V 203.9 H 619.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="624.0" cy="203.9" r="4.5" fill="#0f172a"/>
+<text x="635.0" y="208.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">29ad89e9….dcm</text>
+<path d="M 602.0 158.9 V 237.9 H 619.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="624.0" cy="237.9" r="4.5" fill="#0f172a"/>
+<text x="635.0" y="242.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">41c143e8….dcm</text>
+<path d="M 602.0 158.9 V 271.9 H 619.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="624.0" cy="271.9" r="4.5" fill="#0f172a"/>
+<text x="635.0" y="276.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">cf219854….dcm</text>
+<path d="M 602.0 158.9 V 305.9 H 619.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="624.0" cy="305.9" r="4.5" fill="#0f172a"/>
+<text x="635.0" y="310.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">03b104da….dcm</text>
+<path d="M 602.0 158.9 V 339.9 H 619.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="624.0" cy="339.9" r="4.5" fill="#0f172a"/>
+<text x="635.0" y="344.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">247d5049….dcm</text>
+<rect x="820.0" y="99.9" width="336.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="820.0" y="99.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
+<text x="834.0" y="119.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">series of GTEX-111FC-0225</text>
+<text x="834.0" y="136.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">bucket listing</text>
+<text x="834.0" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">29ad89e9…</text>
+<text x="909.1" y="159.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME 38544 × 37847 · 177.7 MB</text>
+<text x="834.0" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">41c143e8…</text>
+<text x="909.1" y="179.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME 9636 × 9461 · 19.6 MB</text>
+<text x="834.0" y="199.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">cf219854…</text>
+<text x="909.1" y="199.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">VOLUME 2409 × 2365 · 2.3 MB</text>
+<text x="834.0" y="219.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">03b104da…</text>
+<text x="909.1" y="219.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">THUMBNAIL 768 × 754 · 2.0 MB</text>
+<text x="834.0" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">247d5049…</text>
+<text x="909.1" y="239.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">OVERVIEW 629 × 1600 · 3.3 MB</text>
+</svg>
