@@ -27,8 +27,10 @@ Run::
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
+import re
 import resource
 import sys
 import time
@@ -127,7 +129,17 @@ def about(collection: str) -> dict:
     client = IDCClient()
     ids = ["gtex"] if collection == "gtex" else None
     return {"idc_version": client.get_idc_version(), "idc_index_data": version("idc-index-data"),
-            "citations": [c.strip() for c in client.citations_from_selection(collection_id=ids)]}
+            "citations": [plain_text(c) for c in client.citations_from_selection(collection_id=ids)]}
+
+
+def plain_text(citation: str) -> str:
+    """A citation as idc-index formats it (HTML entities, ``<i>`` tags, runs of spaces) as plain text."""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html.unescape(citation))).strip()
+
+
+def counted(n: int, noun: str) -> str:
+    """``n`` and ``noun``, plural unless ``n`` is 1: "1 tissue", "2 tissues"."""
+    return f"{n:,} {noun}" if n == 1 else f"{n:,} {noun}s"
 
 
 # The slide
@@ -256,8 +268,8 @@ def prepare(w: Writer, slides: list[dict], facts: dict) -> None:
         if name not in w.root:
             tissues = sorted({s["specimen"]["tissue"] for s in held})
             w.group(name, {
-                "description": (f"Donor {held[0]['patient']}: {len(held)} H&E slides of {len(tissues)} "
-                                f"tissues: {', '.join(t.lower() for t in tissues)}."),
+                "description": (f"Donor {held[0]['patient']}: {counted(len(held), 'H&E slide')} of "
+                                f"{counted(len(tissues), 'tissue')}: {', '.join(t.lower() for t in tissues)}."),
                 "PatientID": held[0]["patient"]})
 
 
@@ -278,17 +290,21 @@ def slide_path(s: dict) -> str:
 
 def root_attributes(collection: str, slides: list[dict], facts: dict, source: Source,
                     refused: dict[str, str]) -> dict:
-    tissues = {s["specimen"]["tissue"] for s in slides}
-    donors = {s["patient"] for s in slides}
+    stored = [s for s in slides if s["slide"] not in refused]
+    tissues = {s["specimen"]["tissue"] for s in stored}
+    donors = {s["patient"] for s in stored}
     license = sorted({s["idc"]["license"] for s in slides})
+    missing = (f" A further {counted(len(refused), 'listed slide')} could not be read and "
+               f"{'is' if len(refused) == 1 else 'are'} named in left_out." if refused else "")
     return {
         "title": DESCRIPTIONS[collection]["title"],
         "description": (
-            f"{len(slides):,} H&E whole-slide images of {len(tissues)} healthy human tissue types from "
-            f"{len(donors):,} GTEx donors, from NCI Imaging Data Commons release {facts['idc_version']}. "
-            "Each slide is an OME-Zarr image at full resolution and the scanner's coarser levels, in "
-            "micrometers, with a thumbnail, a photograph of the glass slide and its DICOM headers, under "
-            f"gtex/<donor>/<slide>. License {', '.join(license)}; cite the works in citations."),
+            f"{counted(len(stored), 'H&E whole-slide image')} of {counted(len(tissues), 'healthy human tissue type')} "
+            f"from {counted(len(donors), 'GTEx donor')}, from NCI Imaging Data Commons release "
+            f"{facts['idc_version']}. Each slide is an OME-Zarr image at full resolution and the scanner's "
+            "coarser levels, in micrometers, with a thumbnail, a photograph of the glass slide and its DICOM "
+            f"headers, under gtex/<donor>/<slide>. License {', '.join(license)}; cite the works in "
+            f"citations.{missing}"),
         "license": license[0] if len(license) == 1 else license,
         "citations": facts["citations"],
         "idc_version": facts["idc_version"],
@@ -379,6 +395,13 @@ def peak_gb(maxrss: int) -> float:
     return maxrss / (1e9 if sys.platform == "darwin" else 1e6)
 
 
+def chosen(slides: list[dict], names: list[str]) -> list[dict]:
+    """The slides named, refusing a name idc-index does not list."""
+    if unknown := sorted(set(names) - {s["slide"] for s in slides}):
+        raise SystemExit(f"not GTEx slides in idc-index: {', '.join(unknown)}")
+    return [s for s in slides if s["slide"] in set(names)]
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("repo")
@@ -390,7 +413,7 @@ def main() -> None:
     a = p.parse_args()
     slides = catalog(a.collection)
     if a.slides:
-        slides = [s for s in slides if s["slide"] in set(a.slides)]
+        slides = chosen(slides, a.slides)
     if a.limit:
         slides = slides[:a.limit]
     run(a.repo, a.collection, slides, Source(), about(a.collection), workers=a.workers)

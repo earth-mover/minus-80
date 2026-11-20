@@ -137,3 +137,25 @@ def test_a_slide_left_out_then_written_leaves_the_list(tmp_path):
         store = zarr.open_group(open_repository(location).readonly_session("main").store, mode="r")
         assert store.attrs["left_out"] == {}
         assert f"gtex/{fixture.SLIDES[1][1]}/{fixture.SLIDES[1][0]}/image" in store
+
+
+def test_texts_read_as_plain_words():
+    assert ingest.counted(1, "H&E slide") == "1 H&E slide"
+    assert ingest.counted(2, "tissue") == "2 tissues"
+    raw = "Clunie, D., GTEx Consortium, &amp; Fedorov, A. (2024). <i>GTEx: DICOM converted</i>   [Dataset].\n"
+    assert ingest.plain_text(raw) == "Clunie, D., GTEx Consortium, & Fedorov, A. (2024). GTEx: DICOM converted [Dataset]."
+
+
+def test_root_counts_stored_slides_and_names_the_rest():
+    slides = fixture.catalog({name: {"patient": patient, "series": series} for name, patient, series, _ in fixture.SLIDES})
+    refused = {fixture.SLIDES[1][0]: "OSError: gone"}
+    attrs = ingest.root_attributes("gtex", slides, FACTS, Source(), refused)
+    assert attrs["description"].startswith("1 H&E whole-slide image of 1 healthy human tissue type from 1 GTEx donor,")
+    assert "A further 1 listed slide could not be read and is named in left_out." in attrs["description"]
+
+
+def test_unknown_slide_names_are_refused():
+    slides = fixture.catalog({name: {"patient": patient, "series": series} for name, patient, series, _ in fixture.SLIDES})
+    assert [s["slide"] for s in ingest.chosen(slides, [fixture.SLIDES[0][0]])] == [fixture.SLIDES[0][0]]
+    with pytest.raises(SystemExit, match="GTEX-NOPE"):
+        ingest.chosen(slides, [fixture.SLIDES[0][0], "GTEX-NOPE"])

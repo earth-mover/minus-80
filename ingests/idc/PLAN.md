@@ -494,6 +494,16 @@ writer merges the forks and commits.
    only their tails and `LongPrimitivePointIndexList`. Write sharded masks,
    then verify and tag.
 
+   Before this run, survey TCGA's JPEG tiles: on a sample of slides from
+   every collection, read each level's first tile's markers (JFIF, an Adobe
+   APP14 transform, component ids) and compare them with the level's
+   `PhotometricInterpretation`. `wsi_level_array` states the JPEG color
+   space from that header field alone, so a level whose header disagrees
+   with its tiles would be declared wrongly; GTEx's tiles agree with theirs
+   (RGB, Adobe transform 0). The JPEG 2000 slides need the same care: the
+   v25 label `YBR_FULL_422` disagrees with their pixels, which match each
+   slide's RGB thumbnail only when decoded with no color conversion.
+
 ### Cost
 
 Rough figures, assuming c6in VMs at on-demand prices and 1.5 GB/s per VM
