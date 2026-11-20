@@ -18,6 +18,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "camelyon-ingest",
     "minus-80",
     "opencell-ingest",
     "sanctsound-ingest",
@@ -161,6 +162,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/3a/183b4f96a604a8544180e256d16f9a6c0534d6b7db22dc22fb0842aa96fc/av-19.0.2-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:8596fad2017d380708de35ddf9d34f808b8488c912cdc3f361691d866d9dc32d", size = 39475989, upload-time = "2026-10-21T03:45:20.658Z" },
     { url = "https://files.pythonhosted.org/packages/22/6e/84b65c58171a6d75a5d129a9cf856ca730843f8c476f08033e7f9d4a1af6/av-19.0.2-cp314-cp314t-win_amd64.whl", hash = "sha256:9db27c2248112a8eed3edd3ca83cf4405f52a402cda2eb1956035e646e6b99c6", size = 29064804, upload-time = "2026-10-21T03:45:24.24Z" },
     { url = "https://files.pythonhosted.org/packages/60/4e/d96cc9fff457069c52754f63151a0340cb4886330d58e09061f203696b60/av-19.0.2-cp314-cp314t-win_arm64.whl", hash = "sha256:0e425d631510ca21e47c58f3837a9dceae0453c24e926408c8a12b95239cbbd6", size = 21916888, upload-time = "2026-10-21T03:45:27.298Z" },
+]
+
+[[package]]
+name = "camelyon-ingest"
+version = "0.0.0"
+source = { virtual = "ingests/camelyon" }
+dependencies = [
+    { name = "arraylake" },
+    { name = "minus-80", extra = ["tiff"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
+    { name = "minus-80", extras = ["tiff"], editable = "." },
 ]
 
 [[package]]
