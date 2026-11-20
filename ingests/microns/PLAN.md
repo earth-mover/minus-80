@@ -269,8 +269,11 @@ bucket.
    only what is missing. *Needs approval: writes the store.*
 4. Run 2, `runs/02_scenes.sh`: one metadata-only commit on main that
    brings run 1's store to the layout without the root collection. It
-   deletes the `OME` group and the root's `bioformats2raw.layout`, and sets
-   every group's attributes to what the ingest now writes; no array or chunk
+   deletes the `OME` group and replaces the root's and `two-photon`'s
+   attributes with what the ingest now writes. It compares every scan group
+   and field image with what the ingest would write and reports any
+   difference, but never changes them; the dry run against the store found
+   none. No array or chunk
    reference changes, and tags `v1` and `v2` stay on run 1's commits. It uses
    only Zarr's own operations on the Icechunk session: `del root["OME"]`
    deletes the group, and `group.attrs.put` replaces a group's attributes,

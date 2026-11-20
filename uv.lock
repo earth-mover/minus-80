@@ -1291,6 +1291,7 @@ name = "microns-ingest"
 version = "0.0.0"
 source = { virtual = "ingests/microns" }
 dependencies = [
+    { name = "arraylake" },
     { name = "arro3-core" },
     { name = "minus-80", extra = ["nwb", "tiff"] },
     { name = "obstore" },
@@ -1304,6 +1305,7 @@ notebook = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
     { name = "arro3-core" },
     { name = "minus-80", extras = ["nwb", "tiff"], editable = "." },
     { name = "obstore" },

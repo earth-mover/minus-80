@@ -205,3 +205,25 @@ def test_restating_an_old_layout_changes_only_group_metadata(scan, tmp_path):
     assert not (diff.updated_arrays or diff.updated_chunks or diff.new_arrays or diff.deleted_arrays)
     assert not repo.diff(from_snapshot_id=current, to_snapshot_id=snapshot).updated_chunks
     assert scenes.restate(repo) is None
+
+
+def test_restating_leaves_a_differing_scan_group_alone(scan, tmp_path, capsys):
+    found, _, prefix = scan
+    repo = create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    commit_both(repo, ingest.read_nwb(found))
+    session = repo.writable_session("main")
+    root = zarr.open_group(session.store, mode="a")
+    root.attrs.update({"ome": {"version": "0.6", "bioformats2raw.layout": 3}})
+    name = f"{ingest.SCANS}/{fixture.SESSION}-{fixture.SCAN}"
+    edited = dict(root[name].attrs) | {"kept": "a key the ingest does not write"}
+    root[name].attrs.put(edited)
+    old = session.commit("a scan group the ingest would now write differently")
+    assert scenes.restate(repo, dry_run=True) is None
+    assert repo.lookup_branch("main") == old
+    printed = capsys.readouterr().out
+    assert f"{name}: " in printed and "kept" in printed and "restate /" in printed
+    snapshot = scenes.restate(repo)
+    diff = repo.diff(from_snapshot_id=old, to_snapshot_id=snapshot)
+    assert diff.updated_groups == {"/"}
+    after = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    assert dict(after[name].attrs) == edited

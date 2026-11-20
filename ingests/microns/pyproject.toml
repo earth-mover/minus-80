@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Ingest the MICrONS minnie two-photon functional scans (BossDB TIFFs, with DANDI 000402 metadata) into a virtual Icechunk store."
 requires-python = ">=3.12"
 dependencies = [
+    "arraylake>=1.7.0",
     "arro3-core",
     "minus-80[nwb,tiff]",
     "obstore",
