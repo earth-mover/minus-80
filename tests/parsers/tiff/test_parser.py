@@ -166,7 +166,9 @@ def test_directories_prefetch_refuses_tags_outside_the_region(stack, range_serve
     range_server.files["/stack.tif"] = data = stack.read_bytes()
     with tifffile.TiffFile(stack) as tf:
         second = tf.pages[1].offset
-    # A region that starts after the first directory leaves page 0's tags unfetched.
+    # A region that starts after the first directory, with a head too short to
+    # hold it, leaves page 0's tags unfetched.
+    monkeypatch.setattr(parser, "HEAD_BLOCK", 16)
     monkeypatch.setattr(parser, "directory_layout", lambda source, registry: DirectoryLayout(
         len(data), second, True, directories=99))
     with pytest.raises(ValueError, match="outside the fetched"):

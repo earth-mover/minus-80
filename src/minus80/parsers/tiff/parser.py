@@ -16,13 +16,10 @@ from minus80.core.fetch import download_then_index, sparse_local
 from minus80.core.jsonable import jsonable
 from minus80.core.registry import as_url, file_path
 
-from .inspect import directory_layout
+from .inspect import HEAD_BLOCK, directory_layout
 from .pages import level_array, merge_attributes
 
 Prefetch = Literal["ranges", "directories", "whole"]
-
-#: A BigTIFF header: byte order, version, offset size, and the first directory's offset.
-_HEADER = 16
 
 #: The tags that state a page's pixel size, recorded as the file states them.
 _RESOLUTION_TAGS = ("XResolution", "YResolution", "ResolutionUnit")
@@ -41,8 +38,10 @@ class TiffParser:
     - ``"ranges"`` walks the directories through a block-cached range reader.
       One round trip per directory that is not already cached.
     - ``"directories"`` asks :func:`~minus80.parsers.tiff.inspect.directory_layout`
-      where the directories sit, fetches the header and that region into a
-      sparse local file, and parses that. It raises ``ValueError`` when the
+      where the directories sit, fetches the file's first 64 KB and that
+      region into a sparse local file, and parses that. The first 64 KB hold
+      the header and, in a file tifffile wrote, the first directory, which
+      tifffile places before the pixel data. It raises ``ValueError`` when the
       layout is not bulk-readable, and when the parse read tag data from
       outside the fetched bytes.
     - ``"whole"`` downloads the file into the cache first.
@@ -104,8 +103,8 @@ def _opened(url: str, registry: ObjectStoreRegistry, prefetch: str) -> Iterator[
         if not layout.bulk_readable:
             raise ValueError(f"{url}: directories are not bulk-readable ({layout.refused}); "
                              f"use prefetch='ranges' or 'whole'")
-        fetched = [(0, _HEADER), layout.region]
-        handle = sparse_local(url, fetched, registry=registry)
+        fetched = [(0, min(HEAD_BLOCK, layout.size)), layout.region]
+        handle = sparse_local(url, fetched, registry=registry, size=layout.size)
     with tifffile.TiffFile(handle) as tif:
         yield tif, fetched
 

@@ -50,6 +50,16 @@ CORE_CODECS = frozenset({
 })
 
 
+#: How much of the file's start one read fetches. It covers the header and,
+#: in a file tifffile wrote, the first directory and its tag values, which
+#: tifffile places before the pixel data and the other directories after it.
+HEAD_BLOCK = 64 * 1024
+
+#: How much one read fetches at the second directory: enough for the second
+#: and third directories in any file whose directories are worth a bulk read.
+PROBE_BLOCK = 16 * 1024
+
+
 @dataclasses.dataclass(frozen=True)
 class DirectoryLayout:
     """Where a TIFF's directories sit, and whether they can be fetched in one read."""
@@ -62,6 +72,7 @@ class DirectoryLayout:
     directories: int | None = None
     #: Why a bulk read was refused, or ``None`` when it was not.
     refused: str | None = None
+    second_directory: int | None = None
 
     @property
     def position(self) -> float:
@@ -74,16 +85,33 @@ class DirectoryLayout:
 
     @property
     def region(self) -> tuple[int, int] | None:
-        """The byte range holding every directory, when there is one."""
-        return (self.first_directory, self.size) if self.bulk_readable else None
+        """The byte range holding every directory from the second on, when there is one.
+
+        It starts at the first directory too when that directory sits beside
+        the second or after it, as bioformats2raw writes them. tifffile writes
+        the first directory at the file's start, before the pixel data, and
+        the rest after it; then the region starts at the second, so that it
+        does not take in the pixels, and the first directory is read with the
+        head of the file (:data:`HEAD_BLOCK`).
+        """
+        if not self.bulk_readable:
+            return None
+        second = self.second_directory
+        if second is None or self.first_directory + 2 * (self.stride or 0) >= second:
+            start = min(self.first_directory, second or self.first_directory)
+        else:
+            start = second
+        return (start, self.size)
 
 
 def directory_layout(source: str, *, minimum: int = 64, padding: int = 64,
                      registry: ObjectStoreRegistry | None = None) -> DirectoryLayout:
     """Where this TIFF keeps its directories, and whether they are an array.
 
-    Reads the file size, the 16-byte header, and the entry counts and next
-    pointers of the first two directories, without walking the chain. The
+    Reads the file size, the header, and the entry counts and next pointers
+    of the first two directories, without walking the chain: one HEAD and two
+    range reads, :data:`HEAD_BLOCK` at the start and :data:`PROBE_BLOCK` at the
+    second directory, when the directories fit in them. The
     spacing of the second and third directories is taken as the stride. If the
     file from the second directory on is a whole number of strides, and a
     stride exceeds one directory's size by at most ``padding`` bytes, the
@@ -94,9 +122,18 @@ def directory_layout(source: str, *, minimum: int = 64, padding: int = 64,
     where this belongs upstream.
     """
     size = object_size(source, patient=True, registry=registry)
+    blocks: dict[int, bytes] = {}
 
     def read(at: int, length: int) -> bytes:
-        return read_range(source, at, at + length, patient=True, registry=registry)
+        # A small TIFF read is served from a block already fetched, so the
+        # whole probe costs the size lookup, the head and one block at the
+        # second directory.
+        for start, block in blocks.items():
+            if start <= at and at + length <= start + len(block):
+                return block[at - start: at - start + length]
+        span = max(length, HEAD_BLOCK if at == 0 else PROBE_BLOCK)
+        blocks[at] = read_range(source, at, min(at + span, size), patient=True, registry=registry)
+        return blocks[at][:length]
 
     head = read(0, 16)
     if head[:2] not in (b"II", b"MM"):
@@ -119,7 +156,7 @@ def directory_layout(source: str, *, minimum: int = 64, padding: int = 64,
     stride = third - second
     entries = _entries(read, second, endian) or entries
     common = {"size": size, "first_directory": first, "bigtiff": True,
-              "stride": stride, "entries": entries}
+              "stride": stride, "entries": entries, "second_directory": second}
     if stride <= 0 or entries is None:
         return DirectoryLayout(**common, refused="unreadable second directory")
     if (size - second) % stride:
