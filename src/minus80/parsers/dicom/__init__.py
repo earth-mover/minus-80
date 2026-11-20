@@ -11,6 +11,7 @@ Reference the same bytes on a remote store instead of the local files with ``url
 
 Writing stores is the job of an ingest, not this package.
 """
+from .ann import bulk_annotation_groups
 from .parser import (
     channel_metadata,
     dicom_json,
@@ -21,6 +22,7 @@ from .volume import slice_metadata, volume_array
 from .wsi import encapsulated_frame_ranges, pyramid_levels, wsi_level_array
 
 __all__ = [
+    "bulk_annotation_groups",
     "multiplex_array",
     "volume_array",
     "wsi_level_array",

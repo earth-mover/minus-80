@@ -28,6 +28,7 @@ marr.metadata.attributes["channel_names"]       # ['DNA', 'Pan Keratin', ...]
 | `volume_array(sources, url_for=)` | Single-slice radiology instances (CT, MR, PET) | A `(z, y, x)` `ManifestArray`, one chunk per slice, ordered by `ImagePositionPatient` z (else `InstanceNumber`), and the z positions and median spacing |
 | `wsi_level_array(path, url_for=)` | One tiled whole-slide pyramid level, a multi-frame instance | A `(c, y, x)` (RGB) or `(y, x)` `ManifestArray`, one chunk per tile |
 | `pyramid_levels(sources)` | A whole-slide series | Its `VOLUME` instances as `(rows, cols, source)`, largest first; overview, thumbnail and label instances are left out |
+| `bulk_annotation_groups(path, url_for=)` | A Microscopy Bulk Simple Annotations (ANN) instance with 2-D coordinates | One entry per annotation group: its label, graphic type and count, and its `PointCoordinatesData`, `LongPrimitivePointIndexList` and measurement values as `ManifestArray`s in 65,536-row chunks. The last, partial chunk of each is left missing, with its byte range, for the caller to write natively |
 | `dicom_json(path)` | Any instance | The full element tree as DICOM JSON (PS3.18), pixel data excluded, binary elements inline as base64 |
 | `native_pixeldata_byte_range(path, n)` | An uncompressed instance | The file offset and length of the PixelData value |
 | `encapsulated_frame_ranges(path)` | A compressed instance | The file offset and length of each encoded frame |
