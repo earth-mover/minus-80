@@ -3,11 +3,13 @@
 # of the CAMELYON16 history that run 1 copied there.
 #
 # Runs from commit b193fe5, the code that passed review; e4ce76d, which
-# launched it, only records this line. The job runs the committed code that
+# launched it, only records this line. Both are kept by the tag
+# camelyon-run2-camelyon17, at e4ce76d, since this branch was later rebased. The job runs the committed code that
 # HEAD names when it launches, and the launcher refuses uncommitted changes.
 #
 # Ran 2026-11-20 as Coiled batch job camelyon-ingest-054914 (cluster
-# 2412224), c6in.4xlarge in us-west-2, from e4ce76d, 32 threads.
+# 2412224), c6in.4xlarge in us-west-2, from e4ce76d (tag
+# camelyon-run2-camelyon17), 32 threads.
 # - Committed two batches of 100 slides, patient_000 to patient_039:
 #   3P2EYKBSNNMFNCJMV3S0 and SECKQK7BFZQ8EQ4CB880.
 # - About 67 s per batch: parsing about 40 s, commit 24 s.

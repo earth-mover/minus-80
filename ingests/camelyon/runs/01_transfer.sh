@@ -5,7 +5,7 @@
 # launcher refuses uncommitted changes.
 #
 # Ran 2026-11-20 as Coiled batch job camelyon-transfer-023950 (cluster 2411314),
-# c6in.2xlarge in us-west-2, from commit d4c4e69.
+# c6in.2xlarge in us-west-2, from commit d4c4e69 (tag camelyon-run1-transfer).
 # - Source: earthmover-public/camelyon, snapshot J6HF3B2FPE2QW7NCDBB0.
 # - Copied all 401 units under CAMELYON16 (399 slides, OME, documents) in nine
 #   commits of up to 50 units: about 55 s of copying and 25 s of commit per batch.
