@@ -222,6 +222,7 @@ OBJECTS = {"spikes": "spike", "clusters": "cluster", "channels": "channel", "tem
 EXTRA_AXES = {
     "channels.localCoordinates": ("probe_axis",),
     "channels.mlapdv": ("mlapdv_axis",),
+    "clusters.mlapdv": ("mlapdv_axis",),
     "clusters.waveforms": ("sample", "waveform_channel"),
     "clusters.waveformsChannels": ("waveform_channel",),
     "templates.waveforms": ("sample", "waveform_channel"),
@@ -263,8 +264,16 @@ def spike_sorting(eid: str, probe: str, sort: str):
     groups: dict[str, dict[str, ManifestArray]] = {}
     tails = []
     pins = {}
+    left_out = []
     for obj, attribute, url, size, md5 in sort_files(eid, probe, sort):
         shape, dtype, offset = npy_header(url)
+        if dtype.hasobject:
+            # A pickled object array, such as the 2022 sort's
+            # clusters.brainLocationAcronyms_ccf_2017: no byte range of it is
+            # an array, and unpickling a source file would run its code. The
+            # same regions are in clusters.brainLocationIds_ccf_2017.
+            left_out.append(f"{obj}.{attribute}")
+            continue
         if offset + int(np.prod(shape)) * dtype.itemsize != size:
             raise ValueError(f"{url}: header says {shape} {dtype}, file is {size} bytes")
         rows = SPIKE_ROWS_PER_CHUNK if obj == "spikes" else max(shape[0], 1)
@@ -296,6 +305,7 @@ def spike_sorting(eid: str, probe: str, sort: str):
             "sort": sort,
             "ibl_revision": revision,
             "ibl_release_cache": SORTS[sort]["cache"],
+            "left_out": left_out,
         },
     )
     return group, tails, pins

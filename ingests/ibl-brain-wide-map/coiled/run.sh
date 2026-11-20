@@ -27,7 +27,11 @@ echo "$(now) install: done"
 
 export PYTHONUNBUFFERED=1 RUST_LOG=error MINUS80_S3_ANONYMOUS=1
 # Memory from its own loop, so a job that stalls inside one call still reports.
+# The loop is killed when the script exits, however it exits: left running, it
+# holds the job's output open, so the job never ends and its log never arrives.
 (while sleep 60; do echo "$(now) memory used $(free -m | awk '/Mem/ {print $3}') MB"; done) &
+watcher=$!
+trap 'echo "$(now) run.sh: exiting with status $?"; kill $watcher 2>/dev/null' EXIT
 
 echo "$(now) 2022 pass: start"
 timeout 40m .venv/bin/python -X faulthandler -W ignore ingest.py --repo "$REPO" --sort 2022 --tag sort-2022

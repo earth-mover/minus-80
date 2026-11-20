@@ -281,6 +281,17 @@ Left out of phase 1, with the reason:
   it raises "Found bad link to object" with a path inside the NWB group;
   given a `zarr.Group` or a `StorePath`, it raises "incorrect type for
   'path'".
+- **Some raw NWB files have contiguous datasets.** sub-NR-0020's raw file
+  holds `acquisition/Events*` tables stored contiguously, which shadowzarr
+  cuts into 4 MiB chunks with kerchunk `gen` entries; the first trial session
+  had none, so the first run stopped there (runs/01_ten_sessions.sh).
+- **The 2022 sort has two attributes the 2024 sort lacks.**
+  `clusters.mlapdv` (cluster x 3) gets the axis `mlapdv_axis`.
+  `clusters.brainLocationAcronyms_ccf_2017` is a pickled object array, which
+  no byte range can hold and which would run code to unpickle; it is left
+  out and named in the sort group's `left_out`, and
+  `clusters.brainLocationIds_ccf_2017` holds the same regions as ids. A survey
+  of all 780 ALF files of the ten sessions found no other kind.
 - **An HTTPS URL to `dandiarchive.s3.amazonaws.com` hangs.** obstore signs
   requests to an S3 host and looks for EC2 credentials; with the patient retry
   settings an index walk sat for minutes before failing. The `s3://` URL with
