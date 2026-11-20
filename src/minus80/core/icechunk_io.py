@@ -11,6 +11,7 @@ raises ``ValueError``.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -161,6 +162,46 @@ def commit(
     return session.commit(
         message, metadata=metadata, rebase_with=icechunk.BasicConflictSolver(), rebase_tries=tries
     )
+
+
+def write_pinned(store, path: str, group: ManifestGroup, etags: Mapping[str, str]) -> None:
+    """Write ``group`` at ``path``, each reference pinned to its object's ETag.
+
+    VirtualiZarr's ``to_icechunk`` pins a reference by time only: Icechunk
+    refuses the chunk if its object was modified after the write. An ETag pins
+    the object's exact bytes instead, so a source rewritten in place, even to
+    the same length, is refused rather than read at stale offsets. A listing
+    of the source returns every object's ETag, so pinning costs no request.
+
+    ``etags`` maps each source URL to its ETag; a URL the group references and
+    the mapping lacks raises ``KeyError`` before anything is written.
+    """
+    import numpy as np
+
+    arrays = dict(_arrays(group, path))
+    for url in {u for _, a in arrays.items() for u in np.unique(a.manifest._paths) if u}:
+        etags[url]
+    group.to_icechunk(store, group=path, mode="a")
+    for array_path, array in arrays.items():
+        manifest = array.manifest
+        paths = manifest._paths.reshape(-1)
+        for url in (u for u in np.unique(paths) if u):
+            store.set_virtual_refs_arr(
+                array_path=array_path,
+                chunk_grid_shape=manifest.shape_chunk_grid,
+                locations=np.where(paths == url, paths, "").tolist(),
+                offsets=manifest._offsets.reshape(-1),
+                lengths=manifest._lengths.reshape(-1),
+                validate_containers=False,
+                checksum=etags[url],
+            )
+
+
+def _arrays(group: ManifestGroup, path: str):
+    for name, array in group.arrays.items():
+        yield f"{path}/{name}" if path else name, array
+    for name, sub in group.groups.items():
+        yield from _arrays(sub, f"{path}/{name}" if path else name)
 
 
 def storage_for(location: str | Path):

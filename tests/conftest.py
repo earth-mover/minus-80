@@ -15,10 +15,13 @@ class RangeServer:
     in for a server that has stopped responding. The first GET of a range that
     starts at an offset in ``stall_once`` gets no answer either, while later
     GETs of it are answered: a server that leaves one request hanging.
+    ``etags`` maps a path to the ETag the server sends for it; a GET whose
+    ``If-Match`` names another ETag is refused with 412, as S3 refuses it.
     """
 
     def __init__(self):
         self.files: dict[str, bytes] = {}
+        self.etags: dict[str, str] = {}
         self.requests: list[tuple[str, str, str | None]] = []
         self.short = 0
         self.stall_from: int | None = None
@@ -51,6 +54,12 @@ def _handler(server: RangeServer):
             data = self._body()
             if data is None:
                 return
+            etag = server.etags.get(self.path)
+            wanted = self.headers.get("If-Match")
+            # Icechunk sends the ETag without its quotes, which S3 accepts.
+            if wanted is not None and wanted.strip('"') != (etag or "").strip('"'):
+                self.send_error(412)
+                return
             start, end = 0, len(data) - 1
             if rng := self.headers.get("Range"):
                 lo, hi = rng.removeprefix("bytes=").split("-")
@@ -67,6 +76,8 @@ def _handler(server: RangeServer):
                 body = body[:-server.short]
             self.send_response(206 if rng else 200)
             self.send_header("Content-Length", str(len(body)))
+            if etag is not None:
+                self.send_header("ETag", etag)
             if rng:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
             self.end_headers()

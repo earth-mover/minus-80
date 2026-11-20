@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from contextlib import contextmanager
-from typing import BinaryIO
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +21,7 @@ from minus80.core import as_url
 from minus80.core.manifest import channel_last_transpose, manifest_array
 from virtualizarr.manifests import ManifestArray
 
-from .parser import PIXEL_DATA_TAG, native_pixeldata_byte_range
+from .parser import PIXEL_DATA_TAG, Source, native_pixeldata_byte_range, open_source, source_name
 
 _XFER_CODEC = {
     "1.2.840.10008.1.2.4.90": "imagecodecs_jpeg2k",  # JPEG 2000 lossless
@@ -41,7 +39,7 @@ ITEM_TAG = b"\xfe\xff\x00\xe0"  # (FFFE,E000), little-endian
 _J2K_DECODES_TO_RGB = {"RGB", "YBR_ICT", "YBR_RCT"}
 
 
-def encapsulated_frame_ranges(source: str | Path | BinaryIO) -> list[tuple[int, int]]:
+def encapsulated_frame_ranges(source: Source) -> list[tuple[int, int]]:
     """Byte (offset, length) of each encoded frame in an encapsulated PixelData.
 
     ``source`` is a path or a seekable binary file, such as
@@ -66,14 +64,14 @@ def encapsulated_frame_ranges(source: str | Path | BinaryIO) -> list[tuple[int, 
     import pydicom
     from pydicom.encaps import parse_fragments
 
-    with _binary(source) as f:
+    with open_source(source) as f:
         pydicom.dcmread(f, stop_before_pixels=True)
         head = f.read(12)
         if head[:4] != PIXEL_DATA_TAG or head[8:12] != b"\xff\xff\xff\xff":
-            raise ValueError(f"{_name(source)}: PixelData is not encapsulated.")
+            raise ValueError(f"{source_name(source)}: PixelData is not encapsulated.")
         bot_item = f.read(8)
         if bot_item[:4] != ITEM_TAG:
-            raise ValueError(f"{_name(source)}: no Basic Offset Table Item after PixelData.")
+            raise ValueError(f"{source_name(source)}: no Basic Offset Table Item after PixelData.")
         bot_length = int.from_bytes(bot_item[4:8], "little")
         if bot_length:
             bot = np.frombuffer(f.read(bot_length), "<u4").astype(np.int64)
@@ -82,7 +80,7 @@ def encapsulated_frame_ranges(source: str | Path | BinaryIO) -> list[tuple[int, 
             f.seek(int(starts[-1]))
             last = f.read(8)
             if last[:4] != ITEM_TAG:
-                raise ValueError(f"{_name(source)}: the last Basic Offset Table entry is not an Item.")
+                raise ValueError(f"{source_name(source)}: the last Basic Offset Table entry is not an Item.")
             ends = np.append(starts[1:], starts[-1] + 8 + int.from_bytes(last[4:8], "little"))
             return [(int(s) + 8, int(e - s) - 8) for s, e in zip(starts, ends)]
         f.seek(-8, 1)
@@ -95,34 +93,21 @@ def encapsulated_frame_ranges(source: str | Path | BinaryIO) -> list[tuple[int, 
     return ranges
 
 
-@contextmanager
-def _binary(source):
-    if isinstance(source, (str, Path)):
-        with open(source, "rb") as f:
-            yield f
-    else:
-        source.seek(0)
-        yield source
-
-
-def _name(source) -> str:
-    return Path(source).name if isinstance(source, (str, Path)) else repr(source)
-
-
-def _level_metadata(path: str | Path) -> dict:
+def _level_metadata(path: Source) -> dict:
     import pydicom
 
-    ds = pydicom.dcmread(path, stop_before_pixels=True)
+    with open_source(path) as f:
+        ds = pydicom.dcmread(f, stop_before_pixels=True)
     xfer = str(ds.file_meta.TransferSyntaxUID)
     if str(getattr(ds, "DimensionOrganizationType", "TILED_FULL")) != "TILED_FULL":
-        raise ValueError(f"{Path(path).name}: only TILED_FULL is supported.")
+        raise ValueError(f"{source_name(path)}: only TILED_FULL is supported.")
     samples = int(ds.SamplesPerPixel)
     bits = int(ds.BitsAllocated)
     if bits != 8 and not (bits == 16 and samples == 1):
-        raise ValueError(f"{Path(path).name}: unsupported bits/samples ({bits}/{samples}).")
+        raise ValueError(f"{source_name(path)}: unsupported bits/samples ({bits}/{samples}).")
     photometric = str(ds.PhotometricInterpretation)
     if _XFER_CODEC.get(xfer) == "imagecodecs_jpeg2k" and samples == 3 and photometric not in _J2K_DECODES_TO_RGB:
-        raise ValueError(f"{Path(path).name}: JPEG 2000 in {photometric} decodes to YCbCr, not RGB.")
+        raise ValueError(f"{source_name(path)}: JPEG 2000 in {photometric} decodes to YCbCr, not RGB.")
     return {
         "xfer": xfer,
         "total_y": int(ds.TotalPixelMatrixRows),
@@ -136,16 +121,20 @@ def _level_metadata(path: str | Path) -> dict:
 
 
 def wsi_level_array(
-    path: str | Path, *, url_for: Callable[[str | Path], str] = as_url
+    path: Source, *, url_for: Callable[[Source], str] = as_url
 ) -> ManifestArray:
-    """One tiled WSI pyramid level as a virtual ManifestArray (one chunk per tile-frame)."""
+    """One tiled WSI pyramid level as a virtual ManifestArray (one chunk per tile-frame).
+
+    ``path`` may be a seekable binary file instead, with ``url_for`` naming
+    the object it reads.
+    """
     m = _level_metadata(path)
     ty, tx, s = m["tile_y"], m["tile_x"], m["samples"]
     n_rows = math.ceil(m["total_y"] / ty)
     n_cols = math.ceil(m["total_x"] / tx)
     if n_rows * n_cols != m["n_frames"]:
         raise ValueError(
-            f"{Path(path).name}: tile grid {n_rows}x{n_cols} != {m['n_frames']} frames."
+            f"{source_name(path)}: tile grid {n_rows}x{n_cols} != {m['n_frames']} frames."
         )
 
     xfer = m["xfer"]
@@ -158,9 +147,9 @@ def wsi_level_array(
         ranges = [(off0 + k * frame_bytes, frame_bytes) for k in range(m["n_frames"])]
         codec = None
     else:
-        raise ValueError(f"{Path(path).name}: transfer syntax {xfer} out of scope.")
+        raise ValueError(f"{source_name(path)}: transfer syntax {xfer} out of scope.")
     if len(ranges) != m["n_frames"]:
-        raise ValueError(f"{Path(path).name}: {len(ranges)} fragments != {m['n_frames']} frames.")
+        raise ValueError(f"{source_name(path)}: {len(ranges)} fragments != {m['n_frames']} frames.")
 
     Y, X = m["total_y"], m["total_x"]
     # The serializer is the image codec itself for compressed frames (imagecodecs'

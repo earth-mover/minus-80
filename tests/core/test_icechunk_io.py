@@ -77,3 +77,32 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
     assert config.storage.retries.max_tries == REMOTE_READ_TRIES
     with pytest.raises(ValueError, match="no virtual chunk container covering"):
         icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
+
+
+def test_write_pinned_refuses_a_rewritten_source(tmp_path, range_server):
+    """A reference pinned to its object's ETag reads while the ETag holds, and is
+    refused once the server reports another, as for a source rewritten in place."""
+    import numpy as np
+    import pytest
+    import zarr
+    from virtualizarr.manifests import ManifestGroup
+
+    from minus80.core.builders.flat_binary import flat_manifest_array
+    from minus80.core.icechunk_io import create_repo, write_pinned
+
+    values = np.arange(12, dtype="<u2")
+    range_server.files["/data.bin"] = values.tobytes()
+    range_server.etags["/data.bin"] = '"one"'
+    url = f"{range_server.url}/data.bin"
+    array = flat_manifest_array(url, shape=(3, 4), dtype="uint16", data_offset=0, endian="little")
+    repo = create_repo(tmp_path / "repo", [url])
+    session = repo.writable_session("main")
+    with pytest.raises(KeyError):
+        write_pinned(session.store, "g", ManifestGroup(arrays={"a": array}), {})
+    write_pinned(session.store, "g", ManifestGroup(arrays={"a": array}), {url: '"one"'})
+    session.commit("pinned")
+    read = lambda: zarr.open_array(repo.readonly_session("main").store, path="g/a", mode="r")[:]  # noqa: E731
+    np.testing.assert_array_equal(read(), values.reshape(3, 4))
+    range_server.etags["/data.bin"] = '"two"'
+    with pytest.raises(Exception, match="checksum of the object owning the virtual chunk has changed"):
+        read()

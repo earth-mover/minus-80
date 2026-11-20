@@ -17,8 +17,10 @@ and ``volume`` covers radiology slice stacks.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 from minus80.core import as_url
@@ -32,8 +34,28 @@ NATIVE_TRANSFER_SYNTAXES = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1"}
 
 _LONG_VR = {b"OB", b"OW", b"OF", b"OD", b"OL", b"OV", b"UN"}  # explicit-VR 12-byte header
 
+#: A DICOM instance to read: a local path, or a seekable binary file such as
+#: ``minus80.core.remote.reader`` over a remote object, which lets a parser
+#: read a header without downloading the pixels behind it.
+Source = str | Path | BinaryIO
 
-def dicom_json(path: str | Path) -> dict:
+
+@contextmanager
+def open_source(source: Source) -> Iterator[BinaryIO]:
+    """``source`` as a binary file positioned at its start."""
+    if isinstance(source, (str, Path)):
+        with open(source, "rb") as f:
+            yield f
+    else:
+        source.seek(0)
+        yield source
+
+
+def source_name(source: Source) -> str:
+    return Path(source).name if isinstance(source, (str, Path)) else getattr(source, "name", repr(source))
+
+
+def dicom_json(path: Source) -> dict:
     """The full DICOM metadata of one instance as standard DICOM JSON (PS3.18).
 
     Virtualization references bytes in place, so the metadata that ships with the file
@@ -43,14 +65,15 @@ def dicom_json(path: str | Path) -> dict:
     """
     import pydicom
 
-    ds = pydicom.dcmread(path, stop_before_pixels=True)
+    with open_source(path) as f:
+        ds = pydicom.dcmread(f, stop_before_pixels=True)
     # Binary elements are kept inline as base64 however large, because some are
     # metadata a reader needs: a slide's ICC colour profile is ~140 KB. The pixel
     # data itself is already excluded by stop_before_pixels.
     return ds.to_json_dict(bulk_data_threshold=math.inf, suppress_invalid_tags=True)
 
 
-def native_pixeldata_byte_range(path: str | Path, expected_len: int) -> tuple[int, int]:
+def native_pixeldata_byte_range(path: Source, expected_len: int) -> tuple[int, int]:
     """Byte offset+length of native (uncompressed) PixelData's value.
 
     No DICOM library exposes the *file* offset of pixel data (readers decode, they don't
@@ -62,12 +85,12 @@ def native_pixeldata_byte_range(path: str | Path, expected_len: int) -> tuple[in
     """
     import pydicom
 
-    with open(path, "rb") as f:
+    with open_source(path) as f:
         pydicom.dcmread(f, stop_before_pixels=True)  # positions f at the PixelData element
         start = f.tell()
         head = f.read(12)
     if head[:4] != PIXEL_DATA_TAG:
-        raise ValueError(f"{Path(path).name}: not positioned at PixelData (encapsulated?).")
+        raise ValueError(f"{source_name(path)}: not positioned at PixelData (encapsulated?).")
     vr = head[4:6]
     # Explicit VR long form (OB/OW/…): tag(4)+VR(2)+reserved(2)+length(4) = 12-byte header.
     # Explicit VR short form: 8; Implicit VR (no VR field): 8.
