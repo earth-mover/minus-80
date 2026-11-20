@@ -154,7 +154,12 @@ small pictures of the trial session's data:
   (`dims2xyz=[0, 2, 1]`), indexed from the CCF origin. The raw NWB file's
   `AllenCCFv3` space states orientation `PIR` with its origin at the
   volume's anterior-superior-left corner, so a channel's CCF x, y and z in
-  µm, divided by 200, are its ap, dv and ml indices.
+  µm, divided by 200, are its ap, dv and ml indices. Checked by running
+  iblatlas 1.3.1 in an isolated environment on the same `image.npy`:
+  converting probe00's 384 channels with `AllenAtlas.ccf2xyz`'s formula
+  (CCF order `apdvml`) and the AGEA atlas's own `bc.xyz2i`, then to array
+  axes with its `xyz2dims`, gives the same ml and ap indices as the figure
+  for every channel, and dv indices within one voxel, a rounding difference.
 
 Counts and sizes come from DANDI's asset list, IBL's `Brainwidemap` ONE cache
 (the release), its bucket-wide ONE cache (everything public in `data/`,
@@ -162,7 +167,10 @@ Counts and sizes come from DANDI's asset list, IBL's `Brainwidemap` ONE cache
 prefixes. No histology images are public: the bucket-wide cache lists no
 histology dataset. The channels' brain positions do come from histology:
 the raw NWB file's `ElectrodesCCFv3` table states its method as "IBL
-histology alignment pipeline".
+histology alignment pipeline". IBL's alignment tool lines up features of the
+electrophysiology with "the brain regions through which the traced probe
+track passes" in the histology, and saves "the new locations of the
+electrodes" ([iblapps wiki, usage instructions](https://github.com/int-brain-lab/iblapps/wiki/2.-Usage-instructions)).
 
 ## From source to store
 
