@@ -104,6 +104,16 @@ def test_the_shared_gates_pass_through_both_tags(roots):
         assert run_gates(root, gates, {"version": ingest.VERSION, "sample": 1}) == 0
 
 
+def test_the_hierarchy_is_the_only_list_of_images(roots):
+    for root in roots.values():
+        assert "OME" not in root
+        assert "ome" not in dict(root.attrs)
+        assert "ome" not in dict(root[ingest.SCANS].attrs)
+        scene = dict(root[f"{ingest.SCANS}/{fixture.SESSION}-{fixture.SCAN}"].attrs)["ome"]["scene"]
+        assert sorted(t["input"]["path"] for t in scene["coordinateTransformations"]) == [
+            f"field-{n}" for n in range(1, fixture.FIELDS + 1)]
+
+
 def test_verify_passes(scan, roots):
     found, truth, _ = scan
     name = f"{fixture.SESSION}-{fixture.SCAN}"

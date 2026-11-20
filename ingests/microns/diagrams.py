@@ -227,7 +227,6 @@ class Store:
     field: dict
     array: dict[str, dict]
     fields: list[dict]
-    series: int
 
 
 def read_store(path: Path) -> Store:
@@ -278,7 +277,6 @@ def read_store(path: Path) -> Store:
         field={"ome": sorted(field["ome"]), "annotations": sorted(field["annotations"]), "tiff": sorted(field["tiff"])},
         array=array,
         fields=fields,
-        series=len(zarr.open_group(store, path="OME", mode="r").attrs["ome"]["series"]),
     )
 
 
@@ -702,7 +700,7 @@ def mapping_figure(facts: Facts) -> Canvas:
 def store_figure(facts: Facts) -> Canvas:
     store = facts.store
     canvas = Canvas(WIDTH)
-    y = d.heading(canvas, "Store", "OME-Zarr 0.6, bioformats2raw layout, two commits")
+    y = d.heading(canvas, "Store", "OME-Zarr 0.6, one scene per scan, two commits")
     y = d.legend(canvas, canvas.margin, y + 14, [("added", "written by ingest.py")])
 
     scans = len(facts.scans)
@@ -729,17 +727,8 @@ def store_figure(facts: Facts) -> Canvas:
                     Row("tiff_export", "; ".join(
                         f"{tag}: {store.root[tag]['tiff_export']['dtype']}, {store.root[tag]['tiff_export']['date']}"
                         for tag in ("v1", "v2")) + " (one per commit)"),
-                    Row("ome", f"bioformats2raw.layout {root['ome']['bioformats2raw.layout']}, version {root['ome']['version']}"),
+                    Row("layout", "one scene per scan under two-photon"),
                 ],
-            ),
-        ),
-        (
-            TreeNode("OME", 0, 1, subtitle="collection", status=proposed),
-            dict(
-                title="OME",
-                accent=ACCENTS["store"],
-                source="zarr.json",
-                rows=[Row("series", f"{fields} field image paths, {SCENE}/<session>-<scan>/field-<n>")],
             ),
         ),
         (
@@ -749,7 +738,7 @@ def store_figure(facts: Facts) -> Canvas:
                 accent=ACCENTS["store"],
                 source="zarr.json",
                 rows=[
-                    Row("description", "one group per scan, <session>-<scan>"),
+                    Row("description", "one scene per scan, <session>-<scan>; no OME-Zarr metadata"),
                     Row("scans", f"{scans} entries: fields, volumes, rate_hz"),
                 ],
             ),
@@ -763,7 +752,7 @@ def store_figure(facts: Facts) -> Canvas:
                 rows=[
                     Row("scene", f"version 0.6, coordinate system \"{store.scene['coordinateSystems'][0]['name']}\" "
                                f"({', '.join(a['name'] for a in store.scene['coordinateSystems'][0]['axes'])})"),
-                    Row("translations", f"one per field, {len(store.fields)} in {EXAMPLE_SCAN}"),
+                    Row("translations", f"one per field image, by path; {len(store.fields)} in {EXAMPLE_SCAN}"),
                     Row("scan", ", ".join(scan)),
                 ],
             ),

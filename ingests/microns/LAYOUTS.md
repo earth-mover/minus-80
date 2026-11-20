@@ -138,13 +138,36 @@ in us-east-1; every chunk reference falls under it.
 
 | Node | From |
 |---|---|
-| `/` | title, description, license, citations, sources; `ome`: a `bioformats2raw.layout` collection; `tiff_export` names the commit's export |
-| `OME` | `ome.series`: the 144 field image paths |
-| `two-photon` | one entry per scan: fields, volumes, rate |
+| `/` | title, description, license, citations, sources, `layout`; `tiff_export` names the commit's export |
+| `two-photon` | a description and one entry per scan: fields, volumes, rate |
 | `two-photon/<session>-<scan>` | `ome.scene`: coordinate system `motor` (t, z, y, x) and one translation per field; `scan`: animal, session, scan, counts, rate, depths, the NWB and TIFF URLs |
 | `two-photon/<session>-<scan>/volume_times` | the NWB timestamps, `(volumes,)` float64 seconds, written natively with Blosc zstd and byte shuffle |
 | `two-photon/<session>-<scan>/field-<n>` | an image: `ome.multiscales` with one level and scale `(1 / rate, 1, pixel, pixel)`; `annotations`: what the NWB states about the field, the page rule and the export; `tiff`: what the TIFF states about its series |
 | `two-photon/<session>-<scan>/field-<n>/0` | `(volumes, 1, rows, columns)`, chunks `(1, 1, rows, columns)`; chunk `(v, 0, 0, 0)` references page `v × F + n − 1` |
+
+### How the hierarchy declares its images
+
+The OME-Zarr metadata starts at the scans. OME-Zarr 0.6 defines a scene as
+"the group above the images", "a collection of images that share a spatial
+relationship with each other", which "MUST implement the scene
+specification" ([Scene](https://ngff.openmicroscopy.org/specifications/0.6/index.html#scene-format), storage format). The
+`scene` object's `coordinateTransformations` name each image by the `path`
+of a transformation's input, and its `coordinateSystems` may define the
+shared system they map into (["scene" metadata](https://ngff.openmicroscopy.org/specifications/0.6/index.html#scene-md)).
+Each scan group is such a scene: its coordinate system is `motor`, and it
+holds one translation per field, from `{"name": "intrinsic", "path": "field-<n>"}`
+to `{"name": "motor"}`. The fields are therefore declared once, by the scene
+that places them.
+
+Nothing in the spec covers a group of scenes, so `two-photon` and the root
+carry no `ome` key, only attributes that describe what is below them. The
+spec's other way to list images, `bioformats2raw.layout`, is marked
+transitional and exists "to specify filesets that already exist in the
+wild" ([bioformats2raw.layout](https://ngff.openmicroscopy.org/specifications/0.6/index.html#bf2raw));
+here it would repeat the 144 field paths in an `OME` group beside the
+hierarchy that already holds them, so the store does not use it.
+`minus80.ome.hierarchy` finds a scene's images through its paths, so the
+shared OME-Zarr gates reach every field.
 
 The scene places field `n` at `t` = the scan's first volume time, `z` = its
 depth, and `(y, x)` = its center less half the field, so that the

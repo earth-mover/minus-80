@@ -69,10 +69,8 @@ reader re-segments or checks them against.
 ### The tree
 
 ```
-/                                     title, description, license, citations, sources, tiff_export
-                                      ome: bioformats2raw.layout collection
-OME                                   ome.series: the 144 field image paths
-two-photon                            one entry per scan: fields, volumes, rate
+/                                     title, description, license, citations, sources, layout, tiff_export
+two-photon                            description; one entry per scan: fields, volumes, rate
 two-photon/<session>-<scan>           ome.scene: coordinate system "motor" (t, z, y, x), one translation per field
                                       scan: animal, session, scan, counts, rate, depths, NWB and TIFF URLs
 two-photon/<session>-<scan>/volume_times      (volumes,) float64 seconds, native
@@ -94,6 +92,10 @@ references page `v × 8 + 2` of `functional_scan_17797_4_7_v2.tif` (at tag
   description; `y` and `x` are the NWB `grid_spacing`, 2.5 µm (1.667 µm for
   scan 9-6); `z` is a placeholder of 1 µm, named as one in the attributes,
   because a field is one optical section and nothing states its thickness.
+- **Declaring the images.** The OME-Zarr metadata starts at the scans. Each
+  scan group is a 0.6 scene, which names its field images by path; the root
+  and `two-photon` are plain groups with descriptions, because the spec has
+  no structure for a group of scenes. LAYOUTS.md quotes the spec sections.
 - **Placement.** Each scan is an OME-Zarr 0.6 scene, "for images that share a
   spatial relationship". Its coordinate system, `motor`, is the microscope's
   stage coordinates. The scene translates each field by `(t, z, y, x)`: the
@@ -126,6 +128,11 @@ language decodes it.
   scan's coordinate system implicitly, and the spec defines the scene for
   exactly this case. The zebrafish ingest places its embryos the same way.
   See decision 2.
+- **A `bioformats2raw.layout` collection at the root.** An `OME` group
+  listing all 144 field paths would let collection readers find the fields,
+  but it is a second, flat list beside the hierarchy that holds them, and the
+  spec marks the layout transitional, for filesets that already use it.
+  Each scene declares its own images.
 - **One array per scan, (t, field, y, x).** The fields of a scan sit at
   different places and depths, and one array has one transform, so it cannot
   place them. OME-Zarr also allows an image only one axis that is neither
@@ -260,7 +267,10 @@ bucket.
    before the check could never be moved off a bad commit. Each commit's
    metadata names its export and scans, so a rerun after a failure writes
    only what is missing. *Needs approval: writes the store.*
-4. REPORT.md, with the run's snapshots, timings and verify output.
+4. Run 2, `runs/02_twophoton.sh`, after the repo is purged: the same
+   ingest in the layout without the root collection, which replaces run 1's.
+   *Needs approval: purges and rewrites the store.*
+5. REPORT.md, with the run's snapshots, timings and verify output.
 
 **Expected run.** About 2 minutes to install, under 1 minute for the NWB
 metadata of 19 scans, and about 2 minutes per export: 19 scans, 8 at a time,

@@ -40,3 +40,15 @@ def test_a_well_can_also_be_a_scene():
 def test_every_axis_needs_a_translation():
     with pytest.raises(ValueError, match="no translation given"):
         scene_attrs({"0": {"y": 0, "x": 0}}, name="well", dims=DIMS, units=UNITS)
+
+
+def test_a_scene_declares_its_images_at_any_depth():
+    import zarr
+
+    from minus80.ome.hierarchy import declared
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    scan = root.create_group("scans/a")
+    scan.attrs.update(scene_attrs({"field-1": dict.fromkeys(DIMS, 0), "field-2": dict.fromkeys(DIMS, 0)},
+                                  name="stage", dims=DIMS, units=UNITS))
+    assert declared(root) == ["scans/a/field-1", "scans/a/field-2"]

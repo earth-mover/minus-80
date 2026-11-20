@@ -6,7 +6,7 @@ about a minute, through both exports' commits on main, which it finds by
 their commit metadata:
 
 - ``complete``: every scan in BossDB's listing has a group, with the fields
-  its NWB file states, and the collection lists every field image. One LIST
+  its NWB file states, and each scan's scene places every one of them. One LIST
   request.
 - ``schema``, ``dimension names``, ``physical size``: the shared OME-Zarr gates.
 - ``times``: each sampled scan's ``volume_times`` equals the NWB timestamps,
@@ -52,21 +52,21 @@ PATCH = 14
 
 
 def complete(root, names: list[str]) -> list[str]:
-    """Every scan BossDB lists has its group and fields, and the collection lists every field."""
+    """Every scan BossDB lists has its group and fields, and its scene places every field."""
     problems = []
     scans = root[ingest.SCANS]
-    listed = set(dict(root["OME"].attrs)["ome"]["series"])
     for name in names:
         if name not in scans:
             problems.append(f"no group for scan {name}")
             continue
-        count = dict(scans[name].attrs)["scan"]["fields"]
-        for n in range(1, count + 1):
+        attrs = dict(scans[name].attrs)
+        placed = {t["input"]["path"] for t in attrs["ome"]["scene"]["coordinateTransformations"]}
+        for n in range(1, attrs["scan"]["fields"] + 1):
             path = f"{ingest.SCANS}/{name}/field-{n}"
             if f"field-{n}" not in scans[name]:
                 problems.append(f"{path}: missing")
-            if path not in listed:
-                problems.append(f"{path}: not in the collection's series")
+            if f"field-{n}" not in placed:
+                problems.append(f"{path}: not placed by the scan's scene")
     return problems
 
 

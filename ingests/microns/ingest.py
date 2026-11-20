@@ -16,8 +16,12 @@ files:
   ``volume_times``, the time of each volume in seconds.
 - ``two-photon/<session>-<scan>/field-<n>`` is one imaging field, an image
   with axes (t, z, y, x): one TIFF page per chunk, one plane deep.
-- ``OME`` lists every field image, so a reader that knows OME-Zarr
-  collections finds them all.
+
+The root and ``two-photon`` are plain groups that describe what is below
+them. OME-Zarr 0.6 defines no structure for a group of scenes, and its
+``bioformats2raw.layout`` collection, which is transitional, would list the
+fields a second time beside the hierarchy that already holds them; each
+scene names its own images.
 
 The store is committed twice on ``main``. The first commit references the v1
 export, as it declares its pixels (uint16); the second references the v2
@@ -62,7 +66,7 @@ from minus80.core.icechunk_io import commit
 from minus80.core.manifest import stack, take
 from minus80.core.progress import Heartbeat
 from minus80.core.registry import registry_for
-from minus80.ome import image_annotation, image_attrs, root_attrs, scene_attrs, series_attrs
+from minus80.ome import image_annotation, image_attrs, scene_attrs
 from minus80.parsers.tiff import TiffParser
 
 SOURCE = ("s3://bossdb-open-data/iarpa_microns/minnie/functional_data/"
@@ -95,6 +99,9 @@ ROOT = {
         + "two_photon_functional_scans_technical_documentation_v2.pdf",
         "metadata": f"https://dandiarchive.org/dandiset/{DANDISET}/{DANDI_VERSION}",
     },
+    "layout": ("two-photon/<session>-<scan> is one scan, an OME-Zarr 0.6 scene; its "
+               "field-<n> groups are the scan's images, (t, z, y, x), and volume_times beside "
+               "them holds the time of each volume"),
     "codecs": "Zarr v3 core only (bytes); the pixels are uncompressed",
 }
 
@@ -320,7 +327,9 @@ PLANE_UM = 1.0
 
 def scans_attributes(scans: list[ScanFacts]) -> dict:
     return {
-        "description": "One group per two-photon scan, named <session>-<scan>; animal 17797.",
+        "description": ("One group per two-photon scan of animal 17797, named <session>-<scan>. "
+                        "Each scan group is an OME-Zarr 0.6 scene whose images are its fields, "
+                        "field-<n>, placed in the microscope's coordinates."),
         "scans": {f.scan.name: {"fields": len(f.fields), "volumes": len(f.volume_times),
                                 "rate_hz": f.rate_hz} for f in scans},
     }
@@ -407,11 +416,10 @@ def field_paths(scans: list[ScanFacts]) -> list[str]:
 # dies after either commit picks up where it stopped, and the second export
 # can be written alone. Tags come later, from verify.py.
 #
-# The driver writes the root and the scans group in one session, forks the session once per scan, and runs each scan in its own
-# worker process: parse the TIFF, write the scan's groups into the fork.
-# Merging the forks and committing once keeps the workers from rebasing on
-# each other. The collection's list of field images is written after the
-# merge, from the scans that succeeded.
+# The driver writes the root and the scans group in one session, forks the
+# session once per scan, and runs each scan in its own worker process: parse
+# the TIFF, write the scan's groups into the fork. Merging the forks and
+# committing once keeps the workers from rebasing on each other.
 #
 # The second export rewrites only the field images: same names, new chunk
 # references, new dtype. Before writing, each worker checks three pages per
@@ -514,7 +522,7 @@ def commit_export(repo, scans: list[ScanFacts], export: int, *, parallel: int,
         return done.id
     session = repo.writable_session("main")
     zarr.open_group(session.store, mode="a").attrs.put(
-        ROOT | root_attrs(VERSION) | {"tiff_export": EXPORTS[export]})
+        ROOT | {"tiff_export": EXPORTS[export]})
     zarr.open_group(session.store, path=SCANS, mode="a").attrs.put(scans_attributes(scans))
     jobs = {f.scan.name: (write_scan, (f, export, None if earlier is None else earlier[f.scan.name]))
             for f in scans}
@@ -523,7 +531,6 @@ def commit_export(repo, scans: list[ScanFacts], export: int, *, parallel: int,
     if failed:
         raise RuntimeError(f"{len(failed)} scans failed, nothing committed: {failed}")
     paths = field_paths(scans)
-    zarr.open_group(session.store, path="OME", mode="a").attrs.update(series_attrs(paths, VERSION))
     message = MESSAGES[export].format(fields=len(paths), scans=len(scans),
                                       pages=sum(s["pages"] for s in done.values()))
     metadata = {"tiff_export": EXPORTS[export], "scans": names,

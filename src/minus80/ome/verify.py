@@ -83,6 +83,8 @@ def schema(root, version: str) -> list[str]:
                 documents.append(("/".join(p for p in (path, OME) if p), node[OME], "ome"))
         if "well" in ome:
             documents.append((path, node, "well"))
+        if "scene" in ome:
+            documents.append((path, node, "scene"))
     for path, node, model in documents:
         try:
             validate(dict(node.attrs)["ome"], version, model=model)

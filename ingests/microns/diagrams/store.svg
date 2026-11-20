@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1174" viewBox="0 0 1400 1174">
-<rect x="0" y="0" width="1400" height="1174" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1086" viewBox="0 0 1400 1086">
+<rect x="0" y="0" width="1400" height="1086" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Store</text>
-<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr 0.6, bioformats2raw layout, two commits</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr 0.6, one scene per scan, two commits</text>
 <rect x="24.0" y="83.9" width="139.5" height="18" rx="3" fill="#dcfce7"/>
 <text x="93.7" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="middle" xml:space="preserve">written by ingest.py</text>
 <rect x="380.0" y="121.9" width="980.0" height="172.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
@@ -18,116 +18,105 @@
 <text x="483.2" y="241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pixels, pixels_documentation, metadata</text>
 <text x="394.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">tiff_export</text>
 <text x="483.2" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">v1: uint16, 2021-07-02; v2: int16, 2023-01-13 (one per commit)</text>
-<text x="394.0" y="281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
-<text x="483.2" y="281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">bioformats2raw.layout 3, version 0.6</text>
-<rect x="380.0" y="309.9" width="980.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="309.9" width="4" height="72.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="329.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">OME</text>
+<text x="394.0" y="281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">layout</text>
+<text x="483.2" y="281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one scene per scan under two-photon</text>
+<rect x="380.0" y="309.9" width="980.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="309.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="329.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon</text>
 <text x="394.0" y="346.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json</text>
-<text x="394.0" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">series</text>
-<text x="448.1" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">144 field image paths, two-photon/&lt;session&gt;-&lt;scan&gt;/field-&lt;n&gt;</text>
-<rect x="380.0" y="397.9" width="980.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="397.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="417.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon</text>
-<text x="394.0" y="434.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json</text>
-<text x="394.0" y="457.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">description</text>
-<text x="483.2" y="457.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one group per scan, &lt;session&gt;-&lt;scan&gt;</text>
-<text x="394.0" y="477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scans</text>
-<text x="483.2" y="477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19 entries: fields, volumes, rate_hz</text>
-<rect x="380.0" y="505.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="505.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="525.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;</text>
-<text x="394.0" y="542.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json, example 4-7</text>
-<text x="394.0" y="565.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene</text>
-<text x="490.2" y="565.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">version 0.6, coordinate system "motor" (t, z, y, x)</text>
-<text x="394.0" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">translations</text>
-<text x="490.2" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one per field, 8 in 4-7</text>
-<text x="394.0" y="605.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scan</text>
-<text x="490.2" y="605.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">animal, session, scan, volumes, fields, rate_hz, depths_um, coordinates, nwb, nwb_dandi_path, tiff</text>
-<rect x="380.0" y="633.9" width="980.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="633.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="653.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/volume_times</text>
-<text x="394.0" y="670.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">4-7: (40000,)</text>
-<text x="394.0" y="693.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
-<text x="476.1" y="693.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">float64</text>
-<text x="394.0" y="713.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">shape</text>
-<text x="476.1" y="713.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(volumes,), volumes 35,112–57,000</text>
-<text x="394.0" y="733.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
-<text x="476.1" y="733.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk</text>
-<text x="394.0" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">attributes</text>
-<text x="476.1" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">description, units</text>
-<rect x="380.0" y="781.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="781.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="801.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/field-&lt;n&gt;</text>
-<text x="394.0" y="818.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json</text>
-<text x="394.0" y="841.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
-<text x="483.2" y="841.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">multiscales, one level; scale (t, z, y, x)</text>
-<text x="394.0" y="861.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
-<text x="483.2" y="861.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">animal, center_um, depth_um, field, nwb, pixel_um, rate_hz, … (14 keys)</text>
-<text x="394.0" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">tiff</text>
-<text x="483.2" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">series</text>
-<rect x="380.0" y="909.9" width="980.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="909.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="929.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/field-&lt;n&gt;/0</text>
-<text x="394.0" y="946.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">5,908,896 chunks per export, one per TIFF page</text>
-<text x="394.0" y="969.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dimensions</text>
-<text x="476.1" y="969.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(t, z, y, x)</text>
-<text x="394.0" y="989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">shape</text>
-<text x="476.1" y="989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(35,112–57,000, 1, 440–600, 248–372)</text>
-<text x="394.0" y="1009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
-<text x="476.1" y="1009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1, 1, 440–600, 248–372)</text>
-<text x="394.0" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
-<text x="476.1" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint16 at v1, int16 at v2</text>
-<rect x="380.0" y="1057.9" width="980.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="1057.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="394.0" y="1077.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tags</text>
-<text x="394.0" y="1094.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">icechunk</text>
-<text x="394.0" y="1117.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1</text>
-<text x="420.0" y="1117.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">first commit: chunks reference the v1 TIFFs</text>
-<text x="394.0" y="1137.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v2</text>
-<text x="420.0" y="1137.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">second commit: same fields, chunks reference the v2 TIFFs</text>
+<text x="394.0" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">description</text>
+<text x="483.2" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one scene per scan, &lt;session&gt;-&lt;scan&gt;; no OME-Zarr metadata</text>
+<text x="394.0" y="389.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scans</text>
+<text x="483.2" y="389.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19 entries: fields, volumes, rate_hz</text>
+<rect x="380.0" y="417.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="417.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="437.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;</text>
+<text x="394.0" y="454.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json, example 4-7</text>
+<text x="394.0" y="477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene</text>
+<text x="490.2" y="477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">version 0.6, coordinate system "motor" (t, z, y, x)</text>
+<text x="394.0" y="497.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">translations</text>
+<text x="490.2" y="497.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one per field image, by path; 8 in 4-7</text>
+<text x="394.0" y="517.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scan</text>
+<text x="490.2" y="517.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">animal, session, scan, volumes, fields, rate_hz, depths_um, coordinates, nwb, nwb_dandi_path, tiff</text>
+<rect x="380.0" y="545.9" width="980.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="545.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="565.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/volume_times</text>
+<text x="394.0" y="582.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">4-7: (40000,)</text>
+<text x="394.0" y="605.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
+<text x="476.1" y="605.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">float64</text>
+<text x="394.0" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">shape</text>
+<text x="476.1" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(volumes,), volumes 35,112–57,000</text>
+<text x="394.0" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="476.1" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk</text>
+<text x="394.0" y="665.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">attributes</text>
+<text x="476.1" y="665.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">description, units</text>
+<rect x="380.0" y="693.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="693.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="713.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/field-&lt;n&gt;</text>
+<text x="394.0" y="730.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">zarr.json</text>
+<text x="394.0" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
+<text x="483.2" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">multiscales, one level; scale (t, z, y, x)</text>
+<text x="394.0" y="773.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
+<text x="483.2" y="773.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">animal, center_um, depth_um, field, nwb, pixel_um, rate_hz, … (14 keys)</text>
+<text x="394.0" y="793.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">tiff</text>
+<text x="483.2" y="793.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">series</text>
+<rect x="380.0" y="821.9" width="980.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="821.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="841.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/&lt;session&gt;-&lt;scan&gt;/field-&lt;n&gt;/0</text>
+<text x="394.0" y="858.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">5,908,896 chunks per export, one per TIFF page</text>
+<text x="394.0" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dimensions</text>
+<text x="476.1" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(t, z, y, x)</text>
+<text x="394.0" y="901.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">shape</text>
+<text x="476.1" y="901.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(35,112–57,000, 1, 440–600, 248–372)</text>
+<text x="394.0" y="921.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="476.1" y="921.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1, 1, 440–600, 248–372)</text>
+<text x="394.0" y="941.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
+<text x="476.1" y="941.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint16 at v1, int16 at v2</text>
+<rect x="380.0" y="969.9" width="980.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="969.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tags</text>
+<text x="394.0" y="1006.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">icechunk</text>
+<text x="394.0" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1</text>
+<text x="420.0" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">first commit: chunks reference the v1 TIFFs</text>
+<text x="394.0" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v2</text>
+<text x="420.0" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">second commit: same fields, chunks reference the v2 TIFFs</text>
 <circle cx="24.0" cy="136.9" r="4.5" fill="#15803d"/>
 <text x="35.0" y="141.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">/</text>
 <text x="35.0" y="157.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">root</text>
 <line x1="51.3" y1="136.9" x2="378.0" y2="136.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 24.0 141.9 V 324.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="46.0" cy="324.9" r="4.5" fill="#15803d"/>
-<text x="57.0" y="329.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">OME</text>
-<text x="57.0" y="345.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">collection</text>
-<line x1="90.0" y1="324.9" x2="378.0" y2="324.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 24.0 141.9 V 412.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="46.0" cy="412.9" r="4.5" fill="#15803d"/>
-<text x="57.0" y="417.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">two-photon</text>
-<text x="146.3" y="417.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
-<text x="57.0" y="433.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
-<line x1="176.2" y1="412.9" x2="378.0" y2="412.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 46.0 417.9 V 520.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="68.0" cy="520.9" r="4.5" fill="#15803d"/>
-<text x="79.0" y="525.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">&lt;session&gt;-&lt;scan&gt;</text>
-<text x="218.2" y="525.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
-<text x="79.0" y="541.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene</text>
-<line x1="248.2" y1="520.9" x2="378.0" y2="520.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 68.0 525.9 V 648.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="90.0" cy="648.9" r="4.5" fill="#15803d"/>
-<text x="101.0" y="653.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">volume_times</text>
-<text x="206.9" y="653.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
-<text x="101.0" y="669.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
-<line x1="236.9" y1="648.9" x2="378.0" y2="648.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 68.0 525.9 V 796.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="90.0" cy="796.9" r="4.5" fill="#15803d"/>
-<text x="101.0" y="801.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">field-&lt;n&gt;</text>
-<text x="181.9" y="801.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×144</text>
-<text x="101.0" y="817.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image</text>
-<line x1="219.2" y1="796.9" x2="378.0" y2="796.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 90.0 801.9 V 924.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="112.0" cy="924.9" r="4.5" fill="#15803d"/>
-<text x="123.0" y="929.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">0</text>
-<text x="137.3" y="929.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×144</text>
-<text x="123.0" y="945.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
-<line x1="174.6" y1="924.9" x2="378.0" y2="924.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<circle cx="24.0" cy="1072.9" r="4.5" fill="#15803d"/>
-<text x="35.0" y="1077.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">tags</text>
-<text x="74.3" y="1077.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×2</text>
-<text x="35.0" y="1093.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1, v2</text>
-<line x1="96.9" y1="1072.9" x2="378.0" y2="1072.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<text x="57.0" y="329.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">two-photon</text>
+<text x="146.3" y="329.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
+<text x="57.0" y="345.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
+<line x1="176.2" y1="324.9" x2="378.0" y2="324.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 329.9 V 432.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="432.9" r="4.5" fill="#15803d"/>
+<text x="79.0" y="437.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">&lt;session&gt;-&lt;scan&gt;</text>
+<text x="218.2" y="437.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
+<text x="79.0" y="453.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene</text>
+<line x1="248.2" y1="432.9" x2="378.0" y2="432.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 437.9 V 560.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="560.9" r="4.5" fill="#15803d"/>
+<text x="101.0" y="565.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">volume_times</text>
+<text x="206.9" y="565.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
+<text x="101.0" y="581.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<line x1="236.9" y1="560.9" x2="378.0" y2="560.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 437.9 V 708.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="708.9" r="4.5" fill="#15803d"/>
+<text x="101.0" y="713.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">field-&lt;n&gt;</text>
+<text x="181.9" y="713.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×144</text>
+<text x="101.0" y="729.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image</text>
+<line x1="219.2" y1="708.9" x2="378.0" y2="708.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 713.9 V 836.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="836.9" r="4.5" fill="#15803d"/>
+<text x="123.0" y="841.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">0</text>
+<text x="137.3" y="841.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×144</text>
+<text x="123.0" y="857.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<line x1="174.6" y1="836.9" x2="378.0" y2="836.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<circle cx="24.0" cy="984.9" r="4.5" fill="#15803d"/>
+<text x="35.0" y="989.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">tags</text>
+<text x="74.3" y="989.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×2</text>
+<text x="35.0" y="1005.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1, v2</text>
+<line x1="96.9" y1="984.9" x2="378.0" y2="984.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 </svg>

@@ -13,6 +13,13 @@ carries both ``bioformats2raw.layout`` and ``plate``, and the spec says the
 plate takes precedence, so such a group is read as a plate. The spec does not
 let a collection list plates among its images.
 
+An OME-Zarr 0.6 scene is the group above images that share a spatial
+relationship, and it names each image by the ``path`` of a coordinate
+transformation's input or output. A study may hold scenes at any depth, the
+fields of each scan of an experiment, say, so a reader finds a scene's images
+through those paths. A group can be a well and a scene at once, so an image
+declared both ways is listed once.
+
 An image may also hold images derived from it, such as a projection, as
 subgroups. The spec names no such subgroup, so the image lists them in its
 :data:`DERIVED` attribute, and a reader finds them there rather than by
@@ -83,6 +90,21 @@ def collection_series(study) -> list[str]:
     return found
 
 
+def scene_images(study) -> list[str]:
+    """The images every 0.6 scene in the study places, by the paths of its transformations."""
+    found = []
+    for path, node in _groups(study):
+        scene = _ome(node).get("scene")
+        if not isinstance(scene, dict):
+            continue
+        for transform in scene.get("coordinateTransformations", []):
+            for end in ("input", "output"):
+                ref = transform.get(end)
+                if isinstance(ref, dict) and ref.get("path"):
+                    found.append(_join(path, ref["path"]))
+    return found
+
+
 def derived(study, images: list[str]) -> list[str]:
     """The derived images each of ``images`` lists in its :data:`DERIVED` attribute."""
     found = []
@@ -96,8 +118,8 @@ def derived(study, images: list[str]) -> list[str]:
 
 
 def declared(study) -> list[str]:
-    """Every image path the study declares: collection series, plate fields and derived images."""
-    primary = collection_series(study) + plate_fields(study)
+    """Every image path the study declares: collection series, plate fields, scene images and derived images."""
+    primary = list(dict.fromkeys(collection_series(study) + plate_fields(study) + scene_images(study)))
     return primary + derived(study, primary)
 
 
