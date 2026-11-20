@@ -390,7 +390,7 @@ minute at full scale: completeness against idc-index, every array's codecs
 against the root's `codecs` list, and each slide's levels, units and pixel
 size. On 10 sampled slides it compares a tile with its DICOM fragment and the
 thumbnail with pydicom's decode. The `codecs` list holds only codecs that
-zarr itself or imagecodecs-zarr registers: `bytes`, `transpose`, `zstd`,
+zarr itself or imagecodecs provides: `bytes`, `transpose`, `zstd`,
 `blosc`, `imagecodecs_jpeg` and `imagecodecs_jpeg2k`. No reader needs code
 from this repository. `--pins` reads the stored ETag of every virtual array of
 the sampled slides with `core-drill`, because Icechunk's Python API does not

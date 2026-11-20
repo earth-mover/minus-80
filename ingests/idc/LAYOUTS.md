@@ -113,7 +113,8 @@ carries a 140 KB ICC profile, which compression stores about once per slide.
 | Attribute | Content |
 | --- | --- |
 | `idc_version`, `idc_index_data` | the IDC release and the catalog version the store reflects |
-| `codecs` | every codec name in the store and the package that registers it with zarr; `verify.py` refuses any other |
+| `codecs` | every codec name in the store and the package that provides it: zarr, or imagecodecs for the JPEG tiles; `verify.py` refuses any other |
+| `reading` | how a reader gets those codecs: `pip install imagecodecs` and `imagecodecs.zarr.register_codecs()`, or imagecodecs-zarr, which registers them automatically |
 | `references_pinned_by` | how the references are pinned (below) |
 | `left_out` | each slide the run could not write, with the error |
 

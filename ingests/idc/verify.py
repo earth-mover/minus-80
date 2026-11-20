@@ -5,7 +5,7 @@ Gates on every node, from the store's own metadata (no source requests):
 - **completeness**: every slide idc-index lists for the collection is in the
   store or named in the root's ``left_out``, and the store holds no other;
 - **codecs**: every array's codecs are among those the root's ``codecs``
-  names, each registered by zarr or imagecodecs-zarr, so no reader needs code
+  names, each provided by zarr or imagecodecs, so no reader needs code
   from this repository;
 - **metadata**: every slide has an ``image`` of two or more levels in
   micrometers, largest first, with a pixel size other than 1, and a

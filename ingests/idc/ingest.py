@@ -49,12 +49,20 @@ UM = {"c": None, "y": "micrometer", "x": "micrometer"}
 #: and one batch is one merge of that many forks.
 BATCH = 500
 
-#: The codecs a reader needs, and the package that registers each with zarr.
-#: verify.py refuses any other codec name in the store.
+#: The codecs a reader needs, and the package that provides each. verify.py
+#: refuses any other codec name in the store.
 CODECS = {
     "bytes": "zarr", "transpose": "zarr", "zstd": "zarr", "blosc": "zarr",
-    "imagecodecs_jpeg": "imagecodecs-zarr", "imagecodecs_jpeg2k": "imagecodecs-zarr",
+    "imagecodecs_jpeg": "imagecodecs", "imagecodecs_jpeg2k": "imagecodecs",
 }
+
+#: How a reader gets those codecs, stated in the root so the store says it itself.
+READING = (
+    "Reading the slide tiles needs imagecodecs, whose Zarr codecs decode the DICOM JPEG and "
+    "JPEG 2000 tiles: pip install imagecodecs, then call imagecodecs.zarr.register_codecs() "
+    "before opening an array, or install imagecodecs-zarr, which registers them with zarr "
+    "automatically. Thumbnails, overviews and DICOM headers need only zarr. Virtual chunks "
+    "read s3://idc-open-data anonymously (AWS us-east-1).")
 
 
 # Selection
@@ -236,6 +244,7 @@ def root_attributes(collection: str, facts: dict, source: Source, refused: dict[
         "source": source.root,
         "references_pinned_by": "the ETag of each source object, as the bucket listing reported it",
         "codecs": dict(CODECS),
+        "reading": READING,
         "left_out": refused,
     }
 
