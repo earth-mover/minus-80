@@ -294,3 +294,76 @@ def test_volume_without_positions_falls_back_to_instance_number(tmp_path):
 
     assert geometry["z_spacing"] is None
     np.testing.assert_array_equal(_read(marr), expected)
+
+
+def _encapsulated_wsi(path, frames, *, xfer, photometric, has_bot, tile=16, cols=32):
+    import pydicom
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.encaps import encapsulate
+    from pydicom.uid import generate_uid
+
+    fm = FileMetaDataset()
+    fm.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.77.1.6"
+    fm.MediaStorageSOPInstanceUID = generate_uid()
+    fm.TransferSyntaxUID = xfer
+    ds = Dataset()
+    ds.file_meta = fm
+    ds.SOPClassUID = fm.MediaStorageSOPClassUID
+    ds.SOPInstanceUID = fm.MediaStorageSOPInstanceUID
+    ds.ImageType = ["DERIVED", "PRIMARY", "VOLUME", "NONE"]
+    ds.Rows, ds.Columns = tile, tile
+    ds.TotalPixelMatrixRows, ds.TotalPixelMatrixColumns = tile, cols
+    ds.NumberOfFrames = len(frames)
+    ds.SamplesPerPixel = 3
+    ds.PlanarConfiguration = 0
+    ds.PhotometricInterpretation = photometric
+    ds.BitsAllocated, ds.BitsStored, ds.HighBit = 8, 8, 7
+    ds.PixelRepresentation = 0
+    ds.DimensionOrganizationType = "TILED_FULL"
+    ds.PixelData = encapsulate(frames, has_bot=has_bot)
+    ds["PixelData"].VR = "OB"
+    ds["PixelData"].is_undefined_length = True
+    # A trailing element after PixelData, as real slides carry, so the last
+    # frame's length cannot be taken from the end of the file.
+    ds.add_new(0xFFFC_FFFC, "OB", b"\x00" * 16)
+    pydicom.dcmwrite(path, ds, enforce_file_format=True)
+
+
+def test_frame_ranges_from_a_filled_offset_table_match_the_walk(tmp_path):
+    """A filled Basic Offset Table gives the same frame ranges as walking every Item."""
+    import imagecodecs
+    from pydicom.uid import JPEGBaseline8Bit
+
+    from minus80.parsers.dicom import encapsulated_frame_ranges
+
+    rng = np.random.default_rng(2)
+    frames = [imagecodecs.jpeg8_encode(rng.integers(0, 256, (16, 16, 3), dtype=np.uint8), level=q)
+              for q in (90, 50)]
+    ranges = {}
+    for has_bot in (True, False):
+        path = tmp_path / f"bot_{has_bot}.dcm"
+        _encapsulated_wsi(path, frames, xfer=JPEGBaseline8Bit, photometric="YBR_FULL_422", has_bot=has_bot)
+        ranges[has_bot] = encapsulated_frame_ranges(path)
+        with open(path, "rb") as f:
+            assert encapsulated_frame_ranges(f) == ranges[has_bot]
+        data = path.read_bytes()
+        for (offset, length), frame in zip(ranges[has_bot], frames):
+            assert data[offset:offset + len(frame)] == frame
+    assert ranges[True] != ranges[False]  # the table shifts every frame by its own length
+    assert [n for _, n in ranges[True]] == [n for _, n in ranges[False]]
+
+
+def test_jpeg2000_without_a_color_transform_is_refused(tmp_path):
+    """JPEG 2000 labeled YBR_FULL_422 decodes to YCbCr through imagecodecs, so the
+    parser refuses it rather than reference tiles that would read as wrong colors."""
+    import imagecodecs
+    import pytest
+    from pydicom.uid import JPEG2000
+
+    from minus80.parsers.dicom import wsi_level_array
+
+    frames = [imagecodecs.jpeg2k_encode(np.zeros((16, 16, 3), np.uint8), level=0)] * 2
+    path = tmp_path / "ybr.dcm"
+    _encapsulated_wsi(path, frames, xfer=JPEG2000, photometric="YBR_FULL_422", has_bot=False)
+    with pytest.raises(ValueError, match="YCbCr"):
+        wsi_level_array(path)

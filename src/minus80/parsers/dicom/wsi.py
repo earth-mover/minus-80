@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from contextlib import contextmanager
+from typing import BinaryIO
 from pathlib import Path
 
 import numpy as np
@@ -30,35 +32,81 @@ _XFER_CODEC = {
     "1.2.840.10008.1.2.4.51": "imagecodecs_jpeg",    # JPEG Extended
 }
 _NATIVE = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1"}
+ITEM_TAG = b"\xfe\xff\x00\xe0"  # (FFFE,E000), little-endian
+# A JPEG 2000 codestream decodes to RGB only when it is RGB or carries the
+# multi-component transform, which DICOM labels YBR_ICT or YBR_RCT. IDC's TCGA
+# slides also hold JPEG 2000 labeled YBR_FULL_422 whose codestreams have no
+# transform (the COD marker's MCT byte is 0): imagecodecs returns Y, Cb and Cr
+# as the three channels, and no Zarr codec converts them.
+_J2K_DECODES_TO_RGB = {"RGB", "YBR_ICT", "YBR_RCT"}
 
 
-def encapsulated_frame_ranges(path: str | Path) -> list[tuple[int, int]]:
+def encapsulated_frame_ranges(source: str | Path | BinaryIO) -> list[tuple[int, int]]:
     """Byte (offset, length) of each encoded frame in an encapsulated PixelData.
 
-    BUY the locating and the walk: ``dcmread(..., stop_before_pixels=True)`` parses
-    every element up to PixelData and leaves the file positioned at its tag, and
-    ``pydicom.encaps.parse_fragments`` finds every Item in the encapsulated value
-    (Basic Offset Table Item first, then one fragment Item per frame here), so we
-    neither search the file for the tag bytes nor hand-roll the item parsing. We add
-    only the absolute-offset arithmetic no reader exposes: each fragment's *value*
-    bytes are the encoded codestream a Zarr codec decodes. Assumes one fragment per
-    frame (the WSI norm).
+    ``source`` is a path or a seekable binary file, such as
+    ``minus80.core.remote.reader`` over a remote object.
+
+    BUY the locating: ``dcmread(..., stop_before_pixels=True)`` parses every
+    element up to PixelData and leaves the file positioned at its tag. Each
+    fragment's *value* bytes are the codestream a Zarr codec decodes; the offset
+    arithmetic is the one thing no reader exposes. Assumes one fragment per frame
+    (the WSI norm).
+
+    When the Basic Offset Table is filled in, the frame positions come from it:
+    frame *i*'s Item starts ``BOT[i]`` bytes after the first fragment Item, and
+    its value runs up to the next frame's Item. Only the last frame's Item header
+    is read, for its length. IDC's GTEx slides carry a filled table, so a level
+    is indexed from its header, the table and one 8-byte read, wherever the file
+    is. An empty table, as in IDC's TCGA slides, leaves no way but walking every
+    fragment Item through the whole PixelData with
+    ``pydicom.encaps.parse_fragments``, which over a network means reading the
+    file.
     """
     import pydicom
     from pydicom.encaps import parse_fragments
 
-    with open(path, "rb") as f:
-        pydicom.dcmread(f, stop_before_pixels=True)  # positions f at the PixelData element
+    with _binary(source) as f:
+        pydicom.dcmread(f, stop_before_pixels=True)
         head = f.read(12)
         if head[:4] != PIXEL_DATA_TAG or head[8:12] != b"\xff\xff\xff\xff":
-            raise ValueError(f"{Path(path).name}: PixelData is not encapsulated.")
+            raise ValueError(f"{_name(source)}: PixelData is not encapsulated.")
+        bot_item = f.read(8)
+        if bot_item[:4] != ITEM_TAG:
+            raise ValueError(f"{_name(source)}: no Basic Offset Table Item after PixelData.")
+        bot_length = int.from_bytes(bot_item[4:8], "little")
+        if bot_length:
+            bot = np.frombuffer(f.read(bot_length), "<u4").astype(np.int64)
+            first = f.tell()
+            starts = first + bot
+            f.seek(int(starts[-1]))
+            last = f.read(8)
+            if last[:4] != ITEM_TAG:
+                raise ValueError(f"{_name(source)}: the last Basic Offset Table entry is not an Item.")
+            ends = np.append(starts[1:], starts[-1] + 8 + int.from_bytes(last[4:8], "little"))
+            return [(int(s) + 8, int(e - s) - 8) for s, e in zip(starts, ends)]
+        f.seek(-8, 1)
         _, positions = parse_fragments(f)  # absolute file offsets of each Item tag
         ranges: list[tuple[int, int]] = []
         for item in positions[1:]:  # skip index 0 (the Basic Offset Table Item)
             f.seek(item + 4)
-            length = int.from_bytes(f.read(4), "little")  # the Item's own length
+            length = int.from_bytes(f.read(4), "little")
             ranges.append((item + 8, length))
     return ranges
+
+
+@contextmanager
+def _binary(source):
+    if isinstance(source, (str, Path)):
+        with open(source, "rb") as f:
+            yield f
+    else:
+        source.seek(0)
+        yield source
+
+
+def _name(source) -> str:
+    return Path(source).name if isinstance(source, (str, Path)) else repr(source)
 
 
 def _level_metadata(path: str | Path) -> dict:
@@ -72,6 +120,9 @@ def _level_metadata(path: str | Path) -> dict:
     bits = int(ds.BitsAllocated)
     if bits != 8 and not (bits == 16 and samples == 1):
         raise ValueError(f"{Path(path).name}: unsupported bits/samples ({bits}/{samples}).")
+    photometric = str(ds.PhotometricInterpretation)
+    if _XFER_CODEC.get(xfer) == "imagecodecs_jpeg2k" and samples == 3 and photometric not in _J2K_DECODES_TO_RGB:
+        raise ValueError(f"{Path(path).name}: JPEG 2000 in {photometric} decodes to YCbCr, not RGB.")
     return {
         "xfer": xfer,
         "total_y": int(ds.TotalPixelMatrixRows),

@@ -74,6 +74,12 @@ fill value 0, because Icechunk rejects a zero-length reference.
 - **Compressed.** PixelData is a Basic Offset Table Item followed by one
   fragment Item per frame. Each fragment's value starts 8 bytes after its Item
   tag. In `TILED_FULL` order frame *i* is tile `(i // n_cols, i % n_cols)`.
+  When the Basic Offset Table is filled in, the frame positions come from it,
+  and only the last frame's Item header is read; a level is then indexed from
+  its header, the table and one more read, which `encapsulated_frame_ranges`
+  can do through a seekable remote reader. When the table is empty, every Item
+  has to be walked, which over a network means reading the whole file. IDC's
+  GTEx slides fill the table; its TCGA slides leave it empty.
 
 Two shortcuts gave wrong offsets; the tests cover the second:
 
@@ -98,6 +104,11 @@ different cycles.
   everywhere; JPEG Baseline, JPEG Extended and JPEG 2000 for whole-slide levels
   only. Anything else raises `ValueError`, including JPEG-XR, which has no Zarr
   codec.
+- **JPEG 2000 color:** a three-sample JPEG 2000 level must be `RGB`,
+  `YBR_ICT` or `YBR_RCT`, whose codestreams decode to RGB. IDC's TCGA slides
+  also hold JPEG 2000 labeled `YBR_FULL_422` with no color transform in the
+  codestream; imagecodecs decodes those to Y, Cb and Cr, and no Zarr codec
+  converts them, so the parser refuses them.
 - **Multiplex** reads one instance per optical path. A series that stores every
   channel in one multi-frame instance is not supported.
 - **Volumes** are single-frame slices. Enhanced multi-frame CT and MR, with the
