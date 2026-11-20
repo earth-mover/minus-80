@@ -76,6 +76,8 @@ def encapsulated_frame_ranges(source: Source) -> list[tuple[int, int]]:
         if bot_length:
             bot = np.frombuffer(f.read(bot_length), "<u4").astype(np.int64)
             first = f.tell()
+            if bot[0] != 0 or f.read(4) != ITEM_TAG:
+                raise ValueError(f"{source_name(source)}: the first Basic Offset Table entry is not an Item.")
             starts = first + bot
             f.seek(int(starts[-1]))
             last = f.read(8)
@@ -117,7 +119,35 @@ def _level_metadata(path: Source) -> dict:
         "n_frames": int(ds.NumberOfFrames),
         "samples": samples,
         "dtype": np.dtype("uint8" if bits == 8 else "uint16"),
+        "photometric": photometric,
+        "bits": bits,
     }
+
+
+#: The JPEG stream's color space for each DICOM photometric interpretation of
+#: a JPEG frame (PS3.5 8.2.1): YBR_FULL_422 and YBR_FULL frames hold YCbCr,
+#: RGB frames hold RGB components with no transform, as IDC's GTEx tiles do
+#: (an Adobe APP14 marker with transform 0).
+_JPEG_STREAM = {"RGB": "RGB", "YBR_FULL_422": "YCbCr", "YBR_FULL": "YCbCr", "MONOCHROME2": "GRAYSCALE"}
+
+
+def _image_codec(name: str, photometric: str, bits: int, samples: int) -> dict:
+    """The imagecodecs codec entry for a level's frames, spelled as ``to_dict`` writes it.
+
+    A JPEG entry states its bit depth and its stream and output color spaces,
+    the form the TIFF parser writes for CAMELYON's tiles, whose stores QuPath
+    reads through icechunk-java. Stating the color spaces keeps a decoder from
+    guessing them from markers.
+    """
+    from imagecodecs.zarr import Jpeg, Jpeg2k
+
+    if name == "imagecodecs_jpeg2k":
+        return Jpeg2k().to_dict()
+    if photometric not in _JPEG_STREAM:
+        raise ValueError(f"JPEG frames in {photometric} are out of scope.")
+    stream = _JPEG_STREAM[photometric]
+    output = "GRAYSCALE" if samples == 1 else "RGB"
+    return Jpeg(bitspersample=bits, colorspace_jpeg=stream, colorspace_data=output).to_dict()
 
 
 def wsi_level_array(
@@ -140,7 +170,7 @@ def wsi_level_array(
     xfer = m["xfer"]
     if xfer in _XFER_CODEC:
         ranges = encapsulated_frame_ranges(path)
-        codec = {"name": _XFER_CODEC[xfer]}
+        codec = _image_codec(_XFER_CODEC[xfer], m["photometric"], m["bits"], m["samples"])
     elif xfer in _NATIVE:  # contiguous native frames: arithmetic offsets
         frame_bytes = ty * tx * s * m["dtype"].itemsize
         off0, _ = native_pixeldata_byte_range(path, frame_bytes * m["n_frames"])

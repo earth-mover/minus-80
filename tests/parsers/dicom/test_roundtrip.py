@@ -257,7 +257,11 @@ def test_compressed_tiles_use_imagecodecs_serializers(tmp_path):
 
         marr = wsi_level_array(path)
         codecs = [c.to_dict() for c in marr.metadata.codecs]
-        assert codecs == [{"name": "transpose", "configuration": {"order": (1, 2, 0)}}, {"name": name}]
+        expected_codec = {"name": name} if name.endswith("2k") else {
+            "name": name,
+            "configuration": {"bitspersample": 8, "colorspace_data": "RGB", "colorspace_jpeg": "YCbCr"},
+        }
+        assert codecs == [{"name": "transpose", "configuration": {"order": (1, 2, 0)}}, expected_codec]
         url = next(marr.manifest.iter_nonempty_paths())
         store = ManifestStore(ManifestGroup(arrays={"image": marr}), registry=registry_for(url))
         image = zarr.open(store, mode="r")["image"][:]
