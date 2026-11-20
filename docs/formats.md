@@ -70,6 +70,14 @@ byte range per chunk, so `minus80.core.builders.flat_binary` chunks along it. A
 small window inside a plane then reads whole slabs, so random access to small
 full-resolution windows needs a copy.
 
+A long 1-D column, such as a spike-time `.npy` with 21 million rows, would get
+one chunk per element that way. Pass `rows_per_chunk` to group rows into
+slabs: an uncompressed file has no storage unit of its own, so any byte range
+is a chunk that needs no decoding. Zarr cannot decode a short last chunk from
+a reference, so write the rows past the last full chunk natively, from the
+bytes `flat_tail` names. Size the slab against that native remainder: 2^18
+rows of float64 leaves at most 2 MB per column.
+
 ### Reference the base level and write derived levels natively
 
 Icechunk can mix virtual and native chunks in one repo. For a source with no
@@ -105,6 +113,17 @@ Indexing cost is the number of round trips through the metadata chain, not the
 number of bytes. A 131 MB stack with a 658-page directory chain takes 190 s to
 index from a laptop, and 2.7 s to download whole.
 `minus80.parsers.tiff.inspect.indexing_cost` measures both strategies.
+
+### Index a well-chunked HDF5 file in place
+
+The cost of indexing HDF5 remotely is set by the number of index nodes, not by
+the file's size. A 92 GB IBL NWB file written by NeuroConv, with 10 MB chunks,
+indexes one probe's 9,000 chunks in 189 requests and 12 MB, in 29 s from a
+laptop. Downloading the file to index it, as `minus80.parsers.nwb` does for a
+remote source, would move 92 GB. Count the chunks first: a file with millions
+of small chunks has an index worth downloading, and one with thousands does
+not. Pass `HDFParser` a block reader (`reader_factory`) with 64 KB blocks; the
+block size barely matters when the walk is bound by round trips.
 
 ### Probe the layout before walking it
 
@@ -181,6 +200,8 @@ file from the target archive as the primary fixture.
 | Trap | Fix |
 | --- | --- |
 | obstore re-encodes `%20` as `%2520` and gets a 404 | `minus80.core.registry.store_and_key` decodes once |
+| obspec-utils' registry keeps a store's prefix in the key when a folder name needs percent-encoding (`#2024-05-06#`, a space, `+`), so the prefix is requested twice and 404s | `minus80.core.registry.key_within` compares decoded with decoded |
+| A `#` left unencoded in a URL starts its fragment, and everything after it is dropped from the key | write `%23`; Icechunk reads a virtual chunk whose URL holds `%23` |
 | `obstore.from_url` signs requests to S3 hosts and fails off EC2 | a plain `HTTPStore` for anonymous reads |
 | `s3://idr/` fails TLS with virtual-host addressing | `force_path_style` |
 | Icechunk refuses virtual reads from an unauthorized prefix | `minus80.core.icechunk_io.open_repo` authorizes the prefixes in the repo config |
