@@ -81,3 +81,28 @@ def test_a_study_without_a_collection_declares_the_images_it_holds():
     assert list(images(root)) == ["patient_1/node_0/image", "patient_1/node_1/image", "patient_1/node_1/macro"]
     assert series_matches(root) == []
     assert levels_aligned(root, sample=3) == [] and physical_size(root) == []
+
+
+def _cropped(level_1_width):
+    """A two-level image whose level 1 is cropped to ``level_1_width`` and keeps a 2x pixel size."""
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    root.attrs.update(root_attrs("0.6"))
+    root.create_group("OME").attrs.update(series_attrs(["img"], version="0.6"))
+    image = root.create_group("img")
+    shapes = [(64, 1100), (32, level_1_width)]
+    image.attrs["ome"] = image_attrs(name="img", dims=("y", "x"), level_shapes=shapes, units=UNITS,
+                                     scale={"y": 0.25, "x": 0.25},
+                                     level_scales=[{"y": 0.25, "x": 0.25}, {"y": 0.5, "x": 0.5}],
+                                     version="0.6")
+    for i, shape in enumerate(shapes):
+        image.create_array(str(i), data=np.indices(shape).sum(0).astype("u2") // (i + 1),
+                           chunks=(32, 256), dimension_names=("y", "x"))
+    return root
+
+
+def test_a_level_cropped_to_whole_chunks_passes():
+    assert [p for p in levels_aligned(_cropped(512), sample=1) if "scale" in p] == []
+
+
+def test_a_level_cropped_off_a_chunk_boundary_fails():
+    assert any("scale 0.5" in p for p in levels_aligned(_cropped(520), sample=1))

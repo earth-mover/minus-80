@@ -234,7 +234,11 @@ def levels_aligned(root, sample: int) -> list[str]:
     level half the size of level 0 has pixels twice as large, to within one of
     its own pixels. That allows a scanner rounding a level's size, and a level
     cut from a coarser pyramid that covers one more coarse pixel than its
-    base divides into; a mis-stated scale is off by a factor, not a pixel.
+    base divides into; a mis-stated scale is off by a factor, not a pixel. A
+    level may also stop short of level 0's extent by less than one of its own
+    chunks when it ends on a whole chunk: some Philips scanners crop a reduced
+    level to whole tiles instead of rescaling it, so 21 of CAMELYON17's
+    Philips slides have a level 64 pixels narrower than level 0 halved.
     And each level small enough to read whole must be what the next finer one
     averages down to. That catches a level whose *pixels* are not what its
     metadata says, such as the wrong page or directory, which no arithmetic on
@@ -251,10 +255,15 @@ def levels_aligned(root, sample: int) -> list[str]:
         base_shape, base_scale = image[paths[0]].shape, by_path[paths[0]]
         for p in paths[1:]:
             for axis in (-2, -1):
-                expected = base_scale[axis] * base_shape[axis] / image[p].shape[axis]
-                # One of this level's pixels, in physical units, as declared.
-                if abs(by_path[p][axis] - expected) > by_path[p][axis] / image[p].shape[axis] * (1 + 1e-9):
-                    problems.append(f"{name}/{p}: scale {by_path[p][axis]:.4g} on axis "
+                declared, size = by_path[p][axis], image[p].shape[axis]
+                chunk = image[p].chunks[axis]
+                # How far this level falls short of level 0's extent, in its own pixels.
+                short = (base_scale[axis] * base_shape[axis] - declared * size) / declared
+                rounded = abs(short) <= 1 + 1e-9
+                cropped = 0 < short < chunk and size % chunk == 0
+                if not (rounded or cropped):
+                    expected = base_scale[axis] * base_shape[axis] / size
+                    problems.append(f"{name}/{p}: scale {declared:.4g} on axis "
                                     f"{axis} but shape implies {expected:.4g}")
         small = [p for p in paths if max(image[p].shape) <= 2048]
         planes = [_grey(image[p]) for p in small]
