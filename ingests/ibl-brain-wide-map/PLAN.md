@@ -237,7 +237,7 @@ repo and reading the sources anonymously.
 | Repo on disk after both commits | 41 MB of native chunks, 2.1 MB of manifests |
 | Commit of one session's 431 arrays to a local repo | 0.1 s |
 | The notebook, with only zarr, xarray and icechunk installed | runs end to end |
-| Store check (`verify.py`) from a clean environment | 10.5 s, all checks pass |
+| Store check (`verify.py`) from a clean environment, with the codec and per-tag sort gates | 9 s, all checks pass |
 
 The store check compared, byte for byte, an AP window across a chunk
 boundary and the last 500 LF samples
@@ -281,9 +281,16 @@ on Coiled.
    unpushed code, tags the commit `ibl-run1-ten-sessions` and starts one
    Coiled batch job in us-east-1. The job writes each session in its own
    commit with the 2022 sort and tags `sort-2022`, writes each session's 2024
-   sort and tags `sort-2024`, then runs `verify.py`. A session already on
-   `main` with the pass's sort is skipped, so a stopped job can be launched
-   again.
+   sort and tags `sort-2024`, then runs `verify.py`.
+
+If the job stops, a new `runs/02_*.sh` with a new git tag launches it again,
+and it resumes. A pass whose repo tag exists is skipped whole. Inside a pass,
+a session counts as written when `main` holds it with that pass's sort or a
+later one, so a relaunch never writes the 2022 sort over the 2024 one and
+never writes a session's NWB files twice. A pass tags `main` only when every
+session holds exactly its sort. `test_ingest.py` stops a two-session run
+inside the 2022 pass, after `sort-2022`, and inside the 2024 pass, relaunches
+it, and checks the tags, `main` and the commit history.
 4. Record the result in the run script's header; run the notebook against
    Arraylake; write REPORT.md.
 
@@ -344,9 +351,11 @@ IBL bucket holds caches and aggregates outside `data/`.
   rewriting the NWB groups' metadata, not the references.
 - **The references depend on two hosts keeping their files.** DANDI's blobs
   are content-addressed, belong to a published version and are read with
-  their ETag. IBL left the 2022 sort in place when it published the 2024
-  re-sort, but a future fix could replace files; a re-run of `verify.py`
-  would find it.
+  their ETag. Each ALF reference is pinned to its file's S3 ETag, read with
+  a HEAD at ingest and checked against the MD5 in IBL's listing where the
+  file was uploaded in one part. IBL left the 2022 sort in place when it
+  published the 2024 re-sort; if a later fix replaces a file, reads of it
+  fail instead of returning other bytes.
 - **IBL fixes more data later.** The 2025 fixes touched wheel and sync data,
   which live in the processed NWB on DANDI; a new dandiset version would be a
   new commit of that group. A future re-sort would be a third tag.

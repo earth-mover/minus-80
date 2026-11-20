@@ -2,7 +2,9 @@
 # Run the IBL ingest on one Coiled VM in us-east-1.
 #   ARRAYLAKE_TOKEN=... RUN=<runs script> TAG=<git tag> bash launch.sh
 # A script under ../runs/ sets RUN to its own path and TAG to the git tag that
-# names the run's commit; the job prints both beside the commit.
+# names the run's commit; the job prints both beside the commit. To resume a
+# stopped run, add a new runs/ script with a new TAG: the job skips every pass
+# already tagged in the repo and every session already written.
 #
 # The job runs the committed code only: launching refuses a working tree with
 # changes to the package, this ingest or the lockfile, and refuses a commit
@@ -36,6 +38,10 @@ NAME="ibl-bwm-$(date -u +%H%M%S)"
 
 STAGE=$(mktemp -d)
 (cd "$ROOT" && uv build --wheel -q --out-dir "$STAGE")
+# The job installs exactly the versions uv.lock resolves for this ingest,
+# git sources included, and the wheel without its own dependencies.
+(cd "$ROOT" && uv export --package ibl-brain-wide-map-ingest --no-hashes --no-emit-workspace \
+    --no-dev --frozen -q -o "$STAGE/requirements.txt")
 cp "$ROOT"/ingests/ibl-brain-wide-map/{ingest.py,sources.py,verify.py} "$HERE/run.sh" "$STAGE/"
 echo "$SHA" > "$STAGE/COMMIT"
 echo "$RUN ($TAG)" > "$STAGE/RUN"

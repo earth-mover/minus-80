@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Ingest the International Brain Laboratory Brain-Wide Map (DANDI 000409 and the IBL public bucket) into a virtual Icechunk store."
 requires-python = ">=3.12"
 dependencies = [
+    "arraylake>=1.7.0",
     "h5py>=3.16",
     "minus-80[nwb]",
     "obstore",

@@ -58,13 +58,14 @@ from sources import (
     npy_header,
     one_cache,
     open_repo,
+    pinned_etag,
     say,
 )
 from virtualizarr.manifests import ManifestArray, ManifestGroup
 
 from minus80.core.builders.flat_binary import flat_manifest_array, flat_tail
 from minus80.core.fetch import read_range
-from minus80.core.icechunk_io import commit
+from minus80.core.icechunk_io import commit, pin_virtual_refs
 from minus80.core.registry import as_url
 from minus80.parsers.nwb.unified import name_dimensions, nwb_references, under_group, write_nwb
 
@@ -212,7 +213,7 @@ SPIKE_ROWS_PER_CHUNK = 2**18
 
 
 def sort_files(eid: str, probe: str, sort: str):
-    """The ALF files of one probe's sort: ``[(object, attribute, url, size), ...]``."""
+    """The ALF files of one probe's sort: ``[(object, attribute, url, size, md5), ...]``."""
     spec = SORTS[sort]
     cache = one_cache(spec["cache"])
     datasets = cache["datasets"].reset_index()
@@ -227,20 +228,23 @@ def sort_files(eid: str, probe: str, sort: str):
         obj, attribute = name.removesuffix(".npy").split(".", 1)
         if obj in OBJECTS:
             files.append((obj, attribute, bucket_url(session_path, row.rel_path, row.id),
-                          int(row.file_size)))
+                          int(row.file_size), row.hash))
     if not files:
         raise LookupError(f"no {sort} sort for {eid} {probe} under {prefix}")
     return files
 
 
 def spike_sorting(eid: str, probe: str, sort: str):
-    """The sort as one virtual group per ALF object, plus the short tails to write natively.
+    """The sort as one virtual group per ALF object, the short tails to write natively,
+    and the ETag to pin each array's references to.
 
-    Returns ``(ManifestGroup, [(object, attribute, first_row, url, start, end, dtype)])``.
+    Returns ``(ManifestGroup, [(object, attribute, first_row, url, start, end, dtype)],
+    {"<object>/<attribute>": (ManifestArray, etag)})``.
     """
     groups: dict[str, dict[str, ManifestArray]] = {}
     tails = []
-    for obj, attribute, url, size in sort_files(eid, probe, sort):
+    pins = {}
+    for obj, attribute, url, size, md5 in sort_files(eid, probe, sort):
         shape, dtype, offset = npy_header(url)
         if offset + int(np.prod(shape)) * dtype.itemsize != size:
             raise ValueError(f"{url}: header says {shape} {dtype}, file is {size} bytes")
@@ -252,6 +256,8 @@ def spike_sorting(eid: str, probe: str, sort: str):
             url, shape=shape, dtype=dtype.newbyteorder("="), data_offset=offset,
             endian="big" if dtype.byteorder == ">" else "little", rows_per_chunk=rows,
             dimension_names=dims, attributes={"ibl_dataset": f"{obj}.{attribute}"})
+        pins[f"{obj}/{attribute}"] = (array, pinned_etag(url, md5))
+        array.metadata.attributes["source_etag"] = str(pins[f"{obj}/{attribute}"][1])
         if attribute == "times" or attribute.endswith("_times"):
             # ALF: timestamp datasets share the session's timescale, in seconds.
             # A CF units string, set after construction: manifest_array reads
@@ -272,7 +278,7 @@ def spike_sorting(eid: str, probe: str, sort: str):
             "ibl_release_cache": SORTS[sort]["cache"],
         },
     )
-    return group, tails
+    return group, tails, pins
 
 
 def clusters_uuids(eid: str, probe: str, sort: str) -> np.ndarray:
@@ -317,18 +323,22 @@ ROOT_ATTRS = {
     },
     "conventions": (
         "NWB files in the unified NWB Zarr v3 convention (hdmf-zarr 0.14); xarray "
-        "dimension_names on every array; CF scale_factor/add_offset/units on voltages"
+        "dimension_names on every array; CF scale_factor/add_offset/units on voltages. "
+        "Codecs: bytes, zstd and vlen-utf8 from the Zarr spec, and numcodecs.zlib, the HDF5 "
+        "gzip filter, which numcodecs provides and zarr-python installs"
     ),
 }
 
 
 def write_sorting(store, session: dict, probe: str, sort: str) -> None:
     path = f"{session['group']}/alf/{probe}"
-    sorting, tails = spike_sorting(session["eid"], probe, sort)
+    sorting, tails, pins = spike_sorting(session["eid"], probe, sort)
     probe_group = zarr.open_group(store, path=path, mode="a")
     if "pykilosort" in probe_group:
         del probe_group["pykilosort"]
     sorting.to_icechunk(store, group=f"{path}/pykilosort", mode="w-")
+    for name, (array, etag) in pins.items():
+        pin_virtual_refs(store, f"{path}/pykilosort/{name}", array, etag)
     for obj, attribute, first, url, start, end, dtype in tails:
         array = zarr.open_array(store, path=f"{path}/pykilosort/{obj}/{attribute}", mode="a")
         array[first:] = np.frombuffer(read_range(url, start, end), dtype=dtype)
@@ -343,16 +353,30 @@ def write_sorting(store, session: dict, probe: str, sort: str) -> None:
     probe_group.attrs.update({"description": f"IBL's ALF collection alf/{probe}"})
 
 
-def written(repo, session: dict, probes: list[str], sort: str, sorting_only: bool) -> bool:
-    """Whether ``main`` already holds this session as the run would write it."""
+def held_sorts(repo, session: dict, probes: list[str]) -> list[str | None]:
+    """The sort ``main`` holds for each probe of the session, None where there is none."""
     try:
         group = zarr.open_group(repo.readonly_session("main").store, path=session["group"], mode="r")
     except zarr.errors.GroupNotFoundError:
+        return [None] * len(probes)
+    return [group[f"alf/{probe}/pykilosort"].attrs.get("sort")
+            if f"alf/{probe}/pykilosort" in group else None for probe in probes]
+
+
+def written(repo, session: dict, probes: list[str], sort: str, sorting_only: bool) -> bool:
+    """Whether ``main`` already holds this session as far as this pass would take it.
+
+    A session holding this pass's sort or a later one counts as written, so a
+    relaunched pass never writes an older sort over a newer one.
+    """
+    later = list(SORTS)[list(SORTS).index(sort):]
+    held = held_sorts(repo, session, probes)
+    if not all(h in later for h in held):
         return False
-    if not sorting_only and not all(name in group for name in NWB_FILES):
-        return False
-    return all(f"alf/{probe}/pykilosort" in group
-               and group[f"alf/{probe}/pykilosort"].attrs.get("sort") == sort for probe in probes)
+    if sorting_only:
+        return True
+    group = zarr.open_group(repo.readonly_session("main").store, path=session["group"], mode="r")
+    return all(name in group for name in NWB_FILES)
 
 
 def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bool) -> str:
@@ -371,7 +395,15 @@ def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bo
         f"IBL session {eid}: subject {session['subject']}, {session['lab']}, "
         f"{session['date']} number {session['number']}. raw and processed are DANDI's "
         "raw and processed NWB files; alf holds IBL's spike sorting per probe.")
+    subject = session["group"].split("/")[0]
+    zarr.open_group(store, path=subject, mode="a").attrs.update({
+        "subject": session["subject"],
+        "description": f"IBL subject {session['subject']} (DANDI {subject}): one group per "
+                       "recording session, ses-<eid>"})
     zarr.open_group(store, path=session["group"], mode="a")
+    zarr.open_group(store, path=f"{session['group']}/alf", mode="a").attrs["description"] = (
+        "IBL's spike sorting for each probe, at IBL's own collection path "
+        "alf/<probe>/pykilosort, as ALF objects (spikes, clusters, channels, templates)")
     if not sorting_only:
         for name in NWB_FILES:
             nwb = dandi_file(eid, name)
@@ -401,6 +433,39 @@ def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bo
     return snapshot
 
 
+def run_pass(repo, eids: list[str], probes: list[str], sort: str, sorting_only: bool,
+             tag: str | None) -> None:
+    """Write every session of one pass, a commit each, then tag the branch tip.
+
+    A pass whose tag already exists in the repo is done and is skipped whole;
+    otherwise each session already written (:func:`written`) is skipped. So a
+    run stopped anywhere can be launched again and picks up where it stopped.
+    """
+    if tag and tag in repo.list_tags():
+        say(f"{sort} pass: tag {tag} exists, so the pass is done; skipped")
+        return
+    started = time.monotonic()
+    for done, eid in enumerate(eids):
+        session = session_record(eid)
+        say(f"{sort} pass, session {done + 1} of {len(eids)}: {session['group']} "
+            f"({time.monotonic() - started:.0f} s so far, {len(eids) - done} to go)")
+        if written(repo, session, probes, sort, sorting_only):
+            say("  already on main; skipped")
+            continue
+        if sorting_only and not written(repo, session, probes, list(SORTS)[0], False):
+            raise RuntimeError(f"{session['group']} has no NWB files on main; run the first pass first")
+        write_session(repo, eid, probes, sort, sorting_only)
+    if tag:
+        held = {eid: held_sorts(repo, session_record(eid), probes) for eid in eids}
+        wrong = {eid: h for eid, h in held.items() if any(s != sort for s in h)}
+        if wrong:
+            raise RuntimeError(f"not tagging {tag}: main holds other sorts for {wrong}")
+        tip = repo.lookup_branch("main")
+        repo.create_tag(tag, snapshot_id=tip)
+        say(f"tagged {tip} as {tag}")
+    say(f"{sort} pass done: {len(eids)} session(s) in {time.monotonic() - started:.0f} s")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--repo", required=True)
@@ -409,27 +474,11 @@ def main() -> None:
     parser.add_argument("--probes", default=",".join(PROBES))
     parser.add_argument("--sorting-only", action="store_true",
                         help="write only the spike sorting, over existing NWB groups")
-    parser.add_argument("--tag", help="tag the branch tip with this name when every session is written")
+    parser.add_argument("--tag", help="tag the branch tip with this name when every session is "
+                                      "written; a pass whose tag exists is skipped")
     args = parser.parse_args()
-
-    repo = open_repo(args.repo)
-    eids = args.sessions.split(",")
-    probes = args.probes.split(",")
-    started = time.monotonic()
-    for done, eid in enumerate(eids):
-        session = session_record(eid)
-        elapsed = time.monotonic() - started
-        say(f"session {done + 1} of {len(eids)}: {session['group']} "
-            f"({elapsed:.0f} s so far, {len(eids) - done} to go)")
-        if written(repo, session, probes, args.sort, args.sorting_only):
-            say("  already on main; skipped")
-            continue
-        write_session(repo, eid, probes, args.sort, args.sorting_only)
-    if args.tag:
-        tip = repo.lookup_branch("main")
-        repo.create_tag(args.tag, snapshot_id=tip)
-        say(f"tagged {tip} as {args.tag}")
-    say(f"done: {len(eids)} session(s) in {time.monotonic() - started:.0f} s")
+    run_pass(open_repo(args.repo), args.sessions.split(","), args.probes.split(","),
+             args.sort, args.sorting_only, args.tag)
 
 
 if __name__ == "__main__":

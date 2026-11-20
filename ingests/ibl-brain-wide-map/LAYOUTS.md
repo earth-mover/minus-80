@@ -174,7 +174,16 @@ sub-<subject>/ses-<eid>/                 what the session holds; eid, lab, date,
 - **SpikeGLX meta.** Each ElectricalSeries group carries its band's `.meta`
   file from the IBL bucket as `spikeglx_meta`: the nominal sampling rate
   (`imSampRate`), gains, probe serial number and acquisition settings.
-- **Spike sorting.** Each ALF `.npy` is referenced past its 128-byte header.
+- **Sync channel.** `TimeSeriesImec0Sync/data` states `unit: uV` and
+  `conversion: 1171.875`, as NeuroConv writes for any SpikeGLX channel, but
+  holds a 16-bit status word whose bit 6 is the 1 Hz sync square wave; the
+  store keeps NWB's attributes and adds no CF scale, so xarray returns the
+  integers.
+- **Spike sorting.** Each ALF `.npy` is referenced past its header, and its
+  references carry the file's S3 ETag (also in the array's `source_etag`),
+  so a read fails if IBL replaces the file. The ETag equals the MD5 in IBL's
+  listing only for files uploaded in one part: 31 of 48 files checked; the
+  others, over 8 MB, have multipart ETags of the form `<hex>-<parts>`.
   Per-spike columns are chunked every 262,144 rows (2 MB of float64); the rows
   past the last full chunk are written natively, because Zarr cannot decode a
   short chunk. Per-cluster, per-channel and per-template files are one chunk

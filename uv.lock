@@ -876,6 +876,7 @@ name = "ibl-brain-wide-map-ingest"
 version = "0.0.0"
 source = { virtual = "ingests/ibl-brain-wide-map" }
 dependencies = [
+    { name = "arraylake" },
     { name = "h5py" },
     { name = "minus-80", extra = ["nwb"] },
     { name = "obstore" },
@@ -891,6 +892,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
     { name = "h5py", specifier = ">=3.16" },
     { name = "minus-80", extras = ["nwb"], editable = "." },
     { name = "obstore" },
