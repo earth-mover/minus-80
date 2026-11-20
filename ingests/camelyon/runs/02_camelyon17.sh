@@ -18,7 +18,9 @@
 # camelyon-ingest-055457 (cluster 2412241), which skipped the 200 slides
 # already committed and wrote the other 800 in eight more batches of 100.
 # - All 1,000 slides in ten commits, the last 167NG8HR4B61CR3CHYM0
-#   (06:04:57 UTC); CAMELYON16 unchanged.
+#   (06:04:57 UTC). A metadata diff from MNPFXPY2MK0EX78VXRZG to it shows no
+#   change under CAMELYON16/ (no node added, deleted or updated, no chunk);
+#   only the root's attributes and CAMELYON17/ changed.
 # - verify.py then checked every slide's metadata and began comparing
 #   tiles; Ian stopped it after 4 slides' pixels had passed, more than 6
 #   minutes after the last commit. That verify decoded a whole coarse level
