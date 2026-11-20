@@ -6,7 +6,9 @@ counts are the real ones; each tile's offset and length are made up and
 nothing is read from the bucket. Commits 500 slides at a time, each batch
 merged from one fork per slide, as ingest.py does, and prints one JSON line
 per batch: the time to write, merge and commit, the snapshot's size and the
-manifests'. Takes about 80 minutes and 7.5 GB of disk.
+manifests', and the commit's CPU time. Takes about 80 minutes and 7.5 GB of
+disk. Keep the machine awake (macOS: ``caffeinate -i``): a laptop that
+sleeps mid-commit adds the sleep to that commit's wall time.
 
     uv run --package idc-ingest python ingests/idc/commit_bench.py REPO [SLIDES]
 """
@@ -89,12 +91,12 @@ for b in range(0, len(slides), 500):
     for _, g in slides[b:b + 500]:
         f = session.fork(); refs += write(f.store, g); forks.append(f)
     tm = time.time(); session.merge(*forks)
-    tc = time.time(); sid = commit(session, f"batch {b}")
-    done = time.time()
+    tc = time.time(); cpu = time.process_time(); sid = commit(session, f"batch {b}")
+    done = time.time(); cpu = time.process_time() - cpu
     snaps = sorted((os.path.getmtime(p), os.path.getsize(p)) for p in (os.path.join(REPO, "snapshots", x) for x in os.listdir(os.path.join(REPO, "snapshots"))))
     mbytes = sum(os.path.getsize(os.path.join(REPO, "manifests", x)) for x in os.listdir(os.path.join(REPO, "manifests")))
     print(json.dumps({"slides": min(b + 500, len(slides)), "refs": refs, "write_s": round(tm - tw, 1), "merge_s": round(tc - tm, 1),
-                      "commit_s": round(done - tc, 1), "snapshot_bytes": snaps[-1][1], "manifests_bytes": mbytes,
+                      "commit_s": round(done - tc, 1), "commit_cpu_s": round(cpu, 1), "snapshot_bytes": snaps[-1][1], "manifests_bytes": mbytes,
                       "manifest_files": len(os.listdir(os.path.join(REPO, "manifests"))), "elapsed_s": round(done - t0)}), flush=True)
 
 t = time.time()

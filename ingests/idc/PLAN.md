@@ -141,9 +141,10 @@ v24 still reads. GTEx has not been revised since it arrived in v19.
 ## Proposed layout
 
 One repo per collection (decision 2). OME-Zarr 0.6, with plain groups above
-the images, as CAMELYON17 uses. The figures (source, mapping, store) are not
-drawn yet; `diagrams.py` will draw them from the trial store once the layout
-is approved.
+the images, as CAMELYON17 uses. The figures, [source](diagrams/source.svg),
+[mapping](diagrams/mapping.svg) and [store](diagrams/store.svg), are drawn by
+`diagrams.py` from the 200-slide trial store; they are redrawn from the
+published store after the run.
 
 ```
 /                                   root: title, IDC version, licenses, citations, codecs a reader needs
@@ -332,7 +333,7 @@ The GTEx ingest is finished and waits only for its repo. In this directory:
 - `verify.py`: the store check;
 - `commit_bench.py`: the full-scale commit benchmark (below);
 - `test_ingest.py`, `fixture.py`: the ingest end to end on two synthetic
-  GTEx-like slides served over HTTP with ETags (7 tests, 4 s);
+  GTEx-like slides served over HTTP with ETags (9 tests, 4 s);
 - `LAYOUTS.md`: every node and attribute;
 - `diagrams.py` and `diagrams/`: the source, mapping and store figures;
 - `gtex.ipynb`: the cold-open notebook;
@@ -342,12 +343,21 @@ The GTEx ingest is finished and waits only for its repo. In this directory:
 
 1. List every GTEx slide from idc-index.
 2. Commit the collection and its 971 donor groups.
-3. Write 500 slides per commit. Each slide is written in its own fork by
+3. Write 250 slides per commit. Each slide is written in its own fork by
    one of 64 worker processes: the series is listed once, which gives every
    object's ETag, and each instance is read through a block reader that
    fetches its header, offset table and last Item header. The forks are
    merged once and committed.
 4. Write the root's attributes, then run `verify.py`.
+5. After the job: `verify.py --pins` from a laptop, then the Icechunk tag
+   `idc-v25` on the verified snapshot, and the git tag
+   `idc-run1-gtex` on the commit the run used.
+
+250 slides a batch keeps memory well inside the VM's 32 GiB. On the laptop,
+the coordinator's peak was 8.8 GB over five 250-slide merges, flat after the
+second, and each worker process held about 110 MB, so 64 workers add about
+7 GB. The batch line prints the coordinator's peak, and the job's memory
+loop the machine's.
 
 Processes rather than threads, because pydicom parses a header in Python:
 from the laptop, 16 threads read 4.9 slides a second on about one core.
@@ -356,16 +366,17 @@ its parse runs. A rerun skips slides already written. The run needs one VM,
 not many: the work is indexing a few hundred kilobytes per slide, and one
 writer commits every batch.
 
-**Measured from the laptop, against the bucket.** 200 real slides with 40
-worker processes read at 10.8 slides a second, about 70 ms per request away
-from us-east-1; the merge and commit of the 200 forks took 4 s. Every
-reference was pinned to its object's ETag, and pinned tiles read back from
-the bucket.
+**Measured from the laptop, against the bucket.** 2,250 real slides with 40
+worker processes read at 7 to 9 slides a second, about 70 ms per request
+away from us-east-1; each 250-slide batch merged and committed in 6 to 9 s.
+Every reference was pinned to its object's ETag, and `verify.py --pins`
+passed on 10 sampled slides of that store.
 
 **A commit at full scale, locally.** `commit_bench.py` wrote the real
 GTEx catalog's slides, donors, instances and level shapes (25,503 slides,
 128,708 instances) with made-up offsets into a local repo, 500 slides per
-commit, each merged from one fork per slide:
+commit, each merged from one fork per slide. It ran twice; the second run,
+with the laptop kept awake, recorded each commit's CPU time:
 
 | Measure | Value |
 |---|---|
@@ -373,17 +384,26 @@ commit, each merged from one fork per slide:
 | References | 778,715,649 |
 | Snapshot | 26.5 MB, growing about 1 MB per 1,000 slides |
 | Manifests | 7.4 GB in 154,211 files, one per array per commit |
-| Commit of 500 slides | median 13.8 s, 90th percentile 20.9 s; four outliers of 98, 114, 235 and 823 s, not explained |
+| Commit of 500 slides | median 10.7 s, 90th percentile 19.5 s, longest 33.8 s (second run); CPU time about twice the wall time, compressing manifests on several cores |
 | Merge of 500 forks | median 2.7 s |
 | Opening the repo | 0.16 s |
-| Walking every node's metadata | 52 s |
+| Walking every node's metadata | 45 to 52 s |
 
 The snapshot holds every node, so it grows with the slide count, and a
 reader fetches all of it on open: 26.5 MB for GTEx, inside Icechunk's
 default cache of 500,000 nodes. Commit time did not grow with the repo: the
-last ten batches took as long as the first ten. The outliers are a reason
-to watch the run's log: a commit past a minute is investigated, not waited
-out.
+last ten batches took as long as the first ten.
+
+**The slow commits had outside causes.** The first run's commits of 98, 114,
+235 and 823 s each overlap a period when macOS put the laptop to sleep
+(`pmset -g log`: 75, 101, 217 and 798 s of sleep inside those four commits),
+which a wall clock counts. Without the sleep they took 13 to 25 s. The
+second run had no sleep, and its four slowest commits, 31.6 to 33.8 s, are
+the four that ran while 40 ingest processes shared the laptop's ten cores;
+their CPU time equaled their wall time, where other commits used twice it.
+On the VM the workers are idle while the coordinator commits. A real run
+adds Arraylake's latency to each manifest write, which this benchmark does
+not measure.
 
 **Verify gates.** `verify.py` checks every node in one walk of about a
 minute at full scale: completeness against idc-index, every array's codecs
@@ -466,7 +486,7 @@ writer merges the forks and commits.
 
 1. **GTEx** (`runs/01_gtex.sh`). Index every instance from its header and
    offset table through a remote reader, without downloading pixels. Commit
-   500 slides at a time, each merged from its slides' forks. Verify, then
+   250 slides at a time, each merged from its slides' forks. Verify, then
    tag `idc-v25`. Details under *GTEx, ready to run*.
 2. **TCGA nuclei, JPEG and RGB JPEG 2000** (`runs/02_tcga_nuclei.sh`), 4,349
    slides. Download each slide's levels to walk their fragments, and each
@@ -502,7 +522,7 @@ under *GTEx, ready to run*.
 - **Commit and snapshot size.** GTEx's full count of references and nodes
   was committed locally (*GTEx, ready to run*), not to Arraylake, whose
   per-object latency makes each commit slower. The first batch's commit time
-  in the run's log is the check: over a minute per 500 slides would stretch
+  in the run's log is the check: over a minute per 250 slides would stretch
   the run past its estimate.
 - **In-region rates.** Every rate here was measured from a laptop. The
   TCGA run reads about 9 TB. Its estimate holds only if a VM sustains about

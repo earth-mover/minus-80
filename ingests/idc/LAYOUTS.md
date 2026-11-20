@@ -51,7 +51,7 @@ region, and shares no origin with the levels.
 ## The store
 
 ```
-/                           title, idc_version, idc_index_data, source, codecs, left_out, references_pinned_by
+/                           title, description, license, citations, idc_version, codecs, reading, layout, left_out
 └── gtex/                   license (CC BY 4.0), source_DOI, citations
     └── <PatientID>/        PatientID                                          ×971
         └── <slide>/        ContainerIdentifier, PatientID, specimen, idc,     ×25,503
@@ -70,7 +70,7 @@ region, and shares no origin with the levels.
 | Axes | `c` (channel), `y`, `x` (micrometer) | |
 | Shape | `(3, TotalPixelMatrixRows, TotalPixelMatrixColumns)` | each instance |
 | Chunks | `(3, 240, 240)`, one per frame | `Rows`, `Columns` |
-| Codecs | `transpose` `[1, 2, 0]`, then `imagecodecs_jpeg` as the serializer | `minus80.parsers.dicom.wsi_level_array` |
+| Codecs | `transpose` `[1, 2, 0]`, then `imagecodecs_jpeg` as the serializer, configured `bitspersample` 8, `colorspace_jpeg` and `colorspace_data` `RGB` | `minus80.parsers.dicom.wsi_level_array` |
 | Scale | level 0: `PixelSpacing` × 1000; coarser levels: level 0's times the ratio of the shapes | shared functional groups |
 | Translation | 0 at level 0; each coarser level shifted by half the difference in pixel size, so every level's top-left corner is level 0's | |
 | `omero` | RGB channels, 0 to 255 | `minus80.ome.rgb_omero` |
@@ -78,14 +78,22 @@ region, and shares no origin with the levels.
 | `source_url`, on each level | the instance's object | the listing |
 
 The tiles are stored pixel-interleaved, `(y, x, c)`; the `transpose` codec
-declares them channel-first without moving a byte. libjpeg converts each
-tile's YCbCr to RGB as it decodes, within one level of pydicom's decode on
-every trial tile checked.
+declares them channel-first without moving a byte. GTEx's tiles are coded
+in RGB, not YCbCr: an Adobe APP14 marker with transform 0, three components
+with ids 0, 1 and 2, and `PhotometricInterpretation` `RGB`. The codec entry
+states both color spaces as RGB, so no decoder converts anything, and
+spells the entry as the TIFF parser does for CAMELYON's tiles, whose stores
+QuPath reads through icechunk-java. icechunk-java's `imagecodecs_jpeg` reads
+an absent configuration too, as libjpeg would, but a stated one is the form
+already shown to work there. A tile decodes equal to imagecodecs' default
+decode of its fragment, and within one level of pydicom's.
 
 ### `thumbnail` and `overview`
 
 One level each: the instance's single uncompressed frame, `transpose` then
-`bytes`, one chunk. The thumbnail takes its stated `PixelSpacing`; the
+`bytes`, one chunk. The thumbnail takes its stated `PixelSpacing`, and a
+translation of half the difference between its pixel size and level 0's, as
+a coarser level of the image would have, so its corner sits on level 0's. The
 overview's axes carry no unit and a scale of 1, because its stated spacing
 describes a photograph that shares no frame with the scan.
 
@@ -101,12 +109,18 @@ carries a 140 KB ICC profile, which compression stores about once per slide.
 
 | Attribute | Content |
 | --- | --- |
+| `description` | the slide in plain words: tissue, donor, stain, levels, full-resolution size and pixel size |
 | `ContainerIdentifier` | the barcode, as idc-index gives it |
 | `PatientID` | the donor |
-| `specimen` | `tissue` and `tissue_code` (primary anatomic structure), `stain`, `embedding_medium`, `fixative`, from idc-index `sm_index` |
+| `specimen` | `tissue` and `tissue_code` (primary anatomic structure), `stain`, `embedding_medium`, `fixative`, `magnification` (objective lens power, 20 on every GTEx slide), from idc-index `sm_index` |
 | `idc` | `SeriesInstanceUID`, `StudyInstanceUID`, `crdc_series_uuid`, `license`, `source_DOI`, `series_init_idc_version`, `series_revised_idc_version` |
 | `source_prefix` | `s3://idc-open-data/<crdc_series_uuid>/` |
 | `levels`, `level_0_shape` | for a reader choosing slides without opening `image` |
+
+The collection group `gtex` carries a `description` of GTEx's histology,
+its `license`, `source_DOI` and `citations`; each donor group a
+`description` listing that donor's slide count and tissues, and its
+`PatientID`.
 
 ### The root
 
@@ -115,7 +129,8 @@ carries a 140 KB ICC profile, which compression stores about once per slide.
 | `idc_version`, `idc_index_data` | the IDC release and the catalog version the store reflects |
 | `codecs` | every codec name in the store and the package that provides it: zarr, or imagecodecs for the JPEG tiles; `verify.py` refuses any other |
 | `reading` | how a reader gets those codecs: `pip install imagecodecs` and `imagecodecs.zarr.register_codecs()`, or imagecodecs-zarr, which registers them automatically |
-| `references_pinned_by` | how the references are pinned (below) |
+| `title`, `description`, `license`, `citations` | what the store holds, in plain words, with the counts of slides, tissue types and donors, and the works to cite |
+| `layout` | how the store is built: the hierarchy, the source objects, what a chunk is, and the ETag pins |
 | `left_out` | each slide the run could not write, with the error |
 
 ## References are pinned to ETags
@@ -151,6 +166,15 @@ rewrites their references.
 
 `runs/01_gtex.sh` launches `coiled/ingest.sh` on one Coiled VM in us-east-1.
 It lists every GTEx slide from idc-index, commits the collection and donor
-groups first, then writes 500 slides per commit: each slide in its own fork,
+groups first, then writes 250 slides per commit: each slide in its own fork,
 in a pool of worker processes, and the forks merged once. A rerun skips
 slides already written.
+
+Test the ingest end to end on two synthetic slides with:
+
+```bash
+uv run --package idc-ingest pytest --import-mode=prepend ingests/idc
+```
+
+`--import-mode=prepend` puts this directory on the import path, where the
+tests import `ingest`, `fixture` and `verify` as top-level modules.
