@@ -1292,15 +1292,27 @@ version = "0.0.0"
 source = { virtual = "ingests/microns" }
 dependencies = [
     { name = "arro3-core" },
-    { name = "minus-80" },
+    { name = "minus-80", extra = ["nwb", "tiff"] },
     { name = "obstore" },
+]
+
+[package.dev-dependencies]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "arro3-core" },
-    { name = "minus-80", editable = "." },
+    { name = "minus-80", extras = ["nwb", "tiff"], editable = "." },
     { name = "obstore" },
+]
+
+[package.metadata.requires-dev]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
 ]
 
 [[package]]

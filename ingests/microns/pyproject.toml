@@ -1,13 +1,16 @@
 [project]
 name = "microns-ingest"
 version = "0.0.0"
-description = "Ingest the MICrONS minnie release (BossDB, DANDI 000402, Google Cloud) into a virtual Icechunk store."
+description = "Ingest the MICrONS minnie two-photon functional scans (BossDB TIFFs, with DANDI 000402 metadata) into a virtual Icechunk store."
 requires-python = ">=3.12"
 dependencies = [
     "arro3-core",
-    "minus-80",
+    "minus-80[nwb,tiff]",
     "obstore",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+notebook = ["ipykernel", "matplotlib"]
