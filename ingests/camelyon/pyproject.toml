@@ -1,12 +1,16 @@
 [project]
 name = "camelyon-ingest"
 version = "0.0.0"
-description = "Copy the CAMELYON whole-slide image repo between Arraylake organizations."
+description = "Virtualize the CAMELYON16 and CAMELYON17 whole-slide archives into one Icechunk store, and copy it between Arraylake organizations."
 requires-python = ">=3.12"
 dependencies = [
     "arraylake>=1.7.0",
-    "minus-80[tiff]",
+    "minus-80[asap,tiff]",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = ["pytest>=8"]
+notebook = ["ipykernel", "matplotlib"]
