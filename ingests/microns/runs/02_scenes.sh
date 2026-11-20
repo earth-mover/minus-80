@@ -40,7 +40,7 @@ fi
 if TAGGED=$(git -C "$ROOT" rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
     [[ $TAGGED == "$SHA" ]] || { echo "tag $TAG already names $TAGGED, not $SHA" >&2; exit 1; }
 else
-    git -C "$ROOT" tag "$TAG" "$SHA"
+    git -C "$ROOT" tag -m "Code that ran MICrONS run 2 (scene layout restated in place in earthmover-biology/MICrONS)" "$TAG" "$SHA"
 fi
 git -C "$ROOT" push -q origin "refs/tags/$TAG"
 echo "commit $SHA (tag $TAG), repo $REPO, start $(date -u +%FT%TZ)"
