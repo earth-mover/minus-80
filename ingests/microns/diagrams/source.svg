@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="2170" viewBox="0 0 1400 2170">
-<rect x="0" y="0" width="1400" height="2170" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="2270" viewBox="0 0 1400 2270">
+<rect x="0" y="0" width="1400" height="2270" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Source</text>
 <text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">bossdb-open-data/iarpa_microns/minnie/, DANDI 000402, gs://iarpa_microns</text>
 <rect x="24.0" y="85.9" width="14" height="14" rx="3" fill="#2a78d6"/>
 <text x="44.0" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
-<rect x="104.6" y="83.9" width="53.0" height="18" rx="3" fill="#dcfce7"/>
-<text x="131.2" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="middle" xml:space="preserve">ingest</text>
-<rect x="175.7" y="83.9" width="90.1" height="18" rx="3" fill="#fef3c7"/>
-<text x="220.7" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b45309" text-anchor="middle" xml:space="preserve">not surveyed</text>
+<rect x="104.6" y="83.9" width="133.3" height="18" rx="3" fill="#dcfce7"/>
+<text x="171.3" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="middle" xml:space="preserve">ingested in phase 1</text>
+<rect x="255.9" y="85.9" width="14" height="14" rx="3" fill="#cbd5e1"/>
+<text x="275.9" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not ingested</text>
 <rect x="380.0" y="121.9" width="980.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
 <rect x="380.0" y="121.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
 <text x="394.0" y="141.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">s3://bossdb-open-data/iarpa_microns/minnie/</text>
@@ -130,66 +130,78 @@
 <text x="791.8" y="1433.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 directories, 17 objects, 458.1 GB, (none) ×6, tar ×4, md ×2</text>
 <text x="394.0" y="1453.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/two_photon_structural_stacks/</text>
 <text x="791.8" y="1453.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 objects, 11.3 GB, tiff ×2, pdf ×1</text>
-<rect x="380.0" y="1481.9" width="980.0" height="192.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="1481.9" width="4" height="192.0" rx="2" fill="#2a78d6"/>
-<text x="394.0" y="1501.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon scans</text>
-<text x="394.0" y="1518.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">two_photon_functional_scans_technical_documentation_v2.pdf</text>
-<rect x="385.0" y="1527.9" width="974.0" height="20" fill="#dcfce7"/>
-<text x="1350.0" y="1541.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">ingest</text>
-<text x="394.0" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v2 TIFFs</text>
-<text x="504.2" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19, int16, 2023</text>
-<text x="394.0" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1 TIFFs</text>
-<text x="504.2" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19, uint16, 2021</text>
-<text x="394.0" y="1581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frame</text>
-<text x="504.2" y="1581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">440 × 248 int16, field-major (600 × 372 for scan 9-6)</text>
-<text x="394.0" y="1601.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">15 scans</text>
-<text x="504.2" y="1601.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40,000 volumes × 8 fields, 6.3 Hz, 320,000 pages</text>
-<text x="394.0" y="1621.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scan 17797_4_9</text>
-<text x="504.2" y="1621.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">35,112 volumes × 8 fields, 6.3 Hz, 280,896 pages</text>
-<text x="394.0" y="1641.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scans 9-3, 9-4</text>
-<text x="504.2" y="1641.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">50,000 volumes × 6 fields, 8.6 Hz, 300,000 pages</text>
-<text x="394.0" y="1661.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scan 9-6</text>
-<text x="504.2" y="1661.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">57,000 volumes × 4 fields, 9.6 Hz, 228,000 pages</text>
-<rect x="380.0" y="1689.9" width="980.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="1689.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
-<text x="394.0" y="1709.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
-<text x="394.0" y="1726.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB</text>
-<text x="394.0" y="1749.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
-<text x="588.4" y="1749.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 objects, 14.4 kB, csv ×1</text>
-<rect x="380.0" y="1777.9" width="980.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="1777.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
-<text x="394.0" y="1797.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">proofreading_status/</text>
-<text x="394.0" y="1814.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB</text>
-<text x="394.0" y="1837.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofreading_status/</text>
-<text x="546.3" y="1837.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 objects, 57.3 kB, csv ×1</text>
-<rect x="380.0" y="1865.9" width="980.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="1865.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
-<text x="394.0" y="1885.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">dandiarchive.org/dandiset/000402</text>
-<text x="394.0" y="1902.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">DANDI, s3://dandiarchive</text>
-<text x="394.0" y="1925.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
-<text x="469.1" y="1925.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19 NWB, subject 17797</text>
-<text x="394.0" y="1945.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">size</text>
-<text x="469.1" y="1945.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1.3 TB in all, 62.4 GB–95.9 GB per file</text>
-<text x="394.0" y="1965.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sessions</text>
-<text x="469.1" y="1965.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6, scans 4-7, 4-9, 4-10, 5-3, 5-6, 5-7, 6-2, 6-4, 6-6, 6-7, 7-3, 7-4, 7-5, 8-5, 8-7, 8-9, 9-3, 9-4, 9-6</text>
-<rect x="385.0" y="1971.9" width="974.0" height="20" fill="#dcfce7"/>
-<text x="1350.0" y="1985.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">ingest</text>
-<text x="394.0" y="1985.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processed</text>
-<text x="469.1" y="1985.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">traces, ROI masks, behavior, stimulus, frame times</text>
-<rect x="385.0" y="1991.9" width="974.0" height="20" fill="#fee2e2"/>
-<text x="1350.0" y="2005.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c" text-anchor="end" xml:space="preserve">TIFF used</text>
-<text x="394.0" y="2005.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">movies</text>
-<text x="469.1" y="2005.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">TwoPhotonSeries</text>
-<rect x="380.0" y="2033.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="380.0" y="2033.9" width="4" height="112.0" rx="2" fill="#2a78d6"/>
-<text x="394.0" y="2053.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">gs://iarpa_microns/minnie/minnie65/</text>
-<text x="394.0" y="2070.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofread segmentation releases beyond BossDB's v117</text>
-<text x="394.0" y="2093.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m343</text>
-<text x="469.1" y="2093.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v343</text>
-<text x="394.0" y="2113.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m943</text>
-<text x="469.1" y="2113.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v943</text>
-<text x="394.0" y="2133.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m1300</text>
-<text x="469.1" y="2133.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v1300</text>
+<rect x="380.0" y="1481.9" width="980.0" height="252.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="1481.9" width="4" height="252.0" rx="2" fill="#2a78d6"/>
+<text x="394.0" y="1501.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon functional scan TIFFs</text>
+<text x="394.0" y="1518.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/two_photon_functional_scans/ listing, layout trial</text>
+<text x="394.0" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="462.1" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">38: 19 scans in each of exports v1 and v2</text>
+<text x="394.0" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">size</text>
+<text x="462.1" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1.34 TB in v1, 1.34 TB in v2</text>
+<rect x="385.0" y="1567.9" width="974.0" height="20" fill="#dcfce7"/>
+<text x="1350.0" y="1581.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">ingest</text>
+<text x="394.0" y="1581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v2</text>
+<text x="462.1" y="1581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">int16, first page at byte 406, IFDs of 11 tags (236 bytes)</text>
+<rect x="385.0" y="1587.9" width="974.0" height="20" fill="#dcfce7"/>
+<text x="1350.0" y="1601.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">ingest</text>
+<text x="394.0" y="1601.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1</text>
+<text x="462.1" y="1601.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint16, first page at byte 512, IFDs of 14 tags (296 bytes)</text>
+<text x="394.0" y="1621.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">15 scans</text>
+<text x="462.1" y="1621.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40,000 volumes × 8 fields, 440 × 248 pages</text>
+<text x="394.0" y="1641.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">2 scans</text>
+<text x="462.1" y="1641.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">50,000 volumes × 6 fields, 440 × 248 pages</text>
+<text x="394.0" y="1661.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">1 scan</text>
+<text x="462.1" y="1661.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">35,112 volumes × 8 fields, 440 × 248 pages</text>
+<text x="394.0" y="1681.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">1 scan</text>
+<text x="462.1" y="1681.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">57,000 volumes × 4 fields, 600 × 372 pages</text>
+<text x="394.0" y="1701.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixels</text>
+<text x="462.1" y="1701.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">every file's pages contiguous, one uncompressed strip per page</text>
+<text x="394.0" y="1721.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">IFDs</text>
+<text x="462.1" y="1721.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">first at byte 16, the rest packed after the pixels, 51–90 MiB per file</text>
+<rect x="380.0" y="1749.9" width="980.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="1749.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
+<text x="394.0" y="1769.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
+<text x="394.0" y="1786.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB</text>
+<text x="394.0" y="1809.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
+<text x="588.4" y="1809.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 objects, 14.4 kB, csv ×1</text>
+<rect x="380.0" y="1837.9" width="980.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="1837.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
+<text x="394.0" y="1857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">proofreading_status/</text>
+<text x="394.0" y="1874.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB</text>
+<text x="394.0" y="1897.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofreading_status/</text>
+<text x="546.3" y="1897.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1 objects, 57.3 kB, csv ×1</text>
+<rect x="380.0" y="1925.9" width="980.0" height="192.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="1925.9" width="4" height="192.0" rx="2" fill="#2a78d6"/>
+<text x="394.0" y="1945.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">dandiarchive.org/dandiset/000402</text>
+<text x="394.0" y="1962.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">DANDI, s3://dandiarchive</text>
+<text x="394.0" y="1985.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="504.2" y="1985.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19 NWB, subject 17797</text>
+<text x="394.0" y="2005.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">size</text>
+<text x="504.2" y="2005.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1.3 TB in all, 62.4 GB–95.9 GB per file</text>
+<text x="394.0" y="2025.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sessions</text>
+<text x="504.2" y="2025.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6, scans 4-7, 4-9, 4-10, 5-3, 5-6, 5-7, 6-2, 6-4, 6-6, 6-7, 7-3, 7-4, 7-5, 8-5, 8-7, 8-9, 9-3, 9-4, 9-6</text>
+<rect x="385.0" y="2031.9" width="974.0" height="20" fill="#dcfce7"/>
+<text x="1350.0" y="2045.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">ingest</text>
+<text x="394.0" y="2045.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field metadata</text>
+<text x="504.2" y="2045.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ImagingPlane&lt;n&gt;, TwoPhotonSeries&lt;n&gt; timestamps</text>
+<rect x="385.0" y="2051.9" width="974.0" height="20" fill="#fee2e2"/>
+<text x="1350.0" y="2065.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c" text-anchor="end" xml:space="preserve">TIFF used</text>
+<text x="394.0" y="2065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">movies</text>
+<text x="504.2" y="2065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">TwoPhotonSeries data</text>
+<text x="394.0" y="2085.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processed</text>
+<text x="504.2" y="2085.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">traces, ROI masks, behavior, stimulus, frame times</text>
+<text x="394.0" y="2105.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">stimulus</text>
+<text x="504.2" y="2105.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381054, 144, 256, 3) uint8</text>
+<rect x="380.0" y="2133.9" width="980.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="2133.9" width="4" height="112.0" rx="2" fill="#2a78d6"/>
+<text x="394.0" y="2153.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">gs://iarpa_microns/minnie/minnie65/</text>
+<text x="394.0" y="2170.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofread segmentation releases beyond BossDB's</text>
+<text x="394.0" y="2193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m343</text>
+<text x="469.1" y="2193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v343</text>
+<text x="394.0" y="2213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m943</text>
+<text x="469.1" y="2213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v943</text>
+<text x="394.0" y="2233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">seg_m1300</text>
+<text x="469.1" y="2233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">release v1300</text>
 <circle cx="24.0" cy="136.9" r="4.5" fill="#0f172a"/>
 <text x="35.0" y="141.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie/</text>
 <text x="35.0" y="157.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB</text>
@@ -198,48 +210,52 @@
 <circle cx="46.0" cy="244.9" r="4.5" fill="#0f172a"/>
 <text x="57.0" y="249.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">microCT/</text>
 <text x="129.6" y="249.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1</text>
-<text x="57.0" y="265.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer precomputed layers</text>
+<text x="57.0" y="265.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer layers, not ingested</text>
 <line x1="152.3" y1="244.9" x2="378.0" y2="244.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 24.0 141.9 V 352.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="46.0" cy="352.9" r="4.5" fill="#0f172a"/>
 <text x="57.0" y="357.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie35/</text>
 <text x="137.9" y="357.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×7</text>
-<text x="57.0" y="373.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer precomputed layers</text>
+<text x="57.0" y="373.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer layers, not ingested</text>
 <line x1="160.6" y1="352.9" x2="378.0" y2="352.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 24.0 141.9 V 700.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="46.0" cy="700.9" r="4.5" fill="#0f172a"/>
 <text x="57.0" y="705.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/</text>
 <text x="137.9" y="705.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×9</text>
-<text x="57.0" y="721.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer precomputed layers</text>
+<text x="57.0" y="721.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Neuroglancer layers, not ingested</text>
 <line x1="160.6" y1="700.9" x2="378.0" y2="700.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 24.0 141.9 V 1128.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="46.0" cy="1128.9" r="4.5" fill="#0f172a"/>
 <text x="57.0" y="1133.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_data/</text>
 <text x="196.2" y="1133.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×15</text>
+<text x="57.0" y="1149.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">only the scan TIFFs ingested</text>
 <line x1="226.2" y1="1128.9" x2="378.0" y2="1128.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 46.0 1133.9 V 1496.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="68.0" cy="1496.9" r="4.5" fill="#15803d"/>
 <text x="79.0" y="1501.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">two_photon_functional_scans/</text>
-<text x="79.0" y="1517.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">layout from the PDF</text>
-<line x1="320.1" y1="1496.9" x2="378.0" y2="1496.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 24.0 141.9 V 1704.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="46.0" cy="1704.9" r="4.5" fill="#0f172a"/>
-<text x="57.0" y="1709.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
-<text x="279.5" y="1709.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1</text>
-<line x1="302.1" y1="1704.9" x2="378.0" y2="1704.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 24.0 141.9 V 1792.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="46.0" cy="1792.9" r="4.5" fill="#0f172a"/>
-<text x="57.0" y="1797.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">proofreading_status/</text>
-<text x="229.5" y="1797.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1</text>
-<line x1="252.2" y1="1792.9" x2="378.0" y2="1792.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<circle cx="24.0" cy="1880.9" r="4.5" fill="#15803d"/>
-<text x="35.0" y="1885.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">dandiset 000402</text>
-<text x="165.9" y="1885.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
-<text x="35.0" y="1901.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">NWB files</text>
-<line x1="195.9" y1="1880.9" x2="378.0" y2="1880.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<circle cx="24.0" cy="2048.9" r="4.5" fill="#0f172a"/>
-<text x="35.0" y="2053.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/</text>
-<text x="115.9" y="2053.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×3</text>
-<text x="35.0" y="2069.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Google Cloud</text>
-<line x1="138.6" y1="2048.9" x2="378.0" y2="2048.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<text x="318.1" y="1501.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×38</text>
+<text x="79.0" y="1517.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">TIFFs</text>
+<line x1="348.1" y1="1496.9" x2="378.0" y2="1496.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 141.9 V 1764.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="1764.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="1769.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_coregistration/</text>
+<text x="279.5" y="1769.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1</text>
+<text x="57.0" y="1785.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">not ingested</text>
+<line x1="302.1" y1="1764.9" x2="378.0" y2="1764.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 141.9 V 1852.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="1852.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="1857.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">proofreading_status/</text>
+<text x="229.5" y="1857.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1</text>
+<text x="57.0" y="1873.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">not ingested</text>
+<line x1="252.2" y1="1852.9" x2="378.0" y2="1852.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<circle cx="24.0" cy="1940.9" r="4.5" fill="#15803d"/>
+<text x="35.0" y="1945.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">dandiset 000402</text>
+<text x="165.9" y="1945.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×19</text>
+<text x="35.0" y="1961.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">NWB files</text>
+<line x1="195.9" y1="1940.9" x2="378.0" y2="1940.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<circle cx="24.0" cy="2148.9" r="4.5" fill="#0f172a"/>
+<text x="35.0" y="2153.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/</text>
+<text x="115.9" y="2153.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×3</text>
+<text x="35.0" y="2169.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Google Cloud, not ingested</text>
+<line x1="138.6" y1="2148.9" x2="378.0" y2="2148.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 </svg>

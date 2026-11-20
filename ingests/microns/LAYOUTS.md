@@ -1,0 +1,154 @@
+# MICrONS two-photon scans: how the source maps onto the store
+
+What the archive publishes, how each part becomes a node of the store, and
+the choices the data did not settle. The figures in `diagrams/` draw the
+same mapping: `source.svg`, `mapping.svg` and `store.svg`.
+
+## The sources
+
+**Pixels.** BossDB publishes the 19 functional scans of mouse 17797 under
+`s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/`,
+one TIFF per scan per export:
+`functional_scan_<animal>_<session>_<scan>_v<export>.tif`. There are 38
+files, 1.34 TB per export, CC BY 4.0. The technical documentation in the same
+directory (`..._technical_documentation_v2.pdf`, July 2023) states the scan
+groups:
+
+| Scans | Volumes | Fields | Rate | Frame | Pixel |
+|---|---|---|---|---|---|
+| 15 scans | 40,000 | 8 | ~6.3 Hz | 440 × 248 | 2.5 µm |
+| 4-9 | 35,112 | 8 | ~6.3 Hz | 440 × 248 | 2.5 µm |
+| 9-3, 9-4 | 50,000 | 6 | ~8.6 Hz | 440 × 248 | 2.5 µm |
+| 9-6 | 57,000 | 4 | ~9.6 Hz | 600 × 372 | 1.667 µm |
+
+That makes 144 fields and 5,908,896 pages per export.
+
+**Metadata.** DANDI 000402 (version 0.230307.2132, CC BY 4.0) holds one NWB
+file per scan, `sub-17797/sub-17797_ses-<session>-scan-<scan>_behavior+image+ophys.nwb`,
+62 to 96 GB each, in `s3://dandiarchive` (us-east-2). Each file holds the same
+movie again, gzip-compressed, beside the processed data. The store reads only
+the metadata the TIFFs lack.
+
+## Each TIFF
+
+tifffile wrote every file as one shaped series, with
+`ImageDescription = {"shape": [volumes × fields, rows, columns]}`:
+
+- the first directory at byte 16;
+- every page's pixels back to back, one uncompressed strip per page, from
+  byte 406 (v2) or 512 (v1);
+- every other directory after the pixels, packed at a constant stride: 236
+  bytes (11 tags) in v2, 296 bytes (14 tags) in v1.
+
+All 38 files have this layout. The trial took every page's offset from the
+file's own directory (through tifffile) and found the pages contiguous and of
+one size in every file. The directory block is 51 to 90 MB per file, 3.1 GB
+in all.
+
+The pages interleave the fields. Page `v × F + (n − 1)` is field `n` of volume
+`v`, where `F` is the scan's field count. The documentation states this
+order, and the trial confirmed it against the NWB copy (below).
+
+## The two exports
+
+v1 was exported on 2021-07-02 and v2 on 2023-01-13; the documentation's
+changelog says v2 "corrected pixel over/under-flow error in export". The
+pixel bytes are the same. Comparing 72 pages in scans 4-7, 9-3 and 9-6, every
+v1 value equals the v2 value read as unsigned: `v1 − v2` is 0 everywhere
+except where v2 is negative, and there it is exactly 65,536. What differs:
+
+- `SampleFormat`: v1 states UINT, v2 states INT;
+- v1 carries `XResolution` and `YResolution` of 1/1 and `ResolutionUnit` NONE
+  in every directory, which v2 lacks; this accounts for v1's three extra tags
+  and its larger directories;
+- the offsets, because of the larger directories.
+
+The pixels are signed. Motion correction leaves a few negative values,
+from −167 to −1, in 0.1 to 0.3% of the pixels compared, and v1 reads them as
+65,369 to 65,535. The documentation says the files are uint16; that is true of
+v1 only.
+
+The store keeps both, as two commits on `main`: tag `v1` references the v1
+files as uint16, reproducing the export's error, and tag `v2` references the
+v2 files as int16. The ingest compares the first, middle and last page of
+every scan byte for byte before writing the second commit.
+
+## Each NWB file
+
+| Path | Holds |
+|---|---|
+| `acquisition/TwoPhotonSeries<n>` | field `n`'s movie, `(volumes, columns, rows)` int16, gzip, chunks `(2254, 14, 14)` |
+| `acquisition/TwoPhotonSeries<n>.attrs["description"]` | "Calcium imaging data for field n at 6.3009 Hz and 8e-05 meters depth." |
+| `acquisition/TwoPhotonSeries<n>/timestamps` | `(volumes,)` float64 seconds |
+| `acquisition/TwoPhotonSeries<n>/imaging_plane` | a soft link to `general/optophysiology/ImagingPlane<n>` |
+| `general/optophysiology/ImagingPlane<n>/origin_coords` | `[x, y, depth]` in meters |
+| `general/optophysiology/ImagingPlane<n>/grid_spacing` | `[2.5e-06, 2.5e-06]` meters |
+| `general/optophysiology/ImagingPlane<n>/imaging_rate` | NaN |
+
+**Field n is TwoPhotonSeries n, transposed.** In scan 4-7 at volume 1000,
+each `TwoPhotonSeries<k>` patch of 28 × 42 pixels equals the TIFF page
+`1000 × 8 + (k − 1)` with rows and columns swapped, exactly, and no other page
+of that volume. The NWB conversion transposed each frame from (height, width)
+to (width, height) ([MICrONS-to-nwb](https://github.com/catalystneuro/MICrONS-to-nwb/blob/main/src/microns_to_nwb/tools/ophys/ophys.py)).
+
+**`origin_coords` is the field's center.** The conversion fills it from the
+DataJoint `Field` table's `field_x`, `field_y` and `field_z`, which the
+processed-data documentation (v8) describes as the field center in motor
+coordinates: x posterior to anterior, y lateral to medial, z from the pia
+toward white matter. NWB defines `origin_coords` as the position of the first
+pixel; the store follows what the values are.
+
+**x runs along the TIFF's columns, y along its rows.** Coplanar fields 1 and
+2 of scan 4-7 differ by 580 µm in `origin_coords[0]`: the 620 µm width of a
+248-column field less the documented 40 µm overlap. The right edge of field 1
+matches the left edge of field 2 (correlation 0.56 to 0.71 for the four
+coplanar pairs in one frame) and not the reverse (0.19 to 0.33), so x
+increases with the column index. The best overlap in that single frame was 15
+to 31 columns, against the 16 that 40 µm implies; one frame is noisy, so the
+size of the overlap is not settled.
+
+**Every field carries the same timestamps.** They are the scan's volume
+times: the conversion passes one `frame_times` array per scan, from the
+DataJoint `ScanTimes` table, to every field. They are not the time at which
+each field was scanned within its volume, which the NWB does not state.
+
+**The rate is only in the description.** `imaging_rate` is NaN. The stated
+rate agrees with the median volume interval to well under 1%; over a whole
+scan the timestamps run 2.5 s (4-7) to 3.0 s (9-6) longer than the stated
+rate implies, so the image's time scale is nominal and `volume_times` is
+exact.
+
+**Other inconsistencies, kept as stated.** `field_of_view` lists
+`[0.00062, 0.0011]` (columns' extent first), while `dimension` lists
+`[440, 248]` (rows first). Scan 9-6's two depths are 155 and 175 µm. Both are
+stored in each field's `annotations.nwb` as the file states them.
+
+## The store
+
+| Node | From |
+|---|---|
+| `/` | title, description, license, citations, sources; `ome`: a `bioformats2raw.layout` collection; `tiff_export` names the commit's export |
+| `OME` | `ome.series`: the 144 field image paths |
+| `two-photon` | one entry per scan: fields, volumes, rate |
+| `two-photon/<session>-<scan>` | `ome.scene`: coordinate system `motor` (t, z, y, x) and one translation per field; `scan`: animal, session, scan, counts, rate, depths, the NWB and TIFF URLs |
+| `two-photon/<session>-<scan>/volume_times` | the NWB timestamps, `(volumes,)` float64 seconds, written natively with Blosc zstd and byte shuffle |
+| `two-photon/<session>-<scan>/field-<n>` | an image: `ome.multiscales` with one level and scale `(1 / rate, 1, pixel, pixel)`; `annotations`: what the NWB states about the field, the page rule and the export; `tiff`: what the TIFF states about its series |
+| `two-photon/<session>-<scan>/field-<n>/0` | `(volumes, 1, rows, columns)`, chunks `(1, 1, rows, columns)`; chunk `(v, 0, 0, 0)` references page `v × F + n − 1` |
+
+The scene places field `n` at `t` = the scan's first volume time, `z` = its
+depth, and `(y, x)` = its center less half the field, so that the
+translation is the center of the first pixel, as OME-Zarr reads it. Scan 4-7
+field 1 sits at (10.15 s, 80 µm, −783.75 µm, −793.75 µm).
+
+## Judgement calls
+
+- **The z axis.** Each field is one optical section. A size-1 z axis lets the
+  scene place it at its depth; its scale of 1 µm is a placeholder, named as
+  one in the attributes. PLAN.md weighs this against a plain (t, y, x).
+- **Volume times per scan.** The NWB gives every field the same timestamps,
+  so they are stored once per scan, not once per field.
+- **Centers, not corners.** `origin_coords` is used as the field center, from
+  the conversion code and the DataJoint schema, against the NWB definition of
+  the field.
+- **Both exports.** v1 is kept, with its wrong dtype, as the first commit, so
+  a reader of an analysis made on v1 can check out what it read.

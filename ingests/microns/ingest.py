@@ -78,7 +78,7 @@ ROOT = {
         "taken from the DANDI 000402 NWB files of the same scans."),
     "license": "CC-BY-4.0",
     "citation": [
-        "MICrONS Consortium et al. (2025). Functional connectomics spanning multiple "
+        "The MICrONS Consortium (2025). Functional connectomics spanning multiple "
         "areas of mouse visual cortex. Nature 640, 435-447. "
         "https://doi.org/10.1038/s41586-025-08790-w",
         "IARPA MICrONS Minnie, BossDB (2022). https://doi.org/10.60533/BOSS-2021-T0SY",
