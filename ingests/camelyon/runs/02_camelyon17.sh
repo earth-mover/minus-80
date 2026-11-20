@@ -2,9 +2,10 @@
 # Run 2: add the 1,000 CAMELYON17 slides to earthmover-biology/camelyon, on top
 # of the CAMELYON16 history that run 1 copied there.
 #
-# Not run yet: it waits on the approval of PLAN.md. The job runs the committed
-# code that HEAD names when it launches; the launcher refuses uncommitted
-# changes.
+# Runs from commit b193fe5, the code that passed review; the commit that
+# records this line changes nothing else. The job runs the committed code
+# that HEAD names when it launches, and the launcher refuses uncommitted
+# changes. Not run yet.
 #
 # Expected, from the laptop trial (PLAN.md, "What has been tested"): ten
 # commits of 100 slides each, 15 to 25 minutes on one c6in.4xlarge, then
