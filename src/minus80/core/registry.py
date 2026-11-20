@@ -158,7 +158,7 @@ def store_and_key(url: str, *, patient: bool = False) -> tuple:
         # whole URL, read with an empty key, sends it.
         return _store_for_url(url, patient), ""
     store, key = _registry_for_dir(url_dir(url), patient).resolve(url)
-    return store, unquote(key)
+    return store, key_within(store, url, key)
 
 
 def resolve(registry: ObjectStoreRegistry, url: str) -> tuple:
@@ -177,7 +177,30 @@ def resolve(registry: ObjectStoreRegistry, url: str) -> tuple:
     path, prefix = file_path(url), getattr(store, "prefix", None)
     if path is not None and isinstance(prefix, Path) and path.is_relative_to(prefix):
         return store, path.relative_to(prefix).as_posix()
-    return store, unquote(str(key))
+    return store, key_within(store, url, key)
+
+
+def key_within(store, url: str, key) -> str:
+    """The decoded key of ``url`` inside ``store``, given the key the registry returned.
+
+    ``ObjectStoreRegistry.resolve`` strips the store's prefix, which obstore
+    holds decoded, from the URL's path, which is still percent-encoded. When the
+    two spellings differ, nothing is stripped, and the registry returns the whole
+    path as the key, so the store's prefix is requested twice. The IBL bucket's
+    revision folders are named ``#2024-05-06#``, and ``#`` must be written
+    ``%23`` in a URL, so every file in them resolved to a key that 404s.
+    Comparing the decoded path with the decoded prefix gets the right key.
+    """
+    path = unquote(urlparse(url).path).lstrip("/")
+    if prefix := getattr(store, "prefix", None):
+        base = str(prefix).strip("/")
+    elif store_url := getattr(store, "url", None):
+        base = unquote(urlparse(store_url).path).strip("/")
+    else:
+        return unquote(str(key))
+    if base and path.startswith(base + "/"):
+        return path[len(base) + 1:]
+    return unquote(str(key))
 
 
 @lru_cache(maxsize=64)

@@ -214,3 +214,19 @@ def test_public_bucket_outside_us_east_1_reads_without_a_region(no_env_region, m
     monkeypatch.setenv("MINUS80_S3_ANONYMOUS", "1")
     store, key = store_and_key(OPENCELL_TIFF)
     assert len(bytes(obstore.get_range(store, key, start=0, length=16))) == 16
+
+
+@pytest.mark.parametrize("folder", ["%232024-05-06%23", "sp%20ace", "pl%2Bus"])
+def test_s3_key_in_an_encoded_folder_is_relative_to_the_store(monkeypatch, folder):
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    from urllib.parse import unquote
+
+    store, key = store_and_key(f"s3://bucket/data/{folder}/spikes.times.npy")
+    assert str(store.prefix) == f"data/{unquote(folder)}"
+    assert key == "spikes.times.npy"
+
+
+def test_http_file_in_an_encoded_folder_is_requested_once(range_server):
+    range_server.files["/d/%23r%23/f.bin"] = DATA
+    store, key = store_and_key(f"{range_server.url}/d/%23r%23/f.bin")
+    assert bytes(obstore.get_range(store, key, start=0, end=4)) == DATA[:4]
