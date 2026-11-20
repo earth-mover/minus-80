@@ -170,13 +170,29 @@ version = "0.0.0"
 source = { virtual = "ingests/camelyon" }
 dependencies = [
     { name = "arraylake" },
-    { name = "minus-80", extra = ["tiff"] },
+    { name = "minus-80", extra = ["asap", "tiff"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "arraylake", specifier = ">=1.7.0" },
-    { name = "minus-80", extras = ["tiff"], editable = "." },
+    { name = "minus-80", extras = ["asap", "tiff"], editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
+notebook = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
 ]
 
 [[package]]
