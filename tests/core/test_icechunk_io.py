@@ -1,4 +1,5 @@
 import icechunk
+import pytest
 
 from minus80.core import icechunk_io
 from minus80.core.icechunk_io import REMOTE_READ_TRIES, create_repo, open_repository
@@ -77,3 +78,38 @@ def test_an_arraylake_repo_must_cover_the_sources(monkeypatch):
     assert config.storage.retries.max_tries == REMOTE_READ_TRIES
     with pytest.raises(ValueError, match="no virtual chunk container covering"):
         icechunk_io.arraylake_repository(location, source_prefixes=["s3://other-bucket/"])
+
+
+def test_pinned_references_refuse_a_changed_source(tmp_path):
+    import datetime
+
+    import numpy as np
+    import zarr
+    from virtualizarr.manifests import ManifestGroup
+
+    from minus80.core.builders.flat_binary import flat_manifest_array
+    from minus80.core.icechunk_io import commit, create_repo, open_repository, pin_virtual_refs
+    from minus80.core.registry import as_url
+
+    source = tmp_path / "data" / "column.npy"
+    source.parent.mkdir()
+    np.save(source, np.arange(8, dtype="<f8"))
+    url = as_url(source)
+    array = flat_manifest_array(url, shape=(8,), dtype="float64", data_offset=128,
+                                endian="little", rows_per_chunk=4, dimension_names=("row",))
+    repo = create_repo(tmp_path / "repo", [url])
+    session = repo.writable_session("main")
+    ManifestGroup(arrays={"column": array}).to_icechunk(session.store)
+    before = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=5)
+    pin_virtual_refs(session.store, "column", array, before)
+    commit(session, "pinned")
+    read = lambda: zarr.open_array(open_repository(tmp_path / "repo").readonly_session("main").store,
+                                   path="column", mode="r")[:]
+    assert np.array_equal(read(), np.arange(8))
+
+    session = repo.writable_session("main")
+    long_ago = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
+    pin_virtual_refs(session.store, "column", array, long_ago)
+    commit(session, "pinned to a time before the file was written")
+    with pytest.raises(Exception):
+        read()

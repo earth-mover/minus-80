@@ -9,10 +9,11 @@ rest natively, and maps NWB's schema onto named, indexed axes.
 uv sync --extra nwb
 ```
 
-## Two layouts
+## Three layouts
 
 | Function | Output | Axes |
 | --- | --- | --- |
+| `unified.write_nwb(...)` | the whole NWB tree at a group, in the unified NWB Zarr v3 convention; `hdmf_zarr.NWBZarrIO` opens it at a store's root, zarr and xarray at any group | named by `unified.name_dimensions`: `time`, `channel`, a table's own name |
 | `open_collection(sources, names=None)` | one `ManifestGroup`, a group per file at `<name>/<nwb path>` | unnamed; every array keeps its own |
 | `file_datasets(source)` | `{parent_path: xr.Dataset}` for one file, plus its native metadata | shared and indexed: `time`, table row ids, electrode ids |
 
@@ -81,7 +82,11 @@ byte-shuffle and zstd.
 - **Remote sources are downloaded once to index.** HDF5's chunk B-tree is
   scattered through the file, so a remote file is fetched to
   `minus80.core.fetch.cache_dir()` first; the store still references the
-  remote URL.
+  remote URL. For a large, well-chunked file this is the wrong trade: a 92 GB IBL
+  raw file's index costs 189 requests and 12 MB per probe when `HDFParser`
+  walks it in place, and shadowzarr maps the whole file in 7 s
+  ([docs/formats.md](../../../../docs/formats.md)). `unified` reads in
+  place.
 - **A `+`, a space or another percent-encoded character in a local path breaks
   indexing,** in the file name or in any directory above it. `HDFParser` reads
   through obspec-utils' `ObjectStoreRegistry`, which neither decodes the key

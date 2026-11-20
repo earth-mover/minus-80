@@ -275,6 +275,29 @@ def create_repo(
     )
 
 
+def pin_virtual_refs(store, path: str, array, checksum) -> None:
+    """Rewrite ``array``'s references at ``path`` so each read checks the source is unchanged.
+
+    ``checksum`` is the source object's ETag, or a datetime it must not have
+    been modified after. Icechunk then refuses a chunk whose object has
+    changed since, rather than returning other bytes from the same range.
+    ``ManifestGroup.to_icechunk`` writes references without a checksum, so
+    call this after it, on every array of one source object. Missing chunks
+    stay missing.
+    """
+    manifest = array.manifest
+    failed = store.set_virtual_refs_arr(
+        array_path=path,
+        chunk_grid_shape=tuple(manifest.shape_chunk_grid),
+        locations=[str(p) for p in manifest._paths.ravel()],
+        offsets=manifest._offsets.ravel(),
+        lengths=manifest._lengths.ravel(),
+        checksum=checksum,
+    )
+    if failed:
+        raise ValueError(f"{path}: references at {failed[:3]} are outside the repo's containers")
+
+
 def write_manifest_group(
     group: ManifestGroup,
     repo_path: str | Path,

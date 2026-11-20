@@ -3,7 +3,7 @@ import pytest
 import zarr
 from virtualizarr.manifests import ManifestGroup, ManifestStore
 
-from minus80.core.builders.flat_binary import flat_manifest_array
+from minus80.core.builders.flat_binary import flat_manifest_array, flat_tail
 from minus80.core.registry import as_url, registry_for
 
 SHAPE = (4, 3, 2)
@@ -44,3 +44,25 @@ def test_stride_smaller_than_a_slab_raises(tmp_path):
     with pytest.raises(ValueError, match="overlap"):
         flat_manifest_array("file:///x.raw", shape=SHAPE, dtype="uint16", data_offset=0,
                             endian="little", stride=4)
+
+
+@pytest.mark.parametrize("n", [12, 10])
+def test_rows_per_chunk_groups_rows_and_leaves_a_short_tail_missing(tmp_path, n):
+    data = np.arange(n, dtype="<f8") * 1.5
+    path = tmp_path / "column.npy"
+    np.save(path, data)
+    marr = flat_manifest_array(as_url(path), shape=(n,), dtype="float64", data_offset=128,
+                               endian="little", rows_per_chunk=4)
+    assert marr.metadata.chunks == (4,)
+    read = _read(marr)
+    tail = flat_tail(shape=(n,), dtype="float64", data_offset=128, rows_per_chunk=4)
+    full = n - n % 4
+    np.testing.assert_array_equal(read[:full], data[:full])
+    if tail is None:
+        assert n % 4 == 0
+    else:
+        first, start, end = tail
+        assert first == full
+        raw = path.read_bytes()[start:end]
+        np.testing.assert_array_equal(np.frombuffer(raw, "<f8"), data[first:])
+        assert (read[first:] == 0).all()

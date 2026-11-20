@@ -45,6 +45,7 @@ def flat_manifest_array(
     # so it has to come from the header.
     endian: str,
     stride: int | None = None,
+    rows_per_chunk: int = 1,
     dimension_names: tuple[str, ...] | None = None,
     attributes: dict | None = None,
 ) -> ManifestArray:
@@ -56,13 +57,21 @@ def flat_manifest_array(
     ``stride`` is the byte distance between the starts of successive slabs. It defaults to the slab size (a fully contiguous array); pass a
     larger value for a format that writes a per-record header before each slab, and
     keep ``data_offset`` pointing at the first slab's *pixels*, past that header.
+
+    ``rows_per_chunk`` puts that many consecutive slabs in each chunk, for a
+    long 1-D array such as a table column, where one element per chunk would
+    give millions of chunks. It needs contiguous slabs. When the rows do not
+    divide evenly, the last chunk would be shorter than Zarr's chunk shape and
+    could not be decoded, so it is left missing: write it natively from the
+    byte range :func:`flat_tail` returns.
     """
     dtype = np.dtype(dtype)
     shape = tuple(int(s) for s in shape)
     itemsize = dtype.itemsize
 
     n = shape[0]
-    chunk_shape = (1, *shape[1:])
+    rows = int(rows_per_chunk)
+    chunk_shape = (rows, *shape[1:])
 
     # math.prod, not np.prod: np.prod overflows a fixed-width int on a huge slab
     # and corrupts every offset. math.prod([]) == 1 covers the 1-D case.
@@ -75,12 +84,34 @@ def flat_manifest_array(
             "successive chunks would overlap."
         )
 
-    grid = (n,) + (1,) * (len(shape) - 1)
+    if rows > 1 and stride != slab_bytes:
+        raise ValueError("rows_per_chunk > 1 needs contiguous slabs (no stride)")
+
+    count = math.ceil(n / rows)
+    grid = (count,) + (1,) * (len(shape) - 1)
     offsets = (
-        np.uint64(data_offset) + np.arange(n, dtype=np.uint64) * np.uint64(stride)
+        np.uint64(data_offset) + np.arange(count, dtype=np.uint64) * np.uint64(stride * rows)
     ).reshape(grid)
-    lengths = np.full(grid, slab_bytes, dtype=np.uint64)
+    lengths = np.full(grid, slab_bytes * rows, dtype=np.uint64)
+    if n % rows:
+        lengths.reshape(-1)[-1] = 0
     return manifest_array(
         url, offsets, lengths, shape=shape, chunk_shape=chunk_shape, dtype=dtype,
         codecs=[{"name": "bytes", "configuration": {"endian": endian}}],
         dimension_names=dimension_names, attributes=attributes)
+
+
+def flat_tail(
+    *, shape: tuple[int, ...], dtype, data_offset: int, rows_per_chunk: int
+) -> tuple[int, int, int] | None:
+    """The rows and bytes of the short last chunk :func:`flat_manifest_array` leaves missing.
+
+    Returns ``(first_row, start_byte, end_byte)``, or None when the rows divide
+    evenly. Read those bytes and assign them to ``array[first_row:]``.
+    """
+    n, rows = int(shape[0]), int(rows_per_chunk)
+    if n % rows == 0:
+        return None
+    slab_bytes = math.prod(int(s) for s in shape[1:]) * np.dtype(dtype).itemsize
+    first = n - n % rows
+    return first, data_offset + first * slab_bytes, data_offset + n * slab_bytes
