@@ -113,7 +113,11 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     The level's shape is tifffile's, not the page's tags: tifffile reports a
     smaller shape for some formats' reduced levels than their tags state (a
     Philips TIFF pads each level's width up to whole tiles). The tile grid must
-    still be the page's, which is checked.
+    still be the page's, which is checked. The shape never exceeds the page's
+    own ``ImageLength`` and ``ImageWidth`` tags, though: when a Philips level
+    is cropped a whole tile short of level 0 halved, tifffile 2026.10.15
+    keeps the tag for the width but sets the length to the halved value, past
+    the page's last row of tiles (docs/upstream.md).
 
     Each named axis's type goes in the ``dimensions`` attribute: ``t`` is
     time, ``c`` (a channel axis or interleaved samples) is channel, and ``z``,
@@ -134,6 +138,9 @@ def level_array(level: tifffile.TiffPageSeries, url: str, *,
     leading_axes = axes[: len(axes) - len(planar)]
     leading = tuple(level.shape[: len(leading_axes)])
     height, width = level.shape[len(leading_axes):][:2]
+    if "ImageLength" in page.tags and "ImageWidth" in page.tags:
+        height = min(height, page.tags["ImageLength"].value)
+        width = min(width, page.tags["ImageWidth"].value)
     pages = list(level.pages)
     if len(pages) != math.prod(leading):
         raise NotImplementedError(
