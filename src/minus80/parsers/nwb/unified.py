@@ -44,12 +44,13 @@ def under_group(rfs: dict, group: str) -> dict:
     """The same reference file system with every key moved under ``group`` ("" for the root)."""
     if not group.strip("/"):
         return rfs
-    if rfs.get("gen"):
-        raise NotImplementedError("moving gen entries under a group")
     prefix = group.strip("/") + "/"
     moved = dict(rfs)
     moved["refs"] = {prefix + key: value for key, value in rfs["refs"].items()}
     moved["indexes"] = {prefix + key: value for key, value in rfs.get("indexes", {}).items()}
+    # A gen entry describes a contiguous dataset's chunks with a key template
+    # such as "acquisition/Events/data/c/{{i}}"; its literal start moves too.
+    moved["gen"] = [{**entry, "key": prefix + entry["key"]} for entry in rfs.get("gen", [])]
     return moved
 
 

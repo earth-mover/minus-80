@@ -86,3 +86,18 @@ def pynwb_file(path):
             yield io.read()
 
     return opened()
+
+
+def test_a_contiguous_dataset_moves_under_the_group_with_its_chunks(tmp_path):
+    """shadowzarr describes a contiguous dataset's chunks with a gen entry, whose key moves too."""
+    import h5py
+
+    source = str(tmp_path / "contiguous.h5")
+    values = np.arange(1_500_000, dtype="<f8")  # 12 MB, cut into 4 MiB chunks by shadowzarr
+    with h5py.File(source, "w") as f:
+        f.create_dataset("events/timestamps", data=values)
+    rfs = nwb_references(str(source))
+    assert rfs.get("gen"), "the fixture should exercise a gen entry"
+    zarr_store = written(source, tmp_path / "repo", "sub-1/ses-1/raw")
+    array = zarr.open_array(zarr_store, path="sub-1/ses-1/raw/events/timestamps", mode="r")
+    assert np.array_equal(array[:], values)
