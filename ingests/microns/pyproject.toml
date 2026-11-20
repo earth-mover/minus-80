@@ -4,7 +4,9 @@ version = "0.0.0"
 description = "Ingest the MICrONS minnie release (BossDB, DANDI 000402, Google Cloud) into a virtual Icechunk store."
 requires-python = ">=3.12"
 dependencies = [
+    "arro3-core",
     "minus-80",
+    "obstore",
 ]
 
 [tool.uv]

@@ -1,0 +1,679 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="3526" viewBox="0 0 1400 3526">
+<rect x="0" y="0" width="1400" height="3526" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Mapping</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proposed: each source becomes the store node beside it</text>
+<rect x="24.0" y="85.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
+<rect x="104.6" y="85.9" width="14" height="14" rx="3" fill="#1baf7a"/>
+<text x="124.6" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">store</text>
+<line x1="178.8" y1="92.9" x2="200.8" y2="92.9" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="206.8,92.9 198.8,88.4 198.8,97.4" fill="#64748b"/>
+<text x="212.8" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced or copied</text>
+<rect x="363.6" y="83.9" width="102.4" height="18" rx="3" fill="#fef3c7"/>
+<text x="414.9" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b45309" text-anchor="middle" xml:space="preserve">check in trial</text>
+<rect x="484.1" y="83.9" width="102.4" height="18" rx="3" fill="#fee2e2"/>
+<text x="535.3" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c" text-anchor="middle" xml:space="preserve">not referenced</text>
+<line x1="24" y1="121.9" x2="1376" y2="121.9" stroke="#cbd5e1"/>
+<text x="24.0" y="143.9" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">EM</text>
+<text x="58.5" y="143.9" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/em → em/minnie65</text>
+<polygon points="24.0,207.9 60.0,171.9 340.0,171.9 304.0,207.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="304.0,207.9 340.0,171.9 340.0,408.8 304.0,444.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="24.0" y="207.9" width="280.0" height="236.9" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="24.0" y="466.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source minnie65/em/8_8_40</text>
+<text x="24.0" y="482.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">info, scale 0</text>
+<text x="24.0" y="499.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">size   212,992 × 180,224 × 13,088  (x, y, z)</text>
+<text x="24.0" y="516.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 128 × 128 × 16</text>
+<text x="24.0" y="533.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">raw, sharded</text>
+<polygon points="960.0,207.9 996.0,171.9 1276.0,171.9 1240.0,207.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="1240.0,207.9 1276.0,171.9 1276.0,408.8 1240.0,444.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="960.0" y="207.9" width="280.0" height="236.9" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="960.0" y="466.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store em/minnie65/0</text>
+<text x="960.0" y="482.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="960.0" y="499.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  13,088 × 180,224 × 212,992  (z, y, x)</text>
+<text x="960.0" y="516.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 16 × 128 × 128</text>
+<text x="960.0" y="533.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">codec  gzip</text>
+<rect x="470.0" y="207.9" width="410.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="207.9" width="4" height="152.0" rx="2" fill="#eb6834"/>
+<text x="484.0" y="227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="484.0" y="244.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">resolution, voxel_offset, size, chunk_sizes</text>
+<text x="484.0" y="267.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="573.2" y="267.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(z, y, x)  from  (x, y, z)</text>
+<text x="484.0" y="287.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scale nm</text>
+<text x="573.2" y="287.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 8 × 8</text>
+<text x="484.0" y="307.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">translation</text>
+<text x="573.2" y="307.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">592,640 × 110,592 × 110,592 nm</text>
+<text x="484.0" y="327.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels</text>
+<text x="573.2" y="327.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9, one per source scale</text>
+<text x="484.0" y="347.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="573.2" y="347.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one per source chunk</text>
+<path d="M 340.0 308.4 C 405.0 308.4 405.0 267.9 470.0 267.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="470.0,267.9 462.0,263.4 462.0,272.4" fill="#64748b"/>
+<path d="M 880.0 267.9 C 920.0 267.9 920.0 326.4 960.0 326.4" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,326.4 952.0,321.9 952.0,330.9" fill="#64748b"/>
+<rect x="883.2" y="288.1" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="920.0" y="301.1" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<line x1="24.0" y1="589.8" x2="1054.7" y2="589.8" stroke="#0f172a" stroke-width="1"/>
+<text x="32.0" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">level</text>
+<text x="99.1" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source scale</text>
+<text x="313.5" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nm (z,y,x)</text>
+<text x="492.8" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store shape</text>
+<text x="707.2" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="837.4" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">encoding</text>
+<text x="925.5" y="580.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">objects / bytes</text>
+<text x="32.0" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0</text>
+<text x="99.1" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/8_8_40</text>
+<text x="313.5" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 8 × 8</text>
+<text x="492.8" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,088 × 180,224 × 212,992</text>
+<text x="707.2" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">16 × 128 × 128</text>
+<text x="837.4" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">raw</text>
+<text x="925.5" y="607.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="616.8" x2="1054.7" y2="616.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1</text>
+<text x="99.1" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/16_16_40</text>
+<text x="313.5" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 16 × 16</text>
+<text x="492.8" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,088 × 90,112 × 106,496</text>
+<text x="707.2" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="634.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="643.8" x2="1054.7" y2="643.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2</text>
+<text x="99.1" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/32_32_40</text>
+<text x="313.5" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 32 × 32</text>
+<text x="492.8" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,088 × 45,056 × 53,248</text>
+<text x="707.2" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="661.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="670.8" x2="1054.7" y2="670.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3</text>
+<text x="99.1" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/64_64_40</text>
+<text x="313.5" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 64 × 64</text>
+<text x="492.8" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,088 × 22,528 × 26,624</text>
+<text x="707.2" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="688.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="697.8" x2="1054.7" y2="697.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4</text>
+<text x="99.1" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/128_128_80</text>
+<text x="313.5" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">80 × 128 × 128</text>
+<text x="492.8" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6,544 × 11,264 × 13,312</text>
+<text x="707.2" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="715.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="724.8" x2="1054.7" y2="724.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5</text>
+<text x="99.1" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/256_256_160</text>
+<text x="313.5" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">160 × 256 × 256</text>
+<text x="492.8" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3,272 × 5,632 × 6,656</text>
+<text x="707.2" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="742.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="751.8" x2="1054.7" y2="751.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6</text>
+<text x="99.1" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/512_512_320</text>
+<text x="313.5" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">320 × 512 × 512</text>
+<text x="492.8" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,636 × 2,816 × 3,328</text>
+<text x="707.2" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="778.8" x2="1054.7" y2="778.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">7</text>
+<text x="99.1" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/1024_1024_640</text>
+<text x="313.5" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">640 × 1,024 × 1,024</text>
+<text x="492.8" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">818 × 1,408 × 1,664</text>
+<text x="707.2" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="796.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="805.8" x2="1054.7" y2="805.8" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8</text>
+<text x="99.1" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/em/2048_2048_1280</text>
+<text x="313.5" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,280 × 2,048 × 2,048</text>
+<text x="492.8" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">409 × 704 × 832</text>
+<text x="707.2" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="837.4" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">jpeg</text>
+<text x="925.5" y="823.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="832.8" x2="1054.7" y2="832.8" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24" y1="862.8" x2="1376" y2="862.8" stroke="#cbd5e1"/>
+<text x="24.0" y="884.8" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">segmentation</text>
+<text x="140.8" y="884.8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/seg → segmentation/minnie65/seg, one of 14</text>
+<polygon points="24.0,948.8 60.0,912.8 280.0,912.8 244.0,948.8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="244.0,948.8 280.0,912.8 280.0,1062.7 244.0,1098.7" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="24.0" y="948.8" width="220.0" height="149.8" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="24.0" y="1120.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source minnie65/seg/8x8x40</text>
+<text x="24.0" y="1136.7" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">info, scale 0</text>
+<text x="24.0" y="1153.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">size   192,424 × 131,051 × 13,008  (x, y, z)</text>
+<text x="24.0" y="1170.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 128 × 128 × 32</text>
+<text x="24.0" y="1187.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation, sharded</text>
+<polygon points="960.0,948.8 996.0,912.8 1216.0,912.8 1180.0,948.8" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="1180.0,948.8 1216.0,912.8 1216.0,1062.7 1180.0,1098.7" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="960.0" y="948.8" width="220.0" height="149.8" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="960.0" y="1120.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store segmentation/minnie65/seg/0</text>
+<text x="960.0" y="1136.7" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="960.0" y="1153.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  13,008 × 131,051 × 192,424  (z, y, x)</text>
+<text x="960.0" y="1170.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 32 × 128 × 128</text>
+<text x="960.0" y="1187.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">codec  compressed_segmentation (minus80)</text>
+<rect x="470.0" y="948.8" width="410.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="948.8" width="4" height="152.0" rx="2" fill="#eb6834"/>
+<text x="484.0" y="968.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="484.0" y="985.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">resolution, voxel_offset, size, chunk_sizes</text>
+<text x="484.0" y="1008.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="573.2" y="1008.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(z, y, x)  from  (x, y, z)</text>
+<text x="484.0" y="1028.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scale nm</text>
+<text x="573.2" y="1028.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 8 × 8</text>
+<text x="484.0" y="1048.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">translation</text>
+<text x="573.2" y="1048.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">594,000 × 242,464 × 211,080 nm</text>
+<text x="484.0" y="1068.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels</text>
+<text x="573.2" y="1068.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">11, one per source scale</text>
+<text x="484.0" y="1088.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="573.2" y="1088.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one per source chunk</text>
+<path d="M 280.0 1005.7 C 375.0 1005.7 375.0 1008.8 470.0 1008.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="470.0,1008.8 462.0,1004.3 462.0,1013.3" fill="#64748b"/>
+<path d="M 880.0 1008.8 C 920.0 1008.8 920.0 1023.7 960.0 1023.7" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1023.7 952.0,1019.2 952.0,1028.2" fill="#64748b"/>
+<rect x="883.2" y="1007.3" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="920.0" y="1020.3" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<line x1="24.0" y1="1243.7" x2="1181.0" y2="1243.7" stroke="#0f172a" stroke-width="1"/>
+<text x="32.0" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">level</text>
+<text x="99.1" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source scale</text>
+<text x="327.5" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nm (z,y,x)</text>
+<text x="513.8" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store shape</text>
+<text x="728.2" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="858.4" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">encoding</text>
+<text x="1051.8" y="1234.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">objects / bytes</text>
+<text x="32.0" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0</text>
+<text x="99.1" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/8x8x40</text>
+<text x="327.5" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 8 × 8</text>
+<text x="513.8" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,008 × 131,051 × 192,424</text>
+<text x="728.2" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">32 × 128 × 128</text>
+<text x="858.4" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1261.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1270.7" x2="1181.0" y2="1270.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1</text>
+<text x="99.1" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/16x16x40</text>
+<text x="327.5" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 16 × 16</text>
+<text x="513.8" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,008 × 65,526 × 96,212</text>
+<text x="728.2" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">32 × 128 × 128</text>
+<text x="858.4" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1288.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1297.7" x2="1181.0" y2="1297.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2</text>
+<text x="99.1" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/32x32x40</text>
+<text x="327.5" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">40 × 32 × 32</text>
+<text x="513.8" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13,008 × 32,763 × 48,106</text>
+<text x="728.2" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1315.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1324.7" x2="1181.0" y2="1324.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3</text>
+<text x="99.1" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/64x64x80</text>
+<text x="327.5" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">80 × 64 × 64</text>
+<text x="513.8" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6,504 × 16,382 × 24,053</text>
+<text x="728.2" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1342.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1351.7" x2="1181.0" y2="1351.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4</text>
+<text x="99.1" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/128x128x160</text>
+<text x="327.5" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">160 × 128 × 128</text>
+<text x="513.8" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3,252 × 8,191 × 12,027</text>
+<text x="728.2" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1369.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1378.7" x2="1181.0" y2="1378.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5</text>
+<text x="99.1" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/256x256x320</text>
+<text x="327.5" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">320 × 256 × 256</text>
+<text x="513.8" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,626 × 4,096 × 6,014</text>
+<text x="728.2" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1396.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1405.7" x2="1181.0" y2="1405.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6</text>
+<text x="99.1" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/512x512x640</text>
+<text x="327.5" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">640 × 512 × 512</text>
+<text x="513.8" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">813 × 2,048 × 3,007</text>
+<text x="728.2" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1423.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1432.7" x2="1181.0" y2="1432.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">7</text>
+<text x="99.1" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/1024x1024x1280</text>
+<text x="327.5" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,280 × 1,024 × 1,024</text>
+<text x="513.8" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">407 × 1,024 × 1,504</text>
+<text x="728.2" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1450.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1459.7" x2="1181.0" y2="1459.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8</text>
+<text x="99.1" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/2048x2048x2560</text>
+<text x="327.5" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2,560 × 2,048 × 2,048</text>
+<text x="513.8" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">204 × 512 × 752</text>
+<text x="728.2" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1477.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1486.7" x2="1181.0" y2="1486.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9</text>
+<text x="99.1" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/4096x4096x5120</text>
+<text x="327.5" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5,120 × 4,096 × 4,096</text>
+<text x="513.8" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">102 × 256 × 376</text>
+<text x="728.2" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1504.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1513.7" x2="1181.0" y2="1513.7" stroke="#cbd5e1" stroke-width="1"/>
+<text x="32.0" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10</text>
+<text x="99.1" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">minnie65/seg/8192x8192x10240</text>
+<text x="327.5" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10,240 × 8,192 × 8,192</text>
+<text x="513.8" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">51 × 128 × 188</text>
+<text x="728.2" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">64 × 64 × 64</text>
+<text x="858.4" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">compressed_segmentation</text>
+<text x="1051.8" y="1531.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">not surveyed</text>
+<line x1="24.0" y1="1540.7" x2="1181.0" y2="1540.7" stroke="#cbd5e1" stroke-width="1"/>
+<line x1="24" y1="1570.7" x2="1376" y2="1570.7" stroke="#cbd5e1"/>
+<text x="24.0" y="1592.7" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon movie</text>
+<text x="173.7" y="1592.7" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_scan_17797_4_7_v2.tif → two-photon/scans/4-7/field-1…8</text>
+<polygon points="24.0,1710.7 114.0,1620.7 264.0,1620.7 174.0,1710.7" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="174.0,1710.7 264.0,1620.7 264.0,1886.8 174.0,1976.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="24.0" y="1710.7" width="150.0" height="266.1" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="24.0" y="1998.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">source functional_scan_17797_4_7_v2.tif</text>
+<text x="24.0" y="2014.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB functional_data</text>
+<text x="24.0" y="2031.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  320,000 × 440 × 248</text>
+<text x="24.0" y="2048.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">int16, uncompressed</text>
+<text x="24.0" y="2065.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one strip per page</text>
+<polygon points="960.0,1710.7 1050.0,1620.7 1200.0,1620.7 1110.0,1710.7" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="1110.0,1710.7 1200.0,1620.7 1200.0,1886.8 1110.0,1976.8" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="960.0" y="1710.7" width="150.0" height="266.1" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="960.0" y="1998.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store two-photon/scans/4-7/field-1</text>
+<text x="960.0" y="2014.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one image per field</text>
+<text x="960.0" y="2031.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">shape  40,000 × 440 × 248</text>
+<text x="960.0" y="2048.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 1 × 440 × 248</text>
+<text x="960.0" y="2065.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">int16, uncompressed</text>
+<rect x="470.0" y="1620.7" width="410.0" height="232.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1620.7" width="4" height="232.0" rx="2" fill="#eb6834"/>
+<text x="484.0" y="1640.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">page = fields × t + n − 1</text>
+<text x="484.0" y="1657.7" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">40,000 volumes × 8 fields</text>
+<rect x="475.0" y="1666.7" width="404.0" height="20" fill="#fef3c7"/>
+<text x="870.0" y="1680.7" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b45309" text-anchor="end" xml:space="preserve">check</text>
+<text x="484.0" y="1680.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="545.1" y="1680.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">t, y, x</text>
+<text x="484.0" y="1700.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-1</text>
+<text x="545.1" y="1700.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 0, 8, 16, …</text>
+<text x="484.0" y="1720.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-2</text>
+<text x="545.1" y="1720.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 1, 9, 17, …</text>
+<text x="484.0" y="1740.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-3</text>
+<text x="545.1" y="1740.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 2, 10, 18, …</text>
+<text x="484.0" y="1760.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-4</text>
+<text x="545.1" y="1760.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 3, 11, 19, …</text>
+<text x="484.0" y="1780.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-5</text>
+<text x="545.1" y="1780.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 4, 12, 20, …</text>
+<text x="484.0" y="1800.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-6</text>
+<text x="545.1" y="1800.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 5, 13, 21, …</text>
+<text x="484.0" y="1820.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-7</text>
+<text x="545.1" y="1820.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 6, 14, 22, …</text>
+<text x="484.0" y="1840.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field-8</text>
+<text x="545.1" y="1840.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pages 7, 15, 23, …</text>
+<path d="M 264.0 1798.7 C 367.0 1798.7 367.0 1680.7 470.0 1680.7" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="470.0,1680.7 462.0,1676.2 462.0,1685.2" fill="#64748b"/>
+<path d="M 880.0 1680.7 C 920.0 1680.7 920.0 1843.7 960.0 1843.7" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="960.0,1843.7 952.0,1839.2 952.0,1848.2" fill="#64748b"/>
+<rect x="883.2" y="1753.2" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="920.0" y="1766.2" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<line x1="24" y1="2099.8" x2="1376" y2="2099.8" stroke="#cbd5e1"/>
+<text x="24.0" y="2121.8" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">NWB</text>
+<text x="66.7" y="2121.8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sub-17797_ses-4-scan-7_behavior+image+ophys.nwb → two-photon/scans/4-7</text>
+<rect x="24.0" y="2139.8" width="720.0" height="212.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="2139.8" width="4" height="212.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="2159.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">sub-17797_ses-4-scan-7_behavior+image+ophys.nwb</text>
+<text x="38.0" y="2176.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">DANDI 000402, 71.0 GB</text>
+<rect x="29.0" y="2185.8" width="714.0" height="20" fill="#fee2e2"/>
+<text x="734.0" y="2199.8" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b91c1c" text-anchor="end" xml:space="preserve">TIFF used</text>
+<text x="38.0" y="2199.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">acquisition/TwoPhotonSeries1…8</text>
+<text x="338.0" y="2199.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40000, 248, 440) int16 gzip (2254, 14, 14)</text>
+<text x="38.0" y="2219.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general/optophysiology/ImagingPlane1…8</text>
+<text x="338.0" y="2219.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">grid_spacing, origin_coords, depth</text>
+<text x="38.0" y="2239.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/ophys/Fluorescence</text>
+<text x="338.0" y="2239.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve"></text>
+<text x="38.0" y="2259.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/ophys/Deconvolved</text>
+<text x="338.0" y="2259.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve"></text>
+<text x="38.0" y="2279.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/ophys/ImageSegmentation</text>
+<text x="338.0" y="2279.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">masks with pt_root_id</text>
+<text x="38.0" y="2299.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">EyeTracking, PupilTracking</text>
+<text x="338.0" y="2299.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve"></text>
+<text x="38.0" y="2319.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">treadmill_velocity</text>
+<text x="338.0" y="2319.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve"></text>
+<text x="38.0" y="2339.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">stimulus ImageSeries</text>
+<text x="338.0" y="2339.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381054, 144, 256, 3) uint8</text>
+<rect x="840.0" y="2139.8" width="536.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="840.0" y="2139.8" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="854.0" y="2159.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store two-photon/scans/4-7/field-&lt;n&gt;</text>
+<text x="854.0" y="2176.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
+<text x="854.0" y="2199.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixel size</text>
+<text x="943.2" y="2199.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">grid_spacing, y and x</text>
+<text x="854.0" y="2219.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">position</text>
+<text x="943.2" y="2219.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">origin_coords, in the scene</text>
+<text x="854.0" y="2239.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">depth</text>
+<text x="943.2" y="2239.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ImagingPlane depth</text>
+<text x="854.0" y="2259.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">frame times</text>
+<text x="943.2" y="2259.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">timestamps, array beside the image</text>
+<rect x="840.0" y="2287.8" width="536.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="840.0" y="2287.8" width="4" height="152.0" rx="2" fill="#1baf7a"/>
+<text x="854.0" y="2307.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">store two-photon/scans/4-7/processed</text>
+<text x="854.0" y="2324.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/ophys, behavior, stimulus</text>
+<text x="854.0" y="2347.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">fluorescence</text>
+<text x="950.2" y="2347.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced HDF5 chunks</text>
+<text x="854.0" y="2367.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">deconvolved</text>
+<text x="950.2" y="2367.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced HDF5 chunks</text>
+<text x="854.0" y="2387.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">masks</text>
+<text x="950.2" y="2387.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ROIs with EM identifiers</text>
+<text x="854.0" y="2407.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">behavior</text>
+<text x="950.2" y="2407.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">eye, pupil, treadmill</text>
+<text x="854.0" y="2427.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">stimulus</text>
+<text x="950.2" y="2427.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced HDF5 chunks</text>
+<path d="M 744.0 2215.8 C 792.0 2215.8 792.0 2215.8 840.0 2215.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2215.8 832.0,2211.3 832.0,2220.3" fill="#64748b"/>
+<rect x="755.2" y="2206.8" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="792.0" y="2219.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">attributes</text>
+<path d="M 744.0 2235.8 C 792.0 2235.8 792.0 2343.8 840.0 2343.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2343.8 832.0,2339.3 832.0,2348.3" fill="#64748b"/>
+<path d="M 744.0 2255.8 C 792.0 2255.8 792.0 2363.8 840.0 2363.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2363.8 832.0,2359.3 832.0,2368.3" fill="#64748b"/>
+<path d="M 744.0 2275.8 C 792.0 2275.8 792.0 2383.8 840.0 2383.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2383.8 832.0,2379.3 832.0,2388.3" fill="#64748b"/>
+<path d="M 744.0 2295.8 C 792.0 2295.8 792.0 2403.8 840.0 2403.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2403.8 832.0,2399.3 832.0,2408.3" fill="#64748b"/>
+<path d="M 744.0 2335.8 C 792.0 2335.8 792.0 2423.8 840.0 2423.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2423.8 832.0,2419.3 832.0,2428.3" fill="#64748b"/>
+<line x1="24" y1="2469.8" x2="1376" y2="2469.8" stroke="#cbd5e1"/>
+<text x="24.0" y="2491.8" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tables</text>
+<text x="91.4" y="2491.8" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">BossDB CSV files → Iceberg tables beside the store</text>
+<rect x="24.0" y="2509.8" width="720.0" height="992.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="2509.8" width="4" height="992.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="2529.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">BossDB CSV files</text>
+<text x="38.0" y="2546.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">directories with files listed</text>
+<text x="38.0" y="2569.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">func_unit_em_match_release.csv</text>
+<text x="338.0" y="2569.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">14.4 kB</text>
+<text x="38.0" y="2589.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units_visual_properties.csv</text>
+<text x="338.0" y="2589.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">22.9 MB</text>
+<text x="38.0" y="2609.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2609.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">818 B</text>
+<text x="38.0" y="2629.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units.csv</text>
+<text x="338.0" y="2629.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3.6 MB</text>
+<text x="38.0" y="2649.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2649.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3.2 kB</text>
+<text x="38.0" y="2669.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units.csv</text>
+<text x="338.0" y="2669.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10.8 MB</text>
+<text x="38.0" y="2689.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2689.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.6 kB</text>
+<text x="38.0" y="2709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units.csv</text>
+<text x="338.0" y="2709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4.6 MB</text>
+<text x="38.0" y="2729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1.5 kB</text>
+<text x="38.0" y="2749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units.csv</text>
+<text x="338.0" y="2749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">924.9 kB</text>
+<text x="38.0" y="2769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.2 kB</text>
+<text x="38.0" y="2789.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units.csv</text>
+<text x="338.0" y="2789.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">924.9 kB</text>
+<text x="38.0" y="2809.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2809.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2829.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2829.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2849.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2849.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2869.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2869.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2889.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2889.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2909.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2909.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2929.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2929.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2949.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2949.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2969.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2969.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="2989.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="2989.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="3009.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3009.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="3029.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3029.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="3049.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3049.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="3069.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3069.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">309 B</text>
+<text x="38.0" y="3089.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3089.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3109.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3109.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3129.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3129.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3149.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3149.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3169.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3169.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3189.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3189.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3209.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3209.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3229.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3229.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3249.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3249.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3269.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3269.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3289.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3289.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3309.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3309.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3329.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3329.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3349.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">metadata.csv</text>
+<text x="338.0" y="3349.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">78 B</text>
+<text x="38.0" y="3369.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">allen_soma_ei_class_model_v1.csv</text>
+<text x="338.0" y="3369.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4.4 MB</text>
+<text x="38.0" y="3389.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">allen_visp_column_soma_coarse_types_v1.csv</text>
+<text x="338.0" y="3389.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">129.9 kB</text>
+<text x="38.0" y="3409.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">nucleus_neuron_svm.csv</text>
+<text x="338.0" y="3409.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13.4 MB</text>
+<text x="38.0" y="3429.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">nucleus_detection_v0.csv</text>
+<text x="338.0" y="3429.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">11.0 MB</text>
+<text x="38.0" y="3449.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">nucleus_neuron_svm.csv</text>
+<text x="338.0" y="3449.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13.4 MB</text>
+<text x="38.0" y="3469.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">synapses_pni_2.csv</text>
+<text x="338.0" y="3469.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">51.0 GB</text>
+<text x="38.0" y="3489.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofreading_status_public_release.csv</text>
+<text x="338.0" y="3489.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">57.3 kB</text>
+<rect x="840.0" y="2509.8" width="536.0" height="992.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="840.0" y="2509.8" width="4" height="992.0" rx="2" fill="#1baf7a"/>
+<text x="854.0" y="2529.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Iceberg tables</text>
+<text x="854.0" y="2546.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">beside the store, named for the source directory</text>
+<text x="854.0" y="2569.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_coregistration</text>
+<text x="1504.4" y="2569.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2589.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v1</text>
+<text x="1504.4" y="2589.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2609.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/anatomy</text>
+<text x="1504.4" y="2609.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2629.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/anatomy</text>
+<text x="1504.4" y="2629.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2649.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/ori_dir_tuning</text>
+<text x="1504.4" y="2649.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2669.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/ori_dir_tuning</text>
+<text x="1504.4" y="2669.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2689.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/performance</text>
+<text x="1504.4" y="2689.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/performance</text>
+<text x="1504.4" y="2709.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/readout</text>
+<text x="1504.4" y="2729.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/readout</text>
+<text x="1504.4" y="2749.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/responses</text>
+<text x="1504.4" y="2769.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2789.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/digital_twin_properties/v2/responses</text>
+<text x="1504.4" y="2789.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2809.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/evaluation_data_27203_4_7</text>
+<text x="1504.4" y="2809.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2829.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_4_7</text>
+<text x="1504.4" y="2829.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2849.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_5_6</text>
+<text x="1504.4" y="2849.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2869.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_5_7</text>
+<text x="1504.4" y="2869.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2889.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_6_2</text>
+<text x="1504.4" y="2889.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2909.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_6_4</text>
+<text x="1504.4" y="2909.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2929.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_6_6</text>
+<text x="1504.4" y="2929.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2949.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_6_7</text>
+<text x="1504.4" y="2949.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2969.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_7_3</text>
+<text x="1504.4" y="2969.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="2989.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_7_5</text>
+<text x="1504.4" y="2989.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3009.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_8_5</text>
+<text x="1504.4" y="3009.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3029.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_9_3</text>
+<text x="1504.4" y="3029.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3049.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_9_4</text>
+<text x="1504.4" y="3049.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3069.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/evaluation_data/17797_9_6</text>
+<text x="1504.4" y="3069.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3089.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_4_7</text>
+<text x="1504.4" y="3089.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3109.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_5_6</text>
+<text x="1504.4" y="3109.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3129.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_5_7</text>
+<text x="1504.4" y="3129.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3149.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_6_2</text>
+<text x="1504.4" y="3149.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3169.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_6_4</text>
+<text x="1504.4" y="3169.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3189.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_6_6</text>
+<text x="1504.4" y="3189.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3209.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_6_7</text>
+<text x="1504.4" y="3209.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3229.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_7_3</text>
+<text x="1504.4" y="3229.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3249.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_7_5</text>
+<text x="1504.4" y="3249.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3269.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_8_5</text>
+<text x="1504.4" y="3269.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3289.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_9_3</text>
+<text x="1504.4" y="3289.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3309.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_9_4</text>
+<text x="1504.4" y="3309.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3329.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/microns_scans/training_data/17797_9_6</text>
+<text x="1504.4" y="3329.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3349.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">functional_data/foundation_model/train_digital_twin/training_data_27203_4_7</text>
+<text x="1504.4" y="3349.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3369.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/cell_types</text>
+<text x="1504.4" y="3369.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3389.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/cell_types</text>
+<text x="1504.4" y="3389.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3409.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/cell_types</text>
+<text x="1504.4" y="3409.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3429.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/nucleus_detection</text>
+<text x="1504.4" y="3429.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3449.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/nucleus_neuron_classification</text>
+<text x="1504.4" y="3449.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3469.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">minnie65/synapse_graph</text>
+<text x="1504.4" y="3469.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<text x="854.0" y="3489.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proofreading_status</text>
+<text x="1504.4" y="3489.8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">f…</text>
+<path d="M 744.0 2565.8 C 792.0 2565.8 792.0 2565.8 840.0 2565.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2565.8 832.0,2561.3 832.0,2570.3" fill="#64748b"/>
+<rect x="773.7" y="2556.8" width="36.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="792.0" y="2569.8" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">rows</text>
+<path d="M 744.0 2585.8 C 792.0 2585.8 792.0 2585.8 840.0 2585.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2585.8 832.0,2581.3 832.0,2590.3" fill="#64748b"/>
+<path d="M 744.0 2605.8 C 792.0 2605.8 792.0 2605.8 840.0 2605.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2605.8 832.0,2601.3 832.0,2610.3" fill="#64748b"/>
+<path d="M 744.0 2625.8 C 792.0 2625.8 792.0 2625.8 840.0 2625.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2625.8 832.0,2621.3 832.0,2630.3" fill="#64748b"/>
+<path d="M 744.0 2645.8 C 792.0 2645.8 792.0 2645.8 840.0 2645.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2645.8 832.0,2641.3 832.0,2650.3" fill="#64748b"/>
+<path d="M 744.0 2665.8 C 792.0 2665.8 792.0 2665.8 840.0 2665.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2665.8 832.0,2661.3 832.0,2670.3" fill="#64748b"/>
+<path d="M 744.0 2685.8 C 792.0 2685.8 792.0 2685.8 840.0 2685.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2685.8 832.0,2681.3 832.0,2690.3" fill="#64748b"/>
+<path d="M 744.0 2705.8 C 792.0 2705.8 792.0 2705.8 840.0 2705.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2705.8 832.0,2701.3 832.0,2710.3" fill="#64748b"/>
+<path d="M 744.0 2725.8 C 792.0 2725.8 792.0 2725.8 840.0 2725.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2725.8 832.0,2721.3 832.0,2730.3" fill="#64748b"/>
+<path d="M 744.0 2745.8 C 792.0 2745.8 792.0 2745.8 840.0 2745.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2745.8 832.0,2741.3 832.0,2750.3" fill="#64748b"/>
+<path d="M 744.0 2765.8 C 792.0 2765.8 792.0 2765.8 840.0 2765.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2765.8 832.0,2761.3 832.0,2770.3" fill="#64748b"/>
+<path d="M 744.0 2785.8 C 792.0 2785.8 792.0 2785.8 840.0 2785.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2785.8 832.0,2781.3 832.0,2790.3" fill="#64748b"/>
+<path d="M 744.0 2805.8 C 792.0 2805.8 792.0 2805.8 840.0 2805.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2805.8 832.0,2801.3 832.0,2810.3" fill="#64748b"/>
+<path d="M 744.0 2825.8 C 792.0 2825.8 792.0 2825.8 840.0 2825.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2825.8 832.0,2821.3 832.0,2830.3" fill="#64748b"/>
+<path d="M 744.0 2845.8 C 792.0 2845.8 792.0 2845.8 840.0 2845.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2845.8 832.0,2841.3 832.0,2850.3" fill="#64748b"/>
+<path d="M 744.0 2865.8 C 792.0 2865.8 792.0 2865.8 840.0 2865.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2865.8 832.0,2861.3 832.0,2870.3" fill="#64748b"/>
+<path d="M 744.0 2885.8 C 792.0 2885.8 792.0 2885.8 840.0 2885.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2885.8 832.0,2881.3 832.0,2890.3" fill="#64748b"/>
+<path d="M 744.0 2905.8 C 792.0 2905.8 792.0 2905.8 840.0 2905.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2905.8 832.0,2901.3 832.0,2910.3" fill="#64748b"/>
+<path d="M 744.0 2925.8 C 792.0 2925.8 792.0 2925.8 840.0 2925.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2925.8 832.0,2921.3 832.0,2930.3" fill="#64748b"/>
+<path d="M 744.0 2945.8 C 792.0 2945.8 792.0 2945.8 840.0 2945.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2945.8 832.0,2941.3 832.0,2950.3" fill="#64748b"/>
+<path d="M 744.0 2965.8 C 792.0 2965.8 792.0 2965.8 840.0 2965.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2965.8 832.0,2961.3 832.0,2970.3" fill="#64748b"/>
+<path d="M 744.0 2985.8 C 792.0 2985.8 792.0 2985.8 840.0 2985.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,2985.8 832.0,2981.3 832.0,2990.3" fill="#64748b"/>
+<path d="M 744.0 3005.8 C 792.0 3005.8 792.0 3005.8 840.0 3005.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3005.8 832.0,3001.3 832.0,3010.3" fill="#64748b"/>
+<path d="M 744.0 3025.8 C 792.0 3025.8 792.0 3025.8 840.0 3025.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3025.8 832.0,3021.3 832.0,3030.3" fill="#64748b"/>
+<path d="M 744.0 3045.8 C 792.0 3045.8 792.0 3045.8 840.0 3045.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3045.8 832.0,3041.3 832.0,3050.3" fill="#64748b"/>
+<path d="M 744.0 3065.8 C 792.0 3065.8 792.0 3065.8 840.0 3065.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3065.8 832.0,3061.3 832.0,3070.3" fill="#64748b"/>
+<path d="M 744.0 3085.8 C 792.0 3085.8 792.0 3085.8 840.0 3085.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3085.8 832.0,3081.3 832.0,3090.3" fill="#64748b"/>
+<path d="M 744.0 3105.8 C 792.0 3105.8 792.0 3105.8 840.0 3105.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3105.8 832.0,3101.3 832.0,3110.3" fill="#64748b"/>
+<path d="M 744.0 3125.8 C 792.0 3125.8 792.0 3125.8 840.0 3125.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3125.8 832.0,3121.3 832.0,3130.3" fill="#64748b"/>
+<path d="M 744.0 3145.8 C 792.0 3145.8 792.0 3145.8 840.0 3145.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3145.8 832.0,3141.3 832.0,3150.3" fill="#64748b"/>
+<path d="M 744.0 3165.8 C 792.0 3165.8 792.0 3165.8 840.0 3165.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3165.8 832.0,3161.3 832.0,3170.3" fill="#64748b"/>
+<path d="M 744.0 3185.8 C 792.0 3185.8 792.0 3185.8 840.0 3185.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3185.8 832.0,3181.3 832.0,3190.3" fill="#64748b"/>
+<path d="M 744.0 3205.8 C 792.0 3205.8 792.0 3205.8 840.0 3205.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3205.8 832.0,3201.3 832.0,3210.3" fill="#64748b"/>
+<path d="M 744.0 3225.8 C 792.0 3225.8 792.0 3225.8 840.0 3225.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3225.8 832.0,3221.3 832.0,3230.3" fill="#64748b"/>
+<path d="M 744.0 3245.8 C 792.0 3245.8 792.0 3245.8 840.0 3245.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3245.8 832.0,3241.3 832.0,3250.3" fill="#64748b"/>
+<path d="M 744.0 3265.8 C 792.0 3265.8 792.0 3265.8 840.0 3265.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3265.8 832.0,3261.3 832.0,3270.3" fill="#64748b"/>
+<path d="M 744.0 3285.8 C 792.0 3285.8 792.0 3285.8 840.0 3285.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3285.8 832.0,3281.3 832.0,3290.3" fill="#64748b"/>
+<path d="M 744.0 3305.8 C 792.0 3305.8 792.0 3305.8 840.0 3305.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3305.8 832.0,3301.3 832.0,3310.3" fill="#64748b"/>
+<path d="M 744.0 3325.8 C 792.0 3325.8 792.0 3325.8 840.0 3325.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3325.8 832.0,3321.3 832.0,3330.3" fill="#64748b"/>
+<path d="M 744.0 3345.8 C 792.0 3345.8 792.0 3345.8 840.0 3345.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3345.8 832.0,3341.3 832.0,3350.3" fill="#64748b"/>
+<path d="M 744.0 3365.8 C 792.0 3365.8 792.0 3365.8 840.0 3365.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3365.8 832.0,3361.3 832.0,3370.3" fill="#64748b"/>
+<path d="M 744.0 3385.8 C 792.0 3385.8 792.0 3385.8 840.0 3385.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3385.8 832.0,3381.3 832.0,3390.3" fill="#64748b"/>
+<path d="M 744.0 3405.8 C 792.0 3405.8 792.0 3405.8 840.0 3405.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3405.8 832.0,3401.3 832.0,3410.3" fill="#64748b"/>
+<path d="M 744.0 3425.8 C 792.0 3425.8 792.0 3425.8 840.0 3425.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3425.8 832.0,3421.3 832.0,3430.3" fill="#64748b"/>
+<path d="M 744.0 3445.8 C 792.0 3445.8 792.0 3445.8 840.0 3445.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3445.8 832.0,3441.3 832.0,3450.3" fill="#64748b"/>
+<path d="M 744.0 3465.8 C 792.0 3465.8 792.0 3465.8 840.0 3465.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3465.8 832.0,3461.3 832.0,3470.3" fill="#64748b"/>
+<path d="M 744.0 3485.8 C 792.0 3485.8 792.0 3485.8 840.0 3485.8" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="840.0,3485.8 832.0,3481.3 832.0,3490.3" fill="#64748b"/>
+</svg>
