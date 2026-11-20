@@ -149,7 +149,8 @@ def test_the_container_and_root_describe_both_challenges(both):
     assert "patient_080/node_0/macro" in series and "patient_000/node_0/image" in series
     root = dict(both.attrs)
     assert root["title"].startswith("CAMELYON16 and CAMELYON17")
-    assert set(root["citation"]) == {"CAMELYON16", "CAMELYON17", "dataset"}
+    assert isinstance(root["citation"], str) and "doi:10.1109/TMI.2018.2867350" in root["citation"]
+    assert set(root["citations"]) == {"CAMELYON16", "CAMELYON17", "dataset"}
     assert dict(both["CAMELYON16"].attrs)["ome"]["version"] == "0.5"
 
 

@@ -13,8 +13,8 @@ attributes. CAMELYON16 is not rewritten.
 
 The ingest that built CAMELYON16 is now in this directory, rebuilt on
 `minus80`. Rebuilt into a local repo, three CAMELYON16 slides match the
-published ones in 102 of their 106 `zarr.json` documents byte for byte and
-in all 256,093 chunk references; the four exceptions are below.
+published ones in all 256,093 chunk references and in 99 of their 106
+`zarr.json` documents byte for byte; the seven exceptions are below.
 
 **Asked of the reviewer:** approve the CAMELYON17 layout and run 2, and decide
 the judgement calls below. Each has a recommended default, which the code and
@@ -26,8 +26,8 @@ the trial already follow.
 | 2 | CAMELYON17's OME-Zarr version | 0.6, as AGENTS.md asks of new output; CAMELYON16 stays 0.5 |
 | 3 | Where the labels from `stages.csv` go | the container's and groups' attributes, as CAMELYON16's do |
 | 4 | Names for the five centers, which no file states | write the inferred mapping as `center_names`, with its evidence |
-| 5 | The root attributes once both challenges are in | rewrite title, description, citation and source for both |
-| 6 | Spelling in stored text | keep CAMELYON16's published strings ("tumour", "centre") for both challenges |
+| 5 | The root attributes once both challenges are in | rewrite title, description and source for both; `citation` stays a string, and a new `citations` holds one entry per paper |
+| 6 | Spelling in stored text | American English in every string the ingest writes; the source's own spellings only in values quoted from it |
 | 7 | One rebuilt attribute that changes | `regenerates_source` names `minus80.parsers.asap.to_xml` instead of a repository that no longer exists |
 | 8 | How CAMELYON17 is committed | ten commits of 100 slides, each with a complete table |
 
@@ -132,17 +132,22 @@ Icechunk repos. No Arraylake repo or bucket was written.
 Philips) and `normal_144` (generic) were rebuilt with the ported code and
 compared with `earthmover-biology/camelyon` at `MNPFXPY2MK0EX78VXRZG`:
 
-- root `zarr.json`: identical;
-- slide nodes: 102 of 106 `zarr.json` identical byte for byte;
 - chunk references: all 256,093 identical; the 14 native chunks compared
   (outline arrays, documents, the derived mask level of `tumor_056`) identical
   except the two GeoJSON arrays;
-- the four differing nodes: `shapes` on `tumor_056` and `tumor_091`, whose
-  `regenerates_source` changes by decision 7; and their `shapes/geojson`, whose
-  polygons are equal as geometries (shapely `equals`, zero symmetric
-  difference) but list vertices differently. Run on this laptop, the original
-  code writes the same bytes as the port, so the GEOS build of the platform
-  differs, not the code; run 2 runs on Linux, as the published store did.
+- slide nodes: 99 of 106 `zarr.json` identical byte for byte. The seven that
+  differ change only text the ingest writes:
+  - the three `image/labels/mask` descriptions and the root description,
+    "tumour" to "tumor" (decision 6; the root is rewritten anyway by
+    decision 5);
+  - `shapes` on `tumor_056` and `tumor_091`: `regenerates_source` (decision
+    7) and "centre" to "center" in `coordinate_frame` (decision 6);
+  - their `shapes/geojson`: "centre" and "favour" in `coordinate_frame`
+    (decision 6), and the GeoJSON bytes. Those polygons are equal as
+    geometries (shapely `equals`, zero symmetric difference) but list
+    vertices differently. Run on this laptop, the original code writes the
+    same bytes as the port, so the GEOS build of the platform differs, not
+    the code; run 2 runs on Linux, as the published store did.
 - `CAMELYON16` and `OME` differ only because the local container holds 3
   slides.
 
@@ -213,14 +218,20 @@ which is safer and leaves a reader unable to tell which hospital is which.
 
 **5. Root attributes.** The root now says "CAMELYON16 lymph node metastases"
 and cites one paper. Once CAMELYON17 is in, the ingest rewrites `title`,
-`description`, `citation` (a mapping of three papers), `source` and
-`license_text` for both. A reader who parses `citation` as a string breaks.
-*Recommended: rewrite.*
+`description`, `source` and `license_text` for both. `citation` stays a
+string, as published, because readers take it as text: it names the
+CAMELYON16, CAMELYON17 and dataset papers in turn. A new key, `citations`,
+maps `CAMELYON16`, `CAMELYON17` and `dataset` to one paper each.
+*Recommended: rewrite, with `citation` kept a string.*
 
-**6. Spelling.** Four CAMELYON16 strings say "tumour" and "centre". The port
-keeps them so the rebuilt nodes match the published ones, and CAMELYON17
-reuses them so the two challenges' attributes match. Rejected: American
-spelling for CAMELYON17 only. *Recommended: keep.*
+**6. Spelling.** Every string the ingest writes itself is American English
+("tumor", "center", "favor"), in both challenges. Published CAMELYON16 nodes
+say "tumour" and "centre" in a few descriptions and keep them until rebuilt;
+a CAMELYON16 slide rebuilt now differs from its published node only in
+those words. Values quoted verbatim from the source keep the source's
+spelling: CSV headers and values, label values, the READMEs and other files
+in `source_files`, and TIFF tags. Rejected: the published spellings, which
+would carry British spellings into new text. *Decided by review.*
 
 **7. `regenerates_source`.** The published value names "asap.to_xml in
 ingest-camelyon", a repository that is not public. The port names
@@ -267,6 +278,10 @@ datasets beyond CAMELYON, all non-commercial.
   about 27,000 nodes; Arraylake commits were not measured beyond run 1's.
   A slow commit shows in the heartbeat line every 30 s.
 - **Memory.** 7.8 GB peak per batch on the laptop; the VM has 32 GB.
+- **Empty Philips tiles read black.** CAMELYON17's Philips slides store
+  empty tiles where there is no tissue (a quarter of `patient_081_node_0`'s
+  level 0); they read as fill value 0, black on a white background.
+  LAYOUTS.md records it as a known issue; a fill value of 255 would fix it.
 - **GeoJSON bytes.** The GEOS build changes vertex order, so a CAMELYON17
   GeoJSON written on Linux and one written on macOS differ in bytes, not in
   geometry.

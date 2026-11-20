@@ -763,7 +763,7 @@ def store_figure(listing: Listing, census: Census, stages: Stages, trial: Store,
                 rows=[
                     Row("title", root_attrs["title"]),
                     Row("license", root_attrs["license"]),
-                    Row("citation", ", ".join(root_attrs["citation"])),
+                    Row("citations", ", ".join(root_attrs["citations"])),
                     Row("source", f"{root_attrs['source']['bucket']}  {', '.join(root_attrs['source']['prefixes'])}"),
                     Row("requires", ", ".join(root_attrs["requires"])),
                 ],
