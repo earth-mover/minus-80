@@ -19,8 +19,10 @@
 # script refuses uncommitted changes and a commit that is not pushed, and
 # tags the commit it runs from microns-run2-scenes.
 #
-# Not yet run. When it runs, record here the date, the commit it ran from,
-# the new snapshot and the verify result.
+# Ran 2026-11-20 from a laptop, from commit 1a79399, ending 16:11 UTC.
+# - The write matched the dry run: root and two-photon restated, OME deleted.
+# - Committed PCFZHM3SD9GZH4HTTHZG on main; tags v1 and v2 unchanged.
+# - verify.py passed in 23 s through both exports.
 #   ARRAYLAKE_TOKEN=... bash runs/02_scenes.sh
 set -euo pipefail
 : "${ARRAYLAKE_TOKEN:?set ARRAYLAKE_TOKEN to a token with write access to the repo}"
