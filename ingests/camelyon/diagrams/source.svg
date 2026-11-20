@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="2154" viewBox="0 0 1400 2154">
+<rect x="0" y="0" width="1400" height="2154" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Source</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">s3://camelyon-dataset  (us-west-2, anonymous)</text>
+<rect x="24.0" y="85.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="96.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
+<rect x="470.0" y="121.9" width="620.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="121.9" width="4" height="132.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="141.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">s3://camelyon-dataset</text>
+<text x="484.0" y="158.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">two challenges side by side</text>
+<text x="484.0" y="181.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">objects</text>
+<text x="566.1" y="181.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2,521</text>
+<text x="484.0" y="201.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">license</text>
+<text x="566.1" y="201.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">CC0-1.0</text>
+<text x="484.0" y="221.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16</text>
+<text x="566.1" y="221.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,365 files   762.5 GB</text>
+<text x="484.0" y="241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17</text>
+<text x="566.1" y="241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,156 files   3.0 TB</text>
+<rect x="470.0" y="267.9" width="620.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="267.9" width="4" height="72.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="287.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON16/</text>
+<text x="484.0" y="304.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">no listing kept: counts from the survey in LAYOUTS.md</text>
+<text x="484.0" y="327.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slides</text>
+<text x="538.1" y="327.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">399   159 normal, 111 tumor, 129 test</text>
+<rect x="470.0" y="353.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="353.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="373.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">images/</text>
+<text x="484.0" y="390.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/images/&lt;slide&gt;.tif</text>
+<text x="484.0" y="413.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="552.1" y="413.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">399 files   752.5 GB</text>
+<text x="484.0" y="433.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dialects</text>
+<text x="552.1" y="433.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Philips BigTIFF ×398, plain BigTIFF ×1</text>
+<rect x="470.0" y="459.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="459.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="479.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">masks/</text>
+<text x="484.0" y="496.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/masks/&lt;slide&gt;_mask.tif</text>
+<text x="484.0" y="519.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="538.1" y="519.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">399 files   9.4 GB</text>
+<text x="484.0" y="539.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">values</text>
+<text x="538.1" y="539.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0 background, 1 normal tissue, 2 tumor</text>
+<rect x="470.0" y="565.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="565.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">background_tissue/</text>
+<text x="484.0" y="602.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/background_tissue/&lt;slide&gt;_tissue.tif</text>
+<text x="484.0" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="531.1" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">400 files   470.0 MB</text>
+<text x="484.0" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">also</text>
+<text x="531.1" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">results.json, the segmentation log</text>
+<rect x="470.0" y="671.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="671.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">annotations/</text>
+<text x="484.0" y="708.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/annotations/&lt;slide&gt;.xml</text>
+<text x="484.0" y="731.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="538.1" y="731.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">160 files   83.0 MB</text>
+<text x="484.0" y="751.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">format</text>
+<text x="538.1" y="751.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ASAP polygons</text>
+<rect x="470.0" y="777.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="777.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="797.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">evaluation/</text>
+<text x="484.0" y="814.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/evaluation/</text>
+<text x="484.0" y="837.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="531.1" y="837.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 files   28.0 kB</text>
+<text x="484.0" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">holds</text>
+<text x="531.1" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">reference.csv, evaluate.py, example.csv</text>
+<rect x="470.0" y="883.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="883.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="903.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">(root files)/</text>
+<text x="484.0" y="920.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON16/</text>
+<text x="484.0" y="943.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="531.1" y="943.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4 files   67.0 kB</text>
+<text x="484.0" y="963.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">holds</text>
+<text x="531.1" y="963.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">README.md, license.txt, checksums.md5, a model JSON</text>
+<rect x="470.0" y="989.9" width="620.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="989.9" width="4" height="112.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/</text>
+<text x="484.0" y="1026.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">listing of CAMELYON17/</text>
+<text x="484.0" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slides</text>
+<text x="559.1" y="1049.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,000   200 patients × 5 nodes</text>
+<text x="484.0" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">labeled</text>
+<text x="559.1" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100 training patients, 500 slides</text>
+<text x="484.0" y="1089.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">unlabeled</text>
+<text x="559.1" y="1089.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100 test patients, 500 slides</text>
+<rect x="470.0" y="1115.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1115.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1135.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">images/</text>
+<text x="484.0" y="1152.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/images/patient_NNN_node_N.tif</text>
+<text x="484.0" y="1175.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="552.1" y="1175.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1,000 files   3.0 TB</text>
+<text x="484.0" y="1195.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dialects</text>
+<text x="552.1" y="1195.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">generic TIFF ×800, Philips TIFF ×200</text>
+<rect x="470.0" y="1221.9" width="620.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1221.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">generic TIFF</text>
+<text x="484.0" y="1258.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">no ImageDescription, resolution in the TIFF tags</text>
+<text x="484.0" y="1281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slides</text>
+<text x="573.2" y="1281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">800   2.8 TB</text>
+<text x="484.0" y="1301.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">split</text>
+<text x="573.2" y="1301.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">400 in training patients, 400 in test patients</text>
+<text x="484.0" y="1321.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pyramid</text>
+<text x="573.2" y="1321.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">7–10 levels, 512 × 512 tiles</text>
+<text x="484.0" y="1341.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixels</text>
+<text x="573.2" y="1341.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">JPEG RGB, uint8</text>
+<text x="484.0" y="1361.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">extra pages</text>
+<text x="573.2" y="1361.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">none</text>
+<rect x="470.0" y="1387.9" width="620.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1387.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1407.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Philips TIFF</text>
+<text x="484.0" y="1424.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Philips XML in ImageDescription, a Macro page</text>
+<text x="484.0" y="1447.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slides</text>
+<text x="573.2" y="1447.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">200   192.3 GB</text>
+<text x="484.0" y="1467.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">split</text>
+<text x="573.2" y="1467.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100 in training patients, 100 in test patients</text>
+<text x="484.0" y="1487.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pyramid</text>
+<text x="573.2" y="1487.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8–10 levels, 512 × 512 tiles</text>
+<text x="484.0" y="1507.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixels</text>
+<text x="573.2" y="1507.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">JPEG YCBCR, uint8</text>
+<text x="484.0" y="1527.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">extra pages</text>
+<text x="573.2" y="1527.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">200 with a Macro page</text>
+<rect x="470.0" y="1553.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1553.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1573.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">masks/</text>
+<text x="484.0" y="1590.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/masks/patient_NNN_node_N_mask.tif</text>
+<text x="484.0" y="1613.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="545.1" y="1613.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100 files   2.4 GB</text>
+<text x="484.0" y="1633.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pyramid</text>
+<text x="545.1" y="1633.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8–10 levels, LZW</text>
+<rect x="470.0" y="1659.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1659.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1679.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">annotations/</text>
+<text x="484.0" y="1696.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/annotations/patient_NNN_node_N.xml</text>
+<text x="484.0" y="1719.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="538.1" y="1719.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">50 files   1.9 MB</text>
+<text x="484.0" y="1739.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">format</text>
+<text x="538.1" y="1739.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">ASAP polygons</text>
+<rect x="470.0" y="1765.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1765.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1785.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">evaluation/</text>
+<text x="484.0" y="1802.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/evaluation/</text>
+<text x="484.0" y="1825.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="531.1" y="1825.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 files   21.7 kB</text>
+<text x="484.0" y="1845.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">holds</text>
+<text x="531.1" y="1845.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">evaluate.py, example.csv</text>
+<rect x="470.0" y="1871.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1871.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1891.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">(root files)/</text>
+<text x="484.0" y="1908.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/</text>
+<text x="484.0" y="1931.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files</text>
+<text x="531.1" y="1931.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4 files   100.5 kB</text>
+<text x="484.0" y="1951.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">holds</text>
+<text x="531.1" y="1951.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">README.md, checksums.md5, license.txt, stages.csv</text>
+<rect x="470.0" y="1977.9" width="620.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1977.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
+<text x="484.0" y="1997.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">stages.csv</text>
+<text x="484.0" y="2014.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">CAMELYON17/stages.csv, 18,689 B</text>
+<text x="484.0" y="2037.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">rows</text>
+<text x="587.2" y="2037.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">600   patient, stage, center</text>
+<text x="484.0" y="2057.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">patient rows</text>
+<text x="587.2" y="2057.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100   pN0 ×24, pN0(i+) ×11, pN1 ×30, pN1mi ×21, pN2 ×14</text>
+<text x="484.0" y="2077.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">slide rows</text>
+<text x="587.2" y="2077.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">500   negative ×318, itc ×36, micro ×59, macro ×87</text>
+<text x="484.0" y="2097.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">centers</text>
+<text x="587.2" y="2097.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0 ×120, 1 ×120, 2 ×120, 3 ×120, 4 ×120</text>
+<text x="484.0" y="2117.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">test patients</text>
+<text x="587.2" y="2117.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">100, none listed</text>
+<circle cx="24.0" cy="136.9" r="4.5" fill="#0f172a"/>
+<text x="35.0" y="141.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">camelyon-dataset</text>
+<text x="35.0" y="157.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">bucket</text>
+<line x1="176.2" y1="136.9" x2="468.0" y2="136.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 141.9 V 282.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="282.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="287.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON16/</text>
+<text x="57.0" y="303.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">detection of metastases</text>
+<line x1="156.6" y1="282.9" x2="468.0" y2="282.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 368.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="368.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="373.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">images/</text>
+<line x1="145.3" y1="368.9" x2="468.0" y2="368.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 474.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="474.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="479.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">masks/</text>
+<line x1="137.0" y1="474.9" x2="468.0" y2="474.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 580.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="580.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="585.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">background_tissue/</text>
+<line x1="236.9" y1="580.9" x2="468.0" y2="580.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 686.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="686.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="691.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">annotations/</text>
+<line x1="186.9" y1="686.9" x2="468.0" y2="686.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 792.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="792.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="797.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">evaluation/</text>
+<line x1="178.6" y1="792.9" x2="468.0" y2="792.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 287.9 V 898.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="898.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="903.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">(root files)/</text>
+<line x1="195.2" y1="898.9" x2="468.0" y2="898.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 141.9 V 1004.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="1004.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="1009.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/</text>
+<text x="57.0" y="1025.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pN staging</text>
+<line x1="156.6" y1="1004.9" x2="468.0" y2="1004.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1130.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1130.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1135.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">images/</text>
+<line x1="145.3" y1="1130.9" x2="468.0" y2="1130.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 1135.9 V 1236.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="1236.9" r="4.5" fill="#0f172a"/>
+<text x="101.0" y="1241.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">generic TIFF</text>
+<text x="206.9" y="1241.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×800</text>
+<text x="101.0" y="1257.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ASAP-converted</text>
+<line x1="244.2" y1="1236.9" x2="468.0" y2="1236.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 1135.9 V 1402.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="1402.9" r="4.5" fill="#0f172a"/>
+<text x="101.0" y="1407.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Philips TIFF</text>
+<text x="206.9" y="1407.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×200</text>
+<text x="101.0" y="1423.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Philips DP</text>
+<line x1="244.2" y1="1402.9" x2="468.0" y2="1402.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1568.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1568.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1573.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">masks/</text>
+<line x1="137.0" y1="1568.9" x2="468.0" y2="1568.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1674.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1674.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1679.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">annotations/</text>
+<line x1="186.9" y1="1674.9" x2="468.0" y2="1674.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1780.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1780.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1785.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">evaluation/</text>
+<line x1="178.6" y1="1780.9" x2="468.0" y2="1780.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1886.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1886.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1891.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">(root files)/</text>
+<line x1="195.2" y1="1886.9" x2="468.0" y2="1886.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 46.0 1009.9 V 1992.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="68.0" cy="1992.9" r="4.5" fill="#0f172a"/>
+<text x="79.0" y="1997.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">stages.csv</text>
+<text x="79.0" y="2013.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">label table</text>
+<line x1="170.3" y1="1992.9" x2="468.0" y2="1992.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+</svg>

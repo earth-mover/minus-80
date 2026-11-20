@@ -1,30 +1,46 @@
-# CAMELYON transfer
+# CAMELYON
 
-Copies the Arraylake repo `earthmover-public/camelyon` into
-`earthmover-biology/camelyon`. The repo holds the CAMELYON16 challenge's 399
-whole-slide images as OME-Zarr multiscale images. Their pixels are references
-to the 512 by 512 JPEG tiles in `s3://camelyon-dataset/` (CC0), and the tumor
-outlines, documents and a few coarse derived mask levels are stored in the repo.
-The ingest that built the source repo, and its layout notes, are in the
-bio-virtualization repository under `ingest-camelyon-arraylake/`.
+The CAMELYON16 and CAMELYON17 whole-slide images of sentinel lymph nodes, in
+one Icechunk store, `earthmover-biology/camelyon`. Each slide is an OME-Zarr
+image whose chunks are the 512 × 512 JPEG tiles of its TIFF in
+`s3://camelyon-dataset/` (us-west-2, anonymous, CC0), with its reference mask
+as a label image, the pathologists' tumor outlines as arrays and QuPath
+GeoJSON, and the challenge's labels in the attributes. Only the outlines,
+documents and a few derived coarse mask levels are stored in the repo.
 
-Only the head of `main` is copied, without history, so the objects that earlier
-snapshots left behind in the source are not. The target is meant to receive
-CAMELYON17 later, which is why it is named `camelyon`.
+The store was built in two stages:
+
+1. **Transfer.** CAMELYON16 was ingested first into `earthmover-public/camelyon`.
+   Run 1 copied the head of that repo's `main` into
+   `earthmover-biology/camelyon`, without history.
+2. **Ingest.** `ingest.py` builds a challenge's slides from the bucket. It is
+   the ingest that built CAMELYON16, rebuilt on `minus80`, and it adds
+   CAMELYON17 to the same repo, 100 slides per commit.
+
+`LAYOUTS.md` says how the bucket maps onto the store and why. `PLAN.md` holds
+the CAMELYON17 plan and its decisions; `diagrams/` draws the source, the
+mapping and the store.
 
 | File | What it does |
 | --- | --- |
-| `transfer.py` | Copies `OME`, `documents` and each slide group below `CAMELYON16` with `minus80.core.repo_copy`, 50 slides per commit. Rerunning skips what the target already holds. |
-| `verify_transfer.py` | Compares `OME` and `documents` in full, then a sample of slides: every `zarr.json`, the references or bytes of a sample of arrays, and one decoded full-resolution tile per slide. |
-| `coiled/` | Launches both on one Coiled VM in us-west-2, the bucket's region. |
-| `runs/01_transfer.sh` | The launch of the real copy, with the commit and result recorded in its header. |
+| `ingest.py` | Writes a challenge's slides, each in its own fork of a session on a thread pool, then merges the forks, rewrites the container's tables and commits, 100 slides at a time. A rerun skips the slides already in the store. |
+| `plumbing.py` | The source reads, the writes into a session, the repo, and the thread pool with its progress lines. |
+| `verify.py` | Checks a store against the bucket in about a minute: completeness and labels, the outlines, a few tiles against tifffile, and the OME-Zarr gates. |
+| `fixture.py`, `test_ingest.py` | A small copy of the bucket's layout, and the ingest run end to end on it, with no network. |
+| `diagrams.py` | Draws `diagrams/*.svg` from a bucket listing, the header census and built stores. |
+| `camelyon.ipynb` | Opens the finished store cold. |
+| `transfer.py`, `verify_transfer.py` | Copy `earthmover-public/camelyon` into another repo, and check the copy. |
+| `coiled/` | `launch.sh` starts a job on one Coiled VM in us-west-2: `run.sh` (the transfer) or `ingest.sh`. |
+| `runs/` | One script per batch that wrote the store, with the commit and result recorded in its header. |
 
-Reading the source needs a token that can read `earthmover-public/camelyon`.
-Writing the target needs `earthmover-biology/camelyon` to exist with a virtual
-chunk container for `s3://camelyon-dataset/`. `transfer.py` accepts a local
-directory as `--target` for a trial copy of a few slides:
+Build a few slides into a local repo, check them, and run the tests:
 
-    uv run --package camelyon-ingest python ingests/camelyon/transfer.py \
-        --target <dir> --only OME,documents,tumor_056
-    uv run --package camelyon-ingest python ingests/camelyon/verify_transfer.py \
-        --target <dir> --only tumor_056 --slides 1
+    uv run --package camelyon-ingest python ingests/camelyon/ingest.py \
+        --challenge CAMELYON17 --repo <dir> --slides patient_004_node_4,patient_081_node_0
+    uv run --package camelyon-ingest python ingests/camelyon/verify.py \
+        --challenge CAMELYON17 --repo <dir>
+    uv run --package camelyon-ingest pytest --import-mode=prepend ingests/camelyon
+
+Reading `earthmover-biology/camelyon` needs an Arraylake login or a token with
+read access. Writing it needs the repo's virtual chunk container for
+`s3://camelyon-dataset/`, which it has.
