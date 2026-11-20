@@ -70,6 +70,14 @@ A key is absent when the file states nothing for it.
 A tile or strip stored with zero bytes, and a page the series lists as absent,
 become missing chunks, which read as the fill value 0.
 
+`pages.page_tags(page)` returns every tag of a page as JSON attributes, by tag
+name, except the tile offsets, byte counts and JPEG tables that the manifest
+and codecs carry. Enumerations are written by name, rationals as
+`[numerator, denominator]` and binary values as `{"base64": ...}`. An ingest
+that keeps a whole-slide file's tags, or needs its pages and series at once,
+opens the file once with tifffile and calls `pages.level_array` and
+`page_tags` itself.
+
 ## Before indexing: `inspect`
 
 `minus80.parsers.tiff.inspect` answers questions about a TIFF, local or remote,

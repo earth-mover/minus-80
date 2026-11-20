@@ -18,8 +18,9 @@ Anything else raises, rather than writing references that decode wrong.
 
 from __future__ import annotations
 
+import base64
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import tifffile
@@ -27,11 +28,17 @@ from imagecodecs.zarr import Jpeg, Lzw
 from tifffile.tifffile import jpeg_decode_colorspace
 from virtualizarr.manifests import ManifestArray
 
+from minus80.core.jsonable import jsonable
 from minus80.core.manifest import channel_last_transpose, manifest_array
 
 _JPEG = 7
 _LZW = 5
 _NONE = 1
+
+#: Tags whose content a level's manifest and codecs already carry: where each
+#: tile's bytes are, and the JPEG tables every tile shares.
+DATA_TAGS = frozenset({"TileOffsets", "TileByteCounts", "StripOffsets", "StripByteCounts",
+                       "JPEGTables"})
 
 #: tifffile's axis codes that mean the same as an OME-Zarr axis, with that
 #: axis's name and type. Any other code (``Q`` for "unknown", ``I`` for "image
@@ -205,3 +212,27 @@ def _resolution_um(page: tifffile.TiffPage) -> tuple[float, float] | None:
         return None
     x, y = page.get_resolution(tifffile.RESUNIT.MICROMETER)
     return 1 / y, 1 / x
+
+
+def page_tags(page: tifffile.TiffPage, *, exclude: Sequence[str] = ("ImageDescription",)) -> dict:
+    """Every tag of ``page`` as JSON attributes, by tag name, except :data:`DATA_TAGS`.
+
+    A page's tags are what the file states about it, and a store keeps them
+    even where no OME-Zarr field reads them: the raw ``ImageWidth`` of a
+    Philips level that tifffile trims, a scanner's ``Software``. Enumerated
+    values are written by name and rationals as ``[numerator, denominator]``
+    (:func:`minus80.core.jsonable.jsonable`). A byte string is always
+    ``{"base64": ...}``: tifffile returns binary values such as a mask's
+    ``SMaxSampleValue`` as bytes, and decoding them as UTF-8 would store a
+    control character as text. ``exclude`` names tags to leave out besides
+    :data:`DATA_TAGS`; by default the ImageDescription, which can be megabytes
+    and is usually stored on its own.
+    """
+    skip = DATA_TAGS | set(exclude)
+    return {tag.name: _tag_value(tag.value) for tag in page.tags if tag.name not in skip}
+
+
+def _tag_value(value):
+    if isinstance(value, bytes):
+        return {"base64": base64.b64encode(value).decode("ascii")}
+    return jsonable(value)
