@@ -32,6 +32,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | [`minus80.parsers.nwb`](src/minus80/parsers/nwb/README.md) | NWB (HDF5) | in repo |
 | [`minus80.parsers.flac`](src/minus80/parsers/flac/README.md) | FLAC audio | in repo |
 | [`minus80.parsers.zip`](src/minus80/parsers/zip/README.md) | Uncompressed zip members as chunks | in repo |
+| [`minus80.parsers.asap`](src/minus80/parsers/asap/README.md) | ASAP outline XML, as arrays that rebuild the file and as QuPath GeoJSON (not chunk references) | in repo |
 
 ## ingests/
 
