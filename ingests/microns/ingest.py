@@ -325,6 +325,10 @@ DIMENSIONS = {"t": {"type": "time"}, "z": {"type": "space"},
 PLANE_UM = 1.0
 
 
+def root_attributes(export: int) -> dict:
+    return ROOT | {"tiff_export": EXPORTS[export]}
+
+
 def scans_attributes(scans: list[ScanFacts]) -> dict:
     return {
         "description": ("One group per two-photon scan of animal 17797, named <session>-<scan>. "
@@ -381,10 +385,17 @@ def write_volume_times(store, path: str, facts: ScanFacts) -> None:
 def field_group(array: ManifestArray, field: Field, facts: ScanFacts, export: int,
                 tiff: dict) -> ManifestGroup:
     """One field's image: its frames, its scale, and what the NWB file and the TIFF state about it."""
+    return ManifestGroup(arrays={"0": array},
+                         attributes=field_attributes(array.shape, field, facts, export, tiff))
+
+
+def field_attributes(shape: tuple[int, ...], field: Field, facts: ScanFacts, export: int,
+                     tiff: dict) -> dict:
+    """A field image's attributes, for its array of ``shape``; ``tiff`` is what its TIFF states."""
     scan = facts.scan
     count = len(facts.fields)
     ome = image_attrs(
-        name=f"scan {scan.name} field {field.number}", dims=DIMS, level_shapes=[array.shape],
+        name=f"scan {scan.name} field {field.number}", dims=DIMS, level_shapes=[shape],
         scale={"t": 1 / facts.rate_hz, "z": PLANE_UM, "y": field.pixel_um, "x": field.pixel_um},
         units=UNITS, dimensions=DIMENSIONS, version=VERSION,
         description="the TIFF's own pages, one chunk per page; a single level")
@@ -398,9 +409,7 @@ def field_group(array: ManifestArray, field: Field, facts: ScanFacts, export: in
         "tiff_export": EXPORTS[export],
         "nwb": {"file": scan.nwb, "dandi_path": scan.nwb_path, **field.stated},
     }
-    return ManifestGroup(arrays={"0": array},
-                         attributes={"ome": ome, "tiff": tiff}
-                         | image_annotation(fields, source_url=scan.tiffs[export]))
+    return {"ome": ome, "tiff": tiff} | image_annotation(fields, source_url=scan.tiffs[export])
 
 
 def field_paths(scans: list[ScanFacts]) -> list[str]:
@@ -521,8 +530,7 @@ def commit_export(repo, scans: list[ScanFacts], export: int, *, parallel: int,
         print(f"export {tag} is already committed in {done.id}", flush=True)
         return done.id
     session = repo.writable_session("main")
-    zarr.open_group(session.store, mode="a").attrs.put(
-        ROOT | {"tiff_export": EXPORTS[export]})
+    zarr.open_group(session.store, mode="a").attrs.put(root_attributes(export))
     zarr.open_group(session.store, path=SCANS, mode="a").attrs.put(scans_attributes(scans))
     jobs = {f.scan.name: (write_scan, (f, export, None if earlier is None else earlier[f.scan.name]))
             for f in scans}

@@ -167,7 +167,9 @@ wild" ([bioformats2raw.layout](https://ngff.openmicroscopy.org/specifications/0.
 here it would repeat the 144 field paths in an `OME` group beside the
 hierarchy that already holds them, so the store does not use it.
 `minus80.ome.hierarchy` finds a scene's images through its paths, so the
-shared OME-Zarr gates reach every field.
+shared OME-Zarr gates reach every field. Run 1 wrote the store with the collection;
+`scenes.py` (run 2) removes it in one metadata-only commit, leaving every
+array and chunk reference as it was.
 
 The scene places field `n` at `t` = the scan's first volume time, `z` = its
 depth, and `(y, x)` = its center less half the field, so that the

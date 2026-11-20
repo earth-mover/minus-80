@@ -267,9 +267,12 @@ bucket.
    before the check could never be moved off a bad commit. Each commit's
    metadata names its export and scans, so a rerun after a failure writes
    only what is missing. *Needs approval: writes the store.*
-4. Run 2, `runs/02_twophoton.sh`, after the repo is purged: the same
-   ingest in the layout without the root collection, which replaces run 1's.
-   *Needs approval: purges and rewrites the store.*
+4. Run 2, `runs/02_scenes.sh`: one metadata-only commit on main that
+   brings run 1's store to the layout without the root collection. It
+   deletes the `OME` group and the root's `bioformats2raw.layout`, and sets
+   every group's attributes to what the ingest now writes; no array or chunk
+   reference changes, and tags `v1` and `v2` stay on run 1's commits.
+   *Needs approval: writes the store.*
 5. REPORT.md, with the run's snapshots, timings and verify output.
 
 **Expected run.** About 2 minutes to install, under 1 minute for the NWB

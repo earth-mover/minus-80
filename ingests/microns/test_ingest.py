@@ -6,6 +6,7 @@
 import random
 
 import fixture
+import scenes
 import h5py
 import ingest
 import numpy as np
@@ -185,3 +186,22 @@ def test_an_export_committed_without_a_scan_is_refused(scan, tmp_path):
                              rate_hz=facts.rate_hz, volume_times=facts.volume_times, fields=facts.fields)
     with pytest.raises(ValueError, match="without scans"):
         ingest.commit_export(repo, [facts, other], 1, parallel=1)
+
+
+def test_restating_an_old_layout_changes_only_group_metadata(scan, tmp_path):
+    found, _, prefix = scan
+    repo = create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    commit_both(repo, ingest.read_nwb(found))
+    assert scenes.restate(repo) is None
+    current = repo.lookup_branch("main")
+    session = repo.writable_session("main")
+    root = zarr.open_group(session.store, mode="a")
+    root.attrs.update({"ome": {"version": "0.6", "bioformats2raw.layout": 3}})
+    root.create_group("OME").attrs.update({"ome": {"version": "0.6", "series": ["x"]}})
+    old = session.commit("the first layout")
+    snapshot = scenes.restate(repo)
+    diff = repo.diff(from_snapshot_id=old, to_snapshot_id=snapshot)
+    assert diff.deleted_groups == {"/OME"} and diff.updated_groups == {"/"}
+    assert not (diff.updated_arrays or diff.updated_chunks or diff.new_arrays or diff.deleted_arrays)
+    assert not repo.diff(from_snapshot_id=current, to_snapshot_id=snapshot).updated_chunks
+    assert scenes.restate(repo) is None

@@ -117,15 +117,27 @@ def pixels(roots: dict[str, zarr.Group], name: str, nwb, *, rng: random.Random) 
     return problems
 
 
-def open_exports(location: str):
-    """The repo, and each export's commit on main as a read-only group, keyed by its tag name."""
+def open_exports(location: str, branch: str | None = None):
+    """The repo, and each export's commit on main as a read-only group, keyed by its tag name.
+
+    With ``branch``, the last export is read at the branch's head instead of
+    its own commit, so that later metadata-only commits on top of it are
+    checked too; the head's root must name that export.
+    """
     repo = arraylake_repository(location) if location.startswith(ARRAYLAKE) else open_repository(location)
     snapshots = ingest.committed_exports(repo)
     if missing := sorted(set(ingest.EXPORTS) - set(snapshots)):
         raise SystemExit(f"main holds no commit for exports {missing}")
-    return repo, {ingest.EXPORTS[e]["export"]: zarr.open_group(
+    roots = {ingest.EXPORTS[e]["export"]: zarr.open_group(
         repo.readonly_session(snapshot_id=snapshot.id).store, mode="r")
         for e, snapshot in sorted(snapshots.items())}
+    if branch is not None:
+        head = zarr.open_group(repo.readonly_session(branch).store, mode="r")
+        last = TAGS[-1]
+        if dict(head.attrs)["tiff_export"]["export"] != last:
+            raise SystemExit(f"{branch}'s head does not hold export {last}")
+        roots[last] = head
+    return repo, roots
 
 
 def main() -> None:
@@ -135,12 +147,15 @@ def main() -> None:
                                         "every scan BossDB lists")
     parser.add_argument("--sample", type=int, default=2, help="scans sampled for times and pixels")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--branch", help="read the last export at this branch's head, not its own commit")
     parser.add_argument("--tag", action="store_true",
                         help="tag the two commits v1 and v2 if every check passes")
     args = parser.parse_args()
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     started = time.monotonic()
-    repo, roots = open_exports(args.repo)
+    if args.tag and args.branch:
+        raise SystemExit("--tag tags the exports' own commits; run it without --branch")
+    repo, roots = open_exports(args.repo, args.branch)
     names = sorted({f"{m['session']}-{m['scan']}" for n in list_prefix(ingest.SOURCE)
                     if (m := ingest.TIFF_NAME.match(n))})
     if args.scans:
