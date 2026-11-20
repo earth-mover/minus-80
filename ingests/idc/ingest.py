@@ -260,7 +260,8 @@ def write_nuclei(w: Writer, s: dict, group: str) -> dict:
         "count": g.count,
         "idc": {"SeriesInstanceUID": s["ann"]["SeriesInstanceUID"], "license": s["ann"]["license_short_name"],
                 "source_DOI": s["ann"]["source_DOI"], "analysis_result_id": ANALYSIS},
-        "dicom": w.document(f"{group}/dicom/ann", dicom_json(path)),
+        "dicom": w.document(f"{group}/dicom/ann", with_bulk_uris(dicom_json(path), {
+            "00660016": f"{nuclei}/coords", "00660040": f"{nuclei}/point_index", "00660125": f"{nuclei}/area"})),
         "source_url": url,
     })
     for name, ref in (("coords", g.coords), ("point_index", g.point_index), ("area", area)):
@@ -270,6 +271,23 @@ def write_nuclei(w: Writer, s: dict, group: str) -> dict:
     offset0 = np.append((point_index.astype(np.int64) - 1) // 2, g.coords.array.shape[0])
     w.native(f"{nuclei}/offset0", offset0, dims=("boundary",), chunks=(CHUNK,))
     return {"nuclei": g.count, "points": int(g.coords.array.shape[0])}
+
+
+def with_bulk_uris(document: dict, uris: dict[str, str]) -> dict:
+    """``document`` with each listed tag's inline value replaced by a ``BulkDataURI``.
+
+    DICOM JSON (PS3.18 F.2.7) lets a large value be a URI instead of inline
+    base64. The ANN's coordinate, index and measurement values are already
+    arrays in the store, tens of megabytes per slide, so the header points at
+    them instead of repeating them.
+    """
+    def walk(node):
+        if isinstance(node, dict):
+            return {k: ({"vr": v["vr"], "BulkDataURI": uris[k]} if k in uris else walk(v)) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+    return walk(document)
 
 
 # The hierarchy
