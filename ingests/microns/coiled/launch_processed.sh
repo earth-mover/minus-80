@@ -3,8 +3,8 @@
 # DANDI's bucket, into arraylake://earthmover-biology/MICrONS.
 #   ARRAYLAKE_TOKEN=... RUN=<runs script> TAG=<git tag> bash launch_processed.sh [scan,scan,...]
 # A script under ../runs/ sets RUN to its own path and TAG to the git tag that
-# names the run's commit. A relaunch resumes: processed.py skips every
-# phase-2 commit main already holds.
+# names the run's commit. A relaunch from the same commit reuses the tag and
+# resumes: processed.py skips every phase-2 commit main already holds.
 #
 # The job runs the committed code only: launching refuses a working tree with
 # changes to the package, this ingest or the lockfile, and a commit that is
@@ -27,11 +27,21 @@ if [[ -z $(git -C "$ROOT" branch -r --contains "$SHA") ]]; then
     echo "commit $SHA is not on the remote; push it first" >&2
     exit 1
 fi
+# A relaunch of the same run reuses its tag, which must name this commit: the
+# job resumes from the commits the store already holds, and both launches
+# then ran the same code. A tag on another commit means other code, so a new
+# run, with a new runs/ script and tag.
+git -C "$ROOT" fetch -q origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
 if git -C "$ROOT" rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    echo "tag $TAG already exists; a new run needs a new tag" >&2
-    exit 1
+    TAGGED=$(git -C "$ROOT" rev-parse "refs/tags/$TAG^{commit}")
+    if [[ $TAGGED != "$SHA" ]]; then
+        echo "tag $TAG names $TAGGED, not HEAD $SHA; a run of other code needs a new runs/ script and tag" >&2
+        exit 1
+    fi
+    echo "tag $TAG already names $SHA: relaunching the same run"
+else
+    git -C "$ROOT" tag -a "$TAG" -m "MICrONS phase 2: the code $RUN ran" "$SHA"
 fi
-git -C "$ROOT" tag -a "$TAG" -m "MICrONS phase 2: the code $RUN ran" "$SHA"
 git -C "$ROOT" push -q origin "refs/tags/$TAG"
 NAME="microns-processed-$(date -u +%m%d-%H%M%S)"
 
