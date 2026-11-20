@@ -144,29 +144,41 @@ def sources(root, scan: ingest.Scan, rng: random.Random) -> list[str]:
     return problems
 
 
-def matches(repo, snapshot, scans: list[str], rng: random.Random) -> list[str]:
+def matches(repo, snapshot, scans: list[str], rng: random.Random, base: str = processed.CAVE_DUMPS) -> list[str]:
+    """At one CAVE commit: each scan holds the dump's tables that have rows for it, and sampled rows agree.
+
+    Each array is read once per table and scan, and the sampled units are
+    taken from it, so a check over Arraylake costs a few reads per table.
+    """
     version = snapshot.metadata["cave_version"]
-    tables = processed.dump_tables(version)
+    tables = processed.dump_tables(version, base)
     root = zarr.open_group(repo.readonly_session(snapshot_id=snapshot.id).store, mode="r")
     problems = []
-    for name in scans:
-        em = root[f"{SCANS}/{name}/units/em"]
-        if set(em.group_keys()) != set(tables):
-            problems.append(f"v{version} {name}: tables {sorted(em.group_keys())}, the dump {sorted(tables)}")
+    rows_by_table = {}
     for table, (frame, _) in tables.items():
         rows = frame.drop_duplicates(subset=[c for c in frame.columns if c != "id"])
-        rows = rows[(rows.session.astype(str) + "-" + rows.scan_idx.astype(str)).isin(scans)]
-        for row in rows.sample(min(100, len(rows)), random_state=rng.randrange(2**31)).itertuples(index=False):
-            group = root[f"{SCANS}/{int(row.session)}-{int(row.scan_idx)}/units/em/{table}"]
-            unit = int(row.unit_id) - 1
-            held = (int(group["pt_root_id"][unit]), int(group["pt_supervoxel_id"][unit]),
-                    tuple(int(v) for v in group["pt_position"][unit]))
-            want = (int(row.pt_root_id), int(row.pt_supervoxel_id),
-                    (int(row.pt_position_x), int(row.pt_position_y), int(row.pt_position_z)))
-            if held != want:
-                problems.append(f"v{version} {table} {int(row.session)}-{int(row.scan_idx)} unit {unit + 1}: "
-                                f"{held}, the dump {want}")
-                break
+        rows_by_table[table] = rows.assign(scan=rows.session.astype(str) + "-" + rows.scan_idx.astype(str))
+    for name in scans:
+        em = root[f"{SCANS}/{name}/units/em"]
+        want_tables = {t for t, rows in rows_by_table.items() if (rows.scan == name).any()}
+        if set(em.group_keys()) != want_tables:
+            problems.append(f"v{version} {name}: tables {sorted(em.group_keys())}, "
+                            f"the dump has rows in {sorted(want_tables)}")
+    for table, rows in rows_by_table.items():
+        rows = rows[rows.scan.isin(scans)]
+        sample = rows.sample(min(100, len(rows)), random_state=rng.randrange(2**31))
+        for name, picked in sample.groupby("scan"):
+            group = root[f"{SCANS}/{name}/units/em/{table}"]
+            roots, supervoxels, points = group["pt_root_id"][:], group["pt_supervoxel_id"][:], group["pt_position"][:]
+            at = picked.unit_id.to_numpy() - 1
+            want_points = picked[["pt_position_x", "pt_position_y", "pt_position_z"]].to_numpy()
+            bad = ((roots[at] != picked.pt_root_id.to_numpy().astype("uint64"))
+                   | (supervoxels[at] != picked.pt_supervoxel_id.to_numpy().astype("uint64"))
+                   | (points[at] != want_points).any(axis=1))
+            if bad.any():
+                k = int(np.flatnonzero(bad)[0])
+                problems.append(f"v{version} {table} {name} unit {at[k] + 1}: root {roots[at[k]]}, "
+                                f"the dump {picked.pt_root_id.iloc[k]}")
     return problems
 
 
@@ -208,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     report("matches", sum((matches(repo, s, names, rng) for s in cave), []))
     missing = [v for v in processed.CAVE_VERSIONS if f"cave-v{v}" not in steps]
     report("versions", [f"no commit for CAVE v{v}" for v in missing] + (
-        [] if processed.PHASE in steps else ["no processed commit"]))
+        [] if processed.PROCESSED in steps else ["no processed commit"]))
     print(f"{'passed' if not failures else f'{failures} checks failed'} in "
           f"{time.monotonic() - started:.0f} s", flush=True)
     if failures:

@@ -120,6 +120,7 @@ def write_nwb(path: Path, pages: np.ndarray, times: np.ndarray, masks: dict[int,
             traces.create_dataset("data", data=np.arange(VOLUMES * len(masks[n]), dtype=np.float32)
                                   .reshape(VOLUMES, len(masks[n])), chunks=(10, 2), compression="gzip")
             traces["timestamps"] = times
+            traces["rois"] = np.arange(len(masks[n]))
 
 
 if __name__ == "__main__":

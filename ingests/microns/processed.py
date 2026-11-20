@@ -72,16 +72,21 @@ MATCH_TABLES = ("func_unit_em_match_release", "functional_coreg",
 
 COMPRESSOR = zarr.codecs.BloscCodec(cname="zstd", clevel=5, shuffle="shuffle")
 
-PHASE = "processed"
+#: The commit-metadata key that names what a commit of this script added,
+#: ``processed`` or ``cave-v<version>``, so a rerun finds what is done.
+CONTENTS = "contents"
+PROCESSED = "processed"
+
+#: Added to phase 1's root ``layout`` text.
+LAYOUT_ADDED = (
+    "; each scan group also holds the scan's DANDI 000402 NWB file whole at nwb/ "
+    "(unified NWB Zarr v3 convention, hdmf-zarr 0.14; every chunk a reference to DANDI), "
+    "each field's ROI masks as an image, rois-<n>, and units/, the scan's cells as CAVE "
+    "numbers them with their EM matches under units/em/<table>; tags cave-v<version> pin "
+    "the matches of each CAVE version")
 
 ROOT_ADDED = {
     "title": "MICrONS minnie: two-photon functional scans, processed data and EM matches",
-    "phase2": (
-        "Each scan group also holds the scan's DANDI 000402 NWB file whole at nwb/ "
-        "(unified NWB Zarr v3 convention, hdmf-zarr 0.14; every chunk a reference to "
-        "DANDI), each field's ROI masks as an image, rois-<n>, and units/, the scan's "
-        "cells as CAVE numbers them with their EM matches. Tags cave-v<version> pin the "
-        "matches of each CAVE version."),
     "codecs": ("Zarr v3 core (bytes, transpose, sharding_indexed, blosc, zstd, vlen-utf8) and "
                "numcodecs' zlib for the NWB file's gzip chunks; zarr-python reads every array"),
 }
@@ -99,6 +104,14 @@ ROOT_ADDED = {
 # the scan's nwb/ group as shadowzarr maps it, so NWB's paths, types and
 # links survive and a reader needs no knowledge of this ingest to find a
 # trace. Only dimension_names are added, so xarray opens any series or table.
+# name_dimensions names a table's row axis after the table, PlaneSegmentation<n>,
+# and the traces' ROI axis "roi". In these files each RoiResponseSeries' rois
+# region lists every row of its PlaneSegmentation in order, which the ingest
+# checks, so the table's row axis is the traces' ROI axis and is named "roi"
+# too: a field's masks, EM columns and traces then align in xarray. The shared
+# name_dimensions cannot make that call, because a region in general selects
+# rows in another order (an ElectricalSeries' electrodes are one probe's rows
+# of a table that holds both probes).
 # shadowzarr reads the headers over HTTPS; the references name the s3://
 # location of the same object, which the repo's container covers.
 
@@ -110,11 +123,29 @@ def nwb_location(scan: Scan) -> tuple[str, callable]:
     return unquote(urlparse(scan.nwb).path), lambda url: as_url(url)
 
 
-def write_nwb_file(session, scan: Scan) -> dict:
-    """Write the scan's NWB file whole at ``two-photon/<scan>/nwb``; return what it holds."""
+def roi_axes(rfs: dict, base: str, fields: list[int]) -> dict:
+    """Name each listed field's PlaneSegmentation row axis ``roi``, the axis of its traces."""
+    refs = rfs["refs"]
+    for n in fields:
+        table = f"{base}/processing/ophys/ImageSegmentation/PlaneSegmentation{n}/"
+        for key, value in refs.items():
+            if key.startswith(table) and key.endswith("/zarr.json") and '"node_type":"array"' in value:
+                meta = json.loads(value)
+                if meta.get("dimension_names") and meta["dimension_names"][0] == f"PlaneSegmentation{n}":
+                    meta["dimension_names"][0] = "roi"
+                    refs[key] = json.dumps(meta, separators=(",", ":"))
+    return rfs
+
+
+def write_nwb_file(session, scan: Scan, fields: list[int]) -> dict:
+    """Write the scan's NWB file whole at ``two-photon/<scan>/nwb``; return what it holds.
+
+    ``fields`` are those whose traces' rois region lists every table row in order.
+    """
     started = time.monotonic()
     location, url_for = nwb_location(scan)
-    rfs = name_dimensions(under_group(nwb_references(location), f"{SCANS}/{scan.name}/nwb"))
+    base = f"{SCANS}/{scan.name}/nwb"
+    rfs = roi_axes(name_dimensions(under_group(nwb_references(location), base)), base, fields)
     write_nwb(rfs, session, url_for=url_for)
     arrays = sum(1 for k, v in rfs["refs"].items() if k.endswith("zarr.json") and '"node_type":"array"' in v)
     return {"nwb_arrays": arrays, "nwb_seconds": round(time.monotonic() - started, 1)}
@@ -132,16 +163,21 @@ def write_nwb_file(session, scan: Scan) -> dict:
 # TIFF's orientation, one chunk per ROI inside one shard per field: one ROI
 # is one chunk read, and a field is one object. The image places itself in
 # the scene's motor coordinates with a translation, because a scene requires
-# its images to share its axes and the ROI axis is not time.
+# its images to share its axes and the ROI axis is not time. Uncompressed, a
+# scan's masks reach 5.5 GB (scan 7-4), so they are read, written and
+# dropped one field at a time.
 
 ROI_DIMS = ("roi", "z", "y", "x")
 ROI_DIMENSIONS = {"roi": {"type": "roi"}, "z": {"type": "space"}, "y": {"type": "space"},
                   "x": {"type": "space"}}
 
 
-def read_masks(scan: Scan) -> dict[int, np.ndarray]:
-    """Every field's masks, (roi, rows, columns), as h5py decodes them from the NWB file."""
-    masks = {}
+def read_fields(scan: Scan):
+    """Each field's number, ROI count and masks (roi, rows, columns), one field at a time.
+
+    Raises unless a field's ROI ids run 1 to n and its traces' rois region
+    lists the table's rows in order, which the ``roi`` axis name relies on.
+    """
     with h5py.File(remote.reader(scan.nwb, block=4 << 20, cached_blocks=64), "r") as f:
         segmentation = f["processing/ophys/ImageSegmentation"]
         for name in sorted(segmentation, key=lambda k: int(k.removeprefix("PlaneSegmentation"))):
@@ -150,8 +186,10 @@ def read_masks(scan: Scan) -> dict[int, np.ndarray]:
             ids = table["id"][()]
             if not np.array_equal(ids, np.arange(1, len(ids) + 1)):
                 raise ValueError(f"{scan.name} {name}: ROI ids are not 1 to {len(ids)}")
-            masks[number] = table["image_mask"][()].transpose(0, 2, 1)
-    return masks
+            region = f[f"processing/ophys/Fluorescence/RoiResponseSeries{number}/rois"][()]
+            if not np.array_equal(region, np.arange(len(ids))):
+                raise ValueError(f"{scan.name} field {number}: the traces' rois region is not every ROI in order")
+            yield number, len(ids), table["image_mask"][()].transpose(0, 2, 1)
 
 
 def write_masks(store, scan: Scan, number: int, masks: np.ndarray, field: dict) -> None:
@@ -223,15 +261,16 @@ def write_units(store, scan: Scan, counts: dict[int, int]) -> None:
 
 def write_scan(fork, scan: Scan, fields: dict[int, dict]):
     started = time.monotonic()
-    summary = write_nwb_file(fork, scan)
-    masks = read_masks(scan)
-    if set(masks) != set(fields):
-        raise ValueError(f"{scan.name}: NWB masks for fields {sorted(masks)}, store fields {sorted(fields)}")
-    counts = {n: len(m) for n, m in masks.items()}
-    first = 1
-    for n in sorted(masks):
-        write_masks(fork.store, scan, n, masks[n], fields[n] | {"first_unit": first})
-        first += counts[n]
+    counts, first, largest = {}, 1, 0
+    for n, rois, masks in read_fields(scan):
+        if n not in fields:
+            raise ValueError(f"{scan.name}: the NWB file has field {n}, the store fields {sorted(fields)}")
+        write_masks(fork.store, scan, n, masks, fields[n] | {"first_unit": first})
+        counts[n], first, largest = rois, first + rois, max(largest, masks.nbytes)
+        del masks
+    if set(counts) != set(fields):
+        raise ValueError(f"{scan.name}: NWB masks for fields {sorted(counts)}, store fields {sorted(fields)}")
+    summary = write_nwb_file(fork, scan, sorted(counts))
     write_units(fork.store, scan, counts)
     group = zarr.open_group(fork.store, path=f"{SCANS}/{scan.name}", mode="a")
     attrs = dict(group.attrs)
@@ -239,11 +278,11 @@ def write_scan(fork, scan: Scan, fields: dict[int, dict]):
         "nwb": ("nwb: DANDI's NWB file of this scan, whole, unified NWB Zarr v3 convention; its "
                 "acquisition/TwoPhotonSeries<n> holds field-<n>'s frames again, transposed"),
         "rois": "rois-<n>: field n's ROI masks, (roi, z, y, x)",
-        "units": "units: unit_id, field and roi of every cell; em/<table>: its EM matches",
-        "rois_per_field": {str(n): c for n, c in counts.items()},
+        "units": ("units: unit_id, field and roi of every cell, and the ROIs of each field in "
+                  "its attributes; em/<table>: its EM matches"),
     }}
     group.attrs.put(attrs)
-    summary |= {"rois": sum(counts.values()), "mask_mb": round(sum(m.nbytes for m in masks.values()) / 1e6),
+    summary |= {"rois": sum(counts.values()), "largest_field_mb": round(largest / 1e6),
                 "seconds": round(time.monotonic() - started, 1)}
     print(f"{scan.name}: NWB {summary['nwb_arrays']} arrays in {summary['nwb_seconds']} s, "
           f"{summary['rois']:,} ROIs in {len(counts)} fields, {summary['seconds']} s", flush=True)
@@ -272,7 +311,7 @@ def committed(repo) -> dict[str, object]:
     """The latest snapshot on main of each phase-2 commit, by the step its metadata names."""
     found = {}
     for snapshot in repo.ancestry(branch="main"):
-        step = (snapshot.metadata or {}).get("phase2")
+        step = (snapshot.metadata or {}).get(CONTENTS)
         if step and step not in found:
             found[step] = snapshot
     return found
@@ -281,7 +320,7 @@ def committed(repo) -> dict[str, object]:
 def commit_processed(repo, scans: list[Scan], *, parallel: int) -> str:
     """The NWB files, masks and unit axes of every scan, as one commit on main."""
     names = sorted(s.name for s in scans)
-    if (done := committed(repo).get(PHASE)) is not None:
+    if (done := committed(repo).get(PROCESSED)) is not None:
         if missing := sorted(set(names) - set(done.metadata.get("scans", []))):
             raise ValueError(f"the processed data is committed in {done.id} without scans {missing}")
         print(f"the processed data is already committed in {done.id}", flush=True)
@@ -289,7 +328,10 @@ def commit_processed(repo, scans: list[Scan], *, parallel: int) -> str:
     placements = field_placements(repo, scans)
     session = repo.writable_session("main")
     root = zarr.open_group(session.store, mode="a")
-    root.attrs.put(dict(root.attrs) | ROOT_ADDED)
+    attrs = dict(root.attrs)
+    if LAYOUT_ADDED not in attrs["layout"]:
+        attrs["layout"] += LAYOUT_ADDED
+    root.attrs.put(attrs | ROOT_ADDED)
     jobs = {s.name: (write_scan, (s, placements[s.name])) for s in scans}
     done, failed = run_forks(session, jobs, parallel=parallel,
                              what=f"writing the processed data of {len(scans)} scans, {parallel} at a time")
@@ -302,7 +344,7 @@ def commit_processed(repo, scans: list[Scan], *, parallel: int) -> str:
                "one image per field, rois-<n>; and units/, each scan's cells as CAVE numbers them. "
                "The EM matches here are those the NWB files carry, from CAVE v343.")
     with Heartbeat(lambda: "committing the processed data", every=30.0):
-        snapshot = commit(session, message, metadata={"phase2": PHASE, "scans": names,
+        snapshot = commit(session, message, metadata={CONTENTS: PROCESSED, "scans": names,
                                                      "dandiset": f"000402/{ingest.DANDI_VERSION}",
                                                      "rois": rois})
     print(f"committed the processed data in {snapshot}", flush=True)
@@ -318,9 +360,10 @@ def commit_processed(repo, scans: list[Scan], *, parallel: int) -> str:
 # the tables it lists are written on each scan's unit axis, a table it no
 # longer lists is deleted, and an array that did not change is left alone,
 # so Icechunk's diff between two versions' tags names exactly the arrays
-# that changed. Rows for scans with no NWB file (5-4, 5-5 and 8-4, published
-# only in platinum_camovies/) are counted in the commit's metadata and left
-# to the full tables beside the store.
+# that changed. A scan a table has no rows for gets no group for that table.
+# Rows for scans with no NWB file (5-4, 5-5 and 8-4, published only in
+# platinum_camovies/) are counted in the commit's metadata and left to the
+# full tables beside the store.
 
 #: Columns that locate a row rather than describe its match.
 KEYS = ("session", "scan_idx", "unit_id", "field", "pt_position_x", "pt_position_y", "pt_position_z")
@@ -359,12 +402,14 @@ def dump_tables(version: int, base: str = CAVE_DUMPS) -> dict[str, tuple[pd.Data
     return tables
 
 
-def unit_rows(table: str, frame: pd.DataFrame, counts: dict[str, dict[int, int]]) -> tuple[dict, dict]:
-    """The table's rows by scan, each scan's frame indexed by unit_id; and what was left out.
+def unit_rows(table: str, frame: pd.DataFrame, counts: dict[str, dict[int, int]],
+              published: set[str]) -> tuple[dict, dict]:
+    """The rows for the scans in ``counts``, by scan and indexed by unit_id; and what was left out.
 
-    Rows repeated in everything but ``id`` are kept once. Raises if a unit has
-    two different rows, a unit_id is outside its scan, or a row's field
-    disagrees with the unit rule.
+    ``published`` names every scan with an NWB file, so rows for any other
+    scan are counted as rows no NWB file can join. Rows repeated in everything
+    but ``id`` are kept once. Raises if a unit has two different rows, a
+    unit_id is outside its scan, or a row's field disagrees with the unit rule.
     """
     content = [c for c in frame.columns if c != "id"]
     deduplicated = frame.drop_duplicates(subset=content)
@@ -372,8 +417,10 @@ def unit_rows(table: str, frame: pd.DataFrame, counts: dict[str, dict[int, int]]
     out = {}
     for (session, scan_idx), rows in deduplicated.groupby(["session", "scan_idx"]):
         name = f"{session}-{scan_idx}"
-        if name not in counts:
+        if name not in published:
             left_out["rows_for_scans_without_nwb"][name] = len(rows)
+            continue
+        if name not in counts:
             continue
         if rows.unit_id.duplicated().any():
             raise ValueError(f"{table} {name}: units with two different rows: "
@@ -423,7 +470,13 @@ def put(group, name: str, values: np.ndarray, dims: tuple[str, ...], fill) -> bo
     return True
 
 
-def commit_cave_version(repo, version: int, scans: list[Scan], *, base: str = CAVE_DUMPS) -> str:
+def commit_cave_version(repo, version: int, scans: list[Scan], published: set[str], *,
+                        base: str = CAVE_DUMPS) -> str:
+    """One CAVE version's match tables, written on each scan's unit axis, as one commit.
+
+    ``published`` names every scan with an NWB file, ``scans`` the ones this
+    run writes.
+    """
     step = f"cave-v{version}"
     if (done := committed(repo).get(step)) is not None:
         print(f"CAVE v{version} is already committed in {done.id}", flush=True)
@@ -435,32 +488,30 @@ def commit_cave_version(repo, version: int, scans: list[Scan], *, base: str = CA
     tables = dump_tables(version, base)
     if not tables:
         raise ValueError(f"CAVE v{version}'s dump holds none of the match tables")
-    changed, report = 0, {}
+    changed, report, held = 0, {}, {s.name: set() for s in scans}
     for table, (frame, source) in tables.items():
-        by_scan, left_out = unit_rows(table, frame, counts)
+        by_scan, left_out = unit_rows(table, frame, counts, published)
         report[table] = source | {"rows": len(frame)} | left_out
-        for scan in scans:
-            em = root.require_group(f"{SCANS}/{scan.name}/units/em")
-            group = em.require_group(table)
+        for name, rows in by_scan.items():
+            held[name].add(table)
+            group = root.require_group(f"{SCANS}/{name}/units/em/{table}")
             group.attrs.put({"cave_version": version, "table": table, "source": source["url"],
-                             "rows": int(len(by_scan.get(scan.name, ()))),
+                             "rows": len(rows),
                              "description": (f"CAVE table {table} at materialization version {version}, "
                                              "one value per unit; pt_position is the EM point in 4 x 4 x 40 nm "
                                              "voxels; id is the table's row id")})
-            units = sum(counts[scan.name].values())
-            rows = by_scan.get(scan.name, pd.DataFrame(columns=frame.columns).set_index("unit_id"))
-            for name, values in match_arrays(rows, units).items():
+            for column, values in match_arrays(rows, sum(counts[name].values())).items():
                 dims = ("unit", "axis") if values.ndim == 2 else ("unit",)
-                changed += put(group, name, values, dims, FILLS.get(str(values.dtype), -1))
-    for scan in scans:
-        em = root[f"{SCANS}/{scan.name}/units/em"]
-        for gone in sorted(set(em.group_keys()) - set(tables)):
+                changed += put(group, column, values, dims, FILLS[str(values.dtype)])
+    for name, tables_here in held.items():
+        em = root.require_group(f"{SCANS}/{name}/units/em")
+        for gone in sorted(set(em.group_keys()) - tables_here):
             del em[gone]
             changed += 1
     message = (f"EM matches of the two-photon units at CAVE materialization version {version}, from "
                f"CAVE's static dumps: {', '.join(sorted(tables))}. Root IDs are as of this version; "
                "proofreading changes them between versions.")
-    snapshot = commit(session, message, metadata={"phase2": step, "cave_version": version,
+    snapshot = commit(session, message, metadata={CONTENTS: step, "cave_version": version,
                                                   "tables": report, "arrays_changed": changed})
     print(f"CAVE v{version}: {len(tables)} tables, {changed} arrays changed, committed in {snapshot}", flush=True)
     return snapshot
@@ -476,6 +527,7 @@ def main(argv: list[str] | None = None) -> None:
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     started = time.monotonic()
     scans = ingest.list_scans()
+    published = {s.name for s in scans}
     if args.scans:
         wanted = set(args.scans.split(","))
         if unknown := wanted - {s.name for s in scans}:
@@ -485,7 +537,7 @@ def main(argv: list[str] | None = None) -> None:
     repo = open_for_writing(args.repo, DANDI_BLOBS)
     commit_processed(repo, scans, parallel=args.parallel)
     for version in CAVE_VERSIONS:
-        commit_cave_version(repo, version, scans)
+        commit_cave_version(repo, version, scans, published)
     print(f"done in {time.monotonic() - started:.0f} s; verify_processed.py --tag tags the commits "
           "once the store check passes", flush=True)
 
