@@ -20,6 +20,7 @@ There is no extra to install: the dependencies of `minus-80` cover every module.
 | `multiscale` | `write_multiscale` writes an OME-Zarr 0.5 image whose full-resolution level is virtual and whose downsampled levels are computed by ngff-zarr and stored as real chunks. |
 | `decisions` | `Decision` records a value or interpretation that the source files do not state, with the evidence for it, and renders it as a sentence or as a record. |
 | `progress` | `Progress` prints a status line at a fixed time interval while a long job runs. |
+| `documents` | `text_or_pointer` keeps a verbatim document in attributes when it is at most 64 KB, else writes it as a `uint8` array in a `documents` group beside its node and returns a pointer to it; `read_text` follows either. |
 | `jsonable` | `jsonable` turns a value into strict JSON for a Zarr attribute: NaN becomes `null`, bytes become text or `{"base64": ...}`. |
 | `aio` | `run_sync` runs a coroutine from synchronous code, including inside a running event loop such as Jupyter's; `submit` starts one on the same loop and returns a cancellable future. |
 
