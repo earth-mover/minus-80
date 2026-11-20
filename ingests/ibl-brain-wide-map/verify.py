@@ -1,10 +1,15 @@
 """Spot-check the finished store against the sources, in about a minute.
 
-What runs on every session and probe, with no request to the sources:
+What runs on every session and probe, with no request to the sources but one
+``.npy`` header per spike column:
 
 - completeness: both NWB files, and the four ALF objects of every probe;
+- every probe's ``pykilosort`` group holds the sort each tag names, and
+  ``main`` the latest;
+- every array's codecs are ones zarr-python reads without minus80 or
+  shadowzarr: bytes, zstd, vlen-utf8 and numcodecs.zlib;
 - the spike columns' lengths equal what IBL's own listing implies from each
-  file's size, so no file was cut short;
+  file's size and header, so no file was cut short;
 - metadata: every voltage array names its axes, carries a CF scale equal to
   NWB's conversion, and its series carries the SpikeGLX meta; the root says
   what the store is.
@@ -27,6 +32,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import h5py
 import numpy as np
@@ -37,6 +43,14 @@ from sources import dandi_file, npy_header, open_repo, say
 
 from minus80.core.fetch import read_range
 from minus80.core.remote import reader
+
+
+#: The codecs a reader with only zarr-python installed can decode: Zarr's own
+#: and numcodecs' zlib, which zarr-python depends on.
+READABLE_CODECS = {"bytes", "zstd", "vlen-utf8", "numcodecs.zlib"}
+
+#: Each pass's repo tag and the sort it holds, in the order the passes run.
+SORT_TAGS = {"sort-2022": "2022", "sort-2024": "2024"}
 
 
 def check(ok: bool, what: str, failures: list[str]) -> None:
@@ -61,7 +75,27 @@ def main(argv=None) -> int:
     check(root.attrs.get("license") == "CC-BY-4.0" and "title" in root.attrs,
           "root names the dataset and its license", failures)
 
+    codecs = {}
+    for snapshot_store, subtree in [(store, None)] + [
+            (repo.readonly_session(snapshot_id=snapshot).store, "alf") for snapshot in tags.values()]:
+        for path, node in zarr.open_group(snapshot_store, mode="r").members(max_depth=None):
+            if isinstance(node, zarr.Array) and (subtree is None or f"/{subtree}/" in path):
+                chain = tuple(c["name"] for c in node.metadata.to_dict()["codecs"])
+                codecs.setdefault(chain, path)
+    check(all(name in READABLE_CODECS for chain in codecs for name in chain),
+          f"every array's codecs are readable with zarr-python alone: {sorted(codecs)}", failures)
+
     probes = [(session_record(e), p) for e in args.sessions.split(",") for p in args.probes.split(",")]
+    expected = {tag: sort for tag, sort in SORT_TAGS.items() if tag in tags}
+    if expected:
+        expected["main"] = list(expected.values())[-1]
+    for ref, sort in expected.items():
+        ref_store = store if ref == "main" else repo.readonly_session(tag=ref).store
+        held = {f"{session['group']}/{probe}": zarr.open_group(
+                    ref_store, path=f"{session['group']}/alf/{probe}/pykilosort", mode="r").attrs["sort"]
+                for session, probe in probes}
+        check(all(h == sort for h in held.values()),
+              f"{ref}: every probe holds the {sort} sort ({len(held)} probes)", failures)
     for session, probe in probes:
         group = root[session["group"]]
         check(set(group.group_keys()) >= {*NWB_FILES, "alf"}, f"{session['group']}: NWB files and ALF",
@@ -77,11 +111,15 @@ def main(argv=None) -> int:
                   f"{series.path}: axes, scale, timestamps, electrodes and SpikeGLX meta", failures)
         sorting = group[f"alf/{probe}/pykilosort"]
         check(set(sorting.group_keys()) == set(OBJECTS), f"{sorting.path}: ALF objects", failures)
-        for obj, attribute, url, size in sort_files(session["eid"], probe, sorting.attrs["sort"]):
-            array = sorting[f"{obj}/{attribute}"]
-            if obj == "spikes" and array.shape[0] != (size - 128) // array.dtype.itemsize:
+        columns = [(sorting[f"{obj}/{attribute}"], url, size)
+                   for obj, attribute, url, size, _ in sort_files(session["eid"], probe, sorting.attrs["sort"])
+                   if obj == "spikes"]
+        with ThreadPoolExecutor(16) as pool:
+            offsets = list(pool.map(lambda column: npy_header(column[1])[2], columns))
+        for (array, url, size), offset in zip(columns, offsets):
+            if array.shape[0] != (size - offset) // array.dtype.itemsize:
                 check(False, f"{array.path}: {array.shape[0]} rows, file holds "
-                      f"{(size - 128) // array.dtype.itemsize}", failures)
+                      f"{(size - offset) // array.dtype.itemsize}", failures)
 
     session, probe = probes[0]
     for name in NWB_FILES:
