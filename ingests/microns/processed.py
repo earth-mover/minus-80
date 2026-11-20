@@ -160,20 +160,22 @@ def write_nwb_file(session, scan: Scan, fields: list[int]) -> dict:
 # the pixels any ROI covers are covered by two or more, so an integer label
 # image would drop most of them. They are small once written natively, about
 # 5 MB per scan with Blosc, so each field gets an image of its own, in the
-# TIFF's orientation, one chunk per ROI inside one shard per field: one ROI
-# is one chunk read, and a field is one object. The image places itself in
+# TIFF's orientation, one chunk per ROI inside shards of 261 ROIs: one ROI
+# is one chunk read, and a field is a handful of objects. The image places itself in
 # the scene's motor coordinates with a translation, because a scene requires
 # its images to share its axes and the ROI axis is not time. Uncompressed, a
-# scan's masks reach 5.5 GB (scan 7-4), so they are read, written and
-# dropped one field at a time.
+# scan's masks reach 5.5 GB (scan 7-4) and one field's 0.7 GB, so they are
+# read and written one shard at a time. A shard is three of the NWB's
+# 87-ROI chunks, so each read decodes whole chunks.
 
 ROI_DIMS = ("roi", "z", "y", "x")
+SHARD_ROIS = 3 * 87
 ROI_DIMENSIONS = {"roi": {"type": "roi"}, "z": {"type": "space"}, "y": {"type": "space"},
                   "x": {"type": "space"}}
 
 
 def read_fields(scan: Scan):
-    """Each field's number, ROI count and masks (roi, rows, columns), one field at a time.
+    """Each field's number, ROI count and h5py ``image_mask`` dataset, (roi, columns, rows).
 
     Raises unless a field's ROI ids run 1 to n and its traces' rois region
     lists the table's rows in order, which the ``roi`` axis name relies on.
@@ -189,13 +191,16 @@ def read_fields(scan: Scan):
             region = f[f"processing/ophys/Fluorescence/RoiResponseSeries{number}/rois"][()]
             if not np.array_equal(region, np.arange(len(ids))):
                 raise ValueError(f"{scan.name} field {number}: the traces' rois region is not every ROI in order")
-            yield number, len(ids), table["image_mask"][()].transpose(0, 2, 1)
+            yield number, len(ids), table["image_mask"]
 
 
-def write_masks(store, scan: Scan, number: int, masks: np.ndarray, field: dict) -> None:
-    """Field ``number``'s masks as an image at ``rois-<number>``, placed where the field is."""
+def write_masks(store, scan: Scan, number: int, masks, field: dict) -> None:
+    """Field ``number``'s masks as an image at ``rois-<number>``, placed where the field is.
+
+    ``masks`` is the NWB's (roi, columns, rows) dataset, read a shard at a time.
+    """
     base = f"{SCANS}/{scan.name}"
-    rois, rows, columns = masks.shape
+    rois, columns, rows = masks.shape
     shape = (rois, 1, rows, columns)
     pixel = field["pixel_um"]
     ome = image_attrs(
@@ -218,9 +223,12 @@ def write_masks(store, scan: Scan, number: int, masks: np.ndarray, field: dict) 
     group = zarr.open_group(store, path=f"{base}/rois-{number}", mode="w")
     group.attrs.put({"ome": ome} | annotation)
     array = group.create_array(
-        "0", shape=shape, dtype="float32", chunks=(1, 1, rows, columns), shards=shape,
+        "0", shape=shape, dtype="float32", chunks=(1, 1, rows, columns),
+        shards=(min(SHARD_ROIS, rois), 1, rows, columns),
         compressors=COMPRESSOR, dimension_names=ROI_DIMS, fill_value=0)
-    array[:] = masks[:, None]
+    for start in range(0, rois, SHARD_ROIS):
+        block = masks[start:start + SHARD_ROIS].transpose(0, 2, 1)
+        array[start:start + len(block)] = block[:, None]
 
 
 # The units
@@ -261,13 +269,12 @@ def write_units(store, scan: Scan, counts: dict[int, int]) -> None:
 
 def write_scan(fork, scan: Scan, fields: dict[int, dict]):
     started = time.monotonic()
-    counts, first, largest = {}, 1, 0
+    counts, first = {}, 1
     for n, rois, masks in read_fields(scan):
         if n not in fields:
             raise ValueError(f"{scan.name}: the NWB file has field {n}, the store fields {sorted(fields)}")
         write_masks(fork.store, scan, n, masks, fields[n] | {"first_unit": first})
-        counts[n], first, largest = rois, first + rois, max(largest, masks.nbytes)
-        del masks
+        counts[n], first = rois, first + rois
     if set(counts) != set(fields):
         raise ValueError(f"{scan.name}: NWB masks for fields {sorted(counts)}, store fields {sorted(fields)}")
     summary = write_nwb_file(fork, scan, sorted(counts))
@@ -282,7 +289,7 @@ def write_scan(fork, scan: Scan, fields: dict[int, dict]):
                   "its attributes; em/<table>: its EM matches"),
     }}
     group.attrs.put(attrs)
-    summary |= {"rois": sum(counts.values()), "largest_field_mb": round(largest / 1e6),
+    summary |= {"rois": sum(counts.values()),
                 "seconds": round(time.monotonic() - started, 1)}
     print(f"{scan.name}: NWB {summary['nwb_arrays']} arrays in {summary['nwb_seconds']} s, "
           f"{summary['rois']:,} ROIs in {len(counts)} fields, {summary['seconds']} s", flush=True)
