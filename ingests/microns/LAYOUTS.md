@@ -131,7 +131,7 @@ stored in each field's `annotations.nwb` as the file states them.
 
 ## The store
 
-The store is the Arraylake repo `earthmover-biology/microns`. Its one virtual
+The store is the Arraylake repo `earthmover-biology/MICrONS`. Its one virtual
 chunk container is the BossDB scan prefix,
 `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/`, read anonymously
 in us-east-1; every chunk reference falls under it.

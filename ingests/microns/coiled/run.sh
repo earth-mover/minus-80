@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The Coiled job that launch.sh starts: both exports of the scans, then the
 # store check.
-#   bash run.sh arraylake://earthmover-biology/microns [scan,scan,...]
+#   bash run.sh arraylake://earthmover-biology/MICrONS [scan,scan,...]
 # ARRAYLAKE_TOKEN must be set in the environment.
 # Expected times: install under 2 min; NWB metadata under 1 min; each export
 # about 2 min for 19 scans, 8 at a time (each scan fetches 51 to 90 MB of
