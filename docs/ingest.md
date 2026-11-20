@@ -178,6 +178,18 @@ decode that comes up one element short, because that hides corruption.
 
 ## Running the ingest
 
+### Survey every file the run will read for what the trial never met
+
+A trial on one file exercises that file's features only. Before a run, check
+every chosen file, cheaply, for the features its format allows: read each
+file's headers or metadata and run the mapping without writing data, and
+read each table's or array file's header. The first IBL run stopped on its
+second session, whose NWB file had contiguous datasets that the trial's file
+did not, and a later session's spike sorting held a pickled object array;
+mapping all 20 NWB files took about 3 minutes and reading 780 `.npy`
+headers a few seconds, and found both. A survey is not a full run from a
+laptop, which the plan never does.
+
 ### Run beside the data, and time remote reads
 
 One ingest indexed 11 files per second from a laptop and 592 from the data's
@@ -270,6 +282,12 @@ rules keep it alive and visible:
   interval within every step, and memory from a separate loop.** A heartbeat
   only from inside the job's own loop goes quiet exactly when the job blocks.
   Set an expected time for each step before launching.
+- **Kill every background loop in an `EXIT` trap.** A loop started with `&`,
+  such as the memory loop, outlives a script that `set -e` ends, and holds
+  the job's output open: the batch job then never ends, and its log, which
+  Coiled releases only when a job ends, never arrives. An IBL run crashed on
+  its second session and showed as running, with no log, for 40 minutes.
+  `trap 'kill $watcher' EXIT` ends the job with the script.
 - **Treat silence as a signal, and read the right logs.** `coiled batch logs`
   arrives one to two minutes late, so check the job's state with
   `coiled batch status` before calling it stalled. When a job stops without
