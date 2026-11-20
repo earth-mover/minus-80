@@ -14,7 +14,7 @@
 <rect x="760.0" y="121.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#eb6834" stroke-width="1.4"/>
 <text x="760.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">rois-4/0</text>
 <text x="760.0" y="210.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 1, 440, 248)</text>
-<text x="760.0" y="227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk per ROI, one shard</text>
+<text x="760.0" y="227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk per ROI, shards of 261</text>
 <text x="760.0" y="244.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">blosc zstd, native</text>
 <path d="M 154.0 146.9 C 453.0 146.9 453.0 146.9 752.0 146.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
 <polygon points="752.0,146.9 744.0,142.4 744.0,151.4" fill="#64748b"/>

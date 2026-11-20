@@ -123,7 +123,7 @@ two-photon/<session>-<scan>                    ome.scene (phase 1); its scan att
 ```
 
 Scan 4-7, field 4: `rois-4/0` is (1,389, 1, 440, 248) with chunks
-(1, 1, 440, 248) inside one shard; `nwb/processing/ophys/Fluorescence/RoiResponseSeries4/data`
+(1, 1, 440, 248) in shards of 261 ROIs; `nwb/processing/ophys/Fluorescence/RoiResponseSeries4/data`
 is (40,000, 1,389) with the NWB's chunks (625, 44); `units` has 8,395
 entries, and ROI 23 of field 4 is unit 2,573.
 
@@ -152,7 +152,13 @@ The file and the scene describe the same scan, and each keeps one meaning:
   `dimension_names` to every array there, as the unified convention allows,
   so `xr.open_zarr` opens any series or table group: a RoiResponseSeries'
   `data` and `rois` share a `roi` axis, its `data` and `timestamps` a `time`
-  axis.
+  axis. The shared `name_dimensions` names a table's row axis after the
+  table, `PlaneSegmentation<n>`; the ingest renames it `roi` once it has
+  checked that the traces' `rois` region lists every row of the table in
+  order, so a field's masks, EM columns and traces align. The rename stays in
+  the ingest because a region in general selects rows in another order: an
+  IBL ElectricalSeries' `electrodes` are one probe's rows of a two-probe
+  table.
 
 ### The masks
 
@@ -161,9 +167,13 @@ in chunks of 87 ROIs by 16 × 28 pixels, so one ROI's mask costs 256 chunk
 reads. Written natively, the masks of scan 4-7 take 4.8 MB with Blosc zstd
 and byte shuffle (8,395 ROIs, 3.66 GB uncompressed; DANDI stores them in
 9.2 MB of gzip), so all 19 scans take about 100 MB. `rois-<n>` holds them in
-the TIFF's orientation, (roi, z, y, x), with one chunk per ROI inside one
-shard per field, so a reader fetches one ROI's mask with one read and the
-store holds one object per field instead of 168,971.
+the TIFF's orientation, (roi, z, y, x), with one chunk per ROI inside
+shards of 261 ROIs, three of the NWB's chunks. A reader fetches one ROI's
+mask with one read, and the store holds about 700 mask objects instead of
+168,971. The ingest reads and writes a shard at a time: on scan 7-4, the
+scan with the most ROIs (12,675; 5.5 GB uncompressed), the whole scan's
+write peaked at 0.65 GiB of memory, against 3.1 GiB a field at a time and
+5.8 GiB for the scan at once.
 
 A label image would be smaller (0.16 MB for scan 4-7) but lossy: the masks
 are weights between 0.01 and 3.4, not 0/1, and of the 653,578 pixels any ROI
@@ -182,7 +192,9 @@ not time.
 CAVE match table becomes `units/em/<table>`, one array per column on the
 `unit` axis; a unit the table does not match holds the fill value (0 for root
 and supervoxel IDs, −1 for other integers and the EM point, NaN for floats).
-Each CAVE version is a commit: the tables it lists are written in place, so
+A scan the table has no rows for gets no group: v343's
+`func_unit_em_match_release` covers 13 of the 19 scans, and the manual
+tables 16. Each CAVE version is a commit: the tables it lists are written in place, so
 an array whose values did not change is not rewritten, and a table it no
 longer lists is deleted. Root and supervoxel IDs are uint64 and exact; the
 NWB's own copies are float64 and lose the last two or three digits.
@@ -212,8 +224,11 @@ both at every phase-2 commit.
 - **The masks only in `nwb/`.** One mask costs 256 chunk reads there; 2.3 s
   from the laptop against a local read for `rois-<n>`.
 - **The masks as a label image.** Lossy, as above.
-- **One object per ROI.** 168,971 objects of about 600 bytes each; the shard
-  keeps the one-read access with one object per field.
+- **One object per ROI.** 168,971 objects of about 600 bytes each; a shard
+  keeps the one-read access in about 700 objects.
+- **One shard per field.** One object per field, but writing it needs the
+  field's masks in memory at once, up to 0.7 GB, and peaked at 3.1 GiB on
+  scan 7-4.
 - **The matches only in Iceberg.** Decided against: a tag would not pin the
   matches with the traces.
 - **A summary-image OME-Zarr copy, `summary-<n>`.** The NWB's two summary
@@ -231,15 +246,30 @@ run will.
 
 | Step | Time | Result |
 |---|---|---|
-| shadowzarr maps the NWB file | 59 s | 276 arrays, 2,610 keys; the stimulus movie's 381,054-chunk index takes 29 s of it |
-| read and write the masks | 9 s | 8,395 ROIs in 8 images |
-| the processed commit | 92 s with the above | 287 new arrays, 98 new groups; `/` and `two-photon/4-7` updated |
+| read and write the masks, then map the NWB file with shadowzarr | 65 s, 53 s of it the mapping | 8,395 ROIs in 8 images; 276 NWB arrays, 2,610 keys; the stimulus movie's 381,054-chunk index takes about 29 s |
+| the processed commit | 83 s for this and the eight CAVE commits | 287 new arrays, 98 new groups; `/` and `two-photon/4-7` updated |
 | eight CAVE commits | 1 to 3 s each | 8, 18, 2, 34, 5, 5, 20 and 4 arrays written |
-| `verify_processed.py --tag` | 44 s | every check passes; `processed` and eight `cave-v<version>` tags |
-| phase 1's `verify.py`, after phase 2 | 10 s | passes |
+| `verify_processed.py --tag` | 30 s | every check passes; `processed` and eight `cave-v<version>` tags |
+| phase 1's `verify.py`, after phase 2 | 9 s | passes |
 
 The repo holding both phases of scan 4-7 is 25 MB. A rerun of
 `processed.py` writes nothing and finds every commit in 3 s.
+
+**All 19 scans against the dumps.** `unit_rows` and `match_arrays` ran
+over every scan and every dumped version, from the cached dumps and the 19
+NWB files' ROI counts, in 1 s, with no error: 28 to 89 table groups per
+version. The tables leave out scans as follows: v343's
+`func_unit_em_match_release` has no rows for 4-9, 4-10, 5-3, 8-7, 8-9 and
+9-6; `functional_coreg` none for 4-9, 4-10, 8-7 and 8-9; the manual tables
+none for 4-9, 4-10 and 8-9.
+
+**Memory.** Scan 7-4 written alone: 0.65 GiB peak (above). Eight workers
+at once therefore need about 5 GiB. Merging 19 forks into the driver was
+measured on a stand-in: 19 forks of 500,000 virtual references each (one
+381,054-chunk array, eight of 10,368 and eight of 4,096, the shape of one
+scan's NWB file) merged in 0.9 s and committed to a local repo in 4.7 s,
+with the driver at 5.7 GiB peak, writing the forks included. The VM has
+32 GiB.
 
 **What the verify checks.** `complete`: the NWB group is an NWBFile, and
 each field's ROI count agrees across the NWB table, `rois-<n>` and `units`.
@@ -251,7 +281,8 @@ OME-Zarr 0.6 and sit where the scene puts their field. `sources`: one mask,
 one trace, one summary image and one stimulus frame equal h5py's decode of
 the NWB file, and xarray opens the trace's series. `matches`: at each CAVE
 commit, 100 sampled matches of each table equal the dump's root ID,
-supervoxel and EM point, and the commit holds exactly the dump's tables.
+supervoxel and EM point, reading each array once per table and scan, and
+each scan holds exactly the dump's tables that have rows for it.
 
 **Reading.** Through the local trial repo: one ROI's mask from `rois-4` in
 under 0.01 s, the same mask from `nwb/` in 2.3 s, and one ROI's whole trace
@@ -291,11 +322,12 @@ commit's metadata counts them, and the Iceberg tables will keep them.
 
 **The fixture test.** `test_processed.py` runs phase 2 on fixture.py's small
 scan, with its NWB file extended by overlapping masks and traces, and two
-hand-made CAVE dumps: every mask equals the NWB's, the NWB file reads back
-whole, each version holds its own exact root IDs, a version's diff touches
-only the root IDs that changed and deletes a dropped table, a repeated row is
-kept once, and a row that breaks the unit rule or a unit with two different
-rows is refused.
+hand-made CAVE dumps, and a second scan that one table leaves out: every mask
+equals the NWB's, the NWB file reads back whole with `roi` axes, each version
+holds its own exact root IDs, a scan gets only the tables with rows for it, a
+version's diff touches only the root IDs that changed and deletes a dropped
+table, a repeated row is kept once, and a row that breaks the unit rule or a
+unit with two different rows is refused.
 
 ## Judgement calls
 
@@ -306,8 +338,8 @@ rows is refused.
    attributes name each part. **Recommended:** `two-photon/<scan>/nwb`.
 3. **Matches in the store.** Decided, with tags `cave-v<version>`.
 4. **Mask layout.** Decided to write them natively. **Recommended:** a
-   weight image per field, one chunk per ROI in one shard, because a label
-   image would drop most overlapping pixels.
+   weight image per field, one chunk per ROI in shards of 261 ROIs, because a
+   label image would drop most overlapping pixels.
 5. **Mask placement.** **Recommended:** the image's own translation, equal to
    its field's place in the scene; listed in no scene, and its attributes
    name its field.
@@ -335,8 +367,10 @@ token), and the full CAVE tables.
    writes the processed commit for all 19 scans, 8 at a time, then one commit
    per CAVE version, then runs `verify_processed.py --tag`. The launcher
    refuses uncommitted or unpushed code and tags the code's commit
-   `microns-run3-processed`. A relaunch resumes: every commit main already
-   holds is skipped. *Writes the store.*
+   `microns-run3-processed`. A relaunch from the same commit reuses the tag
+   and resumes, and one from another commit is refused (both checked against
+   a stand-in remote with `coiled` stubbed out). The relaunched job skips
+   every commit main already holds. *Writes the store.*
 4. REPORT.md, with the snapshots, timings and verify output.
 
 **Arraylake setup.** The `dandiarchive` bucket config (us-east-2) and its

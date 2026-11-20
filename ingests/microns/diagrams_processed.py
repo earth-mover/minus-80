@@ -149,7 +149,7 @@ def mapping_figure(catalog: dict, rois: dict) -> Canvas:
     nwb = "nwb/ (the whole file)"
     pairs = [
         ("image_mask", [shape_text(masks["shape"]), f"chunks {shape_text(masks['chunks'])}", "gzip, float32"],
-         f"rois-{k}/0", [shape_text((n, 1, 440, 248)), "one chunk per ROI, one shard", "blosc zstd, native"],
+         f"rois-{k}/0", [shape_text((n, 1, 440, 248)), "one chunk per ROI, shards of 261", "blosc zstd, native"],
          "transposed and written natively", ACCENTS["highlight"]),
         ("image_mask", ["the same dataset"],
          f"nwb/…/PlaneSegmentation{k}/image_mask", ["as stored", "referenced"],
@@ -197,7 +197,7 @@ def store_figure(catalog: dict, rois: dict, cave: pd.DataFrame) -> Canvas:
         (TreeNode("volume_times", 0, 1, subtitle="phase 1"), "array", [Row("", "(40,000,) float64")]),
         (TreeNode("rois-n", 0, 1, count=8, status="added"), "image, written natively", [
             Row("0", f"(roi, z, y, x) float32; {n:,} ROIs in field {k}"),
-            Row("chunks", "one per ROI, one shard per field, blosc zstd"),
+            Row("chunks", "one per ROI, in shards of 261 ROIs, blosc zstd"),
             Row("placed", "its own translation = field-n's place")]),
         (TreeNode("units", 0, 1, status="added"), "group, written natively", [
             Row("unit_id, field, roi", f"({units:,},) int64"),

@@ -229,11 +229,21 @@ The NWB file has no deconvolved activity: `processing/ophys` holds only
 `roi` dimension name, and `data` and `timestamps` share `time`, so
 `xr.open_zarr` opens the series as one dataset.
 
+In every field of the 19 files, the traces' `rois` region is `0 … n − 1`:
+it lists every row of the field's PlaneSegmentation, in order. The ingest
+checks that, then names the PlaneSegmentation's row axis `roi` as well, in
+place of the table's own name that the shared `name_dimensions` gives it, so
+a field's masks, NWB EM columns and traces align in xarray. The shared
+function does not do this: a region in general selects other rows, as an
+IBL ElectricalSeries' `electrodes` selects one probe's rows of a table that
+holds both.
+
 ### The masks
 
 `rois-<n>` holds field `n`'s `image_mask` transposed to the TIFF's
 `(rows, columns)`, as `(roi, 1, rows, columns)` float32, one chunk per ROI
-inside one shard, Blosc zstd with byte shuffle. ROI `r` of the image is ROI
+inside shards of 261 ROIs (three of the NWB's 87-ROI chunks), Blosc zstd
+with byte shuffle, written a shard at a time. ROI `r` of the image is ROI
 id `r + 1` of the field's PlaneSegmentation. In scan 4-7:
 
 - the masks are 3.66 GB uncompressed, 9.2 MB as DANDI stores them, and
@@ -298,8 +308,8 @@ store records each object's generation and date.
   `platinum_camovies/`. Those 11,210 to 12,213 rows per table cannot join an
   NWB file and stay out of the store.
 
-Each table becomes `units/em/<table>/` in its scan, with one array per
-column on the `units` axis, and each version is a commit: the ingest writes
+Each table becomes `units/em/<table>/` in each scan it has rows for, with
+one array per column on the `units` axis, and each version is a commit: the ingest writes
 the arrays a version changes in place, adds the tables it introduces, and
 deletes the tables it no longer lists. Root and supervoxel IDs are uint64
 and exact, unlike the NWB's float64 copies, which lose the last two or three
