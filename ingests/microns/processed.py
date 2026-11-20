@@ -78,6 +78,10 @@ CONTENTS = "contents"
 PROCESSED = "processed"
 
 #: Added to phase 1's root ``layout`` text.
+SCANS_DESCRIPTION = (ingest.SCANS_DESCRIPTION[:-1] + ", and its cells: their masks "
+                     "(rois-<n>), their numbering and matches to electron-microscopy cells "
+                     "(units), and the scan's NWB file with traces, behavior and stimulus (nwb).")
+
 LAYOUT_ADDED = (
     "; each scan group also holds the scan's DANDI 000402 NWB file whole at nwb/ "
     "(unified NWB Zarr v3 convention, hdmf-zarr 0.14; every chunk a reference to DANDI), "
@@ -86,7 +90,22 @@ LAYOUT_ADDED = (
     "the matches of each CAVE version")
 
 ROOT_ADDED = {
-    "title": "MICrONS minnie: two-photon functional scans, processed data and EM matches",
+    "title": ("MICrONS mouse visual cortex: two-photon calcium imaging, cell activity and "
+              "matches to electron microscopy"),
+    "description": ingest.ROOT["description"] + (
+        " For each scan the store also holds what processing found in the movies: each cell's "
+        "outline in each field, its fluorescence trace over the whole scan, the eye, pupil "
+        "and running-speed recordings, the movie the mouse saw and its trial tables. And it "
+        "holds which cell in the electron-microscopy volume each imaged cell was matched to, "
+        "as each release of the CAVE database states it; tags cave-v<version> name the "
+        "releases, because proofreading the reconstruction changes the matched cells' IDs."),
+    "license_terms": ("CC BY 4.0, the MICrONS terms "
+                      "(https://www.microns-explorer.org/terms-and-conditions), as BossDB's project "
+                      "page and DANDI 000402 state it; it covers the CAVE match tables as well"),
+    "provenance": ingest.ROOT["provenance"] + (
+        " Each scan's nwb/ group is the DANDI 000402 NWB file (version 0.230307.2132), whole, "
+        "read from DANDI's bucket; rois-<n> is written from that file's masks; units/em/ is "
+        "written from CAVE's static table dumps."),
     "codecs": ("Zarr v3 core (bytes, transpose, sharding_indexed, blosc, zstd, vlen-utf8) and "
                "numcodecs' zlib for the NWB file's gzip chunks; zarr-python reads every array"),
 }
@@ -209,13 +228,15 @@ def write_masks(store, scan: Scan, number: int, masks, field: dict) -> None:
         translation={"roi": 0, "z": field["z"], "y": field["y"], "x": field["x"]},
         units={"z": "micrometer", "y": "micrometer", "x": "micrometer"},
         dimensions=ROI_DIMENSIONS, version=ingest.VERSION,
-        description="the NWB image_mask, transposed to the TIFF's orientation; written natively")
+        description=(f"Cell outlines of field {number}: for each cell (ROI), a weight per pixel "
+                     "from the source extraction; outlines overlap. Same pixel grid as the field's movie"))
     nwb = f"nwb/processing/ophys/ImageSegmentation/PlaneSegmentation{number}"
     annotation = image_annotation({
         "field": f"../field-{number}", "roi": f"ROI r of this image is ROI id r + 1 of {nwb}",
         "units": f"ROI id r + 1 is unit {field['first_unit']} + r in ../units",
         "traces": f"nwb/processing/ophys/Fluorescence/RoiResponseSeries{number}",
         "weights": "each ROI's mask is a weight per pixel (CaImAn), not a 0/1 label; ROIs overlap",
+        "provenance": "the NWB image_mask, transposed to the field's (rows, columns) orientation",
         "placement": ("the translation is field-{n}'s placement in the scan's motor coordinates; "
                       "the ROI axis has no counterpart there, so the scene does not list this image"
                       ).format(n=number),
@@ -248,12 +269,14 @@ def write_units(store, scan: Scan, counts: dict[int, int]) -> None:
     unit_roi = np.concatenate([np.arange(1, counts[n] + 1, dtype="int64") for n in fields])
     group = zarr.open_group(store, path=f"{SCANS}/{scan.name}/units", mode="w")
     group.attrs.put({
-        "description": ("The scan's two-photon cells as CAVE numbers them. unit_id is "
-                        "(ROIs in the scan's earlier fields) + the ROI's id in its field; no "
-                        "source file states this rule, which DataJoint's ScanUnit table holds, and "
-                        "every CAVE match row that names a field agrees with it. em/<table> holds "
-                        "each CAVE match table's row for a unit, at the CAVE version this commit "
-                        "states; a unit the table does not match holds the fill value."),
+        "description": ("The scan's cells (units), numbered as the CAVE database numbers them, with "
+                        "the field and ROI each one is. em/<table> holds the cell in the "
+                        "electron-microscopy volume that a CAVE match table pairs each one with, "
+                        "as of the CAVE release this commit names; a cell the table does not "
+                        "match holds the fill value."),
+        "unit_id": ("(ROIs in the scan's earlier fields) + the ROI's id in its field. No source "
+                    "file states this rule, which DataJoint's ScanUnit table holds; every CAVE "
+                    "match row that names a field agrees with it."),
         "rois_per_field": {str(n): counts[n] for n in fields},
     })
     for name, values in (("unit_id", np.arange(1, len(unit_field) + 1, dtype="int64")),
@@ -281,14 +304,31 @@ def write_scan(fork, scan: Scan, fields: dict[int, dict]):
     write_units(fork.store, scan, counts)
     group = zarr.open_group(fork.store, path=f"{SCANS}/{scan.name}", mode="a")
     attrs = dict(group.attrs)
-    attrs["scan"] = attrs["scan"] | {"processed": {
-        "nwb": ("nwb: DANDI's NWB file of this scan, whole, unified NWB Zarr v3 convention; its "
-                "acquisition/TwoPhotonSeries<n> holds field-<n>'s frames again, transposed"),
-        "rois": "rois-<n>: field n's ROI masks, (roi, z, y, x)",
-        "units": ("units: unit_id, field and roi of every cell, and the ROIs of each field in "
-                  "its attributes; em/<table>: its EM matches"),
-    }}
+    scan_summary = attrs["scan"]
+    attrs["scan"] = scan_summary | {
+        "description": ingest.scan_description(scan_summary) + (
+            f" Processing found {sum(counts.values()):,} cells in its fields."),
+        "processed": {
+            "rois": "rois-<n>: field n's cell outlines, one weight image per cell, (roi, z, y, x)",
+            "units": ("units: the scan's cells as the CAVE database numbers them, with each one's "
+                      "field and ROI; em/<table>: each cell's matched electron-microscopy cell"),
+            "nwb": ("nwb: the scan's NWB file from DANDI 000402: cell masks, fluorescence traces, "
+                    "summary images, eye, pupil and treadmill recordings, the stimulus movie and "
+                    "trial tables; its acquisition/TwoPhotonSeries<n> repeats field-<n>'s frames, "
+                    "transposed"),
+        }}
     group.attrs.put(attrs)
+    for n in counts:
+        field = zarr.open_group(fork.store, path=f"{SCANS}/{scan.name}/field-{n}", mode="a")
+        field_attrs = dict(field.attrs)
+        field_attrs["ome"]["multiscales"][0]["metadata"]["description"] = ingest.FIELD_DESCRIPTION.format(n=n)
+        field.attrs.put(field_attrs)
+    nwb = zarr.open_group(fork.store, path=f"{SCANS}/{scan.name}/nwb", mode="a")
+    nwb.attrs.update({"description": (
+        f"The NWB file of scan {scan.name} from DANDI 000402: per field, the cells' masks "
+        "(processing/ophys/ImageSegmentation), fluorescence traces (processing/ophys/Fluorescence) "
+        "and summary images; the eye, pupil and treadmill recordings and the stimulus movie "
+        "(acquisition); the trial tables (intervals). NWB's own paths and types, unchanged.")})
     summary |= {"rois": sum(counts.values()),
                 "seconds": round(time.monotonic() - started, 1)}
     print(f"{scan.name}: NWB {summary['nwb_arrays']} arrays in {summary['nwb_seconds']} s, "
@@ -335,21 +375,23 @@ def commit_processed(repo, scans: list[Scan], *, parallel: int) -> str:
     placements = field_placements(repo, scans)
     session = repo.writable_session("main")
     root = zarr.open_group(session.store, mode="a")
-    attrs = dict(root.attrs)
-    if LAYOUT_ADDED not in attrs["layout"]:
-        attrs["layout"] += LAYOUT_ADDED
+    attrs = dict(root.attrs) | ingest.ROOT
+    attrs["layout"] += LAYOUT_ADDED
     root.attrs.put(attrs | ROOT_ADDED)
+    scans_group = zarr.open_group(session.store, path=SCANS, mode="a")
+    scans_group.attrs.put(dict(scans_group.attrs) | {"description": SCANS_DESCRIPTION})
     jobs = {s.name: (write_scan, (s, placements[s.name])) for s in scans}
     done, failed = run_forks(session, jobs, parallel=parallel,
                              what=f"writing the processed data of {len(scans)} scans, {parallel} at a time")
     if failed:
         raise RuntimeError(f"{len(failed)} scans failed, nothing committed: {failed}")
     rois = sum(s["rois"] for s in done.values())
-    message = (f"MICrONS processed two-photon data: each of {len(scans)} scans' DANDI 000402 NWB file "
-               f"(version {ingest.DANDI_VERSION}), whole, at two-photon/<scan>/nwb in the unified NWB "
-               f"Zarr v3 convention, every chunk referenced at DANDI; the {rois:,} ROI masks written as "
-               "one image per field, rois-<n>; and units/, each scan's cells as CAVE numbers them. "
-               "The EM matches here are those the NWB files carry, from CAVE v343.")
+    message = (f"MICrONS processed two-photon data for {len(scans)} scans: the outlines of {rois:,} "
+               "cells, their fluorescence traces, summary images, eye, pupil and treadmill "
+               "recordings, the stimulus movie and trial tables, from the DANDI 000402 NWB files "
+               f"(version {ingest.DANDI_VERSION}); and each scan's cells numbered as the CAVE database "
+               "numbers them. The matches to electron-microscopy cells here are the ones the NWB "
+               "files carry, from CAVE release 343.")
     with Heartbeat(lambda: "committing the processed data", every=30.0):
         snapshot = commit(session, message, metadata={CONTENTS: PROCESSED, "scans": names,
                                                      "dandiset": f"000402/{ingest.DANDI_VERSION}",
@@ -504,9 +546,11 @@ def commit_cave_version(repo, version: int, scans: list[Scan], published: set[st
             group = root.require_group(f"{SCANS}/{name}/units/em/{table}")
             group.attrs.put({"cave_version": version, "table": table, "source": source["url"],
                              "rows": len(rows),
-                             "description": (f"CAVE table {table} at materialization version {version}, "
-                                             "one value per unit; pt_position is the EM point in 4 x 4 x 40 nm "
-                                             "voxels; id is the table's row id")})
+                             "description": (f"The electron-microscopy cell that CAVE table {table} matches "
+                                             f"each two-photon cell to, as of CAVE release {version}: "
+                                             "pt_root_id is the EM cell's ID in that release, pt_position "
+                                             "the matched point in 4 x 4 x 40 nm voxels, id the table's "
+                                             "row; one value per unit")})
             for column, values in match_arrays(rows, sum(counts[name].values())).items():
                 dims = ("unit", "axis") if values.ndim == 2 else ("unit",)
                 changed += put(group, column, values, dims, FILLS[str(values.dtype)])
@@ -515,9 +559,9 @@ def commit_cave_version(repo, version: int, scans: list[Scan], published: set[st
         for gone in sorted(set(em.group_keys()) - tables_here):
             del em[gone]
             changed += 1
-    message = (f"EM matches of the two-photon units at CAVE materialization version {version}, from "
-               f"CAVE's static dumps: {', '.join(sorted(tables))}. Root IDs are as of this version; "
-               "proofreading changes them between versions.")
+    message = (f"Matches from two-photon cells to electron-microscopy cells as of CAVE release "
+               f"{version}, in the tables {', '.join(sorted(tables))}. The EM cells' IDs are as of "
+               "this release; proofreading the reconstruction changes them between releases.")
     snapshot = commit(session, message, metadata={CONTENTS: step, "cave_version": version,
                                                   "tables": report, "arrays_changed": changed})
     print(f"CAVE v{version}: {len(tables)} tables, {changed} arrays changed, committed in {snapshot}", flush=True)

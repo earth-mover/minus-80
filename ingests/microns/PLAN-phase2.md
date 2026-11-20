@@ -57,10 +57,9 @@ reported on its own.
 [PLAN.md](PLAN.md) describes MICrONS and phase 1's scans. This section covers
 every part phase 1 leaves out, ranked by what a store adds to it against what
 it costs. Sizes are from listings of the buckets in November 2026. BossDB's
-project page and DANDI's metadata state CC BY 4.0. The CAVE dumps state no
-license; the [MICrONS Explorer terms](https://www.microns-explorer.org/terms-and-conditions)
-offer the site's material under CC BY 4.0 without naming the dumps (see
-"Risks").
+project page and DANDI's metadata state CC BY 4.0, and the
+[MICrONS Explorer terms](https://www.microns-explorer.org/terms-and-conditions)
+put the MICrONS data, the CAVE tables included, under CC BY 4.0.
 
 | Rank | Part | Where, format | Size | Changes | Virtual | Deciding number |
 |---|---|---|---|---|---|---|
@@ -412,11 +411,6 @@ in the repo.
   has no release; the workspace pins a commit. pynwb cannot open the NWB
   groups until hdmf-zarr accepts a group (docs/upstream.md); zarr and xarray
   read them now.
-- *The CAVE dumps' license.* Neither the dumps nor the tutorial page that
-  lists them states a license. The MICrONS Explorer's
-  [terms](https://www.microns-explorer.org/terms-and-conditions) put its
-  material under CC BY 4.0, which is the reading the store records; the store
-  stays private until the MICrONS team confirms it.
 - *DANDI's blob URLs.* The references name DANDI's content-addressed blobs
   of version 0.230307.2132 and carry their ETags, so a changed object fails
   a read instead of returning other bytes.

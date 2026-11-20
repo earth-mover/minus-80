@@ -138,7 +138,7 @@ in us-east-1; every chunk reference falls under it.
 
 | Node | From |
 |---|---|
-| `/` | title, description, license, citations, sources, `layout`; `tiff_export` names the commit's export |
+| `/` | title and description (what the data is), license, citations, sources, `layout` and `provenance` (how the store holds it); `tiff_export` names the commit's export |
 | `two-photon` | a description and one entry per scan: fields, volumes, rate |
 | `two-photon/<session>-<scan>` | `ome.scene`: coordinate system `motor` (t, z, y, x) and one translation per field; `scan`: animal, session, scan, counts, rate, depths, the NWB and TIFF URLs |
 | `two-photon/<session>-<scan>/volume_times` | the NWB timestamps, `(volumes,)` float64 seconds, written natively with Blosc zstd and byte shuffle |

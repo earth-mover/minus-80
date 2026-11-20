@@ -76,14 +76,16 @@ VERSION = "0.6"
 SCANS = "two-photon"
 
 ROOT = {
-    "title": "MICrONS minnie: two-photon functional scans",
+    "title": "MICrONS mouse visual cortex: two-photon calcium imaging",
     "description": (
-        "Calcium imaging (GCaMP6) of mouse 17797's visual cortex with a two-photon "
-        "random access mesoscope, in 19 scans of 4 to 8 imaging fields each, recorded "
-        "before the same cortex was imaged by electron microscopy for the MICrONS "
-        "project. Each field is an image whose chunks are the frames of BossDB's TIFF "
-        "export, read in place; pixel sizes, field positions and volume times are "
-        "taken from the DANDI 000402 NWB files of the same scans."),
+        "Two-photon calcium imaging of one mouse's visual cortex (mouse 17797: primary "
+        "visual cortex and three neighboring visual areas), recorded in 19 scans over six "
+        "days while the mouse watched natural and synthetic movies. Its excitatory neurons "
+        "carry the calcium indicator GCaMP6s, so a cell brightens when it is active. Each "
+        "scan films 4 to 8 fields at two to four depths below the brain's surface, several "
+        "times a second for over an hour; each field is a movie placed at its position "
+        "and depth. The same cortex was then imaged by electron microscopy for the MICrONS "
+        "project, so the imaged cells can be found in the reconstructed circuit."),
     "license": "CC-BY-4.0",
     "citation": [
         "The MICrONS Consortium (2025). Functional connectomics spanning multiple "
@@ -102,6 +104,11 @@ ROOT = {
     "layout": ("two-photon/<session>-<scan> is one scan, an OME-Zarr 0.6 scene; its "
                "field-<n> groups are the scan's images, (t, z, y, x), and volume_times beside "
                "them holds the time of each volume"),
+    "provenance": (
+        "Each field's frames are the pages of BossDB's TIFF export of the scan, read from "
+        "BossDB's bucket where they are published: the 2023 export (v2) at main and tag v2, "
+        "the 2021 export (v1) at tag v1. Pixel sizes, field positions and volume times are "
+        "taken from the DANDI 000402 NWB files of the same scans."),
     "codecs": "Zarr v3 core only (bytes); the pixels are uncompressed",
 }
 
@@ -325,15 +332,27 @@ DIMENSIONS = {"t": {"type": "time"}, "z": {"type": "space"},
 PLANE_UM = 1.0
 
 
+SCANS_DESCRIPTION = ("One group per two-photon scan of mouse 17797, named <session>-<scan>. "
+                     "Each holds the scan's imaging fields, field-<n>, placed at their position "
+                     "and depth in the microscope's coordinates.")
+
+
+def scan_description(scan: dict) -> str:
+    """What one scan recorded, from the summary in its group's ``scan`` attribute."""
+    depths = ", ".join(f"{d:g}" for d in scan["depths_um"])
+    minutes = scan["volumes"] / scan["rate_hz"] / 60
+    return (f"Scan {scan['session']}-{scan['scan']} of mouse {scan['animal']}: {scan['fields']} fields at "
+            f"{depths} micrometers below the brain's surface, each filmed {scan['volumes']:,} times at "
+            f"{scan['rate_hz']} Hz (about {minutes:.0f} minutes) while the mouse watched movies.")
+
+
 def root_attributes(export: int) -> dict:
     return ROOT | {"tiff_export": EXPORTS[export]}
 
 
 def scans_attributes(scans: list[ScanFacts]) -> dict:
     return {
-        "description": ("One group per two-photon scan of animal 17797, named <session>-<scan>. "
-                        "Each scan group is an OME-Zarr 0.6 scene whose images are its fields, "
-                        "field-<n>, placed in the microscope's coordinates."),
+        "description": SCANS_DESCRIPTION,
         "scans": {f.scan.name: {"fields": len(f.fields), "volumes": len(f.volume_times),
                                 "rate_hz": f.rate_hz} for f in scans},
     }
@@ -351,11 +370,11 @@ def scan_attributes(facts: ScanFacts) -> dict:
         }
     scene = scene_attrs(translations, name="motor", dims=DIMS, units=UNITS, dimensions=DIMENSIONS)
     scan = facts.scan
+    summary = {"animal": scan.animal, "session": scan.session, "scan": scan.scan,
+               "volumes": len(facts.volume_times), "fields": len(facts.fields),
+               "rate_hz": facts.rate_hz, "depths_um": sorted({f.depth_um for f in facts.fields})}
     return scene | {"scan": {
-        "animal": scan.animal, "session": scan.session, "scan": scan.scan,
-        "volumes": len(facts.volume_times), "fields": len(facts.fields),
-        "rate_hz": facts.rate_hz,
-        "depths_um": sorted({f.depth_um for f in facts.fields}),
+        "description": scan_description(summary), **summary,
         "coordinates": ("motor: the microscope's stage coordinates in micrometers, x posterior "
                         "to anterior, y lateral to medial, z depth below the pia; each field is "
                         "placed by its center from the NWB imaging plane's origin_coords"),
@@ -389,6 +408,10 @@ def field_group(array: ManifestArray, field: Field, facts: ScanFacts, export: in
                          attributes=field_attributes(array.shape, field, facts, export, tiff))
 
 
+FIELD_DESCRIPTION = ("Calcium imaging movie of field {n}: one frame each time the microscope "
+                     "visited the field, at the times in ../volume_times")
+
+
 def field_attributes(shape: tuple[int, ...], field: Field, facts: ScanFacts, export: int,
                      tiff: dict) -> dict:
     """A field image's attributes, for its array of ``shape``; ``tiff`` is what its TIFF states."""
@@ -398,7 +421,7 @@ def field_attributes(shape: tuple[int, ...], field: Field, facts: ScanFacts, exp
         name=f"scan {scan.name} field {field.number}", dims=DIMS, level_shapes=[shape],
         scale={"t": 1 / facts.rate_hz, "z": PLANE_UM, "y": field.pixel_um, "x": field.pixel_um},
         units=UNITS, dimensions=DIMENSIONS, version=VERSION,
-        description="the TIFF's own pages, one chunk per page; a single level")
+        description=FIELD_DESCRIPTION.format(n=field.number))
     fields = {
         "animal": scan.animal, "session": scan.session, "scan": scan.scan, "field": field.number,
         "depth_um": field.depth_um, "center_um": field.center_um, "pixel_um": field.pixel_um,
@@ -488,17 +511,14 @@ def compare_pages(earlier_url: str, earlier: dict[int, int], url: str, offsets: 
 
 
 MESSAGES = {
-    1: ("MICrONS two-photon functional scans: {fields} fields of {scans} scans "
-        "({pages:,} frames), referencing BossDB's v1 TIFF export (2021-07-02) in place. "
-        "The v1 export declares its pixels uint16, and so does this commit."),
-    2: ("Reference BossDB's v2 TIFF export (2023-01-13) for the same {fields} fields. "
-        "The v2 files hold the same pixel bytes as v1, at other offsets; only the declared "
-        "sample format differs, int16 in v2 where v1 declared uint16. This commit "
-        "reinterprets the same values: every field's dtype changes from uint16 to int16, "
-        "so v1 values above 32,767 read as the small negative values motion correction "
-        "left. Every field's chunks now reference the v2 files, the objects BossDB "
-        "publishes as current. The bytes were compared on the first, middle and last "
-        "page of each scan."),
+    1: ("MICrONS two-photon calcium imaging of mouse 17797's visual cortex: {fields} fields "
+        "of {scans} scans ({pages:,} frames), as BossDB's first release of the movies "
+        "(v1 TIFF export, 2021-07-02) gives them, with pixel values declared unsigned (uint16)."),
+    2: ("The same {fields} fields as BossDB's corrected release (v2 TIFF export, 2023-01-13). "
+        "The pixel values are the same pixel bytes as v1's, now read as signed (int16): the "
+        "few pixels motion correction left slightly below zero read as small negative values "
+        "instead of values above 32,767. The bytes were compared on the first, middle and "
+        "last page of each scan."),
 }
 
 
