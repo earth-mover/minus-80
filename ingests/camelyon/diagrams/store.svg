@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="2620" viewBox="0 0 1400 2620">
-<rect x="0" y="0" width="1400" height="2620" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="2550" viewBox="0 0 1400 2550">
+<rect x="0" y="0" width="1400" height="2550" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Store</text>
 <text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">panels: 10 CAMELYON17 and 3 CAMELYON16 slides built; ×N: the full archive</text>
 <rect x="24.0" y="85.9" width="14" height="14" rx="3" fill="#1baf7a"/>
@@ -137,8 +137,8 @@
 <text x="484.0" y="1517.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/</text>
 <text x="484.0" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
 <text x="580.2" y="1541.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 1,000 slides, 9 of 200 patients</text>
-<text x="484.0" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
-<text x="580.2" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">version 0.6, bioformats2raw.layout 3</text>
+<text x="484.0" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images</text>
+<text x="580.2" y="1561.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">12 multiscale groups below, no collection metadata</text>
 <rect x="475.0" y="1567.9" width="614.0" height="20" fill="#dcfce7"/>
 <text x="1080.0" y="1581.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
 <text x="484.0" y="1581.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
@@ -153,88 +153,83 @@
 <text x="580.2" y="1621.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0 CWZ, 1 RST, 2 UMCU, 3 RUMC, 4 LPON</text>
 <rect x="470.0" y="1647.9" width="620.0" height="56.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
 <rect x="470.0" y="1647.9" width="4" height="56.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="1667.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/OME</text>
-<text x="484.0" y="1691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">series</text>
-<text x="538.1" y="1691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">12 entries: images, macro</text>
-<rect x="470.0" y="1717.9" width="620.0" height="56.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="1717.9" width="4" height="56.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="1737.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/documents</text>
-<rect x="475.0" y="1747.9" width="614.0" height="20" fill="#dcfce7"/>
-<text x="1080.0" y="1761.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
-<text x="484.0" y="1761.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
-<text x="538.1" y="1761.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">checksums.md5</text>
-<rect x="470.0" y="1787.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="1787.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="1807.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/&lt;patient&gt;   e.g. patient_004</text>
-<text x="484.0" y="1824.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">a row of stages.csv</text>
-<text x="484.0" y="1847.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="573.2" y="1847.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9 of 200</text>
-<rect x="475.0" y="1853.9" width="614.0" height="20" fill="#dcfce7"/>
-<text x="1080.0" y="1867.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
-<text x="484.0" y="1867.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
-<text x="573.2" y="1867.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">stage pN0(i+), 5 slides, split, center</text>
-<rect x="470.0" y="1893.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="1893.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="1913.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;patient&gt;/&lt;node&gt;   e.g. node_4</text>
-<text x="484.0" y="1930.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">a row of stages.csv</text>
-<text x="484.0" y="1953.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="573.2" y="1953.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 1,000</text>
-<rect x="475.0" y="1959.9" width="614.0" height="20" fill="#dcfce7"/>
-<text x="1080.0" y="1973.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
-<text x="484.0" y="1973.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
-<text x="573.2" y="1973.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">stage itc, center 0, has_mask True, n_shapes 3</text>
-<rect x="470.0" y="1999.9" width="620.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="1999.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="2019.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image</text>
-<text x="484.0" y="2036.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images/&lt;slide&gt;.tif</text>
-<text x="484.0" y="2059.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="566.1" y="2059.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 1,000</text>
-<text x="484.0" y="2079.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
-<text x="566.1" y="2079.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">version 0.6, axes c, y, x</text>
-<text x="484.0" y="2099.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixel_size</text>
-<text x="566.1" y="2099.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0.2431 µm</text>
-<rect x="470.0" y="2125.9" width="620.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="2125.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="2145.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image/&lt;level&gt;</text>
-<text x="484.0" y="2162.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one array per TIFF page</text>
-<text x="484.0" y="2185.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">level 0</text>
-<text x="545.1" y="2185.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 96256–210579 × 94968–200704</text>
-<text x="484.0" y="2205.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
-<text x="545.1" y="2205.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 512 × 512</text>
-<text x="484.0" y="2225.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
-<text x="545.1" y="2225.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint8</text>
-<text x="484.0" y="2245.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">codec</text>
-<text x="545.1" y="2245.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose, imagecodecs_jpeg</text>
-<rect x="470.0" y="2271.9" width="620.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="2271.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="2291.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image/labels/mask</text>
-<text x="484.0" y="2308.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">masks/&lt;slide&gt;_mask.tif</text>
-<text x="484.0" y="2331.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="594.2" y="2331.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 100</text>
-<text x="484.0" y="2351.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels</text>
-<text x="594.2" y="2351.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9, as many as the file has</text>
-<rect x="475.0" y="2357.9" width="614.0" height="20" fill="#dcfce7"/>
-<text x="1080.0" y="2371.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
-<text x="484.0" y="2371.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">derived levels</text>
-<text x="594.2" y="2371.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 of 10 built masks have a level the file lacks</text>
-<rect x="470.0" y="2397.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="2397.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="2417.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/macro</text>
-<text x="484.0" y="2434.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images/&lt;slide&gt;.tif, page Macro</text>
-<text x="484.0" y="2457.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="545.1" y="2457.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 of 200</text>
-<text x="484.0" y="2477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">macro/0</text>
-<text x="545.1" y="2477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 816 × 1774</text>
-<rect x="470.0" y="2503.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="470.0" y="2503.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
-<text x="484.0" y="2523.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/shapes</text>
-<text x="484.0" y="2540.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations/&lt;slide&gt;.xml</text>
-<text x="484.0" y="2563.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
-<text x="538.1" y="2563.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 of 50</text>
-<rect x="475.0" y="2569.9" width="614.0" height="20" fill="#dcfce7"/>
-<text x="1080.0" y="2583.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
-<text x="484.0" y="2583.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
-<text x="538.1" y="2583.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">color, coords, geojson, group, name, offset0, type</text>
+<text x="484.0" y="1667.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/documents</text>
+<rect x="475.0" y="1677.9" width="614.0" height="20" fill="#dcfce7"/>
+<text x="1080.0" y="1691.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="484.0" y="1691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
+<text x="538.1" y="1691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">checksums.md5</text>
+<rect x="470.0" y="1717.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1717.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="1737.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/&lt;patient&gt;   e.g. patient_004</text>
+<text x="484.0" y="1754.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">a row of stages.csv</text>
+<text x="484.0" y="1777.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="573.2" y="1777.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9 of 200</text>
+<rect x="475.0" y="1783.9" width="614.0" height="20" fill="#dcfce7"/>
+<text x="1080.0" y="1797.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="484.0" y="1797.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
+<text x="573.2" y="1797.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">stage pN0(i+), 5 slides, split, center</text>
+<rect x="470.0" y="1823.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1823.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="1843.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;patient&gt;/&lt;node&gt;   e.g. node_4</text>
+<text x="484.0" y="1860.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">a row of stages.csv</text>
+<text x="484.0" y="1883.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="573.2" y="1883.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 1,000</text>
+<rect x="475.0" y="1889.9" width="614.0" height="20" fill="#dcfce7"/>
+<text x="1080.0" y="1903.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="484.0" y="1903.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations</text>
+<text x="573.2" y="1903.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">stage itc, center 0, has_mask True, n_shapes 3</text>
+<rect x="470.0" y="1929.9" width="620.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="1929.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="1949.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image</text>
+<text x="484.0" y="1966.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images/&lt;slide&gt;.tif</text>
+<text x="484.0" y="1989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="566.1" y="1989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 1,000</text>
+<text x="484.0" y="2009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome</text>
+<text x="566.1" y="2009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">version 0.6, axes c, y, x</text>
+<text x="484.0" y="2029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pixel_size</text>
+<text x="566.1" y="2029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0.2431 µm</text>
+<rect x="470.0" y="2055.9" width="620.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="2055.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="2075.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image/&lt;level&gt;</text>
+<text x="484.0" y="2092.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one array per TIFF page</text>
+<text x="484.0" y="2115.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">level 0</text>
+<text x="545.1" y="2115.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 96256–210579 × 94968–200704</text>
+<text x="484.0" y="2135.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">chunks</text>
+<text x="545.1" y="2135.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 512 × 512</text>
+<text x="484.0" y="2155.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">dtype</text>
+<text x="545.1" y="2155.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">uint8</text>
+<text x="484.0" y="2175.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">codec</text>
+<text x="545.1" y="2175.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose, imagecodecs_jpeg</text>
+<rect x="470.0" y="2201.9" width="620.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="2201.9" width="4" height="112.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="2221.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/image/labels/mask</text>
+<text x="484.0" y="2238.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">masks/&lt;slide&gt;_mask.tif</text>
+<text x="484.0" y="2261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="594.2" y="2261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10 of 100</text>
+<text x="484.0" y="2281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels</text>
+<text x="594.2" y="2281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9, as many as the file has</text>
+<rect x="475.0" y="2287.9" width="614.0" height="20" fill="#dcfce7"/>
+<text x="1080.0" y="2301.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="484.0" y="2301.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">derived levels</text>
+<text x="594.2" y="2301.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 of 10 built masks have a level the file lacks</text>
+<rect x="470.0" y="2327.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="2327.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="2347.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/macro</text>
+<text x="484.0" y="2364.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">images/&lt;slide&gt;.tif, page Macro</text>
+<text x="484.0" y="2387.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="545.1" y="2387.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2 of 200</text>
+<text x="484.0" y="2407.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">macro/0</text>
+<text x="545.1" y="2407.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 × 816 × 1774</text>
+<rect x="470.0" y="2433.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="470.0" y="2433.9" width="4" height="92.0" rx="2" fill="#1baf7a"/>
+<text x="484.0" y="2453.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/shapes</text>
+<text x="484.0" y="2470.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">annotations/&lt;slide&gt;.xml</text>
+<text x="484.0" y="2493.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">built</text>
+<text x="538.1" y="2493.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 of 50</text>
+<rect x="475.0" y="2499.9" width="614.0" height="20" fill="#dcfce7"/>
+<text x="1080.0" y="2513.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="484.0" y="2513.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
+<text x="538.1" y="2513.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">color, coords, geojson, group, name, offset0, type</text>
 <circle cx="24.0" cy="136.9" r="4.5" fill="#0f172a"/>
 <text x="35.0" y="141.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
 <text x="35.0" y="157.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">archive root</text>
@@ -303,57 +298,52 @@
 <path d="M 24.0 141.9 V 1512.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="46.0" cy="1512.9" r="4.5" fill="#0f172a"/>
 <text x="57.0" y="1517.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAMELYON17/</text>
-<text x="57.0" y="1533.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr 0.6 container</text>
+<text x="57.0" y="1533.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">plain group of OME-Zarr 0.6 images</text>
 <line x1="156.6" y1="1512.9" x2="468.0" y2="1512.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 46.0 1517.9 V 1662.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="68.0" cy="1662.9" r="4.5" fill="#0f172a"/>
-<text x="79.0" y="1667.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">OME/</text>
-<text x="79.0" y="1683.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">series list</text>
-<line x1="120.3" y1="1662.9" x2="468.0" y2="1662.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<text x="79.0" y="1667.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">documents/</text>
+<text x="79.0" y="1683.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files over 64 KB</text>
+<line x1="170.3" y1="1662.9" x2="468.0" y2="1662.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 <path d="M 46.0 1517.9 V 1732.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
 <circle cx="68.0" cy="1732.9" r="4.5" fill="#0f172a"/>
-<text x="79.0" y="1737.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">documents/</text>
-<text x="79.0" y="1753.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">files over 64 KB</text>
-<line x1="170.3" y1="1732.9" x2="468.0" y2="1732.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 46.0 1517.9 V 1802.9 H 63.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="68.0" cy="1802.9" r="4.5" fill="#0f172a"/>
-<text x="79.0" y="1807.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;patient&gt;/</text>
-<text x="168.3" y="1807.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×200</text>
-<text x="79.0" y="1823.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one patient</text>
-<line x1="205.5" y1="1802.9" x2="468.0" y2="1802.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 68.0 1807.9 V 1908.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="90.0" cy="1908.9" r="4.5" fill="#0f172a"/>
-<text x="101.0" y="1913.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/</text>
-<text x="165.3" y="1913.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1,000</text>
-<text x="101.0" y="1929.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one lymph node slide</text>
-<line x1="217.2" y1="1908.9" x2="468.0" y2="1908.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 90.0 1913.9 V 2014.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="112.0" cy="2014.9" r="4.5" fill="#0f172a"/>
-<text x="123.0" y="2019.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image/</text>
-<text x="179.0" y="2019.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1,000</text>
-<text x="123.0" y="2035.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr image</text>
-<line x1="230.9" y1="2014.9" x2="468.0" y2="2014.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 112.0 2019.9 V 2140.9 H 129.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="134.0" cy="2140.9" r="4.5" fill="#0f172a"/>
-<text x="145.0" y="2145.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">0 … N</text>
-<text x="145.0" y="2161.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels, 8–10 per slide</text>
-<line x1="194.6" y1="2140.9" x2="468.0" y2="2140.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 112.0 2019.9 V 2286.9 H 129.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="134.0" cy="2286.9" r="4.5" fill="#0f172a"/>
-<text x="145.0" y="2291.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">labels/mask/</text>
-<text x="250.9" y="2291.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×100</text>
-<text x="145.0" y="2307.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">reference mask</text>
-<line x1="288.2" y1="2286.9" x2="468.0" y2="2286.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 90.0 1913.9 V 2412.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="112.0" cy="2412.9" r="4.5" fill="#0f172a"/>
-<text x="123.0" y="2417.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">macro/</text>
-<text x="179.0" y="2417.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×200</text>
-<text x="123.0" y="2433.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Macro page, Philips slides</text>
-<line x1="216.2" y1="2412.9" x2="468.0" y2="2412.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<path d="M 90.0 1913.9 V 2518.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-<circle cx="112.0" cy="2518.9" r="4.5" fill="#0f172a"/>
-<text x="123.0" y="2523.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">shapes/</text>
-<text x="187.3" y="2523.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×50</text>
-<text x="123.0" y="2539.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">outlines</text>
-<line x1="217.2" y1="2518.9" x2="468.0" y2="2518.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<text x="79.0" y="1737.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;patient&gt;/</text>
+<text x="168.3" y="1737.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×200</text>
+<text x="79.0" y="1753.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one patient</text>
+<line x1="205.5" y1="1732.9" x2="468.0" y2="1732.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 68.0 1737.9 V 1838.9 H 85.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="90.0" cy="1838.9" r="4.5" fill="#0f172a"/>
+<text x="101.0" y="1843.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">&lt;node&gt;/</text>
+<text x="165.3" y="1843.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1,000</text>
+<text x="101.0" y="1859.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">one lymph node slide</text>
+<line x1="217.2" y1="1838.9" x2="468.0" y2="1838.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 1843.9 V 1944.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="1944.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="1949.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image/</text>
+<text x="179.0" y="1949.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×1,000</text>
+<text x="123.0" y="1965.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">OME-Zarr image</text>
+<line x1="230.9" y1="1944.9" x2="468.0" y2="1944.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 112.0 1949.9 V 2070.9 H 129.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="134.0" cy="2070.9" r="4.5" fill="#0f172a"/>
+<text x="145.0" y="2075.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">0 … N</text>
+<text x="145.0" y="2091.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">levels, 8–10 per slide</text>
+<line x1="194.6" y1="2070.9" x2="468.0" y2="2070.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 112.0 1949.9 V 2216.9 H 129.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="134.0" cy="2216.9" r="4.5" fill="#0f172a"/>
+<text x="145.0" y="2221.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">labels/mask/</text>
+<text x="250.9" y="2221.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×100</text>
+<text x="145.0" y="2237.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">reference mask</text>
+<line x1="288.2" y1="2216.9" x2="468.0" y2="2216.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 1843.9 V 2342.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="2342.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="2347.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">macro/</text>
+<text x="179.0" y="2347.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×200</text>
+<text x="123.0" y="2363.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">Macro page, Philips slides</text>
+<line x1="216.2" y1="2342.9" x2="468.0" y2="2342.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 90.0 1843.9 V 2448.9 H 107.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="112.0" cy="2448.9" r="4.5" fill="#0f172a"/>
+<text x="123.0" y="2453.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">shapes/</text>
+<text x="187.3" y="2453.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×50</text>
+<text x="123.0" y="2469.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">outlines</text>
+<line x1="217.2" y1="2448.9" x2="468.0" y2="2448.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
 </svg>

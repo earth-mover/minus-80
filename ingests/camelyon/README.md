@@ -29,6 +29,7 @@ mapping and the store.
 | `fixture.py`, `test_ingest.py` | A small copy of the bucket's layout, and the ingest run end to end on it, with no network. |
 | `diagrams.py` | Draws `diagrams/*.svg` from a bucket listing, the header census and built stores. |
 | `camelyon.ipynb` | Opens the finished store cold. |
+| `drop_bioformats2raw.py` | Removes the bioformats2raw layout from `CAMELYON17/` in one commit; run 3. |
 | `transfer.py`, `verify_transfer.py` | Copy `earthmover-public/camelyon` into another repo, and check the copy. |
 | `coiled/` | `launch.sh` starts a job on one Coiled VM in us-west-2: `run.sh` (the transfer) or `ingest.sh`. |
 | `runs/` | One script per batch that wrote the store, with the commit and result recorded in its header. |

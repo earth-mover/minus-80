@@ -12,6 +12,8 @@ import pytest
 import tifffile
 import verify
 import zarr
+from minus80.ome import root_attrs, series_attrs
+from minus80.ome.hierarchy import images
 from minus80.core.documents import read_text
 from minus80.core.icechunk_io import open_repository
 from minus80.parsers import asap
@@ -140,13 +142,15 @@ def test_camelyon17_rows_come_from_stages_csv(both):
 
 def test_the_container_and_root_describe_both_challenges(both):
     attrs = dict(both["CAMELYON17"].attrs)
-    assert attrs["ome"]["version"] == "0.6"
+    assert "ome" not in attrs and "OME" not in both["CAMELYON17"]
+    assert dict(both["CAMELYON17/patient_080/node_0/image"].attrs)["ome"]["version"] == "0.6"
+    assert "patient_080/node_0/image" in attrs["annotations"]["image"]
     assert attrs["patients"]["group"] == ["patient_000", "patient_080", "patient_100"]
     assert attrs["center_names"]["4"].startswith("Laboratorium")
     assert "Table 4" in attrs["center_names_decision"]
     assert read_text(both, attrs["source_files"]["stages.csv"]).startswith("patient,stage,center")
-    series = dict(both["CAMELYON17/OME"].attrs)["ome"]["series"]
-    assert "patient_080/node_0/macro" in series and "patient_000/node_0/image" in series
+    assert set(images(both["CAMELYON17"])) == {f"{ingest.slide_path(ingest.C17, s).split('/', 1)[1]}/image"
+                                               for s in fixture.SLIDES_17} | {"patient_080/node_0/macro"}
     root = dict(both.attrs)
     assert root["title"].startswith("CAMELYON16 and CAMELYON17")
     assert isinstance(root["citation"], str) and "doi:10.1109/TMI.2018.2867350" in root["citation"]
@@ -178,3 +182,22 @@ def test_a_rerun_adds_nothing_and_a_replace_rebuilds_one_slide(both, repo, sourc
     message = next(iter(open_repository(repo).ancestry(branch="main"))).message
     assert message.startswith("CAMELYON17: rebuild patient_000_node_0")
     assert set(dict(store(repo)["CAMELYON17"].attrs)["annotations"]["slide"]) == set(fixture.SLIDES_17)
+
+
+def test_drop_bioformats2raw_removes_the_layout_once(both, repo):
+    import drop_bioformats2raw
+    from minus80.core.icechunk_io import commit
+
+    session = open_repository(repo).writable_session("main")
+    root = zarr.open_group(session.store, mode="a")
+    root["CAMELYON17"].attrs.update(root_attrs("0.6"))
+    root.require_group("CAMELYON17/OME").attrs.update(series_attrs(["patient_000/node_0/image"], "0.6"))
+    commit(session, "write the layout an earlier ingest wrote")
+    c16_before = dict(store(repo)["CAMELYON16"].attrs)
+
+    assert drop_bioformats2raw.run(repo) is not None
+    after = store(repo)
+    assert "ome" not in dict(after["CAMELYON17"].attrs) and "OME" not in after["CAMELYON17"]
+    assert dict(after["CAMELYON16"].attrs) == c16_before and "OME" in after["CAMELYON16"]
+    assert next(iter(open_repository(repo).ancestry(branch="main"))).message == drop_bioformats2raw.MESSAGE
+    assert drop_bioformats2raw.run(repo) is None

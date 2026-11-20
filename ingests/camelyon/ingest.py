@@ -705,12 +705,19 @@ def ingest_slide(session, challenge: Challenge, slide: str, source: Source, ctx:
 
 # The challenge's container and the root
 #
-# Each challenge is a ``bioformats2raw.layout`` container, so an OME-Zarr
-# reader knows its children are images. Its ``OME/series`` lists every image,
-# its ``annotations`` attribute is the slide table (one column per field, one
-# entry per slide), and its ``source_files`` keep the challenge's own text
-# files verbatim, since the table's columns come from them. CAMELYON17's
-# patients are groups of their own, each with its row of the patient table.
+# Each challenge's ``annotations`` attribute is the slide table (one column per
+# field, one entry per slide, keyed by image path), and its ``source_files``
+# keep the challenge's own text files verbatim, since the table's columns come
+# from them. CAMELYON17's patients are groups of their own, each with its row
+# of the patient table.
+#
+# CAMELYON16 was published as OME-Zarr 0.5 with a ``bioformats2raw.layout``
+# container: the layout key on the group and an ``OME/series`` list of every
+# image. OME-Zarr 0.6 keeps that layout only as transitional metadata and has
+# no adopted replacement for a set of unrelated images (RFC-8, collections,
+# is in review), so CAMELYON17, written as 0.6, is a plain group: a reader
+# finds its images as the multiscale groups under it, and the slide table
+# lists them. A container written with the layout loses it here.
 #
 # Both are written from what the session holds once the slides are merged,
 # so a run that adds slides to a challenge rewrites its table whole.
@@ -748,18 +755,18 @@ def slide_groups(root: zarr.Group, challenge: Challenge) -> dict[str, dict]:
 
 
 def finish(w: Writer, challenge: Challenge, source: Source, ctx: dict) -> int:
-    """The container's table, series list and source files, and the root's attributes."""
+    """The container's table and source files, CAMELYON16's series list, and the root's attributes."""
     rows = slide_groups(w.root, challenge)
-    series = []
-    for image, row in rows.items():
-        slide = image.removesuffix("/image")
-        series += [image] + [f"{slide}/{x}" for x in ("macro", "label") if row[f"has_{x}"]]
-        series += [f"{slide}/tissue"] if row.get("has_tissue") else []
     sources = {key: w.text(challenge.name, key.replace("/", "--"), source.read(challenge.prefix + key).decode(),
                            of=f"{challenge.name}/{key}", fmt="UTF-8 text")
                for key in challenge.source_files}
-    w.group(f"{challenge.name}/OME", series_attrs(series, version=challenge.version))
     if challenge is C16:
+        series = []
+        for image, row in rows.items():
+            slide = image.removesuffix("/image")
+            series += [image] + [f"{slide}/{x}" for x in ("macro", "label") if row[f"has_{x}"]]
+            series += [f"{slide}/tissue"] if row.get("has_tissue") else []
+        w.group(f"{challenge.name}/OME", series_attrs(series, version=challenge.version))
         attrs = {
             **root_attrs(version=challenge.version),
             "description": ("CAMELYON16: 399 H&E whole-slide images of sentinel lymph nodes from Radboud UMC and "
@@ -774,16 +781,17 @@ def finish(w: Writer, challenge: Challenge, source: Source, ctx: dict) -> int:
     else:
         held = {row["patient"] for row in rows.values()}
         patients = [p for name, p in sorted(ctx["patients"].items()) if name in held]
+        drop_bioformats2raw(w.root[challenge.name])
         attrs = {
-            **root_attrs(version=challenge.version),
             "description": (
                 "CAMELYON17: 1,000 H&E whole-slide images of sentinel lymph nodes, five per patient from 200 "
                 f"breast cancer patients at five Dutch medical centers. This store holds {len(rows)} of them, "
                 f"from {len(patients)} patients. Each patient is a group <patient>/ holding one group per lymph "
                 "node, <patient>/<node>/, with image/ (the scan, and labels/mask for the 100 slides with a "
-                "mask), macro/ where the file has one, and shapes/ for the 50 slides with outlines. OME/series "
-                "lists every image; annotations is the slide table and patients the patient table, both from "
-                "stages.csv, which gives labels and centers for the 100 training patients only."),
+                "mask), macro/ where the file has one, and shapes/ for the 50 slides with outlines. Every "
+                "OME-Zarr 0.6 multiscale group below this one is an image. annotations is the slide table, "
+                "keyed by image path, and patients the patient table, both from stages.csv, which gives "
+                "labels and centers for the 100 training patients only."),
             **annotation_table(rows),
             "patients": {
                 "group": [p["patient"] for p in patients],
@@ -807,6 +815,30 @@ def finish(w: Writer, challenge: Challenge, source: Source, ctx: dict) -> int:
     w.group(challenge.name, attrs)
     w.root.attrs.update(root_attributes(sorted(set(w.root.group_keys()) & set(CHALLENGES))))
     return len(rows)
+
+
+def drop_bioformats2raw(container: zarr.Group) -> bool:
+    """Remove the ``bioformats2raw.layout`` container from ``container``; whether anything changed.
+
+    Deletes the ``OME`` group and the ``bioformats2raw.layout`` key, and the
+    ``ome`` attribute itself when nothing but its ``version`` is left, since
+    a group holding only a version is no OME-Zarr structure.
+    """
+    changed = False
+    if "OME" in container:
+        del container["OME"]
+        changed = True
+    attrs = dict(container.attrs)
+    ome = attrs.get("ome")
+    if isinstance(ome, dict) and "bioformats2raw.layout" in ome:
+        rest = {k: v for k, v in ome.items() if k != "bioformats2raw.layout"}
+        if set(rest) <= {"version"}:
+            attrs.pop("ome")
+        else:
+            attrs["ome"] = rest
+        container.attrs.put(attrs)
+        changed = True
+    return changed
 
 
 def root_attributes(present: list[str]) -> dict:

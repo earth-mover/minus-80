@@ -23,7 +23,7 @@ the trial already follow.
 | # | Decision | Recommended |
 |---|---|---|
 | 1 | Where a CAMELYON17 slide sits | `CAMELYON17/<patient>/<node>/`, the patient group holding the pN stage |
-| 2 | CAMELYON17's OME-Zarr version | 0.6, as AGENTS.md asks of new output; CAMELYON16 stays 0.5 |
+| 2 | CAMELYON17's OME-Zarr version | **Decided:** 0.6, without the transitional `bioformats2raw.layout`; CAMELYON16 stays 0.5 |
 | 3 | Where the labels from `stages.csv` go | the container's and groups' attributes, as CAMELYON16's do |
 | 4 | Names for the five centers, which no file states | write the inferred mapping as `center_names`, with its evidence |
 | 5 | The root attributes once both challenges are in | rewrite title, description and source for both; `citation` stays a string, and a new `citations` holds one entry per paper |
@@ -31,8 +31,9 @@ the trial already follow.
 | 7 | One rebuilt attribute that changes | `regenerates_source` names `minus80.parsers.asap.to_xml` instead of a repository that no longer exists |
 | 8 | How CAMELYON17 is committed | ten commits of 100 slides, each with a complete table |
 
-Run 2 is the one write that needs approval: about 20 minutes on one Coiled VM
-in us-west-2, under $1 (*Steps, scope and risk*).
+Run 2 is the one large write: about 20 minutes on one Coiled VM in
+us-west-2, under $1. Run 3, a metadata-only commit, then removes the
+bioformats2raw layout run 2 wrote (*Steps, scope and risk*).
 
 ## The archive
 
@@ -104,8 +105,7 @@ codec; the figures are [source](diagrams/source.svg),
 ```
 /                               root: title, license, citations, codecs a reader needs
 ├── CAMELYON16/                 unchanged, OME-Zarr 0.5
-└── CAMELYON17/                 bioformats2raw.layout container, OME-Zarr 0.6
-    ├── OME/                    series: every image, in slide order
+└── CAMELYON17/                 plain group of OME-Zarr 0.6 images
     ├── documents/              checksums.md5 (71 KB), native
     └── patient_004/            pN stage, center, split, its five slides
         └── node_4/             slide patient_004_node_4, its row of the table
@@ -191,10 +191,15 @@ one depth and the challenge's name as the path, but leaves the pN stage
 nowhere but a table. The slide table keeps the flat name in `slide`, and the
 QuPath extension finds images at any depth. *Recommended: nested.*
 
-**2. OME-Zarr 0.6 for CAMELYON17.** AGENTS.md asks for 0.6 output and keeps
-published 0.5 stores at 0.5, so the store mixes versions by container. The
-QuPath extension reads both. Rejected: 0.5 for consistency within the repo,
-against the rule. *Recommended: 0.6.*
+**2. OME-Zarr 0.6 for CAMELYON17, without the bioformats2raw layout.**
+AGENTS.md asks for 0.6 output and keeps published 0.5 stores at 0.5, so the
+store mixes versions by container. The QuPath extension reads both. The
+[0.6 specification](https://github.com/ome/ngff-spec/blob/0.6/index.md) keeps `bioformats2raw.layout` only as transitional metadata, and has
+no adopted replacement for a set of unrelated images: a `scene` is for images
+in one spatial frame, and RFC-8 (collections) is in review. So `CAMELYON17/`
+is a plain group: its images are the multiscale groups under it, and its
+slide table lists them. `minus80.ome.hierarchy` reads a group with no
+collection or plate that way. *Decided by Ian: 0.6, no layout.*
 
 **3. Labels in attributes.** AGENTS.md sends tabular data without a Zarr
 convention to an Iceberg table. The slide table has a convention here:
@@ -262,7 +267,13 @@ convention of the outlines.
    with more nodes each, in about 25 s), install and verify about 5 minutes:
    15 to 25 minutes. Cost: under $1 of VM time ($0.91 an hour on demand), no
    egress (same region), 1.6 GB of repo storage.
-3. **Write REPORT.md**, with run 2's numbers recorded in the run script.
+3. **Run 3** (`runs/03_drop_bioformats2raw.sh`): run 2 launched from code
+   that still wrote the bioformats2raw layout into `CAMELYON17/`. Run 3
+   removes the `CAMELYON17/OME` group and the `bioformats2raw.layout` key in
+   one commit on `main`, from a laptop, and leaves `CAMELYON16/` untouched; a
+   second run commits nothing. Tested on a copy of the trial repo, after
+   which `verify.py` passes.
+4. **Write REPORT.md**, with each run's numbers recorded in its script.
 
 **In scope:** CAMELYON17 images, masks, outlines, labels and text files.
 **Out of scope:** rebuilding CAMELYON16 (published, and identical in every

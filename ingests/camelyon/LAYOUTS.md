@@ -141,8 +141,7 @@ CWZ, UMCU, RST, LPON), so the order cannot be used as the mapping.
 │       ├── macro/, label/           the Macro and Label pages, single-level images         virtual
 │       ├── shapes/                  annotations/tumor_056.xml as arrays and GeoJSON        native
 │       └── documents/               ImageDescriptions over 64 KB, verbatim                 native
-└── CAMELYON17/                      bioformats2raw.layout container, OME-Zarr 0.6; slide and patient tables
-    ├── OME/
+└── CAMELYON17/                      plain group of OME-Zarr 0.6 images; slide and patient tables
     ├── documents/                   checksums.md5 (71 KB)                                  native
     └── patient_004/                 one patient: pN stage, center, split, slides
         ├── node_4/                  one slide (patient_004_node_4); its row of the table
@@ -199,9 +198,23 @@ it a base64 JPEG of the macro image) and `results.json`; in CAMELYON17, only
 
 ### `CAMELYON16/` and `CAMELYON17/`
 
-Each is a `bioformats2raw.layout` 3 container (`minus80.ome.root_attrs`), so
-an OME-Zarr reader knows its children are images. `OME/series` lists, per
-slide, `image`, then `macro` and `label` where present, then `tissue`.
+`CAMELYON16/` is a `bioformats2raw.layout` 3 container, as published in
+OME-Zarr 0.5: the key on the group tells a reader its children are images,
+and `OME/series` lists, per slide, `image`, then `macro` and `label` where
+present, then `tissue`.
+
+`CAMELYON17/`, written as OME-Zarr 0.6, is a plain group without that
+layout. The [0.6 specification](https://github.com/ome/ngff-spec/blob/0.6/index.md) keeps `bioformats2raw.layout` only as transitional
+metadata ("added to the specification with the intention of removing it in
+the future"), to describe filesets that already exist. Its other groupings do
+not fit: a plate is for wells, and a `scene` (RFC-5, adopted in 0.6) is for
+images that share a spatial relationship, which slides from different
+patients do not. RFC-8, *Collections and Extensibility*, would add a
+collection of unrelated images; it is still in review
+([RFC index](https://ngff.openmicroscopy.org/rfc/)). So a reader finds
+CAMELYON17's images as the multiscale groups under it, outside `labels`, as
+`minus80.ome.hierarchy` and the QuPath extension do, and the slide table
+lists each slide's image by path.
 
 `annotations` is the slide table, column-oriented
 (`minus80.ome.annotation_table`), keyed by the `image` column:
@@ -326,7 +339,7 @@ paper label (`Label`, two CAMELYON16 slides). Each is a single-level image
 strip. The file states no pixel size for them, so the axes have no unit and
 the scale is 1; they share no frame with the scan. Bio-Formats shows the same
 pages as extra series of the slide, which is why they are siblings of
-`image` in `OME/series`.
+`image`, and in CAMELYON16 listed in `OME/series`.
 
 ### `shapes`: the pathologists' outlines
 
@@ -421,7 +434,9 @@ their masks.
     cropped CAMELYON17 levels aligned (above).
 11. **CAMELYON17 slides nest under their patient** (`patient_004/node_4`),
     and the patient's row sits on the patient group.
-12. **CAMELYON17 is OME-Zarr 0.6**, CAMELYON16 stays 0.5, as published.
+12. **CAMELYON17 is OME-Zarr 0.6, without the transitional
+    `bioformats2raw.layout`**; CAMELYON16 stays 0.5, as published (decided
+    by Ian).
 13. **Labels stay in attributes**, as CAMELYON16's do, not in an Iceberg
     table.
 14. **`center_names` is written as an inferred mapping**, with its evidence.

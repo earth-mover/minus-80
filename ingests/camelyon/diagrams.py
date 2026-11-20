@@ -745,7 +745,8 @@ def store_figure(listing: Listing, census: Census, stages: Stages, trial: Store,
     slide_documents = sorted(p.rsplit("/", 1)[1] for p in port.arrays if p.startswith(f"{ex16}/documents/"))
     documents17 = sorted(p.rsplit("/", 1)[1] for p in trial.arrays if p.startswith("CAMELYON17/documents/"))
     series16 = port.groups["CAMELYON16/OME"].attrs["ome"]["series"]
-    series17 = trial.groups["CAMELYON17/OME"].attrs["ome"]["series"]
+    multiscales17 = [p for p, g in trial.groups.items() if p.startswith("CAMELYON17/") and "/labels/" not in p
+                and "multiscales" in g.attrs.get("ome", {})]
     centers = attrs17["center_names"]
 
     canvas = Canvas(WIDTH)
@@ -878,21 +879,17 @@ def store_figure(listing: Listing, census: Census, stages: Stages, trial: Store,
             dict(title="<slide>/documents", rows=[native("arrays", ", ".join(slide_documents))]),
         ),
         (
-            TreeNode("CAMELYON17/", 0, 1, subtitle="OME-Zarr 0.6 container"),
+            TreeNode("CAMELYON17/", 0, 1, subtitle="plain group of OME-Zarr 0.6 images"),
             dict(
                 title="CAMELYON17/",
                 rows=[
                     Row("built", f"{built17} of {slides17:,} slides, {built17_patients} of {patients17} patients"),
-                    Row("ome", f"version {attrs17['ome']['version']}, bioformats2raw.layout {attrs17['ome']['bioformats2raw.layout']}"),
+                    Row("images", f"{len(multiscales17)} multiscale groups below, no collection metadata"),
                     native("annotations", f"slide table, {len(attrs17['annotations'])} columns × {len(attrs17['annotations']['slide'])} rows"),
                     native("patients", f"patient table, {len(attrs17['patients'])} columns × {len(attrs17['patients']['group'])} rows"),
                     native("center_names", ", ".join(f"{k} {v.split(' (')[-1].rstrip(')')}" for k, v in centers.items())),
                 ],
             ),
-        ),
-        (
-            TreeNode("OME/", 0, 2, subtitle="series list"),
-            dict(title="CAMELYON17/OME", rows=[Row("series", f"{len(series17)} entries: images, macro")]),
         ),
         (
             TreeNode("documents/", 0, 2, subtitle="files over 64 KB"),
