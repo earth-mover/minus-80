@@ -331,3 +331,31 @@ digits of an 18-digit ID.
   translation itself.
 - **The NWB file inside the scan group.** `two-photon/<scan>/nwb`, not a
   sibling tree, so one group holds everything about a scan.
+
+## The archive map
+
+`diagrams/archive.svg` draws every part of MICrONS minnie the survey found,
+grouped by the host that publishes it, with what each part is, where it is,
+its format and size, and whether the store holds it. Sizes are the survey's
+listing of the BossDB bucket where it listed a directory; for the EM and
+segmentation layers, whose shard directories it did not list, the sizes are
+those BossDB's project page states and the chunk counts come from each
+layer's `info`. Every part is CC BY 4.0 (BossDB's project page, DANDI
+000402, and the MICrONS terms for the CAVE tables).
+
+The pictures come from the running example, scan 4-7 field 4 and ROI 23:
+
+- the two-photon picture is the mean of 16 consecutive frames of field 4,
+  read from the v2 TIFF as 16 ranges;
+- the masks are the largest weight at each pixel over field 4's 1,389 masks,
+  and the trace is ROI 23's fluorescence over the whole scan, both from the
+  NWB file, as are the treadmill and the stimulus frame;
+- the three EM pictures are 256-pixel boxes around the EM point the NWB file
+  and `coregistration_manual_v4` give for ROI 23, at 8, 32 and 128 nm, and
+  the segmentation is v1300's at 64 nm around the same point;
+- the microCT picture is the middle slice along its third axis at 3.76 µm,
+  the structural stack picture its page 335, the viewer-copy picture
+  BossDB's label copy of field 4's masks, and the digital-twin plot the
+  first 3,000 model responses of unit 0 in `responses.npy` (v2);
+- the CAVE plot is, per dumped release, the largest share of any match
+  table's root IDs that changed since that table's previous dump.

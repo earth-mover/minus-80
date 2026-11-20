@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "arraylake>=1.7.0",
     "arro3-core",
-    "minus-80[nwb,tiff]",
+    "minus-80[diagrams,nwb,tiff]",
     "obstore",
     "pandas",
 ]
@@ -16,3 +16,4 @@ package = false
 
 [dependency-groups]
 notebook = ["ipykernel", "matplotlib"]
+archive = ["tensorstore"]

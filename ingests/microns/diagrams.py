@@ -22,6 +22,11 @@ The one fact in none of them is how a scan's page count splits into volumes and 
 in the BossDB documentation PDF, so it is a constant below, and the figure stops if any scan's
 pages differ from volumes × fields.
 
+With ``--archive <samples.npz> --rois <roi_counts.json> --cave <dumps>``, it draws only
+``archive.svg``: every part of the archive, grouped by host, with a small picture of each from
+samples that ``archive_samples.py`` fetches and caches in the ``.npz`` (TensorStore, in the
+ingest's ``archive`` dependency group, reads the precomputed volumes).
+
 LAYOUTS.md explains the mapping; the figures carry no prose.
 """
 
@@ -35,6 +40,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import zarr
 
 from minus80 import diagrams as d
@@ -815,15 +821,277 @@ def store_figure(facts: Facts) -> Canvas:
     return canvas
 
 
+# The archive map
+#
+# One figure of everything MICrONS minnie publishes, grouped by host, with a
+# small picture of each part drawn from samples read by archive_samples.py.
+# Sizes come from the survey's listing of the BossDB bucket where it listed a
+# directory, from the precomputed info files for chunk counts, and otherwise
+# from the constants below with their sources. Each card says whether the
+# store holds the part, and where, or why not.
+
+#: Sizes BossDB's project page states for the precomputed layers, whose shard
+#: directories the survey did not list (https://bossdb.org/project/microns-minnie).
+BOSSDB_PAGE_SIZES = {"minnie65/em": "117 TB", "minnie35/em": "55 TB", "minnie65/seg": "12 TB",
+                     "minnie65/ws": "42 TB", "minnie35/seg": "10 TB", "minnie35/ws": "22 TB"}
+
+LICENSE = "CC BY 4.0"
+IN_STORE, LEFT_OUT = "added", "removed"
+
+
+@dataclass(frozen=True)
+class Part:
+    """One part of the archive as the map shows it."""
+
+    title: str
+    what: str
+    where: str
+    form: str
+    size: str
+    store: str
+    held: bool
+    pictures: tuple = ()
+
+
+def prefix_total(survey: Survey, prefix: str) -> tuple[int, int]:
+    """Objects and bytes the survey listed under ``prefix``."""
+    objects = size = 0
+    for path, entry in survey.directories.items():
+        if path.startswith(prefix):
+            objects += entry["objects"]
+            size += entry["bytes"]
+    return objects, size
+
+
+def listed(survey: Survey, prefix: str) -> str:
+    objects, size = prefix_total(survey, prefix)
+    return f"{objects:,} objects, {d.size_text(size)}"
+
+
+def full_resolution_chunks(survey: Survey, layer: str) -> int:
+    scale = survey_layer(survey, layer).scales[0]
+    return int(np.prod([-(-n // c) for n, c in zip(scale["size"], scale["chunk_sizes"][0])]))
+
+
+def survey_layer(survey: Survey, path: str) -> Layer:
+    (layer,) = [layer for layer in survey.layers if layer.path == path]
+    return layer
+
+
+def label_colors(labels: np.ndarray, seed: int = 3) -> np.ndarray:
+    """A segmentation as RGB, one random color per label and black for label 0."""
+    values, inverse = np.unique(labels, return_inverse=True)
+    palette = np.random.default_rng(seed).integers(60, 256, size=(len(values), 3), dtype=np.uint8)
+    palette[values == 0] = 0
+    return palette[inverse].reshape(*labels.shape, 3)
+
+
+def archive_pictures(samples: dict[str, np.ndarray]) -> dict[str, tuple[bytes, str]]:
+    """Each picture's image bytes and caption, keyed by what it shows."""
+    thumb = lambda array, width=220: d.thumbnail(array, width, quality=72)
+    trace = samples["trace"]
+    times = samples["trace_times"]
+    pictures = {
+        "frame": (thumb(samples["two_photon"].astype("float32").mean(axis=0), 120),
+                  "4-7 field 4, 16 frames"),
+        "stack": (thumb(samples["stack"], 160), "page 335 of 670"),
+        "stimulus": (d.thumbnail(samples["stimulus_frame"], 220, quality=72), "stimulus, frame 200,000"),
+        "masks": (thumb(samples["masks_max"], 120), "field 4 masks"),
+        "trace": (d.plot(lambda ax: ax.plot(times, trace, lw=0.3, color="#2a78d6"), width=320, height=90),
+                  "ROI 23 fluorescence, whole scan"),
+        "behavior": (d.plot(lambda ax: ax.plot(samples["treadmill"], lw=0.3, color="#1baf7a"), width=320, height=70),
+                     "treadmill velocity, first 60,000 samples"),
+        "twin": (d.plot(lambda ax: ax.plot(samples["digital_twin"], lw=0.4, color="#8e5bd4"), width=320, height=90),
+                 "unit 0, first 3,000 model responses"),
+        "em_8nm": (thumb(samples["em_8nm"], 150), "8 nm, 2 µm"),
+        "em_32nm": (thumb(samples["em_32nm"], 150), "32 nm, 8 µm"),
+        "em_128nm": (thumb(samples["em_128nm"], 150), "128 nm, 33 µm"),
+        "segmentation": (d.thumbnail(label_colors(samples["seg_64nm"]), 150, quality=80),
+                         "v1300, 64 nm, 16 µm"),
+        "microct": (thumb(samples["microct"], 150), "mid slice, 3.76 µm"),
+        "viewer": (d.thumbnail(label_colors(samples["field_seg_mask"].T), 120, quality=80),
+                   "4-7 field 4 labels"),
+    }
+    return pictures
+
+
+def cave_plot(cave_rows: list[tuple[str, str, float]]) -> bytes:
+    """Per dumped version after a table's first, the largest share of its root IDs changed since the last dump."""
+    versions = list(dict.fromkeys(v for v, _, share in cave_rows if share is not None))
+    peak = [max(share for v2, _, share in cave_rows if v2 == v and share is not None) for v in versions]
+
+    def draw(ax):
+        ax.bar(range(len(versions)), peak, color="#eb6834")
+        for i, (v, share) in enumerate(zip(versions, peak)):
+            ax.text(i, share, f"{v}\n{share:.0f}%", ha="center", va="bottom", fontsize=6)
+        ax.set_ylim(0, max(peak) * 1.6)
+    return d.plot(draw, width=320, height=100)
+
+
+def archive_parts(survey: Survey, rois: dict, cave_rows: list, samples) -> list[tuple[str, str, list[Part]]]:
+    """The hosts, each with its line of description and its parts."""
+    nwb_total = sum(a["size"] for a in survey.nwb)
+    em65 = survey_layer(survey, "minnie65/em")
+    rois_total = sum(sum(c[0] for c in fields) for fields in rois.values())
+    tables = sorted({t for _, t, _ in cave_rows})
+    bossdb = [
+        Part("two-photon movies, v1 and v2",
+             "the calcium-imaging movies: 19 scans, every field's frames interleaved, 2021 and 2023 releases",
+             "functional_data/two_photon_functional_scans/", "uncompressed BigTIFF, one strip per frame",
+             listed(survey, "functional_data/two_photon_functional_scans/"),
+             "phase 1: two-photon/<scan>/field-<n>, tags v1, v2", True, ("frame",)),
+        Part("platinum_camovies", "byte copies of the v1 movies, plus scans 5-4, 5-5 and 8-4",
+             "functional_data/platinum_camovies/", "uncompressed BigTIFF",
+             listed(survey, "functional_data/platinum_camovies/"),
+             "left out: copies; the extra scans have no metadata", False),
+        Part("structural stack", "a two-photon volume of the imaged cortex, blood vessels labeled red",
+             "functional_data/two_photon_structural_stacks/", "uncompressed float32 TIFF, 670 and 1,340 pages",
+             listed(survey, "functional_data/two_photon_structural_stacks/"),
+             "left out: later phase, with the field registrations", False, ("stack",)),
+        Part("stimulus movies", "the movies the mouse watched, per scan, v3 and v4",
+             "functional_data/stimulus_movies/, platinum_stimulus_movies/", "AVI of PNG frames (MPNG), MP4",
+             f"{listed(survey, 'functional_data/stimulus_movies/')}; "
+             f"{listed(survey, 'functional_data/platinum_stimulus_movies/')}",
+             "left out: the NWB file holds the v4 movie", False),
+        Part("digital twin", "a network model of the recorded neurons: responses, tuning, readout, v1 and v2",
+             "functional_data/digital_twin_properties/, foundation_model/", "netCDF (v1); .npy and CSV (v2)",
+             f"{listed(survey, 'functional_data/digital_twin_properties/')}; model "
+             f"{listed(survey, 'functional_data/foundation_model/')}",
+             "left out: later phase, both versions virtual", False, ("twin",)),
+        Part("DataJoint database", "Baylor's processing database: deconvolved activity, field and stack registration",
+             "functional_data/two_photon_processed_data_and_metadata/", "MySQL dump and Docker images, v7 and v8",
+             listed(survey, "functional_data/two_photon_processed_data_and_metadata/"),
+             "left out: needs a MySQL restore", False),
+        Part("EM, minnie65", "electron microscopy of the same cortex, 65% of the reconstructed sections",
+             "minnie65/em/", f"Neuroglancer precomputed, {len(em65.scales)} scales, sharded",
+             f"{BOSSDB_PAGE_SIZES['minnie65/em']}; {full_resolution_chunks(survey, 'minnie65/em'):,} chunks at 8 nm",
+             "left out: already cloud-optimized", False, ("em_8nm", "em_32nm", "em_128nm")),
+        Part("EM, minnie35", "the other 35% of the sections, before the knife change, in the same frame",
+             "minnie35/em/", "Neuroglancer precomputed, sharded",
+             f"{BOSSDB_PAGE_SIZES['minnie35/em']}; {full_resolution_chunks(survey, 'minnie35/em'):,} chunks at 8 nm",
+             "left out: already cloud-optimized", False),
+        Part("segmentation v117 and its layers", "every EM voxel's cell, the first release; watershed, clefts, nuclei",
+             "minnie65/{seg,autoseg,ws,clefts,nuclei}/, minnie35/", "precomputed compressed_segmentation",
+             f"seg {BOSSDB_PAGE_SIZES['minnie65/seg']}, ws {BOSSDB_PAGE_SIZES['minnie65/ws']}; "
+             f"{full_resolution_chunks(survey, 'minnie65/seg'):,} chunks at 8 nm",
+             "left out: hundreds of millions of chunks per release", False),
+        Part("microCT", "an X-ray volume of the same tissue block at 0.94 µm, in its own frame",
+             "microCT/17797_1R_0.94um/", "Neuroglancer precomputed, raw, 4 scales",
+             listed(survey, "microCT/"), "left out: no transform into EM space", False, ("microct",)),
+        Part("tables", "synapses, nuclei, cell types, proofreading status, the 2021 2P-EM matches",
+             "minnie65/synapse_graph/, nucleus_*, cell_types/, proofreading_status/, functional_coregistration/",
+             "CSV", f"synapse graph {listed(survey, 'minnie65/synapse_graph/')}",
+             "left out: Iceberg tables later", False),
+        Part("viewer copies", "copies of the processed data for Neuroglancer: masks as labels, summaries, series",
+             "functional_data/field_seg_masks/, field_summaries/, functional_series/, stimulus_n5/, stack_rgb/",
+             "precomputed and N5",
+             f"masks {listed(survey, 'functional_data/field_seg_masks/')}",
+             "left out: copies of the NWB data", False, ("viewer",)),
+    ]
+    dandi = [
+        Part("NWB files, one per scan", "the movies again, and what processing found: cell masks, traces, behavior, stimulus, trials",
+             "dandiset 000402, version 0.230307.2132", "NWB (HDF5), gzip chunks",
+             f"{len(survey.nwb)} files, {d.size_text(nwb_total)}; {rois_total:,} cells in 144 fields",
+             "phase 2: two-photon/<scan>/nwb, rois-<n>, units", True,
+             ("masks", "trace", "behavior", "stimulus")),
+    ]
+    google = [
+        Part("segmentations v343, v943, v1300", "every EM voxel's cell in three proofread releases",
+             "gs://iarpa_microns/minnie/minnie65/seg_m{343,943,1300}/", "precomputed compressed_segmentation, sharded",
+             "about 627 million chunks per release at 8 nm",
+             "left out: hundreds of millions of chunks per release", False, ("segmentation",)),
+        Part("EM copy and derived layers", "a raw-encoded copy of the minnie65 EM, CLAHE versions, embeddings",
+             "gs://iarpa_microns/minnie/minnie65/em/ and 14 more prefixes", "Neuroglancer precomputed",
+             "not listed", "left out: a copy of BossDB's EM", False),
+    ]
+    cave = [
+        Part("two-photon to EM match tables", "which EM cell each imaged cell is, per CAVE release",
+             "gs://mat_dbs/public/minnie65_phase3_v1/v<release>/", "whole-file gzip CSV",
+             f"{len(tables)} tables in 8 releases; 200 to 84,233 rows",
+             "phase 2: two-photon/<scan>/units/em, tags cave-v<release>", True, ("cave",)),
+        Part("synapse and other annotation tables", "every synapse, cell types, nuclei, proofreading, per release",
+             "gs://mat_dbs/public/minnie65_phase3_v1/ and the live CAVE service", "whole-file gzip CSV; a service",
+             "up to 22.9 GB per table", "left out: Iceberg tables later", False),
+    ]
+    return [
+        ("BossDB", "s3://bossdb-open-data/iarpa_microns/minnie/, us-east-1, anonymous; run by JHU APL", bossdb),
+        ("DANDI", "s3://dandiarchive/ (dandiset 000402), us-east-2, anonymous", dandi),
+        ("Google Cloud", "gs://iarpa_microns/minnie/, anonymous", google),
+        ("CAVE", "the MICrONS annotation service; static dumps in gs://mat_dbs/, anonymous", cave),
+    ]
+
+
+def archive_figure(survey: Survey, rois: dict, cave_rows: list, samples: dict[str, np.ndarray]) -> Canvas:
+    canvas = Canvas(WIDTH)
+    y = d.heading(canvas, "MICrONS minnie: everything the archive publishes",
+                  "one mouse's visual cortex, imaged live with two-photon microscopy and then by electron "
+                  "microscopy; grouped by host") + 24
+    y = d.legend(canvas, LEFT, y, [(IN_STORE, "in the store"), (LEFT_OUT, "left out")]) + 20
+    pictures = archive_pictures(samples)
+    pictures["cave"] = (cave_plot(cave_rows), "largest share of root IDs changed, per release")
+    panel_width, picture_x = 760, LEFT + 790
+    for host, line, parts in archive_parts(survey, rois, cave_rows, samples):
+        canvas.add(f'<rect x="{LEFT}" y="{y:.1f}" width="{WIDTH - 2 * LEFT}" height="34" rx="4" '
+                   f'fill="{d.FACE_FILL}"/>', y + 34)
+        canvas.text(LEFT + 12, y + 23, host, size=17, weight="bold")
+        canvas.text(LEFT + 12 + d.text_width(host, 17, bold=True) + 16, y + 22, line, size=12,
+                    color=d.MUTED, mono=True)
+        y += 50
+        for part in parts:
+            rows = [Row("what", part.what), Row("where", part.where), Row("format", part.form),
+                    Row("size", part.size), Row("license", LICENSE),
+                    Row("store", part.store, status=IN_STORE if part.held else LEFT_OUT,
+                        tag="IN STORE" if part.held else "LEFT OUT")]
+            bottom = d.panel(canvas, LEFT, y, panel_width, part.title, rows,
+                             accent=ACCENTS["store"] if part.held else ACCENTS["source"])
+            x, top, row_bottom = picture_x, y, y
+            for key in part.pictures:
+                image, caption = pictures[key]
+                width = {"trace": 300, "behavior": 300, "twin": 300, "cave": 300, "stimulus": 220, "stack": 160,
+                         "frame": 120, "masks": 120, "viewer": 120}.get(key, 150)
+                if x + width > WIDTH - LEFT:
+                    x, top = picture_x, row_bottom + 10
+                row_bottom = max(row_bottom, d.picture(canvas, x, top, image, width, caption=caption))
+                x += width + 16
+            y = max(bottom, row_bottom) + 18
+        y += 12
+    return canvas
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--survey", type=Path, required=True)
-    parser.add_argument("--layouts", type=Path, required=True)
-    parser.add_argument("--repo", type=Path, required=True, help="an Icechunk repository directory written by ingest.py")
+    parser.add_argument("--layouts", type=Path)
+    parser.add_argument("--repo", type=Path, help="an Icechunk repository directory written by ingest.py")
+    parser.add_argument("--archive", type=Path, metavar="SAMPLES",
+                        help="draw archive.svg only, with pictures from this .npz cache of samples, "
+                             "fetched by archive_samples.py when it does not exist")
+    parser.add_argument("--rois", type=Path, help="with --archive: ROI counts per scan and field (JSON)")
+    parser.add_argument("--cave", type=Path, help="with --archive: a directory of CAVE's match-table dumps")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
     # The source buckets are public, and requests signed with other credentials would be refused.
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
+    if args.archive:
+        import archive_samples
+        from diagrams_processed import read_cave
+
+        from plumbing import dandi_assets
+
+        survey = read_survey(args.survey)
+        assets = dandi_assets("000402", "0.230307.2132")
+        nwb_url = next(asset["url"] for path, asset in assets.items() if path.endswith(EXAMPLE_NWB))
+        samples = archive_samples.cached(args.archive, nwb_url)
+        cave = read_cave(args.cave)
+        cave_rows = [(r.version, r.table, None if r.changed != r.changed or r.changed is None
+                      else 100 * r.changed / r.rows) for r in cave.itertuples()]
+        args.out.mkdir(parents=True, exist_ok=True)
+        size = archive_figure(survey, json.loads(args.rois.read_text()), cave_rows, samples).write(
+            args.out / "archive.svg")
+        print(f"archive.svg  {size / 1e3:.0f} kB")
+        return
+    if not (args.layouts and args.repo):
+        parser.error("--layouts and --repo are needed for the source, mapping and store figures")
     facts = Facts(read_survey(args.survey), read_layouts(args.layouts), read_store(args.repo))
     args.out.mkdir(parents=True, exist_ok=True)
     for name, figure in (("source", source_figure), ("mapping", mapping_figure), ("store", store_figure)):

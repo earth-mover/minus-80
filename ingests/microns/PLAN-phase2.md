@@ -46,6 +46,8 @@ The figures are in [`diagrams/`](diagrams/), written by
 data and the CAVE rows become store nodes
 ([`processed-mapping.svg`](diagrams/processed-mapping.svg)), and a scan
 group after phase 2 ([`processed-store.svg`](diagrams/processed-store.svg)).
+[`archive.svg`](diagrams/archive.svg) maps everything MICrONS minnie publishes, by host, with a
+picture of each part and whether the store holds it.
 [LAYOUTS.md](LAYOUTS.md), "Phase 2", records the evidence behind each mapping.
 
 Phase 2 has its own plan because phase 1's [PLAN.md](PLAN.md) is the
