@@ -102,3 +102,38 @@ def test_references_are_pinned_to_the_etag(built, store):
             zarr.open_group(repo.readonly_session("main").store, mode="r")[group][:]
     finally:
         tags[path] = original
+
+
+def test_verify_opens_an_arraylake_target(built, monkeypatch, capsys):
+    """verify.py's main, as the Coiled job runs it, reaches the repo an arraylake:// name names."""
+    import sys
+
+    from minus80.core import icechunk_io
+
+    truth, repo, _, _, _ = built
+    opened = []
+    monkeypatch.setattr(icechunk_io, "arraylake_repository",
+                        lambda location, source_prefixes=None: opened.append(location) or repo)
+    monkeypatch.setattr(verify, "catalog", lambda collection: fixture.catalog(truth))
+    monkeypatch.setattr(sys, "argv", ["verify.py", "arraylake://earthmover-biology/idc-gtex", "--sample", "2"])
+    with pytest.raises(SystemExit) as exit:
+        verify.main()
+    assert opened == ["arraylake://earthmover-biology/idc-gtex"]
+    assert exit.value.code == 0, capsys.readouterr().out
+
+
+def test_a_slide_left_out_then_written_leaves_the_list(tmp_path):
+    """A slide whose first run fails is listed in left_out, and leaves it once a rerun writes it."""
+    root = tmp_path / "bucket"
+    truth = fixture.build(root)
+    first = fixture.SLIDES[0][2]
+    with fixture.serve(root) as (url, listing, _):
+        location = str(tmp_path / "repo")
+        broken = Source(root=url, listing={first: listing[first]})  # the second series cannot be listed
+        ingest.run(location, "gtex", fixture.catalog(truth), broken, FACTS, workers=2)
+        store = zarr.open_group(open_repository(location).readonly_session("main").store, mode="r")
+        assert list(store.attrs["left_out"]) == [fixture.SLIDES[1][0]]
+        ingest.run(location, "gtex", fixture.catalog(truth), Source(root=url, listing=listing), FACTS, workers=2)
+        store = zarr.open_group(open_repository(location).readonly_session("main").store, mode="r")
+        assert store.attrs["left_out"] == {}
+        assert f"gtex/{fixture.SLIDES[1][1]}/{fixture.SLIDES[1][0]}/image" in store

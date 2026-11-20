@@ -142,8 +142,9 @@ def in_forks(session, units: Mapping[str, object], job: Callable, *, workers: in
 
     Returns ``{unit: (fork, result)}`` for the units that succeeded and
     ``{unit: reason}`` for those that failed. A unit whose read fails with a
-    :data:`TRANSIENT` error is tried again, up to :data:`TRIES` times, in a
-    fresh fork; any other error fails it at once. The caller merges the forks
+    :data:`TRANSIENT` error is tried again, up to :data:`TRIES` times, in the
+    same fork, which ``job`` must leave untouched when a read fails; any other
+    error fails it at once. The caller merges the forks
     into ``session`` and commits once: many sessions committing to one branch
     would each rebase onto the others (docs/ingest.md).
 
