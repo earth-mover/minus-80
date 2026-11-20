@@ -121,6 +121,19 @@ directory would take in every pixel: 70 GB for one MICrONS scan instead of
 75 MB. The region starts at the second directory, and the first comes with
 the file's first 64 KB.
 
+### Index only the HDF5 groups the store needs
+
+An HDF5 file's object headers sit wherever the writer put them, and each
+dataset's chunk index is a B-tree spread through the file. A walk over a
+remote file therefore costs round trips in proportion to its objects and its
+chunks, not to its bytes. Pass `HDFParser` one group at a time, with `group`
+and `drop_variables`, and leave out the datasets the store does not
+reference. In a 71 GB MICrONS NWB file, a walk over all 364 objects took
+761 s and 8,049 requests from a laptop, while indexing the 55 processed
+datasets the store needs took 93 s and 792 requests. Price a dataset by its
+chunk count before indexing it: the same file's stimulus movie, one frame per
+chunk, took 476 s and 5,894 requests for 381,054 chunks.
+
 ### Separate fetching from parsing
 
 A parser written for local files seeks freely, which costs nothing locally and

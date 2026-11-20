@@ -49,19 +49,22 @@ reported on its own.
 
 [PLAN.md](PLAN.md) describes MICrONS and phase 1's scans. This section covers
 every part phase 1 leaves out, ranked by what a store adds to it against what
-it costs. Sizes are from listings of the buckets in November 2026; every part
-is CC BY 4.0 by BossDB's project page or DANDI's metadata.
+it costs. Sizes are from listings of the buckets in November 2026. BossDB's
+project page and DANDI's metadata state CC BY 4.0. The CAVE dumps state no
+license; the [MICrONS Explorer terms](https://www.microns-explorer.org/terms-and-conditions)
+offer the site's material under CC BY 4.0 without naming the dumps (see
+"Risks").
 
 | Rank | Part | Where, format | Size | Changes | Virtual | Deciding number |
 |---|---|---|---|---|---|---|
 | 1 | CAVE two-photon-to-EM match tables | `gs://mat_dbs/public/minnie65_phase3_v1/<version>/`, whole-file gzip CSV | 0.2k to 84k rows, 6 KB to 4.7 MB per table | every version: rows fixed, root IDs change | no: whole-file gzip; written natively | 1.4 to 12.3% of root IDs change between consecutive versions |
-| 2 | NWB processed data | `s3://dandiarchive/blobs/`, us-east-2, HDF5 with gzip chunks | 168,971 ROIs in 144 fields | not since 2023 | yes | indexing it takes 920 requests and 93 s per scan; walking the whole file takes 8,049 and 761 s |
+| 2 | NWB processed data | `s3://dandiarchive/blobs/`, us-east-2, HDF5 with gzip chunks | 168,971 ROIs in 144 fields | not since 2023 | yes | indexing it takes 792 requests and 93 s per scan; walking the whole file takes 8,049 and 761 s |
 | 3 | NWB stimulus movie | the same files, one gzip frame per chunk | 381,054 frames in scan 4-7 | not since 2023 | yes | 5,894 requests and 476 s to index one scan's frames |
 | 4 | Digital-twin properties | BossDB `functional_data/digital_twin_properties/`: v1 netCDF (HDF5), v2 uncompressed `.npy` and CSV | 33 GB and 34 GB | v1 and v2, with different units and conventions | yes | v2 `responses.npy` is (104,171, 75,000) float32, a range per unit |
 | 5 | Structural stack | BossDB `two_photon_structural_stacks/`, uncompressed float32 TIFF, one strip per page | 2 files, 11 GB | no | yes | 670 and 1,340 pages; the transforms into it are only in DataJoint |
 | 6 | DataJoint database | BossDB `two_photon_processed_data_and_metadata/`, MySQL dump and Docker images, v7 and v8 | 452 GB | v7, v8 | no | needs a MySQL restore before anything can be read |
 | 7 | microCT | BossDB `microCT/17797_1R_0.94um`, Neuroglancer precomputed, raw 64³ chunks | 4,171 objects, 1.9 GB | rebuilt 2026-10-26 | yes | already cloud-optimized; no transform places it in EM space |
-| 8 | Proofread segmentations | BossDB `minnie65/seg` (v117); `gs://iarpa_microns/minnie/minnie65/seg_m{343,943,1300}` | 12 TB at v117 | 4 static versions | with a custom codec and shard index | about 627 million chunks at 8 nm per version |
+| 8 | Segmentations | BossDB `minnie65/seg` (v117); `gs://iarpa_microns/minnie/minnie65/seg_m{343,943,1300}` | 12 TB at v117 | 4 static versions | with a custom codec and shard index | about 627 million chunks at 8 nm per version |
 | 9 | EM, minnie65 and minnie35 | BossDB and `gs://iarpa_microns/minnie/minnie65/em`, sharded precomputed | 117 TB and 55 TB | no | yes | about 1.9 billion chunks at 8 nm on BossDB; already cloud-optimized |
 | 10 | Stimulus AVIs | BossDB `stimulus_movies/` (v3, v4, MP4) and `platinum_stimulus_movies/` | 247 GB and 42 GB | v3, v4 | per frame: each frame is a PNG | the NWB file holds the v4 movie at the same 144 × 256 size |
 | 11 | Synapse tables | BossDB `synapse_graph/` and `mat_dbs` (v1718) | 65 GB; 13.8 to 22.9 GB gzip per table | per version | no | an Iceberg table, and the largest tabular part |
@@ -124,13 +127,13 @@ Scan 4-7, field 4: `rois-4/0` is (1,389, 1, 440, 248) with chunks
   image.
 - **`traces-<n>` is not an image.** Its axes are `volume`, shared with phase
   1's `volume_times` (the NWB timestamps of the traces equal those of the
-  movie, checked on field 4 of scan 4-7), and `roi`. The per-ROI arrays share the `roi`
-  axis, which is xarray's convention for coordinates, so `xr.open_zarr` opens
-  the group as one dataset.
+  movie, checked on field 4 of scan 4-7), and `roi`. The per-ROI arrays
+  share the `roi` axis, which is xarray's convention for coordinates, so
+  `xr.open_zarr` opens the group as one dataset.
 - **`units` is the CAVE key.** `unit_id` runs 1 to the scan's ROI count.
   Each match table becomes one group of arrays on that axis; a unit a table
-  does not match holds the fill value (0 for IDs, −1 for positions, NaN for
-  scores).
+  does not match holds the fill value: 0 for root and supervoxel IDs, −1 for
+  nucleus IDs and positions, NaN for residuals and scores.
 - **`behavior` keeps each recording's own timestamps.** Eye and pupil have
   104,227 samples and the treadmill 480,032.
 - **`stimulus/movie`** is (frame, c, y, x) in monitor pixels, one chunk per
@@ -225,7 +228,7 @@ the tables each version added or changed: v661 to v795 changes 2 arrays (the
 root IDs of its two tables), v795 to v943 adds 25, v1412 to v1507 changes 4.
 Between `cave-v943` and `cave-v1412`, 271 of the 1,322 manual matches of
 scan 4-7 have a different root ID; ROI 23 of field 4 holds
-864691135719446577 at v943, the ID the knowledge-base note found in CAVE.
+864691135719446577 at v943.
 
 **What the tables cover.**
 
@@ -266,8 +269,8 @@ the other odd fields.
    Iceberg later.
 3. **The stimulus movie.** It ties each trace to what the mouse saw, at the
    time it saw it. It is 381,054 references in scan 4-7, about 7 million in
-   all if the other scans' movies are as long, beside phase 1's 11.8 million, and 476 s of the 569 s it took to
-   index scan 4-7. **Recommended:** reference it.
+   all if the other scans' movies are as long, beside phase 1's 11.8
+   million. It took 476 s of the 569 s it took to index scan 4-7. **Recommended:** reference it.
 4. **The `unit_id` rule.** No file states it; DataJoint's `ScanUnit` table
    does, and the dump is 116 GB of MySQL. The rule agrees with every match
    row that names a field, and the run checks that again for every table it
@@ -285,8 +288,8 @@ the other odd fields.
    existing repo.
 7. **Mask chunking.** The NWB chunks hold 87 ROIs × 16 × 28 pixels, so one
    ROI's mask is 256 chunk reads (2.6 s on a first read from the laptop),
-   while all masks of a field are 4,096 chunks. **Recommended:** reference as stored; a
-   per-ROI copy can follow if readers ask for one.
+   while all masks of a field are 4,096 chunks. **Recommended:** reference
+   as stored; a per-ROI copy can follow if readers ask for one.
 
 Two smaller choices are recorded in LAYOUTS.md: v343's `functional_coreg`
 loses its 84 exact duplicate rows, and the NWB EM columns stay float64, as
@@ -309,6 +312,9 @@ the NWB movies, which phase 1 references in the TIFFs.
    virtual chunk container. *Needs approval: changes the organization.*
 3. The ingest code: `processed.py` beside `ingest.py`, with the fixture test
    and the verify extended to the new nodes, all tested on a small fixture.
+   `minus80.parsers.nwb` downloads a remote file whole before indexing it;
+   the per-group remote indexing the trial used moves into it, so the next
+   NWB ingest gets it too.
 4. Run 3, `runs/03_processed.sh`: one Coiled VM in us-east-2, beside DANDI,
    with `coiled batch run`. It commits the processed data of all 19 scans
    with the NWB's own EM columns, then one commit per CAVE version in version
@@ -343,6 +349,10 @@ each tag, the root IDs of 100 sampled units equal the dump of that version.
 - *DANDI's blob URLs.* The store references DANDI's content-addressed blobs
   of version 0.230307.2132. A new DANDI version would add blobs, not change
   these.
+- *The CAVE dumps' license.* Neither the dumps nor the tutorial page that
+  lists them states a license. The MICrONS Explorer's terms put its material
+  under CC BY 4.0, which is the reading the store would record; the store is
+  private until someone confirms it with the MICrONS team.
 - *Future CAVE versions.* v1926 is current and has no dump. Adding it means a
   CAVE token and a commit per version; the layout takes it without change.
 
