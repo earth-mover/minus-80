@@ -63,6 +63,32 @@ lengths, as sparse matrices and pyramid levels do. Write with
 `ManifestGroup.to_icechunk` (VirtualiZarr#1108), which does not build a
 `Dataset`, and pass `mode="a"` to write into an existing group.
 
+### Write an NWB file whole, in the unified Zarr v3 convention
+
+hdmf-zarr 0.14 reads NWB from Zarr v3, under a convention it shares with
+LINDI and shadowzarr: links in a `_LINKS` group attribute, dataset types in
+`_DTYPE`, scalars as shape-() arrays and references as
+`{"_REFERENCE": {"source", "path"}}`
+([storage.rst](https://github.com/hdmf-dev/hdmf-zarr/blob/0.14.0/docs/source/storage.rst)).
+Write an NWB file's whole tree in it, rather than its numeric arrays alone,
+and the group keeps NWB's paths, types and references: a store holding one
+file at its root opens with `NWBZarrIO` as a typed `NWBFile`, with the
+electrodes table and every other reference resolved. shadowzarr's
+`generate_rfs` maps the file and `rfs_to_icechunk` writes it;
+`minus80.parsers.nwb.unified` places it at a group of a larger store and adds
+`dimension_names`, which the convention leaves out and xarray needs.
+`NWBZarrIO` ignores the `dimension_names`, and it ignores extra attributes,
+such as a CF `scale_factor`, as long as NWB's own are left in place.
+
+`NWBZarrIO` opens only a store's root, so it cannot open a file kept at a
+group of a larger store; zarr and xarray read it, and pynwb waits for
+hdmf-zarr to accept a group. Keep one repo per dataset anyway: a reader should
+never need minus80, or a wrapper of ours, to open the store. For gzip-
+compressed HDF5 the store needs nothing beyond zarr-python to read: its codecs
+are Zarr's own and numcodecs' `zlib`. Check the codecs of every array before
+publishing, because shadowzarr writes its own `keep_bytes` codec for arrays
+whose bytes are interleaved with others', which only shadowzarr decodes.
+
 ### Chunk flat binary along the outer axis
 
 In a C-ordered raw array, only the slowest-varying axis gives one contiguous
@@ -123,7 +149,9 @@ laptop. Downloading the file to index it, as `minus80.parsers.nwb` does for a
 remote source, would move 92 GB. Count the chunks first: a file with millions
 of small chunks has an index worth downloading, and one with thousands does
 not. Pass `HDFParser` a block reader (`reader_factory`) with 64 KB blocks; the
-block size barely matters when the walk is bound by round trips.
+block size barely matters when the walk is bound by round trips. shadowzarr's
+`generate_rfs` reads the nodes of each index ahead, a level at a time and in
+parallel, and maps the same whole file, both probes, in 7 s.
 
 ### Probe the layout before walking it
 

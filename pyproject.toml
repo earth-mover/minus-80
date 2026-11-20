@@ -21,12 +21,12 @@ dicom = ["imagecodecs>=2026.8.16", "imagecodecs-zarr", "pydicom>=3.0"]
 flac = ["av", "flac-numcodecs", "soundfile"]
 fractal = ["anndata>=0.11"]
 nd2 = ["nd2>=0.10"]
-nwb = ["h5py>=3.16", "pynwb>=2.8", "virtualizarr[hdf]"]
+nwb = ["h5py>=3.16", "hdmf-zarr>=0.14.0", "pynwb>=4.2", "shadowzarr", "virtualizarr[hdf]"]
 tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
 zip = ["pyarrow>=17"]
 
 [dependency-groups]
-dev = ["imagecodecs", "imagecodecs-zarr", "pyarrow>=17", "pytest>=8", "safetensors", "tifffile>=2025.1.1"]
+dev = ["imagecodecs", "imagecodecs-zarr", "pyarrow>=17", "pytest>=8", "safetensors", "tifffile>=2025.1.1", "xarray"]
 
 [build-system]
 requires = ["hatchling"]
@@ -45,6 +45,9 @@ minus-80 = { workspace = true }
 virtualizarr = { git = "https://github.com/ianhi/VirtualiZarr", rev = "83da047711558dfb4fc004db45641d28a6687f61" }
 # The "flac" Zarr v3 codec is on this tag only; no release carries it yet.
 flac-numcodecs = { git = "https://github.com/ianhi/flac-numcodecs", tag = "zarr3-flac-codec-2026-10-19" }
+# Unreleased: maps an HDF5 NWB file onto the unified NWB Zarr v3 convention that
+# hdmf-zarr 0.14 reads.
+shadowzarr = { git = "https://github.com/bendichter/zindi", rev = "07e6f65938ef30400251f09b29323832a25fda88" }
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
