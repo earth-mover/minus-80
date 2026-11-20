@@ -170,6 +170,7 @@ def sparse_local(
     block: int = BLOCK,
     concurrency: int = CONCURRENCY,
     registry: ObjectStoreRegistry | None = None,
+    size: int | None = None,
 ) -> str:
     """Fetch only ``regions`` of ``url`` into a local file that is otherwise a hole.
 
@@ -188,7 +189,8 @@ def sparse_local(
 
     ``dest_dir`` defaults to :func:`cache_dir`. The cache is keyed on the
     source and the regions, so a later call asking for different ranges does
-    not get the earlier file.
+    not get the earlier file. ``size`` is the source's length, when the caller
+    already knows it; otherwise one HEAD asks for it.
     """
     name = url.rsplit("/", 1)[-1]
     wanted = sorted((int(a), int(b)) for a, b in regions)
@@ -199,7 +201,7 @@ def sparse_local(
     dest = _cache_path(dest_dir, slot, name)
     if os.path.exists(dest):
         return dest
-    size = object_size(url, registry=registry)
+    size = object_size(url, registry=registry) if size is None else size
     if wanted[-1][1] > size:
         raise ValueError(f"{url}: asked for bytes past the end of a {size}-byte file")
     _write_part(dest, size, lambda f: write_ranges(

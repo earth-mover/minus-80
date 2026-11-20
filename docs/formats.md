@@ -114,6 +114,13 @@ in four requests. When it holds, fetch the directories in bulk: for 829,080
 directories in one 168 GB OME-TIFF, that takes about 1.6 minutes instead of 40.
 When it does not, walk the chain.
 
+A file can hold its first directory apart from the rest. tifffile writes a
+contiguous series with the first directory at byte 16, before the pixels,
+and every other directory after them, so a region that started at the first
+directory would take in every pixel: 70 GB for one MICrONS scan instead of
+75 MB. The region starts at the second directory, and the first comes with
+the file's first 64 KB.
+
 ### Separate fetching from parsing
 
 A parser written for local files seeks freely, which costs nothing locally and
