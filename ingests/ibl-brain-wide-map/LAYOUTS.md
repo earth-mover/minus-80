@@ -148,13 +148,21 @@ small pictures of the trial session's data:
   largest 2024 cluster's mean waveform on eight channels;
 - the release tables: units and good units in each release's cluster table;
 - the atlas: a sagittal slice of IBL's 200 µm Allen template at probe00,
-  with the probe's channels at their Allen CCF positions.
+  with the probe's channels at their Allen CCF positions. iblatlas's own
+  loader, `iblatlas.genomics.agea.load_atlas` (iblatlas 1.3.1), reads
+  `atlas/agea/image.npy` as a 200 µm grid with axes (ml, dv, ap)
+  (`dims2xyz=[0, 2, 1]`), indexed from the CCF origin. The raw NWB file's
+  `AllenCCFv3` space states orientation `PIR` with its origin at the
+  volume's anterior-superior-left corner, so a channel's CCF x, y and z in
+  µm, divided by 200, are its ap, dv and ml indices.
 
 Counts and sizes come from DANDI's asset list, IBL's `Brainwidemap` ONE cache
 (the release), its bucket-wide ONE cache (everything public in `data/`,
 3,124,616 files and 488 TB on 2026-04-06) and listings of the other
 prefixes. No histology images are public: the bucket-wide cache lists no
-histology dataset.
+histology dataset. The channels' brain positions do come from histology:
+the raw NWB file's `ElectrodesCCFv3` table states its method as "IBL
+histology alignment pipeline".
 
 ## From source to store
 

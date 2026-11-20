@@ -208,8 +208,12 @@ def video_frame(url: str) -> bytes:
 def atlas_picture(repo) -> bytes:
     """A sagittal slice of IBL's 200 µm Allen template, with the probe's channels on it.
 
-    The template is ``(ml, dv, ap)`` at 200 µm; the channels' Allen CCF
-    positions, in µm, come from the raw NWB file's electrode localization.
+    iblatlas loads this file as a 200 µm grid whose axes are (ml, dv, ap)
+    (``iblatlas.genomics.agea.load_atlas``: ``res_um = 200``,
+    ``dims2xyz=[0, 2, 1]``), indexed from the Allen CCF origin. The raw NWB
+    file's ``ElectrodesCCFv3`` gives each channel in that space's ``PIR``
+    orientation: x is anterior-posterior, y dorsal-ventral, z left-right, in
+    µm from the volume's anterior-superior-left corner.
     """
     url = f"s3://{IBL_BUCKET}/atlas/agea/image.npy"
     shape, dtype, offset = npy_header(url)
@@ -393,7 +397,7 @@ def parts(repo) -> list[tuple[str, str, list[Part]]]:
         other.append(Part(title, what, prefix, fmt, f"{files:,}", size(bytes_), store, False,
                           pictures))
     other.append(Part("histology", "the brains' histology images", "not in the public bucket", "",
-                      "0", "", "left out: not published; channel regions come from it", False))
+                      "0", "", "left out: not published; channel positions are from its alignment", False))
     other.append(Part("all public data/", f"every public IBL session, {public['projects']} projects",
                       "data/<lab>/Subjects/<subject>/<date>/<number>/",
                       "largest: " + ", ".join(k for k, _ in public["folders"][:4]), f"{public['files']:,}",
