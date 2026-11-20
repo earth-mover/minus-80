@@ -80,7 +80,7 @@ PIXEL_CONVENTION = {
     "status": "open",
     "stated_by_source": False,
     "evidence": ("Rasterizing six Tumor outlines of tumor_091 and tumor_056 and comparing with the reference "
-                 "mask's level 0, reading coordinate k as the centre of pixel k disagrees with the mask on "
+                 "mask's level 0, reading coordinate k as the center of pixel k disagrees with the mask on "
                  "fewer pixels in all six (for tumor_091 Annotation 5: 416 of 8,238,976, against 4,817 when "
                  "reading k as pixel k's top-left corner). Neither reading reproduces the mask exactly."),
 }
@@ -461,7 +461,7 @@ def write_mask(w: Writer, challenge: Challenge, slide: str, source: Source, imag
     attrs = {
         "ome": ome,
         "description": (f"{challenge.name} reference mask of slide {slide}: 0 background, 1 normal tissue, "
-                        "2 tumour. Level for level on the slide image's grid. A tile stored with zero bytes "
+                        "2 tumor. Level for level on the slide image's grid. A tile stored with zero bytes "
                         "in the file is a missing chunk, read as 0."),
         "tiff_tags": level_tags(w, slide_path(challenge, slide), "mask", [lvl.keyframe for lvl in series.levels]),
         "resolution_um": list(resolution_um(series.levels[0].keyframe) or []),
@@ -606,9 +606,9 @@ def write_shapes(w: Writer, challenge: Challenge, slide: str, source: Source, ba
         "decode": "json.loads(bytes(array[:]))",
         "coordinate_frame": {"image": "../image", "level": 0, "units": "pixel", "origin": "top-left corner of pixel (0, 0)",
                              "shift_from_asap": asap.QUPATH_SHIFT,
-                             "shift_reason": ("ASAP's integer coordinate k is read as the centre of pixel k, the reading "
-                                              "the challenge's masks favour (coordinate_frame.pixel_convention on this "
-                                              "group); QuPath's frame puts that centre at k + 0.5.")},
+                             "shift_reason": ("ASAP's integer coordinate k is read as the center of pixel k, the reading "
+                                              "the challenge's masks favor (coordinate_frame.pixel_convention on this "
+                                              "group); QuPath's frame puts that center at k + 0.5.")},
     })
     return n
 
@@ -763,7 +763,7 @@ def finish(w: Writer, challenge: Challenge, source: Source, ctx: dict) -> int:
         attrs = {
             **root_attrs(version=challenge.version),
             "description": ("CAMELYON16: 399 H&E whole-slide images of sentinel lymph nodes from Radboud UMC and "
-                            "UMC Utrecht, with tumour masks, tissue maps and pathologists' outlines. This store holds "
+                            "UMC Utrecht, with tumor masks, tissue maps and pathologists' outlines. This store holds "
                             f"{len(rows)} of them. Each slide is a group <slide>/ with image/ (the scan, and "
                             "labels/mask), tissue/, macro/ or label/ where the file has them, and shapes/ where "
                             "an outline XML exists. OME/series lists every image; annotations is the slide table."),
@@ -822,7 +822,7 @@ def root_attributes(present: list[str]) -> dict:
             "title": "CAMELYON16 lymph node metastases, virtualized",
             "description": ("Whole-slide images from the CAMELYON16 challenge (detection of breast cancer metastases "
                             "in lymph node sections), as OME-Zarr 0.5 over the challenge's own TIFF bytes in "
-                            "s3://camelyon-dataset, with each slide's mask, tissue map and tumour outlines beside it. "
+                            "s3://camelyon-dataset, with each slide's mask, tissue map and tumor outlines beside it. "
                             "The images are under CAMELYON16/."),
             "license": "CC0-1.0",
             "license_text": "CAMELYON16/ source_files['license.txt']",
@@ -841,7 +841,8 @@ def root_attributes(present: list[str]) -> dict:
                         "OME-Zarr 0.6; each container's description says how its slides are laid out."),
         "license": "CC0-1.0",
         "license_text": "source_files['license.txt'] of each challenge group",
-        "citation": {"CAMELYON16": CITATION_16, "CAMELYON17": CITATION_17, "dataset": CITATION_DATASET},
+        "citation": f"CAMELYON16: {CITATION_16} CAMELYON17: {CITATION_17} Dataset: {CITATION_DATASET}",
+        "citations": {"CAMELYON16": CITATION_16, "CAMELYON17": CITATION_17, "dataset": CITATION_DATASET},
         "source": {"bucket": SOURCE, "prefixes": [f"{name}/" for name in present], "region": "us-west-2",
                    "access": "anonymous (public bucket)",
                    "landing_pages": {name: CHALLENGES[name].landing_page for name in present}},

@@ -185,11 +185,12 @@ it a base64 JPEG of the macro image) and `results.json`; in CAMELYON17, only
   each container uses.
 - `license`: `CC0-1.0`, with the verbatim `license.txt` in each container's
   `source_files`.
-- `citation`: with CAMELYON16 alone, the JAMA 2017 paper as a string. With
-  both, a mapping: `CAMELYON16` (Ehteshami Bejnordi et al., JAMA 2017,
-  doi:10.1001/jama.2017.14585), `CAMELYON17` (Bándi et al., IEEE TMI 2019,
-  doi:10.1109/TMI.2018.2867350) and `dataset` (Litjens et al., GigaScience
-  2018, doi:10.1093/gigascience/giy065).
+- `citation`: a string, as published. With CAMELYON16 alone, the JAMA 2017
+  paper; with both, the three papers below in turn.
+- `citations` (with both): `CAMELYON16` (Ehteshami Bejnordi et al., JAMA
+  2017, doi:10.1001/jama.2017.14585), `CAMELYON17` (Bándi et al., IEEE TMI
+  2019, doi:10.1109/TMI.2018.2867350) and `dataset` (Litjens et al.,
+  GigaScience 2018, doi:10.1093/gigascience/giy065).
 - `source`: bucket, region, access and the challenges' landing pages.
 - `requires`: `imagecodecs` and `imagecodecs-zarr` for the `imagecodecs_jpeg`
   and `imagecodecs_lzw` codecs; everything else is `bytes`, `transpose`,
@@ -379,6 +380,17 @@ reading). `geojson` uses the center reading.
 - **What the file said:** `tiff_tags` on every image, `source_files` on each
   container.
 
+## Known issues
+
+**Empty Philips tiles read as black.** CAMELYON17's Philips slides (center
+4 and 100 test slides) store many tiles with zero bytes where the scanner
+saw no tissue: 14,100 of 56,644 level-0 tiles of `patient_081_node_0`, and
+2,691 of 52,828 of `patient_086_node_0`. The store keeps such a tile as a
+missing chunk, which reads as the fill value 0, black, where the slide's
+background is white. A census of all 1,197 CAMELYON16 TIFFs found no empty
+slide tile, so CAMELYON16 is not affected. A fill value of 255 on the image
+arrays of Philips slides would read them white; it is not applied yet.
+
 ## Left out
 
 Nothing from either prefix. Every object is referenced, stored natively, or
@@ -413,8 +425,8 @@ their masks.
 13. **Labels stay in attributes**, as CAMELYON16's do, not in an Iceberg
     table.
 14. **`center_names` is written as an inferred mapping**, with its evidence.
-15. **Stored text keeps the published spelling.** CAMELYON16's attributes say
-    "tumour" and "centre" in four places; CAMELYON17 reuses the same
-    strings, so the two challenges' attributes match.
+15. **Text the ingest writes is American English.** Published CAMELYON16
+    nodes keep "tumour" and "centre" in a few descriptions until rebuilt;
+    values quoted from the source keep the source's spelling.
 
 Calls 11 to 15 are proposed in `PLAN.md` and await approval.
