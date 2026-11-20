@@ -82,7 +82,8 @@ def test_nwbzarrio_reads_the_raw_nwb_written_at_a_store_root(built, tmp_path):
     repo = create_repo(tmp_path / "repo", [as_url(nwb_path)])
     session = repo.writable_session("main")
     ingest.write_nwb_file(session, "", DandiFile(path="raw.nwb", url=str(nwb_path),
-                                                 https=str(nwb_path), size=0, sha256=""))
+                                                 https=str(nwb_path), size=0, sha256=""),
+                          ingest.NWB_DESCRIPTIONS["raw"])
     commit(session, "one file at the root")
     store = open_repository(tmp_path / "repo").readonly_session("main").store
     with NWBZarrIO(store, mode="r") as io, pynwb.NWBHDF5IO(str(nwb_path), "r") as h5:
@@ -189,6 +190,6 @@ def test_a_relaunch_resumes_without_rewriting_or_reverting(relaunchable, stop_af
     assert sorts_at(repo, eids, tag="sort-2024") == ["2024", "2024"]
     assert sorts_at(repo, eids, branch="main") == ["2024", "2024"]
     messages = [c.message for c in repo.ancestry(branch="main")]
-    assert sum("NWB files" in m for m in messages) == 2
+    assert sum("raw voltage" in m for m in messages) == 2
     assert sum("the 2024 spike sorting" in m for m in messages) == 2
     assert launch() == []

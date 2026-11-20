@@ -44,6 +44,7 @@ the source taught.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import io
 import json
@@ -144,7 +145,20 @@ def session_record(eid: str) -> dict:
 NWB_FILES = ("raw", "processed")
 
 
-def write_nwb_file(session_, group: str, nwb: DandiFile) -> None:
+#: What each of DANDI's two NWB files holds, for its group's description.
+NWB_DESCRIPTIONS = {
+    "raw": ("Raw voltage from the session's Neuropixels probes: each probe's action potential "
+            "band (30 kHz) and local field potential band (2.5 kHz) over 384 channels, with "
+            "every channel's position on the probe and brain region, and the probes' sync "
+            "channel. The session's raw NWB file on DANDI."),
+    "processed": ("The session's trials and behavior: the visual decision task's trials, wheel "
+                  "movements, pupil diameter, licks, video motion energy and pose, and the passive "
+                  "stimuli, with the units of IBL's 2024 spike sorting. The session's processed "
+                  "NWB file on DANDI."),
+}
+
+
+def write_nwb_file(session_, group: str, nwb: DandiFile, description: str | None = None) -> None:
     """Write one NWB file whole at ``group``, its chunks referenced at DANDI.
 
     shadowzarr reads the headers over HTTPS; the references name the ``s3://``
@@ -152,6 +166,11 @@ def write_nwb_file(session_, group: str, nwb: DandiFile) -> None:
     covers.
     """
     rfs = name_dimensions(under_group(nwb_references(nwb.https), group))
+    if description:
+        key = f"{group.strip('/')}/zarr.json" if group.strip("/") else "zarr.json"
+        root = json.loads(rfs["refs"][key])
+        root["attributes"]["description"] = description
+        rfs["refs"][key] = json.dumps(root, separators=(",", ":"))
     for key, value in rfs["refs"].items():
         parent = rfs["refs"].get(key.removesuffix("/data/zarr.json") + "/zarr.json", "")
         if key.endswith("/data/zarr.json") and '"neurodata_type":"ElectricalSeries"' in parent:
@@ -272,7 +291,8 @@ def spike_sorting(eid: str, probe: str, sort: str):
         groups={obj: ManifestGroup(arrays=arrays, attributes={"alf_object": obj})
                 for obj, arrays in groups.items()},
         attributes={
-            "description": "Kilosort 2.5 (pykilosort) output in IBL's ALF layout",
+            "description": f"The spike sorting of {probe} in IBL's {sort} release, by IBL's "
+                           "Kilosort 2.5 pipeline (pykilosort)",
             "sort": sort,
             "ibl_revision": revision,
             "ibl_release_cache": SORTS[sort]["cache"],
@@ -300,16 +320,21 @@ def clusters_uuids(eid: str, probe: str, sort: str) -> np.ndarray:
 # native arrays written with zarr.
 
 ROOT_ATTRS = {
-    "title": "IBL Brain-Wide Map: Neuropixels recordings, behavior and spike sorting",
+    "title": "International Brain Laboratory Brain-Wide Map",
     "description": (
-        "Neuropixels recordings from mice performing a visual decision task, recorded by "
-        "the International Brain Laboratory. Each session is a group sub-<subject>/ses-<eid>, "
-        "named as on DANDI. In it, raw and processed are DANDI's two NWB files for the "
-        "session, each an NWBFile group in the NWB Zarr v3 convention of hdmf-zarr 0.14, and "
-        "alf/<probe>/pykilosort is IBL's spike sorting as ALF objects. Every array names its "
-        "dimensions, so zarr and xarray read any group. hdmf-zarr's NWBZarrIO opens only a "
-        "store's root, so it cannot yet open a session's NWB group in this store. Arrays "
-        "reference the original files on DANDI and in the IBL public bucket."
+        "Neuropixels recordings from mice making visual decisions, by the International "
+        "Brain Laboratory: on each trial a grating appears on the left or right of a screen, "
+        "and the mouse turns a wheel to bring it to the center for a reward. Each session has "
+        "the raw voltage of one or two probes, as an action potential band (30 kHz) and a "
+        "local field potential band (2.5 kHz) over 384 channels, with every channel's position "
+        "on the probe and brain region; the spike sorting of each probe, IBL's 2022 sort "
+        "(tag sort-2022) and its 2024 re-sort (tag sort-2024, and main); and the session's "
+        "behavior: trials, wheel, pupil, licks, pose and passive stimuli. Sessions are "
+        "sub-<subject>/ses-<session id>, as on DANDI. In each, raw and processed hold the "
+        "session's NWB files and alf/<probe>/pykilosort its spike sorting. Every array names "
+        "its dimensions, so zarr and xarray open any group. To open a session with pynwb, "
+        "hdmf-zarr has to be able to open a group inside a store, which it cannot yet; until "
+        "then, read the NWB groups with zarr or xarray."
     ),
     "license": "CC-BY-4.0",
     "citation": [
@@ -321,6 +346,13 @@ ROOT_ATTRS = {
         "nwb": "https://dandiarchive.org/dandiset/000409/0.260309.1324",
         "spike_sorting": "s3://ibl-brain-wide-map-public/data/",
     },
+    "layout": (
+        "Chunks are read from the original files: DANDI 000409's NWB files and the IBL "
+        "public bucket's ALF files, each reference pinned to its file's ETag. The NWB files "
+        "are written whole in the unified NWB Zarr v3 convention of hdmf-zarr 0.14, as "
+        "shadowzarr maps them. ALF objects are groups whose arrays share the object's first "
+        "axis. See LAYOUTS.md in github.com/earth-mover/minus-80, ingests/ibl-brain-wide-map."
+    ),
     "conventions": (
         "NWB files in the unified NWB Zarr v3 convention (hdmf-zarr 0.14); xarray "
         "dimension_names on every array; CF scale_factor/add_offset/units on voltages. "
@@ -350,7 +382,7 @@ def write_sorting(store, session: dict, probe: str, sort: str) -> None:
     array = clusters.create_array("uuids", shape=uuids.shape, dtype=str,
                                   dimension_names=("cluster",), overwrite=True)
     array[:] = uuids
-    probe_group.attrs.update({"description": f"IBL's ALF collection alf/{probe}"})
+    probe_group.attrs.update({"description": f"Spike sorting of {probe}"})
 
 
 def held_sorts(repo, session: dict, probes: list[str]) -> list[str | None]:
@@ -379,6 +411,34 @@ def written(repo, session: dict, probes: list[str], sort: str, sorting_only: boo
     return all(name in group for name in NWB_FILES)
 
 
+#: The Allen CCF's coarsest division of the brain (IBL's "Cosmos" mapping), by
+#: acronym. ``root`` and ``void`` mark channels outside any labeled region.
+COSMOS = {
+    "Isocortex": "isocortex", "OLF": "olfactory areas", "HPF": "hippocampal formation",
+    "CTXsp": "cortical subplate", "CNU": "cerebral nuclei", "TH": "thalamus",
+    "HY": "hypothalamus", "MB": "midbrain", "HB": "hindbrain", "CB": "cerebellum",
+}
+
+
+def probe_regions(store, group: str, probes: list[str]) -> dict[str, list[str]]:
+    """The brain regions each probe's channels sit in, most channels first.
+
+    Read from the raw NWB file's IBL electrode localization, already in the store.
+    """
+    try:
+        table = zarr.open_group(store, mode="r",
+                                path=f"{group}/raw/general/localization/ElectrodesIBLBregma")
+    except zarr.errors.GroupNotFoundError:
+        say(f"  {group}: no IBL electrode localization in the raw NWB file; no regions named")
+        return {probe: [] for probe in probes}
+    names, places = table["probe_name"][:], table["cosmos_location"][:]
+    regions = {}
+    for probe in probes:
+        counts = collections.Counter(str(c) for c in places[names == probe.capitalize()])
+        regions[probe] = [COSMOS[c] for c, _ in counts.most_common() if c in COSMOS]
+    return regions
+
+
 def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bool) -> str:
     """Write one session in its own commit; return the snapshot id.
 
@@ -391,23 +451,20 @@ def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bo
     zarr.open_group(store, mode="a").attrs.update(ROOT_ATTRS)
     attrs = {k: session[k] for k in ("eid", "lab", "subject", "date", "number",
                                      "task_protocol", "session_path")}
-    attrs["description"] = (
-        f"IBL session {eid}: subject {session['subject']}, {session['lab']}, "
-        f"{session['date']} number {session['number']}. raw and processed are DANDI's "
-        "raw and processed NWB files; alf holds IBL's spike sorting per probe.")
     subject = session["group"].split("/")[0]
     zarr.open_group(store, path=subject, mode="a").attrs.update({
         "subject": session["subject"],
-        "description": f"IBL subject {session['subject']} (DANDI {subject}): one group per "
-                       "recording session, ses-<eid>"})
+        "description": f"Mouse {session['subject']} ({session['lab']}): its recording sessions, "
+                       "one group per session"})
     zarr.open_group(store, path=session["group"], mode="a")
     zarr.open_group(store, path=f"{session['group']}/alf", mode="a").attrs["description"] = (
-        "IBL's spike sorting for each probe, at IBL's own collection path "
-        "alf/<probe>/pykilosort, as ALF objects (spikes, clusters, channels, templates)")
+        "Spike sorting of each probe by IBL's Kilosort 2.5 pipeline (pykilosort): every spike's "
+        "time, cluster, amplitude and depth, and each cluster's channel, depth, amplitude and "
+        "waveform")
     if not sorting_only:
         for name in NWB_FILES:
             nwb = dandi_file(eid, name)
-            write_nwb_file(session_, f"{session['group']}/{name}", nwb)
+            write_nwb_file(session_, f"{session['group']}/{name}", nwb, NWB_DESCRIPTIONS[name])
             attrs[f"{name}_nwb"] = {"dandi_path": nwb.path, "url": nwb.url,
                                     "sha256": nwb.sha256, "size": nwb.size}
             say(f"  {name} NWB written: {nwb.path} ({nwb.size / 1e9:.1f} GB)")
@@ -421,11 +478,20 @@ def write_session(repo, eid: str, probes: list[str], sort: str, sorting_only: bo
     for probe in probes:
         write_sorting(store, session, probe, sort)
         say(f"  {probe} {sort} sort written")
+    regions = probe_regions(store, session["group"], probes)
+    attrs["brain_regions"] = regions
+    attrs["description"] = (
+        f"Recording session {session['number']} of mouse {session['subject']} "
+        f"({session['lab']}, {session['date']}): "
+        + "; ".join(f"{probe} in {', '.join(names) or 'no labeled region'}"
+                    for probe, names in regions.items())
+        + ". raw holds the probes' raw voltage; processed the trials, behavior and IBL's 2024 "
+          "units; alf each probe's spike sorting.")
     zarr.open_group(store, path=session["group"], mode="a").attrs.update(attrs)
-    revision = SORTS[sort]["revision"].strip("/") or "the default revision"
-    message = (f"IBL Brain-Wide Map: {session['group']}: "
-               + (f"the {sort} spike sorting ({revision})" if sorting_only else
-                  f"the raw and processed NWB files and the {sort} spike sorting ({revision})"))
+    who = f"mouse {session['subject']}, {session['date']} session {session['number']}"
+    message = (f"IBL Brain-Wide Map: {who}: "
+               + (f"the {sort} spike sorting of each probe" if sorting_only else
+                  f"raw voltage, trials and behavior, and the {sort} spike sorting of each probe"))
     started = time.monotonic()
     snapshot = commit(session_, message, metadata={
         "session": eid, "sort": sort, "probes": probes, "nwb": not sorting_only})
