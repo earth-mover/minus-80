@@ -159,10 +159,11 @@ def test_the_container_and_root_describe_both_challenges(both):
 
 
 def test_camelyon17_is_committed_in_batches_each_with_a_whole_table(both, repo):
+    assert len(dict(both["CAMELYON17"].attrs)["annotations"]["slide"]) == len(fixture.SLIDES_17)
     messages = [s.message for s in open_repository(repo).ancestry(branch="main")]
     batches = [m for m in messages if m.startswith("CAMELYON17: add")]
-    assert batches == ["CAMELYON17: add 1 slide (patient_100_node_0 to patient_100_node_0); the container now holds 4 slides",
-                       "CAMELYON17: add 3 slides (patient_000_node_0 to patient_080_node_0); the container now holds 3 slides"]
+    assert batches == ["CAMELYON17: add 1 slide (patient_100_node_0 to patient_100_node_0)",
+                       "CAMELYON17: add 3 slides (patient_000_node_0 to patient_080_node_0)"]
 
 
 def test_verify_passes(both, repo, source):

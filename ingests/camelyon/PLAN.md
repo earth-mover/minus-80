@@ -199,7 +199,7 @@ no adopted replacement for a set of unrelated images: a `scene` is for images
 in one spatial frame, and RFC-8 (collections) is in review. So `CAMELYON17/`
 is a plain group: its images are the multiscale groups under it, and its
 slide table lists them. `minus80.ome.hierarchy` reads a group with no
-collection or plate that way. *Decided by Ian: 0.6, no layout.*
+collection, plate or scene that way. *Decided by Ian: 0.6, no layout.*
 
 **3. Labels in attributes.** AGENTS.md sends tabular data without a Zarr
 convention to an Iceberg table. The slide table has a convention here:

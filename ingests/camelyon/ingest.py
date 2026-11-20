@@ -969,8 +969,7 @@ def run(location: str, challenge: Challenge, requested: list[str] | None, source
             rebuilt = [s for s in part if s in replace]
             parts = [f"add {len(added)} slide{'s' * (len(added) != 1)} ({added[0]} to {added[-1]})" if added else "",
                      f"rebuild {', '.join(rebuilt)}" if rebuilt else ""]
-            message = (f"{challenge.name}: {' and '.join(p for p in parts if p)}; "
-                       f"the container now holds {held} slides")
+            message = f"{challenge.name}: {' and '.join(p for p in parts if p)}"
             committing = time.monotonic()
             snapshot = commit(session, message)
         say(f"committed {snapshot} in {time.monotonic() - committing:.0f} s; "
