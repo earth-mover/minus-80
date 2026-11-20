@@ -106,3 +106,25 @@ def test_write_pinned_refuses_a_rewritten_source(tmp_path, range_server):
     range_server.etags["/data.bin"] = '"two"'
     with pytest.raises(Exception, match="checksum of the object owning the virtual chunk has changed"):
         read()
+
+
+def test_storage_refuses_a_location_it_cannot_open(tmp_path):
+    import pytest
+
+    from minus80.core.icechunk_io import storage_for
+
+    for location in ("arraylake://org/repo", "gs://bucket/repo", "https://host/repo"):
+        with pytest.raises(ValueError, match="not"):
+            storage_for(location)
+    storage_for(tmp_path / "repo")
+    storage_for(f"file://{tmp_path}/repo")
+
+
+def test_open_repository_hands_an_arraylake_name_to_arraylake(monkeypatch):
+    from minus80.core import icechunk_io
+
+    seen = []
+    monkeypatch.setattr(icechunk_io, "arraylake_repository",
+                        lambda location, source_prefixes=None: seen.append(location) or "repo")
+    assert icechunk_io.open_repository("arraylake://org/repo") == "repo"
+    assert seen == ["arraylake://org/repo"]

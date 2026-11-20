@@ -207,6 +207,9 @@ def _arrays(group: ManifestGroup, path: str):
 def storage_for(location: str | Path):
     """Icechunk storage for a local directory or an ``s3://bucket/prefix`` URL.
 
+    Any other scheme raises ``ValueError``, so an Arraylake location or a
+    mistyped URL is not taken for a local directory of that name.
+
     An ingest run on a cloud worker has to leave its repo somewhere that outlives
     the worker, so the repo location may be an S3 prefix as well as a path. S3
     credentials come from the environment, the region as for
@@ -215,7 +218,15 @@ def storage_for(location: str | Path):
     import icechunk
 
     text = str(location)
-    if not text.startswith("s3://"):
+    scheme = urlparse(text).scheme
+    # A one-letter scheme is a Windows drive, as in C:/repo.
+    if scheme not in ("", "s3", "file") and len(scheme) > 1:
+        raise ValueError(
+            f"{text}: a repo location is a local path or an s3:// URL, not {scheme}://; "
+            f"open an Arraylake repo with open_repository or arraylake_repository")
+    if scheme == "file":
+        text = urlparse(text).path
+    if scheme != "s3":
         return icechunk.Storage.new_local_filesystem(str(Path(text).resolve()))
     bucket, _, prefix = text[len("s3://") :].partition("/")
     return icechunk.s3_storage(
@@ -341,15 +352,19 @@ def write_manifest_group(
 def open_repository(repo_path: str | Path, *, source_prefixes: list[str] | None = None):
     """Reopen a persisted Icechunk repo, authorized to follow its virtual chunks.
 
-    ``repo_path`` is a local directory or an ``s3://bucket/prefix`` URL. Returns
-    the :class:`icechunk.Repository` itself, for a caller that writes to it or
-    picks its own session; :func:`open_repo` is the read-only group on top.
+    ``repo_path`` is a local directory, an ``s3://bucket/prefix`` URL, or an
+    ``arraylake://<org>/<repo>`` name, which :func:`arraylake_repository`
+    opens. Returns the :class:`icechunk.Repository` itself, for a caller that
+    writes to it or picks its own session; :func:`open_repo` is the read-only
+    group on top.
     Unless ``source_prefixes`` is given, the prefixes to authorize are read
     from the repo's own config. When any is remote, the session reads with at
     least :data:`REMOTE_READ_TRIES` tries, whatever the stored config says.
     """
     import icechunk
 
+    if str(repo_path).startswith(ARRAYLAKE):
+        return arraylake_repository(str(repo_path), source_prefixes=source_prefixes)
     storage = storage_for(repo_path)
     if source_prefixes is None:
         containers = (
