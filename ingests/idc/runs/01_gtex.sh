@@ -21,8 +21,8 @@
 #
 # Not yet run. Arraylake is set up (2026-11-20): the bucket config
 # idc-open-data, its public access policy, and the repo
-# earthmover-biology/idc-gtex with the container s3://idc-open-data/. Still
-# needed: the ingest token's write grant on idc-gtex.
+# earthmover-biology/idc-gtex with the container s3://idc-open-data/, and
+# the ingest token's write grant on idc-gtex.
 #
 # After the job, from a laptop with core-drill: verify.py --pins on the
 # repo; then tag the verified snapshot idc-v25 in Icechunk, push the git tag
