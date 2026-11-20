@@ -1443,6 +1443,7 @@ dependencies = [
     { name = "arro3-core" },
     { name = "minus-80", extra = ["nwb", "tiff"] },
     { name = "obstore" },
+    { name = "pandas" },
 ]
 
 [package.dev-dependencies]
@@ -1457,6 +1458,7 @@ requires-dist = [
     { name = "arro3-core" },
     { name = "minus-80", extras = ["nwb", "tiff"], editable = "." },
     { name = "obstore" },
+    { name = "pandas" },
 ]
 
 [package.metadata.requires-dev]

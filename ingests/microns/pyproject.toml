@@ -8,6 +8,7 @@ dependencies = [
     "arro3-core",
     "minus-80[nwb,tiff]",
     "obstore",
+    "pandas",
 ]
 
 [tool.uv]

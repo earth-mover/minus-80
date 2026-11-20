@@ -15,7 +15,11 @@ What the ingest relies on is reproduced at a smaller size:
   the field's frames transposed, every series carrying the same timestamps,
   the rate only in the description, and an imaging plane per field holding
   its center and depth in ``origin_coords`` and its pixel size in
-  ``grid_spacing``, in meters.
+  ``grid_spacing``, in meters;
+- per field, a ``PlaneSegmentation<n>`` of ``ROIS[n - 1]`` overlapping ROI
+  weight masks, transposed like the movie and ids 1 to n, and a
+  ``RoiResponseSeries<n>`` of traces, as the DANDI files lay out the
+  processed data.
 
     uv run --package microns-ingest python ingests/microns/fixture.py <dir>
 """
@@ -37,11 +41,14 @@ PIXEL_M = 2.5e-6
 CENTERS_M = [(-4.85e-4, -2.35e-4, 8e-5), (9.5e-5, -2.35e-4, 8e-5),
              (-4.85e-4, -2.35e-4, 2.2e-4), (9.5e-5, -2.35e-4, 2.2e-4)]
 ANIMAL, SESSION, SCAN = 17797, 4, 7
+#: ROIs per field; their sum is the scan's unit count.
+ROIS = (3, 5, 2, 4)
 
 
 @dataclass(frozen=True)
 class Truth:
     pages: np.ndarray
+    masks: dict[int, np.ndarray]
     times: np.ndarray
     tiffs: dict[int, Path]
     nwb: Path
@@ -59,13 +66,25 @@ def build(directory: Path) -> Truth:
                      resolution=(1, 1), resolutionunit="NONE")
     tifffile.imwrite(tiffs[2], pages, bigtiff=True, photometric="minisblack")
     nwb = directory / f"sub-{ANIMAL}_ses-{SESSION}-scan-{SCAN}_behavior+image+ophys.nwb"
-    write_nwb(nwb, pages, times)
-    return Truth(pages=pages, times=times, tiffs=tiffs, nwb=nwb)
+    masks = {n: roi_masks(rng, ROIS[n - 1]) for n in range(1, FIELDS + 1)}
+    write_nwb(nwb, pages, times, masks)
+    return Truth(pages=pages, masks=masks, times=times, tiffs=tiffs, nwb=nwb)
 
 
-def write_nwb(path: Path, pages: np.ndarray, times: np.ndarray) -> None:
+def roi_masks(rng, count: int) -> np.ndarray:
+    """``count`` weight masks, (roi, rows, columns): overlapping blobs of positive weights."""
+    masks = np.zeros((count, ROWS, COLUMNS), dtype=np.float32)
+    for r in range(count):
+        top, left = rng.integers(0, ROWS - 4), rng.integers(0, COLUMNS - 4)
+        masks[r, top:top + 5, left:left + 5] = rng.uniform(0.01, 3, (5, 5))
+    return masks
+
+
+def write_nwb(path: Path, pages: np.ndarray, times: np.ndarray, masks: dict[int, np.ndarray]) -> None:
     """The parts of a DANDI 000402 NWB file the ingest reads, laid out as those files lay them out."""
     with h5py.File(path, "w") as f:
+        f.attrs["neurodata_type"] = "NWBFile"
+        f.attrs["namespace"] = "core"
         device = f.create_group("general/devices/Mesoscope")
         device.attrs["description"] = "two-photon random access mesoscope"
         for n in range(1, FIELDS + 1):
@@ -91,6 +110,16 @@ def write_nwb(path: Path, pages: np.ndarray, times: np.ndarray) -> None:
             series["field_of_view"] = np.array([COLUMNS * PIXEL_M, ROWS * PIXEL_M])
             series["dimension"] = np.array([ROWS, COLUMNS])
             series["imaging_plane"] = h5py.SoftLink(f"/general/optophysiology/ImagingPlane{n}")
+            table = f.create_group(f"processing/ophys/ImageSegmentation/PlaneSegmentation{n}")
+            table.attrs["neurodata_type"] = "PlaneSegmentation"
+            table.create_dataset("image_mask", data=masks[n].transpose(0, 2, 1), chunks=(2, 4, 4),
+                                 compression="gzip")
+            table["id"] = np.arange(1, len(masks[n]) + 1)
+            traces = f.create_group(f"processing/ophys/Fluorescence/RoiResponseSeries{n}")
+            traces.attrs["neurodata_type"] = "RoiResponseSeries"
+            traces.create_dataset("data", data=np.arange(VOLUMES * len(masks[n]), dtype=np.float32)
+                                  .reshape(VOLUMES, len(masks[n])), chunks=(10, 2), compression="gzip")
+            traces["timestamps"] = times
 
 
 if __name__ == "__main__":

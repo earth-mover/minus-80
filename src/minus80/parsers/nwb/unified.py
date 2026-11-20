@@ -62,7 +62,8 @@ def name_dimensions(rfs: dict, *, channel_series: Callable[[dict], bool] | None 
 
     - in a TimeSeries, ``data`` and every array as long as its ``timestamps``
       start with ``time``; an ElectricalSeries' ``data`` then has ``channel``,
-      the axis its ``electrodes`` region runs along;
+      the axis its ``electrodes`` region runs along, and a RoiResponseSeries'
+      ``data`` has ``roi``, the axis its ``rois`` region runs along;
     - in a table (a group with ``id``), every column as long as ``id`` starts
       with the table's own name;
     - any other axis is ``<array>_dim<n>``, so every group still opens in xarray.
@@ -96,10 +97,14 @@ def name_dimensions(rfs: dict, *, channel_series: Callable[[dict], bool] | None 
             names[0] = "time"
             if group_type == "ElectricalSeries" and name == "data" and len(shape) > 1:
                 names[1] = "channel"
+            if group_type == "RoiResponseSeries" and name == "data" and len(shape) > 1:
+                names[1] = "roi"
         elif shape and rows is not None and shape[0] == rows:
             names[0] = parent.rpartition("/")[2]
         if group_type == "ElectricalSeries" and name == "electrodes":
             names = ["channel"]
+        if group_type == "RoiResponseSeries" and name == "rois":
+            names = ["roi"]
         meta["dimension_names"] = names
         refs[f"{path}/zarr.json"] = json.dumps(meta, separators=(",", ":"))
     return rfs

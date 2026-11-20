@@ -86,3 +86,22 @@ def pynwb_file(path):
             yield io.read()
 
     return opened()
+
+
+def test_a_roi_response_series_shares_its_roi_axis_with_its_rois_region():
+    import json
+
+    def array(shape):
+        return json.dumps({"node_type": "array", "shape": list(shape), "attributes": {}})
+
+    rfs = {"refs": {
+        "processing/ophys/Fluorescence/RoiResponseSeries1/zarr.json": json.dumps(
+            {"node_type": "group", "attributes": {"neurodata_type": "RoiResponseSeries"}}),
+        "processing/ophys/Fluorescence/RoiResponseSeries1/data/zarr.json": array((40, 3)),
+        "processing/ophys/Fluorescence/RoiResponseSeries1/timestamps/zarr.json": array((40,)),
+        "processing/ophys/Fluorescence/RoiResponseSeries1/rois/zarr.json": array((3,)),
+    }}
+    refs = name_dimensions(rfs)["refs"]
+    names = {key.split("/")[-2]: json.loads(value)["dimension_names"]
+             for key, value in refs.items() if '"array"' in value}
+    assert names == {"data": ["time", "roi"], "timestamps": ["time"], "rois": ["roi"]}
