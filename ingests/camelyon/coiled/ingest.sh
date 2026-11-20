@@ -21,5 +21,5 @@ export PYTHONUNBUFFERED=1 RUST_LOG=error MINUS80_S3_ANONYMOUS=1
 # Memory from its own loop, so a job that stalls inside one call still reports.
 (while sleep 60; do echo "$(date -u +%T) memory used $(free -g | awk '/Mem/ {print $3}') GB"; done) &
 .venv/bin/python -X faulthandler ingest.py --challenge "$CHALLENGE" --repo "$TARGET" --threads 32
-.venv/bin/python verify.py --challenge "$CHALLENGE" --repo "$TARGET" --pixels 5
+.venv/bin/python verify.py --challenge "$CHALLENGE" --repo "$TARGET"
 echo "end $(date -u +%FT%TZ)"

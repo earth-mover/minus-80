@@ -170,7 +170,7 @@ def test_verify_passes(both, repo, source):
     src, _ = source
     for challenge in ("CAMELYON16", "CAMELYON17"):
         with pytest.raises(SystemExit) as exit_:
-            verify.main(["--repo", repo, "--challenge", challenge, "--source", src.root, "--pixels", "4"])
+            verify.main(["--repo", repo, "--challenge", challenge, "--source", src.root, "--sample", "4"])
         assert exit_.value.code is False
 
 

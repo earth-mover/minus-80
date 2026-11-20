@@ -15,8 +15,17 @@
 # - About 67 s per batch: parsing about 40 s, commit 24 s.
 # - Stopped by Ian after the second batch.
 # Resumed from the same commit, e4ce76d, as Coiled batch job
-# camelyon-ingest-055457 (cluster 2412241), which skips the 200 slides
-# already committed. Its result is recorded here when it lands.
+# camelyon-ingest-055457 (cluster 2412241), which skipped the 200 slides
+# already committed and wrote the other 800 in eight more batches of 100.
+# - All 1,000 slides in ten commits, the last 167NG8HR4B61CR3CHYM0
+#   (06:04:57 UTC); CAMELYON16 unchanged.
+# - verify.py then checked every slide's metadata and began comparing
+#   tiles; Ian stopped it after 4 slides' pixels had passed, more than 6
+#   minutes after the last commit. That verify decoded a whole coarse level
+#   per slide and rebuilt all 50 outline sets against their masks, and the
+#   provenance gate lists every chunk reference in the store; the repo's rule
+#   is about a minute. verify.py now checks five sampled slides, one tile
+#   each, and leaves out the provenance gate.
 #
 # The code at e4ce76d writes each batch's message with the container's
 # running total ("...; the container now holds N slides"); later code

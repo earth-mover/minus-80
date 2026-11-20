@@ -2,23 +2,29 @@
 
 ``test_ingest.py`` checks the ingest's code on a small fixture, where every
 tile is cheap to compare. This script checks what depends on the real
-archive, in about a minute and a few hundred range requests:
+archive, in about a minute. The metadata of every slide is checked; the
+references and pixels of a sample of about five slides spread over the
+centers and TIFF dialects, one tile each, because each sampled slide costs
+two TIFF header walks and a few range reads:
 
 - ``complete``: every slide asked for is in the store, with a mask exactly
   where the bucket has one and outlines exactly where it has an XML, and its
   row agrees with the challenge's label table. No TIFF is read.
-- ``outlines``: each outline table rebuilds its ASAP XML byte for byte, with
-  the MD5 that ``checksums.md5`` lists, and its GeoJSON agrees with the
-  mask's tumor pixels away from the outlines' edges.
-- ``pixels``: on a few slides, one of each TIFF dialect where the sample has
-  it, the middle tile of level 0, the whole coarsest level and the middle
-  stored mask tile read through the store equal tifffile's decode of the
-  same region; derived mask levels have the image's shape and only values
-  the mask file has.
-- the OME-Zarr gates of ``minus80.ome.verify``.
+- ``outlines``, on the sample's annotated slides: each outline table
+  rebuilds its ASAP XML byte for byte, with the MD5 that ``checksums.md5``
+  lists, and its GeoJSON agrees with the mask's tumor pixels away from the
+  outlines' edges, on a coarse level.
+- ``pixels``, on the sample: the middle tile of level 0 and one stored mask
+  tile read through the store equal tifffile's decode of the same region,
+  which also checks those references and the ``source_url`` they read; one
+  chunk of each derived mask level holds only the label's values.
+- the OME-Zarr gates of ``minus80.ome.verify`` on every image's metadata.
+  The ``provenance`` gate is left out: it lists every chunk reference in
+  the store, about 150 million here. ``levels aligned`` reads whole small
+  levels, so it runs on three images.
 
     uv run --package camelyon-ingest python ingests/camelyon/verify.py \\
-        --repo <dir | arraylake://org/repo> --challenge CAMELYON17 [--slides a,b] [--pixels 3]
+        --repo <dir | arraylake://org/repo> --challenge CAMELYON17 [--slides a,b] [--sample 5]
 """
 
 from __future__ import annotations
@@ -109,8 +115,6 @@ def outlines(root, challenge, slides, ctx, source: Source) -> list[str]:
     problems = []
     for slide in slides:
         path = f"{slide_path(challenge, slide)}/shapes"
-        if path not in root:
-            continue
         g = root[path]
         table = {k: g[k][:] for k in ("coords", "offset0", *asap.COLUMNS)}
         table["groups"] = dict(g.attrs)["asap_groups"]
@@ -137,15 +141,28 @@ def tifffile_level(level) -> zarr.Array:
     return ref["0"] if isinstance(ref, zarr.Group) else ref
 
 
-def pixel_sample(root, challenge, slides, n: int) -> list[str]:
-    """Up to ``n`` slides, taking one of each TIFF dialect first."""
-    by_kind: dict[str, list[str]] = {}
+def sample(root, challenge, slides, n: int, *, need: str) -> list[str]:
+    """Up to ``n`` slides that hold ``need`` (``"mask"`` or ``"shapes"``), spread over centers and TIFF dialects.
+
+    Slides are taken one from each (center, dialect) pair in turn, so five
+    CAMELYON17 slides cover the five centers, and the Philips files among
+    them.
+    """
+    groups: dict[tuple, list[str]] = {}
     for slide in slides:
-        kind = "philips" if "scanned_um" in dict(root[f"{slide_path(challenge, slide)}/image"].attrs)["pixel_size"] else "generic"
-        by_kind.setdefault(kind, []).append(slide)
-    picked = [group[0] for group in by_kind.values()]
-    rest = [s for s in slides if s not in picked]
-    return (picked + rest)[:n]
+        group = root[slide_path(challenge, slide)]
+        row = dict(group.attrs)["annotations"]
+        held = "labels" in group["image"] if need == "mask" else need in group
+        if not held:
+            continue
+        philips = "scanned_um" in dict(group["image"].attrs)["pixel_size"]
+        groups.setdefault((row.get("center"), philips), []).append(slide)
+    picked = []
+    while len(picked) < n and any(groups.values()):
+        for members in groups.values():
+            if members and len(picked) < n:
+                picked.append(members.pop(len(members) // 2))
+    return picked
 
 
 def pixels(root, challenge, slides, source: Source) -> list[str]:
@@ -155,12 +172,11 @@ def pixels(root, challenge, slides, source: Source) -> list[str]:
         tf = source.open_tiff(f"{challenge.prefix}images/{slide}.tif")
         levels = tf.series[0].levels
         image = root[f"{path}/image"]
-        top, bottom = image["0"], image[str(len(levels) - 1)]
+        top = image["0"]
         th, tw = top.chunks[1:]
         my, mx = top.shape[1] // 2 // th * th, top.shape[2] // 2 // tw * tw
         checks = {
             "level 0 middle tile": same_region(top, tifffile_level(levels[0]), slice(my, my + th), slice(mx, mx + tw)),
-            f"level {len(levels) - 1} whole": same_region(bottom, tifffile_level(levels[-1]), slice(None), slice(None)),
         }
         if "labels" in image:
             mask = image["labels/mask"]
@@ -173,9 +189,9 @@ def pixels(root, challenge, slides, source: Source) -> list[str]:
             checks["mask level 0 stored tile"] = same_region(
                 mask["0"], tifffile_level(mtf.series[0].levels[0]),
                 slice(ty * mh, ty * mh + mh), slice(tx * mw, tx * mw + mw))
-            values = set(np.unique(mtf.series[0].levels[-1].asarray()).tolist())
+            values = {p["label-value"] for p in dict(mask.attrs)["ome"]["image-label"]["properties"]}
             for k in dict(mask.attrs).get("derived_levels", {}):
-                derived = set(np.unique(mask[k][:]).tolist())
+                derived = set(np.unique(mask[k][:mh, :mw]).tolist())
                 checks[f"derived mask level {k}"] = (derived <= values and
                                                      mask[k].shape[0] >= image[k].shape[1] and
                                                      mask[k].shape[1] >= image[k].shape[2])
@@ -198,7 +214,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--repo", required=True)
     ap.add_argument("--challenge", choices=sorted(CHALLENGES), required=True)
     ap.add_argument("--slides", help="comma-separated slides to check; default every slide in the store")
-    ap.add_argument("--pixels", type=int, default=3, help="slides whose tiles are compared with tifffile")
+    ap.add_argument("--sample", type=int, default=5,
+                    help="slides whose outlines, references and pixels are checked")
     ap.add_argument("--source", default=SOURCE)
     args = ap.parse_args(argv)
     started = time.monotonic()
@@ -212,16 +229,21 @@ def main(argv: list[str] | None = None) -> None:
     for label, check in [
         ("complete", lambda: complete(root, challenge, slides, ctx)),
         ("source files", lambda: source_files(root, challenge, source)),
-        ("outlines", lambda: outlines(root, challenge, slides, ctx, source)),
-        ("pixels", lambda: pixels(root, challenge, pixel_sample(root, challenge, slides, args.pixels), source)),
+        ("outlines", lambda: outlines(root, challenge, sample(root, challenge, slides, args.sample,
+                                                              need="shapes"), ctx, source)),
+        ("pixels", lambda: pixels(root, challenge, sample(root, challenge, slides, args.sample, need="mask"),
+                                  source)),
     ]:
         print(label)
+        began = time.monotonic()
         problems = check()
+        print(f"  ({label}: {time.monotonic() - began:.1f} s)")
         for problem in problems[:10]:
             print(f"  FAIL {problem}")
         failed += bool(problems)
     print("OME-Zarr gates")
-    failed += run_gates(root[challenge.name], dict(GATES), {"version": challenge.version, "sample": 10})
+    gates = {name: gate for name, gate in GATES.items() if name != "provenance"}
+    failed += run_gates(root[challenge.name], gates, {"version": challenge.version, "sample": 3})
     print(f"{'FAILED' if failed else 'all checks pass'} in {time.monotonic() - started:.0f} s")
     sys.exit(bool(failed))
 
