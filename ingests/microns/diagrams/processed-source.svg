@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="812" viewBox="0 0 1400 812">
+<rect x="0" y="0" width="1400" height="812" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Phase 2 source: processed data and EM matches</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">DANDI 000402, sub-17797_ses-4-scan-7_behavior+image+ophys.nwb; CAVE static dumps</text>
+<rect x="24.0" y="93.9" width="620.0" height="152.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="93.9" width="4" height="152.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="113.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">ImageSegmentation/PlaneSegmentation&lt;n&gt;</text>
+<text x="38.0" y="130.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field 4 of 8 shown</text>
+<text x="38.0" y="153.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image_mask</text>
+<text x="141.2" y="153.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 248, 440) float32, chunks (87, 16, 28) gzip</text>
+<text x="38.0" y="173.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">id</text>
+<text x="141.2" y="173.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389) int64, contiguous</text>
+<text x="38.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">mask_type</text>
+<text x="141.2" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389) object, contiguous</text>
+<text x="38.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pt_x_position</text>
+<text x="141.2" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389) float64, contiguous</text>
+<text x="38.0" y="233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pt_root_id</text>
+<text x="141.2" y="233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389) float64, contiguous</text>
+<rect x="24.0" y="259.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="259.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Fluorescence/RoiResponseSeries&lt;n&gt;</text>
+<text x="38.0" y="296.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field 4 of 8 shown</text>
+<text x="38.0" y="319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">data</text>
+<text x="120.1" y="319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 1,389) float32, chunks (625, 44) gzip</text>
+<text x="38.0" y="339.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">timestamps</text>
+<text x="120.1" y="339.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000) float64, chunks (1,250) gzip</text>
+<rect x="24.0" y="365.9" width="620.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="365.9" width="4" height="92.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="385.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">SegmentationImages&lt;n&gt;</text>
+<text x="38.0" y="402.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">field 4 of 8 shown</text>
+<text x="38.0" y="425.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">average</text>
+<text x="127.2" y="425.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(248, 440) float64, contiguous</text>
+<text x="38.0" y="445.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">correlation</text>
+<text x="127.2" y="445.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(248, 440) float64, contiguous</text>
+<rect x="24.0" y="471.9" width="620.0" height="96.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="471.9" width="4" height="96.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="491.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">acquisition: behavior</text>
+<text x="38.0" y="515.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">eye_position</text>
+<text x="176.3" y="515.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(104,227, 2) float64, chunks (3,258, 1) gzip</text>
+<text x="38.0" y="535.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">pupil_major_radius</text>
+<text x="176.3" y="535.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(104,227) float64, chunks (1,629) gzip</text>
+<text x="38.0" y="555.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">treadmill_velocity</text>
+<text x="176.3" y="555.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(480,032) float64, chunks (3,751) gzip</text>
+<rect x="24.0" y="581.9" width="620.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="581.9" width="4" height="76.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="601.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">acquisition: stimulus video</text>
+<text x="38.0" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">data</text>
+<text x="120.1" y="625.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054, 144, 256, 3) uint8, chunks (1, 144, 256, 3) gzip</text>
+<text x="38.0" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">timestamps</text>
+<text x="120.1" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054) float64, contiguous</text>
+<rect x="24.0" y="671.9" width="620.0" height="116.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="671.9" width="4" height="116.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="691.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">all 19 scans</text>
+<text x="38.0" y="715.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ROIs</text>
+<text x="183.3" y="715.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">168,971 in 144 fields</text>
+<text x="38.0" y="735.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">with NWB EM point</text>
+<text x="183.3" y="735.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9,434</text>
+<text x="38.0" y="755.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scan 4-7</text>
+<text x="183.3" y="755.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8,395 ROIs; fields 643, 452, 1455, 1389, 1420, 1411, 895, 730</text>
+<text x="38.0" y="775.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">objects in the file</text>
+<text x="183.3" y="775.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">364; full walk 761 s, 8,049 requests</text>
+<text x="664.0" y="107.9" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAVE match tables: rows when first seen, then % of root IDs changed</text>
+<line x1="664.0" y1="147.9" x2="1350.0" y2="147.9" stroke="#0f172a" stroke-width="1"/>
+<text x="672.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">table</text>
+<text x="942.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v343</text>
+<text x="994.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v661</text>
+<text x="1046.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v795</text>
+<text x="1098.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v943</text>
+<text x="1150.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v1078</text>
+<text x="1202.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v1181</text>
+<text x="1254.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v1412</text>
+<text x="1306.0" y="138.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">v1507</text>
+<text x="672.0" y="165.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">functional_coreg</text>
+<rect x="935.0" y="148.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="942.0" y="165.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9.5k</text>
+<line x1="664.0" y1="171.9" x2="1350.0" y2="171.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="189.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">func_unit_em_match_release</text>
+<rect x="935.0" y="172.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="942.0" y="189.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0.2k</text>
+<line x1="664.0" y1="195.9" x2="1350.0" y2="195.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">apl_coreg_forward_v5</text>
+<rect x="987.0" y="196.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="994.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">68.9k</text>
+<rect x="1039.0" y="196.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1046.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.4%</text>
+<line x1="664.0" y1="219.9" x2="1350.0" y2="219.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="237.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_manual_v3</text>
+<rect x="987.0" y="220.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="994.0" y="237.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">13.9k</text>
+<rect x="1039.0" y="220.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1046.0" y="237.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.7%</text>
+<rect x="1091.0" y="220.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1098.0" y="237.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">1.4%</text>
+<rect x="1143.0" y="220.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1150.0" y="237.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5.6%</text>
+<line x1="664.0" y1="243.9" x2="1350.0" y2="243.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_manual_v4</text>
+<rect x="1091.0" y="244.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1098.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">19.2k</text>
+<rect x="1143.0" y="244.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1150.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5.3%</text>
+<rect x="1195.0" y="244.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1202.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6.2%</text>
+<rect x="1247.0" y="244.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1254.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">12.3%</text>
+<rect x="1299.0" y="244.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1306.0" y="261.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.6%</text>
+<line x1="664.0" y1="267.9" x2="1350.0" y2="267.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">apl_coreg_vess_fwd</text>
+<rect x="1091.0" y="268.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1098.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">75.9k</text>
+<rect x="1143.0" y="268.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1150.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4.6%</text>
+<rect x="1195.0" y="268.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1202.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5.2%</text>
+<rect x="1247.0" y="268.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1254.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">10.9%</text>
+<rect x="1299.0" y="268.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1306.0" y="285.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.7%</text>
+<line x1="664.0" y1="291.9" x2="1350.0" y2="291.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="309.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_auto_p3</text>
+<rect x="1091.0" y="292.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1098.0" y="309.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">84.2k</text>
+<rect x="1143.0" y="292.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1150.0" y="309.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4.5%</text>
+<rect x="1195.0" y="292.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1202.0" y="309.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5.1%</text>
+<line x1="664.0" y1="315.9" x2="1350.0" y2="315.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="333.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_auto_p3_apl_vess</text>
+<rect x="1091.0" y="316.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1098.0" y="333.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">84.2k</text>
+<rect x="1143.0" y="316.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1150.0" y="333.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">4.5%</text>
+<rect x="1195.0" y="316.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1202.0" y="333.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5.0%</text>
+<line x1="664.0" y1="339.9" x2="1350.0" y2="339.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="357.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_auto_p3_v2</text>
+<rect x="1247.0" y="340.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1254.0" y="357.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">82.2k</text>
+<rect x="1299.0" y="340.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1306.0" y="357.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.3%</text>
+<line x1="664.0" y1="363.9" x2="1350.0" y2="363.9" stroke="#cbd5e1" stroke-width="1"/>
+<text x="672.0" y="381.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">coreg_auto_p3_apl_vess_v2</text>
+<rect x="1247.0" y="364.9" width="50.0" height="22.0" fill="#dcfce7"/>
+<text x="1254.0" y="381.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">83.0k</text>
+<rect x="1299.0" y="364.9" width="50.0" height="22.0" fill="#fef3c7"/>
+<text x="1306.0" y="381.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2.5%</text>
+<line x1="664.0" y1="387.9" x2="1350.0" y2="387.9" stroke="#cbd5e1" stroke-width="1"/>
+<rect x="664.0" y="401.9" width="133.3" height="18" rx="3" fill="#dcfce7"/>
+<text x="730.7" y="414.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="middle" xml:space="preserve">first version: rows</text>
+<rect x="815.3" y="401.9" width="114.8" height="18" rx="3" fill="#fef3c7"/>
+<text x="872.7" y="414.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#b45309" text-anchor="middle" xml:space="preserve">root IDs changed</text>
+</svg>

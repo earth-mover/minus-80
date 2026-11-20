@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1124" viewBox="0 0 1400 1124">
+<rect x="0" y="0" width="1400" height="1124" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Phase 2 store, one scan</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">proposed nodes beside phase 1's; tags after the run</text>
+<circle cx="24.0" cy="99.9" r="4.5" fill="#0f172a"/>
+<text x="35.0" y="104.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/4-7</text>
+<text x="35.0" y="120.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene: adds rois-n and summary-n</text>
+<line x1="159.6" y1="99.9" x2="378.0" y2="99.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 187.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="187.9" r="4.5" fill="#0f172a"/>
+<text x="57.0" y="192.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">field-n</text>
+<text x="121.3" y="192.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×8</text>
+<text x="57.0" y="208.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">phase 1</text>
+<line x1="143.9" y1="187.9" x2="378.0" y2="187.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 275.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="275.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="280.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">rois-n</text>
+<text x="113.0" y="280.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×8</text>
+<line x1="135.6" y1="275.9" x2="378.0" y2="275.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 383.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="383.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="388.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">summary-n</text>
+<text x="137.9" y="388.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×8</text>
+<line x1="160.6" y1="383.9" x2="378.0" y2="383.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 471.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="471.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="476.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">traces-n</text>
+<text x="129.6" y="476.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×8</text>
+<line x1="152.3" y1="471.9" x2="378.0" y2="471.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 599.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="599.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="604.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">units</text>
+<line x1="106.6" y1="599.9" x2="378.0" y2="599.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 707.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="707.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="712.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">behavior</text>
+<line x1="131.6" y1="707.9" x2="378.0" y2="707.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<path d="M 24.0 104.9 V 795.9 H 41.0" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="46.0" cy="795.9" r="4.5" fill="#15803d"/>
+<text x="57.0" y="800.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">stimulus</text>
+<line x1="131.6" y1="795.9" x2="378.0" y2="795.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<circle cx="24.0" cy="923.9" r="4.5" fill="#15803d"/>
+<text x="35.0" y="928.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#15803d" text-anchor="start" xml:space="preserve">tags</text>
+<text x="74.3" y="928.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">×10</text>
+<line x1="104.3" y1="923.9" x2="378.0" y2="923.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
+<rect x="380.0" y="85.9" width="960.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="85.9" width="4" height="72.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="105.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">two-photon/4-7</text>
+<text x="394.0" y="122.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">scene</text>
+<text x="394.0" y="145.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ome.scene</text>
+<text x="469.1" y="145.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">field-n, rois-n, summary-n placed in motor</text>
+<rect x="380.0" y="173.9" width="960.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="173.9" width="4" height="72.0" rx="2" fill="#1baf7a"/>
+<text x="394.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">field-n</text>
+<text x="394.0" y="210.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image</text>
+<text x="394.0" y="233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">0</text>
+<text x="413.0" y="233.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 1, 440, 248) int16 TIFF pages</text>
+<rect x="380.0" y="261.9" width="960.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="261.9" width="4" height="92.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="281.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">rois-n</text>
+<text x="394.0" y="298.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image</text>
+<text x="394.0" y="321.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">0</text>
+<text x="434.1" y="321.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(roi, z, y, x) float32, 1,389 ROIs in field 4</text>
+<text x="394.0" y="341.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">axes</text>
+<text x="434.1" y="341.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">roi (other), z, y, x µm</text>
+<rect x="380.0" y="369.9" width="960.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="369.9" width="4" height="72.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="389.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">summary-n</text>
+<text x="394.0" y="406.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">image</text>
+<text x="394.0" y="429.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">0</text>
+<text x="413.0" y="429.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(c, z, y, x) float64; c = average, correlation</text>
+<rect x="380.0" y="457.9" width="960.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="457.9" width="4" height="112.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="477.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">traces-n</text>
+<text x="394.0" y="494.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
+<text x="394.0" y="517.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">fluorescence</text>
+<text x="567.3" y="517.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(volume, roi) float32</text>
+<text x="394.0" y="537.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">roi, unit_id, mask_type</text>
+<text x="567.3" y="537.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(roi,)</text>
+<text x="394.0" y="557.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">nwb_em</text>
+<text x="567.3" y="557.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pt_* as the NWB states them, float64</text>
+<rect x="380.0" y="585.9" width="960.0" height="92.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="585.9" width="4" height="92.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="605.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">units</text>
+<text x="394.0" y="622.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
+<text x="394.0" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">unit_id, field, roi</text>
+<text x="539.3" y="645.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(8,395,) int64</text>
+<text x="394.0" y="665.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">em/&lt;table&gt;/</text>
+<text x="539.3" y="665.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">pt_root_id, pt_supervoxel_id, target_id, pt_position, residual, score</text>
+<rect x="380.0" y="693.9" width="960.0" height="72.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="693.9" width="4" height="72.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="713.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">behavior</text>
+<text x="394.0" y="730.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
+<text x="394.0" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">eye, pupil, treadmill</text>
+<text x="553.3" y="753.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">data and times, referenced</text>
+<rect x="380.0" y="781.9" width="960.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="781.9" width="4" height="112.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="801.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">stimulus</text>
+<text x="394.0" y="818.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">group</text>
+<text x="394.0" y="841.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">movie/0</text>
+<text x="455.1" y="841.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">image (t, c, y, x) uint8, (381,054, 3, 144, 256), one frame per chunk</text>
+<text x="394.0" y="861.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">times</text>
+<text x="455.1" y="861.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054,) float64</text>
+<text x="394.0" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">trials/</text>
+<text x="455.1" y="881.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Clip, Monet2, Trippy: one array per column</text>
+<rect x="380.0" y="909.9" width="960.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="380.0" y="909.9" width="4" height="132.0" rx="2" fill="#eb6834"/>
+<text x="394.0" y="929.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tags</text>
+<text x="394.0" y="946.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">icechunk</text>
+<text x="394.0" y="969.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">v1, v2</text>
+<text x="728.7" y="969.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">phase 1</text>
+<text x="394.0" y="989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processed</text>
+<text x="728.7" y="989.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">phase 2 data, EM matches as the NWB states them</text>
+<text x="394.0" y="1009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">cave-v343, cave-v661, cave-v795, cave-v943</text>
+<text x="728.7" y="1009.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one commit per CAVE version</text>
+<text x="394.0" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">cave-v1078, cave-v1181, cave-v1412, cave-v1507</text>
+<text x="728.7" y="1029.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve"></text>
+<rect x="24.0" y="1083.9" width="14" height="14" rx="3" fill="#1baf7a"/>
+<text x="44.0" y="1094.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">phase 1</text>
+<rect x="111.1" y="1083.9" width="14" height="14" rx="3" fill="#eb6834"/>
+<text x="131.1" y="1094.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">proposed</text>
+</svg>
