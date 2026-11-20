@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1422" viewBox="0 0 1180 1422">
+<rect x="0" y="0" width="1180" height="1422" fill="#ffffff"/>
+<text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Mapping: source files to store groups</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sub-ZM-2241/ses-465c44bd-2e67-4112-977b-36e1ac7e3f8c · probe00</text>
+<rect x="24.0" y="103.9" width="460.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="103.9" width="4" height="112.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="123.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw_ecephys.nwb</text>
+<text x="38.0" y="140.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sub-ZM-2241/</text>
+<text x="38.0" y="163.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="128.0" y="163.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DANDI</text>
+<text x="38.0" y="183.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">size</text>
+<text x="128.0" y="183.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">91.6 GB</text>
+<text x="38.0" y="203.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
+<text x="128.0" y="203.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">111 in the store</text>
+<path d="M 484.0 159.9 C 552.0 159.9 552.0 159.9 620.0 159.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,159.9 612.0,155.4 612.0,164.4" fill="#64748b"/>
+<rect x="515.2" y="150.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="163.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">whole file</text>
+<rect x="620.0" y="93.9" width="540.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="620.0" y="93.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="634.0" y="113.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">sub-ZM-2241/ses-465c44bd-2e67-4112-977b-36e1ac7e3f8c/raw</text>
+<text x="634.0" y="130.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">111 arrays</text>
+<text x="634.0" y="153.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ElectricalSeriesProbe00AP/data</text>
+<text x="934.0" y="153.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">108,136,563 × 384 int16</text>
+<text x="634.0" y="173.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ElectricalSeriesProbe00LF/data</text>
+<text x="934.0" y="173.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9,011,381 × 384 int16</text>
+<text x="634.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ElectricalSeriesProbe00AP/timestamps</text>
+<text x="934.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">108,136,563 float64</text>
+<rect x="625.0" y="199.9" width="534.0" height="20" fill="#dcfce7"/>
+<text x="1150.0" y="213.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="634.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general/extracellular_ephys/electrodes/id</text>
+<text x="934.0" y="213.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">768 int64</text>
+<rect x="24.0" y="269.9" width="460.0" height="112.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="269.9" width="4" height="112.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="289.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">processed_behavior+ecephys.nwb</text>
+<text x="38.0" y="306.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sub-ZM-2241/</text>
+<text x="38.0" y="329.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="128.0" y="329.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DANDI</text>
+<text x="38.0" y="349.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">size</text>
+<text x="128.0" y="349.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">955.9 MB</text>
+<text x="38.0" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">arrays</text>
+<text x="128.0" y="369.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">278 in the store</text>
+<path d="M 484.0 325.9 C 552.0 325.9 552.0 325.9 620.0 325.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,325.9 612.0,321.4 612.0,330.4" fill="#64748b"/>
+<rect x="515.2" y="316.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="329.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">whole file</text>
+<rect x="620.0" y="259.9" width="540.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="620.0" y="259.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="634.0" y="279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">sub-ZM-2241/ses-465c44bd-2e67-4112-977b-36e1ac7e3f8c/processed</text>
+<text x="634.0" y="296.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">278 arrays</text>
+<rect x="625.0" y="305.9" width="534.0" height="20" fill="#dcfce7"/>
+<text x="1150.0" y="319.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="634.0" y="319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">intervals/trials/start_time</text>
+<text x="934.0" y="319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">484 float64</text>
+<text x="634.0" y="339.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units/spike_times</text>
+<text x="934.0" y="339.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">43,486,651 float64</text>
+<text x="634.0" y="359.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/wheel/WheelPosition/data</text>
+<text x="934.0" y="359.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">415,115 float64</text>
+<text x="634.0" y="379.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing/pupil/LeftPupilDiameter/data</text>
+<text x="934.0" y="379.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">153,455 float64</text>
+<polygon points="620.0,447.9 642.0,425.9 902.0,425.9 880.0,447.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="880.0,447.9 902.0,425.9 902.0,505.9 880.0,527.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="620.0" y="447.9" width="260.0" height="80.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="620.0" y="549.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw/acquisition/ElectricalSeriesProbe00AP/data</text>
+<text x="620.0" y="565.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">referenced chunks</text>
+<text x="620.0" y="582.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">108,136,563 × 384 int16</text>
+<text x="620.0" y="599.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 13,020 × 384</text>
+<text x="620.0" y="616.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8,306 chunks · zlib 4</text>
+<rect x="24.0" y="451.9" width="460.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="451.9" width="4" height="76.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="471.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw_ecephys.nwb</text>
+<text x="38.0" y="495.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="85.1" y="495.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DANDI</text>
+<text x="38.0" y="515.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<text x="85.1" y="515.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">acquisition/ElectricalSeriesProbe00AP/data</text>
+<path d="M 484.0 487.9 C 552.0 487.9 552.0 487.9 620.0 487.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,487.9 612.0,483.4 612.0,492.4" fill="#64748b"/>
+<rect x="515.2" y="478.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="491.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<polygon points="620.0,680.9 642.0,658.9 762.0,658.9 740.0,680.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="740.0,680.9 762.0,658.9 762.0,738.9 740.0,760.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="620.0" y="680.9" width="120.0" height="80.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="620.0" y="782.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw/acquisition/ElectricalSeriesProbe00LF/data</text>
+<text x="620.0" y="798.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">referenced chunks</text>
+<text x="620.0" y="815.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">9,011,381 × 384 int16</text>
+<text x="620.0" y="832.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 13,020 × 384</text>
+<text x="620.0" y="849.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">693 chunks · zlib 4</text>
+<rect x="24.0" y="684.9" width="460.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="684.9" width="4" height="76.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="704.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw_ecephys.nwb</text>
+<text x="38.0" y="728.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="85.1" y="728.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">DANDI</text>
+<text x="38.0" y="748.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<text x="85.1" y="748.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">acquisition/ElectricalSeriesProbe00LF/data</text>
+<path d="M 484.0 720.9 C 552.0 720.9 552.0 720.9 620.0 720.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,720.9 612.0,716.4 612.0,725.4" fill="#64748b"/>
+<rect x="515.2" y="711.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="724.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<polygon points="620.0,900.9 629.0,891.9 729.0,891.9 720.0,900.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="720.0,900.9 729.0,891.9 729.0,905.9 720.0,914.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="620.0" y="900.9" width="100.0" height="14.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="718.8" y="900.9" width="1.2" height="14.0" fill="#eb6834" fill-opacity="0.3" stroke="#eb6834" stroke-width="2"/>
+<text x="620.0" y="936.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">alf/probe00/pykilosort/spikes/times (sort-2022)</text>
+<text x="620.0" y="952.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">referenced chunks, last chunk native</text>
+<text x="620.0" y="969.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8,701,439 float64</text>
+<text x="620.0" y="986.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 262,144</text>
+<text x="620.0" y="1003.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">34 chunks · none</text>
+<rect x="24.0" y="871.9" width="460.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="871.9" width="4" height="76.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="891.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">pykilosort/spikes.times.npy</text>
+<text x="38.0" y="915.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="85.1" y="915.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">IBL bucket</text>
+<text x="38.0" y="935.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<text x="85.1" y="935.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">spikes.times</text>
+<path d="M 484.0 907.9 C 552.0 907.9 552.0 907.9 620.0 907.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,907.9 612.0,903.4 612.0,912.4" fill="#64748b"/>
+<rect x="515.2" y="898.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="911.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<polygon points="620.0,1054.9 629.0,1045.9 875.1,1045.9 866.1,1054.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="866.1,1054.9 875.1,1045.9 875.1,1059.9 866.1,1068.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="620.0" y="1054.9" width="246.1" height="14.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="863.2" y="1054.9" width="3.0" height="14.0" fill="#eb6834" fill-opacity="0.3" stroke="#eb6834" stroke-width="2"/>
+<text x="620.0" y="1090.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">alf/probe00/pykilosort/spikes/times (sort-2024)</text>
+<text x="620.0" y="1106.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">referenced chunks, last chunk native</text>
+<text x="620.0" y="1123.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">21,415,765 float64</text>
+<text x="620.0" y="1140.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks 262,144</text>
+<text x="620.0" y="1157.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">82 chunks · none</text>
+<rect x="24.0" y="1025.9" width="460.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="1025.9" width="4" height="76.0" rx="2" fill="#2a78d6"/>
+<text x="38.0" y="1045.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">pykilosort/#2024-05-06#/spikes.times.npy</text>
+<text x="38.0" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">host</text>
+<text x="85.1" y="1069.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">IBL bucket</text>
+<text x="38.0" y="1089.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">array</text>
+<text x="85.1" y="1089.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">spikes.times</text>
+<path d="M 484.0 1061.9 C 552.0 1061.9 552.0 1061.9 620.0 1061.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="620.0,1061.9 612.0,1057.4 612.0,1066.4" fill="#64748b"/>
+<rect x="515.2" y="1052.9" width="73.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="552.0" y="1065.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced</text>
+<rect x="24.0" y="1199.9" width="700.0" height="132.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="24.0" y="1199.9" width="4" height="132.0" rx="2" fill="#1baf7a"/>
+<text x="38.0" y="1219.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">written into the store</text>
+<text x="38.0" y="1236.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">NWB strings, scalars and short arrays; clusters.uuids.csv; spikes .npy files</text>
+<rect x="29.0" y="1245.9" width="694.0" height="20" fill="#dcfce7"/>
+<text x="714.0" y="1259.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="38.0" y="1259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">raw/ small datasets</text>
+<text x="278.0" y="1259.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">97 arrays · up to 768 elements</text>
+<rect x="29.0" y="1265.9" width="694.0" height="20" fill="#dcfce7"/>
+<text x="714.0" y="1279.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="38.0" y="1279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processed/ small datasets</text>
+<text x="278.0" y="1279.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">184 arrays · up to 1,877 elements</text>
+<rect x="29.0" y="1285.9" width="694.0" height="20" fill="#dcfce7"/>
+<text x="714.0" y="1299.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="38.0" y="1299.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">clusters/uuids</text>
+<text x="278.0" y="1299.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">from clusters.uuids.csv</text>
+<rect x="29.0" y="1305.9" width="694.0" height="20" fill="#dcfce7"/>
+<text x="714.0" y="1319.9" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="bold" fill="#15803d" text-anchor="end" xml:space="preserve">native</text>
+<text x="38.0" y="1319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">spikes/* last chunk</text>
+<text x="278.0" y="1319.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">rows past a multiple of 262,144</text>
+<rect x="24.0" y="1353.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="1364.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced</text>
+<rect x="130.4" y="1353.9" width="14" height="14" rx="3" fill="#eb6834"/>
+<text x="150.4" y="1364.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">native last chunk</text>
+<line x1="281.9" y1="1360.9" x2="303.9" y2="1360.9" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="309.9,1360.9 301.9,1356.4 301.9,1365.4" fill="#64748b"/>
+<text x="315.9" y="1364.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source to store</text>
+<text x="24.0" y="1393.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">cube widths are not to scale between bands</text>
+</svg>
