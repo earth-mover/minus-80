@@ -25,6 +25,10 @@ NAME="idc-${COLLECTION}-$(date -u +%H%M%S)"
 
 STAGE=$(mktemp -d)
 (cd "$ROOT" && uv build --wheel -q --out-dir "$STAGE")
+# The job installs exactly the versions uv.lock resolves for this ingest,
+# git sources included, and the wheel without its own dependencies.
+(cd "$ROOT" && uv export --package idc-ingest --no-hashes --no-emit-workspace \
+    --no-dev --frozen -q -o "$STAGE/requirements.txt")
 cp "$ROOT"/ingests/idc/*.py "$HERE"/*.sh "$STAGE/"
 echo "$SHA" > "$STAGE/COMMIT"
 echo "${RUN:-}" > "$STAGE/RUN"
