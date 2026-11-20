@@ -13,20 +13,24 @@ CHAMMI-75 pools studies under their own licenses, listed in Table A4 of the
 paper (Agrawal et al., *CHAMMI-75: Pre-training multi-channel models with
 heterogeneous microscopy images*,
 [arXiv:2512.20833v2](https://arxiv.org/abs/2512.20833v2)). The store holds the
-56 studies whose license is CC BY 4.0 or CC0 1.0. `ingest.py` keeps the table
-below as two constants, `LICENSES` and `EXCLUDED`, and stops on any study in
-the metadata that is in neither. The root's `licenses` attribute holds the
-same table, and each study's group states its own license.
+59 studies whose license lets anyone reuse the images, commercially included:
+CC BY 4.0, CC0 1.0, and CC BY-SA 3.0 or 4.0. The store therefore has no single
+license. Each study's group states its own, and work derived from the three
+CC BY-SA studies must stay share-alike, which their groups and the root's
+`license` attribute say. `ingest.py` keeps the table below as two constants,
+`LICENSES` and `EXCLUDED`, and stops on any study in the metadata that is in
+neither. The root's `licenses` attribute holds the same table.
 
 | License | Studies |
 | --- | --- |
 | CC BY 4.0 (47, stored) | idr0001 idr0002 idr0009 idr0010 idr0011 idr0022 idr0028 idr0030 idr0033 idr0035 idr0037 idr0056 idr0072 idr0081 idr0086 idr0089 idr0093 idr0115 idr0120 idr0123 idr0128 idr0129 idr0130 idr0133 idr0140 idr0145 nidr0001 nidr0002 nidr0004 nidr0005 nidr0006 nidr0008 nidr0009 nidr0010 nidr0012 nidr0013 nidr0014 nidr0015 nidr0016 nidr0017 nidr0019 nidr0020 nidr0025 nidr0027 nidr0028 nidr0029 nidr0030 |
 | CC0 1.0 (9, stored) | idr0013 idr0080 idr0094 jump0001 nidr0003 nidr0007 nidr0011 nidr0023 nidr0024 |
-| Share-alike (3, left out) | hpa0018 hpa0023 idr0025 |
+| CC BY-SA 4.0 (2, stored) | hpa0018 hpa0023 |
+| CC BY-SA 3.0 (1, stored) | idr0025 |
 | Non-commercial or custom terms (15, left out) | idr0003 idr0005 idr0006 idr0007 idr0008 idr0012 idr0017 idr0069 idr0088 nidr0018 nidr0021 nidr0022 nidr0031 nidr0032 wtc0001 |
 
-The stored studies hold 1,701,496 of the release's 2,792,462 training images,
-in 4,366,510 of its 8,029,583 PNGs, counted from the training metadata. The
+The stored studies hold 2,065,604 of the release's 2,792,462 training images,
+in 5,822,715 of its 8,029,583 PNGs, counted from the training metadata. The
 test sets (Table A5) are not in the store.
 
 ## Mapping

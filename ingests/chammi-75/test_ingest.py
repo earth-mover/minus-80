@@ -57,9 +57,10 @@ def test_an_excluded_or_unknown_study_is_refused():
     assert ingest.check_studies(named, None) == sorted(ingest.LICENSES)
 
 
-def test_allowlist_is_the_56_studies_and_no_study_is_both_in_and_out():
-    assert len(ingest.LICENSES) == 56 and len(ingest.EXCLUDED) == 18
-    assert list(ingest.LICENSES.values()).count(ingest.CC0) == 9
+def test_allowlist_is_the_59_studies_and_no_study_is_both_in_and_out():
+    assert len(ingest.LICENSES) == 59 and len(ingest.EXCLUDED) == 15
+    counts = {v: list(ingest.LICENSES.values()).count(v) for v in set(ingest.LICENSES.values())}
+    assert counts == {ingest.CC_BY: 47, ingest.CC0: 9, ingest.CC_BY_SA_4: 2, ingest.CC_BY_SA_3: 1}
     assert not set(ingest.LICENSES) & set(ingest.EXCLUDED)
 
 
@@ -69,6 +70,9 @@ def test_store_holds_only_the_allowlisted_studies_with_their_licenses(store, ind
     for study in fixture.STUDIES:
         assert dict(store[study].attrs)["annotations"]["license"] == ingest.LICENSES[study]
     assert dict(store.attrs)["licenses"]["excluded"]["wtc0001"] == ingest.NOT_PERMISSIVE
+    assert "share_alike" in dict(store["idr0025"].attrs)["annotations"]
+    assert "share_alike" not in dict(store["nidr0013"].attrs)["annotations"]
+    assert "idr0025" in dict(store.attrs)["license"]
 
 
 def test_every_plane_is_the_png_it_references(archive, store, index):
@@ -149,3 +153,15 @@ def test_store_reads_in_a_fresh_repo_object(built):
     assert len(config.virtual_chunk_containers) == 1
     root = zarr.open_group(verify.open_store(repo, "main").store, mode="r")
     assert root["nidr0013/40x32_ch1/ch1/0"][0].dtype == np.uint8
+
+
+def test_a_sample_holds_the_first_images_of_each_study_and_verifies(archive, tmp_path):
+    url, _ = archive
+    repo, work = str(tmp_path / "repo"), tmp_path / "work"
+    ingest.run(repo, "main", url, work, fixture.STUDIES, parallel=1, sample=2)
+    index = verify.load_index(verify.open_store(repo, "main"))
+    for study in fixture.STUDIES:
+        expected = sorted(i[0] for i in fixture.IMAGES[study])[:2]
+        assert sorted(index.loc[index["study"] == study, "image_id"]) == expected
+    failures = verify.verify(repo, "main", url, work, verify.CHECKS)
+    assert failures == {check: [] for check in verify.CHECKS}

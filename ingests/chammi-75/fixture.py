@@ -19,6 +19,7 @@ The studies cover each case the ingest decides between:
   Its Cellpose files have no ``sizes``. One image's ``microscopy.fov`` is
   ``9`` on one channel's row and ``9.0`` on the other's, and one image's
   stated width is wrong.
+- ``idr0025`` (CC BY-SA 3.0): one image, so the store holds a share-alike study.
 - ``nidr0007`` (CC0): bright-field, which the maintainers segmented with the
   snake method, so its files are kept whole.
 - ``wtc0001``: excluded by its license; in the metadata, the bucket and the zip.
@@ -51,11 +52,12 @@ IMAGES = {
         [(f"idr0001-a{i}", 48, 36, ["nucleus", "protein"], True) for i in range(3)]
         + [(f"idr0001-b{i}", 48, 36, ["protein", "nucleus"], True) for i in range(2)]
         + [(f"idr0001-c{i}", 24, 20, ["nucleus", "protein"], True) for i in range(2)]),
+    "idr0025": [("idr0025-0", 28, 24, ["nucleus"], True)],
     "nidr0007": [(f"nidr0007-{i}", 32, 32, ["bright-field"], True) for i in range(3)],
     "wtc0001": [(f"wtc0001-{i}", 32, 24, ["membrane", "nucleus"], True) for i in range(2)],
 }
 #: The allowlisted studies, which a test ingests.
-STUDIES = ["idr0001", "nidr0007", "nidr0013"]
+STUDIES = ["idr0001", "idr0025", "nidr0007", "nidr0013"]
 #: Studies whose position files carry a ``sizes`` tensor.
 WITH_SIZES = {"nidr0013", "wtc0001"}
 #: Images in the small subset.

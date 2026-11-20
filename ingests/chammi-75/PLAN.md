@@ -1,12 +1,14 @@
-# CHAMMI-75, CC BY 4.0 and CC0 studies: ingest plan
+# CHAMMI-75, openly licensed studies: ingest plan
 
 ## Summary
 
-The plan builds a virtual Icechunk store of the 56 CHAMMI-75 training
-studies whose license is CC BY 4.0 or CC0 1.0, in a new Arraylake repo,
+The plan builds a virtual Icechunk store of the 59 CHAMMI-75 training
+studies whose license is CC BY 4.0, CC0 1.0 or CC BY-SA, in a new Arraylake repo,
 `earthmover-biology/chammi-75`. The store references the dataset's own PNGs
-in `s3://chammi-data/CHAMMI-75/` and copies none of them. It holds 1,701,496
-of the release's 2,792,462 images, in 4,366,510 PNGs (3.24 TB).
+in `s3://chammi-data/CHAMMI-75/` and copies none of them. It holds 2,065,604
+of the release's 2,792,462 images, in 5,822,715 PNGs (3.68 TB). The store has
+no single license: each study's group states its own, and work derived from
+the three CC BY-SA studies must stay share-alike.
 
 The layout follows the October store, `earthmover-public/CHAMMI-75`, with one
 change the repository's rules force: a stack of images can no longer be one
@@ -23,7 +25,7 @@ Before it can run, you create the repo with its virtual chunk container (step
 
 | # | Decision | Recommendation | Status |
 |---|---|---|---|
-| 1 | Store only the CC BY 4.0 and CC0 studies of arXiv:2512.20833v2 Table A4 | An explicit allowlist in `ingest.py`; the run stops on any study in neither the allowlist nor the exclusion list | Required |
+| 1 | Store only the CC BY 4.0, CC0 1.0 and CC BY-SA studies of arXiv:2512.20833v2 Table A4 | An explicit allowlist in `ingest.py`; the run stops on any study in neither the allowlist nor the exclusion list | Decided: the 3 CC BY-SA studies included |
 | 2 | One OME-Zarr image per channel slot of a stack | `<stack>/ch<slot>/0`, `(image, y, x)` | Proposed: the October layout breaks an OME-Zarr MUST |
 | 3 | Keep `index/` as Zarr arrays, against the rule that sends tables to Iceberg | Keep it in the store, and publish the Iceberg table beside it in a later step | Proposed |
 | 4 | Read every input from the bucket during the run | No dependence on October's local harvest files | Proposed |
@@ -52,8 +54,8 @@ read anonymously, in us-west-2.
   of cell positions per PNG. Its central directory alone is 1.49 GB.
 
 The studies keep their own licenses. Table A4 of the paper lists them: 47
-studies are CC BY 4.0 and 9 are CC0 1.0; 3 are share-alike and 15 carry
-non-commercial or custom terms. LAYOUTS.md lists every study under its license.
+studies are CC BY 4.0, 9 are CC0 1.0, 3 are CC BY-SA (hpa0018 and hpa0023
+under 4.0, idr0025 under 3.0), and 15 carry non-commercial or custom terms. LAYOUTS.md lists every study under its license.
 The test sets (Table A5) are out of scope.
 
 People use CHAMMI-75 to train models. The maintainers' loader picks images
@@ -88,8 +90,8 @@ cells/background           (image, 2) uint16: the moved entry 0, x, y
   source states magnification only, so the spatial scale is 1.0 with no unit,
   recorded in the root's `not_recorded` attribute. There are no lower
   resolution levels: a PNG is the smallest unit the source stores.
-- **Counts:** 1,038 stacks and 1,353 channel images over the 56 studies, from
-  the October PNG headers. The store has 1,391 arrays, against 1,431 in the
+- **Counts:** 1,042 stacks and 1,368 channel images over the 59 studies, from
+  the October PNG headers. The store has 1,406 arrays, against 1,431 in the
   October store of all 74 studies.
 
 A stack holds a study's images that share a size, read from the PNG headers,
@@ -135,29 +137,38 @@ All on a laptop, against the real bucket, into a local Icechunk repo, on
 - **Against the October store:** for the 346 trial images, every index column
   and every image's cells and background equal the October store's, which was
   built by separate code and verified against the source in full.
+- **One hpa0018 image, as a spot check.** HPA's studies are large (hpa0018
+  has 454,180 PNGs), so `--sample 1` ingested only the study's first image,
+  `hpa0018/512x512_ch1-2-3-4`, with its 4 PNGs and 12 cells, and `verify.py`
+  passed every check on it in 3 s. Listing the study's PNGs from the laptop
+  took 81 of the run's 82 s. The study group states `CC-BY-SA-4.0` and the
+  share-alike note.
 - **The cold-open notebook** runs against the trial store, and the plotted
   cells sit on the nuclei.
 - **The fixture tests:** `test_ingest.py` builds a scaled-down archive with
   the bucket's layout: PNGs, both CSVs and a STORED zip of safetensors files,
   covering the collision of stack names, a missing position file, Cellpose
   files with and without `sizes`, a snake-segmented study and an excluded
-  study present in every source file. 12 tests pass, including `verify.py` and
-  a check of every plane and every cell.
+  study present in every source file, plus a CC BY-SA study and a
+  sampled run. 13 tests pass, including `verify.py` and a check of every
+  plane and every cell.
 - **Sizes of the full run:** each of the 70 studies with files in the zip
-  occupies one contiguous run of it, 23.8 GB for the 56 allowlisted studies.
+  occupies one contiguous run of it, 24.6 GB for the 59 allowlisted studies.
   Streaming a study's run reads it in 16 MiB requests.
 
 Not tested: a commit to Arraylake, forks pickled to spawned processes against
 an Arraylake repo, and the full run's time and memory. The October harvest
 read every PNG header in-region at 6,880 a second and the whole zip at
-263 MB/s, so the 4.37 million headers should take about 11 minutes and the
-23.8 GB of positions under 2 minutes.
+263 MB/s, so the 5.82 million headers should take about 14 minutes and the
+24.6 GB of positions under 2 minutes.
 
 ## Judgement calls
 
-1. **The license allowlist.** The 56 studies of Table A4 under CC BY 4.0 or
-   CC0 1.0 are a constant, `LICENSES`, and the 18 others are `EXCLUDED`, with
-   the reason. The run raises if the metadata names a study in neither, so a
+1. **The license allowlist.** The 59 studies of Table A4 under CC BY 4.0,
+   CC0 1.0 or CC BY-SA 3.0 or 4.0 are a constant, `LICENSES`, and the 15
+   under non-commercial or custom terms are `EXCLUDED`, with the reason.
+   Each study's group states its license, and the three CC BY-SA groups say
+   that work derived from them must stay share-alike, as does the root. The run raises if the metadata names a study in neither, so a
    study added to a later release waits for someone to read its license.
    Asking for an excluded study raises too. The index and cells are gathered
    only from stored studies, and both `ingest.py` and `verify.py` check that no
@@ -213,7 +224,7 @@ read every PNG header in-region at 6,880 a second and the whole zip at
 2. **You:** approve this plan.
 3. **Run 1:** `ARRAYLAKE_TOKEN=... bash runs/01_allowlist.sh`. One
    `coiled batch run` on an m6i.4xlarge in us-west-2: install, read the
-   inputs, write the 56 studies eight at a time, merge, write `index/` and
+   inputs, write the 59 studies eight at a time, merge, write `index/` and
    `cells/`, commit once to `ingest`, then run `verify.py` against `ingest`.
    The launcher refuses uncommitted code, and the job prints the commit it ran
    from.
@@ -224,9 +235,9 @@ read every PNG header in-region at 6,880 a second and the whole zip at
 
 ### Scope
 
-- **In:** the training set's 56 allowlisted studies, their pixels, index and
+- **In:** the training set's 59 allowlisted studies, their pixels, index and
   cells.
-- **Out:** the 18 other studies, the test sets, the Iceberg table, and any
+- **Out:** the 15 studies under non-commercial or custom terms, the test sets, the Iceberg table, and any
   change to the October store.
 
 ### Cost
@@ -243,7 +254,7 @@ Reads of the bucket stay in us-west-2. The store adds about 1.2 GB of native
   limit is 75 minutes for the ingest.
 - **Memory.** Parsing the central directory peaked at 7.0 GB on the laptop.
   Eight studies streaming at once hold at most 512 MiB of the zip each, and
-  the driver holds about 333 million cells, about 2.7 GB, while writing
+  the driver holds about 337 million cells, about 2.7 GB, while writing
   `cells/`. The VM has 64 GB, and the job logs memory every 15 s.
 - **A reader with expired AWS credentials in the environment** cannot read
   the pixels of a local copy of the repo, because `open_repository` takes S3

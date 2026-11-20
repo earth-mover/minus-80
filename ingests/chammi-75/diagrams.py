@@ -23,7 +23,7 @@ import zarr
 from minus80 import diagrams as d
 
 import pipeline
-from ingest import CC0, CC_BY, EXCLUDED, LICENSES, SHARE_ALIKE
+from ingest import CC0, CC_BY, LICENSES, SHARE_ALIKE
 from verify import load_index, open_store
 
 WIDTH = 1180
@@ -35,10 +35,10 @@ def source_counts(work: Path) -> dict:
     small = work / f"{Path(pipeline.SMALL_CSV).stem}.parquet"
     rows = duckdb.sql(f"""select "experiment.study" study, count(distinct "imaging.multi_channel_id") images,
                                  count(*) pngs from read_parquet('{metadata}') group by 1""").fetchall()
-    by = {"included": [0, 0, 0], "share-alike": [0, 0, 0], "other": [0, 0, 0]}
+    by = {"open": [0, 0, 0], "share-alike": [0, 0, 0], "other": [0, 0, 0]}
     for study, images, pngs in rows:
-        kind = ("included" if study in LICENSES else
-                "share-alike" if EXCLUDED.get(study) == SHARE_ALIKE else "other")
+        kind = ("other" if study not in LICENSES else
+                "share-alike" if LICENSES[study] in SHARE_ALIKE else "open")
         by[kind] = [by[kind][0] + 1, by[kind][1] + images, by[kind][2] + pngs]
     members = duckdb.sql(f"select count(*) from read_parquet('{work / 'guidance-members.parquet'}')").fetchall()[0][0]
     small_rows = duckdb.sql(f"select count(*) from read_parquet('{small}')").fetchall()[0][0]
@@ -64,10 +64,10 @@ def draw_source(counts: dict, out: Path) -> None:
     bottom = d.tree(c, left, nodes)
     by = counts["by"]
     rows = [
-        [d.Cell([f"{CC_BY} or {CC0}"], "added"), d.Cell([f"{by['included'][0]}"]),
-         d.Cell([f"{by['included'][1]:,}"]), d.Cell([f"{by['included'][2]:,}"]), d.Cell(["stored"])],
-        [d.Cell(["CC BY-SA"], "removed"), d.Cell([f"{by['share-alike'][0]}"]),
-         d.Cell([f"{by['share-alike'][1]:,}"]), d.Cell([f"{by['share-alike'][2]:,}"]), d.Cell(["left out"])],
+        [d.Cell([f"{CC_BY} or {CC0}"], "added"), d.Cell([f"{by['open'][0]}"]),
+         d.Cell([f"{by['open'][1]:,}"]), d.Cell([f"{by['open'][2]:,}"]), d.Cell(["stored"])],
+        [d.Cell(["CC BY-SA 3.0, 4.0"], "added"), d.Cell([f"{by['share-alike'][0]}"]),
+         d.Cell([f"{by['share-alike'][1]:,}"]), d.Cell([f"{by['share-alike'][2]:,}"]), d.Cell(["stored, SA"])],
         [d.Cell(["non-commercial, custom"], "removed"), d.Cell([f"{by['other'][0]}"]),
          d.Cell([f"{by['other'][1]:,}"]), d.Cell([f"{by['other'][2]:,}"]), d.Cell(["left out"])],
     ]
@@ -136,7 +136,7 @@ def draw_store(root: zarr.Group, index, out: Path) -> None:
     spec = [
         ("/", 0, None, "title, licenses, decisions, contents",
          [d.Row("studies", f"{contents.get('studies', 0):,}"), d.Row("images", f"{contents.get('images', 0):,}"),
-          d.Row("PNGs", f"{contents.get('pngs', 0):,}"), d.Row("licenses", f"{CC_BY}, {CC0}")]),
+          d.Row("PNGs", f"{contents.get('pngs', 0):,}"), d.Row("licenses", "by study: CC BY, CC0, CC BY-SA")]),
         ("<study>/", 1, contents.get("studies"), "the study's license",
          [d.Row("license", dict(root[study].attrs)["annotations"]["license"]),
           d.Row("example", study)]),

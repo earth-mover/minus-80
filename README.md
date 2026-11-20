@@ -38,7 +38,7 @@ parser's reader library is an extra: `uv sync --extra dicom`.
 | Ingest | Archive | Status |
 | --- | --- | --- |
 | `camelyon` | CAMELYON16 and CAMELYON17 whole-slide pathology, with tumour masks and outlines | moving |
-| `chammi-75` | CHAMMI-75 multi-channel microscopy: the 56 CC BY 4.0 and CC0 studies of its training set | planned |
+| `chammi-75` | CHAMMI-75 multi-channel microscopy: the 59 CC BY, CC BY-SA and CC0 studies of its training set | planned |
 | `cellpainting` | Cell Painting Gallery plates as OME-Zarr HCS | moving |
 | `idc` | NCI Imaging Data Commons: CT, segmentations, slides, multiplex imaging, Visible Human | moving |
 | `idr` | Image Data Resource studies | moving |

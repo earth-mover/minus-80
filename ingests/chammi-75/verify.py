@@ -82,10 +82,16 @@ def check_licenses(root, index: pd.DataFrame) -> list[str]:
 
 
 def check_complete(root, index: pd.DataFrame, metadata: Path) -> list[str]:
+    """Each study's images and PNGs against the metadata; a trial store's sample against its first images."""
     studies = sorted(index["study"].unique())
+    sample = dict(root.attrs).get("contents", {}).get("sample")
+    keep = "" if sample is None else f"where rank <= {int(sample)}"
     listed = duckdb.sql(f"""
-        select "experiment.study" study, count(distinct "imaging.multi_channel_id") images, count(*) pngs
-        from read_parquet('{metadata}') where "experiment.study" in ({",".join(f"'{s}'" for s in studies)})
+        with m as (
+          select "experiment.study" study, "imaging.multi_channel_id" image,
+                 dense_rank() over (partition by "experiment.study" order by "imaging.multi_channel_id") rank
+          from read_parquet('{metadata}') where "experiment.study" in ({",".join(f"'{s}'" for s in studies)}))
+        select study, count(distinct image) images, count(*) pngs from m {keep}
         group by 1""").df().set_index("study")
     problems = []
     for study in studies:

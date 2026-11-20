@@ -51,7 +51,7 @@ HEADER_CONCURRENCY = 256
 #: many are in flight. ``stream_members`` asks for up to twice as many ahead
 #: as are in flight, so each study holds at most 512 MiB, and eight studies
 #: at once fit in a VM's memory beside the driver's tables. A study's run is
-#: up to 4.7 GB (jump0001), 23.8 GB for every allowlisted study.
+#: up to 4.7 GB (jump0001), 24.6 GB for every allowlisted study.
 MEMBER_RANGE_BYTES = 16 << 20
 MEMBER_CONCURRENCY = 16
 

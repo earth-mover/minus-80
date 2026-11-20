@@ -1,10 +1,10 @@
-"""Reference the permissively licensed studies of the CHAMMI-75 training set as virtual OME-Zarr.
+"""Reference the openly licensed studies of the CHAMMI-75 training set as virtual OME-Zarr.
 
 CHAMMI-75 pools 2,792,462 multi-channel microscopy images from 74 public
 studies, published in ``s3://chammi-data/CHAMMI-75/`` as one 8-bit grayscale
 PNG per channel, a metadata CSV with one row per PNG, and a zip of cell
-positions. The studies keep their own licenses. This ingest takes the 56
-whose license is CC BY 4.0 or CC0 1.0 and builds one Icechunk store whose
+positions. The studies keep their own licenses. This ingest takes the 59
+whose license is CC BY, CC BY-SA or CC0 and builds one Icechunk store whose
 pixels are references to the PNGs, never copies:
 
 - ``<study>/``: one study, with its license;
@@ -53,6 +53,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute
 import zarr
 from safetensors.numpy import load as load_safetensors
 from virtualizarr.manifests import ManifestGroup
@@ -69,16 +70,20 @@ from pipeline import say
 #
 # CHAMMI-75 pools studies under their own licenses, listed in Table A4 of the
 # paper (arXiv:2512.20833v2). The store holds only studies whose license lets
-# anyone reuse the images, commercially included, without passing on a
-# share-alike term: CC BY 4.0 and CC0 1.0. Every study the metadata names must
-# be in exactly one of the two tables below, so a study added to a later
-# release stops the run until someone reads its license.
+# anyone reuse the images, commercially included: CC BY 4.0, CC0 1.0 and
+# CC BY-SA 3.0 or 4.0. The store therefore has no single license; each study
+# group states its own, and work derived from a share-alike study must stay
+# share-alike. Every study the metadata names must be in exactly one of the two
+# tables below, so a study added to a later release stops the run until
+# someone reads its license.
 
 PAPER = ("Agrawal et al., CHAMMI-75: Pre-training multi-channel models with heterogeneous "
          "microscopy images, arXiv:2512.20833v2 (2026)")
 LICENSE_SOURCE = "arXiv:2512.20833v2, Table A4"
 CC_BY = "CC-BY-4.0"
 CC0 = "CC0-1.0"
+CC_BY_SA_3 = "CC-BY-SA-3.0"
+CC_BY_SA_4 = "CC-BY-SA-4.0"
 
 #: The studies the store holds, with each one's license as Table A4 states it.
 LICENSES = {
@@ -92,13 +97,15 @@ LICENSES = {
     **{s: CC0 for s in (
         "idr0013 idr0080 idr0094 jump0001 nidr0003 nidr0007 nidr0011 nidr0023 nidr0024"
     ).split()},
+    "hpa0018": CC_BY_SA_4,
+    "hpa0023": CC_BY_SA_4,
+    "idr0025": CC_BY_SA_3,
 }
+SHARE_ALIKE = {CC_BY_SA_3, CC_BY_SA_4}
 
-SHARE_ALIKE = "share-alike (CC BY-SA)"
 NOT_PERMISSIVE = "non-commercial or custom terms"
 #: The studies the store leaves out, with the reason.
 EXCLUDED = {
-    **{s: SHARE_ALIKE for s in "hpa0018 hpa0023 idr0025".split()},
     **{s: NOT_PERMISSIVE for s in (
         "idr0003 idr0005 idr0006 idr0007 idr0008 idr0012 idr0017 idr0069 idr0088 "
         "nidr0018 nidr0021 nidr0022 nidr0031 nidr0032 wtc0001"
@@ -195,9 +202,10 @@ DIMS = ("image", "y", "x")
 DIMENSIONS = {"image": {"type": "image"}, "y": {"type": "space"}, "x": {"type": "space"}}
 
 ROOT = {
-    "title": "CHAMMI-75 training set, CC BY 4.0 and CC0 studies",
+    "title": "CHAMMI-75 training set, openly licensed studies",
     "description": (
-        "The studies of the CHAMMI-75 training set whose license is CC BY 4.0 or CC0 1.0. "
+        "The studies of the CHAMMI-75 training set whose license is CC BY 4.0, CC0 1.0 or "
+        "CC BY-SA (3.0 or 4.0). "
         "CHAMMI-75 pools multi-channel microscopy images from public studies, gathered by the "
         "Caicedo lab (Morgridge Institute for Research) to pre-train models that accept any "
         "number of channels. Each channel is an 8-bit grayscale PNG in "
@@ -210,8 +218,11 @@ ROOT = {
         "image axis as index/: index row i's cells are "
         "cells/position[image_start[i]:image_start[i + 1]]."),
     "citation": PAPER,
-    "license": (f"per study, {CC_BY} or {CC0}: see licenses. Studies under other licenses "
-                f"are in the release but not in this store."),
+    "license": (f"Mixed, by study: {CC_BY}, {CC0}, {CC_BY_SA_3} or {CC_BY_SA_4}. Each study's "
+                f"group states its license, and licenses lists them all. Work derived from the "
+                f"CC BY-SA studies ({', '.join(s for s, v in LICENSES.items() if v in SHARE_ALIKE)}) "
+                f"must stay share-alike. Studies under non-commercial or custom terms are in the "
+                f"release but not in this store."),
     "licenses": {
         "source": LICENSE_SOURCE,
         "included": LICENSES,
@@ -233,9 +244,9 @@ ROOT = {
                           "that container when opening the repo.",
     },
     "decisions": {
-        "licenses": (f"Only studies whose license is {CC_BY} or {CC0} in {LICENSE_SOURCE} are "
-                     f"stored; licenses.excluded lists the rest and why. The index and cells hold "
-                     f"no rows from an excluded study."),
+        "licenses": (f"Only studies whose license is {CC_BY}, {CC0}, {CC_BY_SA_3} or {CC_BY_SA_4} "
+                     f"in {LICENSE_SOURCE} are stored; licenses.excluded lists the rest and why. "
+                     f"The index and cells hold no rows from an excluded study."),
         "channels_as_images": (
             "OME-Zarr allows one channel or custom-typed axis per image, so a stack's images, "
             "which need an image axis, are stored one channel slot per OME-Zarr image, "
@@ -319,8 +330,12 @@ def png_header(header: bytes) -> tuple[int, int, int, int]:
     return width, height, header[24], header[25]
 
 
-def study_images(study: str, metadata: Path, small: Path, pngs: pa.Table) -> tuple[pd.DataFrame, pd.DataFrame]:
+def study_images(study: str, metadata: Path, small: Path, pngs: pa.Table,
+                 sample: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The study's images, one row each with its stack and row, and its files, one row per PNG.
+
+    With ``sample``, only the study's first ``sample`` images by image ID,
+    for a trial of a study too large to read whole.
 
     ``pngs`` holds every PNG listed under the study, with ``key``, ``size``,
     ``width``, ``height``, ``bit_depth`` and ``color_type``. Raises unless
@@ -336,7 +351,7 @@ def study_images(study: str, metadata: Path, small: Path, pngs: pa.Table) -> tup
                cast(cast(m."imaging.channel" as double) as int) slot,
                {normalized("microscopy.fov")} fov_n
         from read_parquet('{metadata}') m left join pngs p on p.key = m."storage.path"
-        where m."experiment.study" = '{study}'""")
+        where m."experiment.study" = '{study}' {sampled(metadata, study, sample)}""")
     if missing := con.sql("select count(*) from f where size is null").fetchall()[0][0]:
         raise ValueError(f"{study}: {missing} metadata rows name no PNG in the bucket")
     unlisted = con.sql("""select count(*) from pngs where key not in
@@ -438,6 +453,15 @@ def fits(values: np.ndarray, dtype) -> bool:
     return values.size == 0 or (values.min() >= 0 and values.max() <= np.iinfo(dtype).max)
 
 
+def sampled(metadata: Path, study: str, sample: int | None) -> str:
+    """SQL restricting metadata rows to the study's first ``sample`` images by image ID; empty without one."""
+    if sample is None:
+        return ""
+    return (f"""and m."imaging.multi_channel_id" in (
+        select distinct "imaging.multi_channel_id" from read_parquet('{metadata}')
+        where "experiment.study" = '{study}' order by 1 limit {int(sample)})""")
+
+
 def study_cells(study: str, images: pd.DataFrame, files: pd.DataFrame, archive: str,
                 members: Path) -> dict[str, np.ndarray]:
     """Each image's cells, in index order, and the per-image columns that describe them.
@@ -449,7 +473,10 @@ def study_cells(study: str, images: pd.DataFrame, files: pd.DataFrame, archive: 
     """
     lowest = files.groupby("image_id", sort=False)["key"].first()
     chosen = {guidance_name(k): image for image, k in lowest.items()}
-    listed = pipeline.study_members(members, study)
+    # Only the members of the images' own files are streamed, which for a
+    # sampled study is a small part of its run of the zip.
+    own = {guidance_name(k) for k in files["key"]}
+    listed = [m for m in pipeline.study_members(members, study) if m["name"] in own]
     present = {m["name"] for m in listed} & chosen.keys()
     parsed = {}
     for name, contents in pipeline.read_members(archive, listed, present):
@@ -565,11 +592,14 @@ def study_group(archive: str, study: str, images: pd.DataFrame, files: pd.DataFr
     return ManifestGroup(groups=stacks, attributes=image_annotation({
         "study": study, "study_type": images["study_type"].iloc[0],
         "license": LICENSES[study], "license_source": LICENSE_SOURCE,
+        **({"share_alike": "work derived from this study must stay share-alike"}
+           if LICENSES[study] in SHARE_ALIKE else {}),
         "images": len(images), "stacks": sorted(stacks),
         "description": f"The {len(images):,} images of {study} in CHAMMI-75's training set, by stack."}))
 
 
-def study_job(fork, study: str, archive: str, work: Path, metadata: Path, small: Path, members: Path):
+def study_job(fork, study: str, archive: str, work: Path, metadata: Path, small: Path, members: Path,
+              sample: int | None = None):
     """Read study ``study`` from the bucket and write its group into ``fork``.
 
     Returns the fork and a summary. The study's index rows and cells are
@@ -580,6 +610,10 @@ def study_job(fork, study: str, archive: str, work: Path, metadata: Path, small:
     started = time.monotonic()
     store = pipeline.archive_store(archive)
     listing = pipeline.list_pngs(store, study)
+    if sample is not None:
+        keys = duckdb.sql(f"""select "storage.path" from read_parquet('{metadata}') m
+                              where m."experiment.study" = '{study}' {sampled(metadata, study, sample)}""").fetchall()
+        listing = listing.filter(pa.compute.is_in(listing["key"], value_set=pa.array([k for (k,) in keys])))
     headers = pipeline.read_png_headers(store, listing["key"].to_pylist())
     parsed = []
     for key, header in zip(listing["key"].to_pylist(), headers):
@@ -593,7 +627,7 @@ def study_job(fork, study: str, archive: str, work: Path, metadata: Path, small:
         "bit_depth", pa.array(depth, pa.int16())).append_column("color_type", pa.array(color, pa.int16()))
     say(f"{study}: {pngs.num_rows:,} PNG headers read in {time.monotonic() - started:.0f} s")
 
-    images, files = study_images(study, metadata, small, pngs)
+    images, files = study_images(study, metadata, small, pngs, sample)
     cells = study_cells(study, images, files, archive, members)
     say(f"{study}: {len(images):,} images, {images['stack'].nunique():,} stacks, "
         f"{len(cells['position']):,} cells")
@@ -695,7 +729,7 @@ PROGRESS_EVERY = 30.0
 
 
 def run(location: str, branch: str, archive: str, work: Path, requested: list[str] | None,
-        parallel: int) -> str:
+        parallel: int, sample: int | None = None) -> str:
     """Ingest the studies into ``branch`` of the repo at ``location``; the snapshot committed."""
     started = time.monotonic()
     metadata = pipeline.metadata_parquet(archive, work, pipeline.METADATA_CSV)
@@ -719,7 +753,7 @@ def run(location: str, branch: str, archive: str, work: Path, requested: list[st
         raise ValueError(f"already in the store: {present}; remove them first, or ingest the rest")
     forks = {study: session.fork() for study in studies}
     done, failed = {}, {}
-    arguments = (archive, work, metadata, small, members)
+    arguments = (archive, work, metadata, small, members, sample)
     if parallel == 1:
         for study in studies:
             try:
@@ -766,9 +800,12 @@ def run(location: str, branch: str, archive: str, work: Path, requested: list[st
     root.attrs.update({"contents": {"studies": len(studies), "stacks": int(images["stack"].nunique()),
                                     "channel_images": len(series), "images": len(images),
                                     "pngs": int(images["n_channels"].sum()),
-                                    "cells": len(cells["position"])}})
+                                    "cells": len(cells["position"]),
+                                    **({"sample": sample} if sample is not None else {})}})
     write_tables(root, images, cells)
     named = ", ".join(studies) if len(studies) <= 5 else "every allowlisted study"
+    if sample is not None:
+        named += f"; the first {sample} images of each"
     message = (f"CHAMMI-75: {len(studies)} studies ({named}), {len(images):,} images in "
                f"{images['stack'].nunique():,} stacks, with the index and cells")
     snapshot = commit(session, message)
@@ -787,13 +824,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--work", type=Path, default=Path(cache_dir()) / "chammi-75",
                         help="where the metadata, the zip's directory and each study's rows are kept")
     parser.add_argument("--parallel", type=int, default=8, help="studies written at once")
+    parser.add_argument("--sample", type=int,
+                        help="for a trial: only the first N images of each study, by image ID")
     args = parser.parse_args(argv)
     if args.archive.startswith("s3://"):
         # A fact of the bucket, not of the shell: without it, the repo's
         # container would sign requests with whatever credentials the build had.
         os.environ["MINUS80_S3_ANONYMOUS"] = "1"
     requested = args.studies.split(",") if args.studies else None
-    run(args.repo, args.branch, args.archive, args.work, requested, args.parallel)
+    run(args.repo, args.branch, args.archive, args.work, requested, args.parallel, args.sample)
 
 
 if __name__ == "__main__":
