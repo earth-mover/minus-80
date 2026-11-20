@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+diagrams = ["matplotlib", "pillow"]
 dicom = ["imagecodecs>=2026.8.16", "imagecodecs-zarr", "pydicom>=3.0"]
 flac = ["av", "flac-numcodecs", "soundfile"]
 fractal = ["anndata>=0.11"]
@@ -26,7 +27,7 @@ tiff = ["imagecodecs>=2026.1", "imagecodecs-zarr", "tifffile>=2025.1.1"]
 zip = ["pyarrow>=17"]
 
 [dependency-groups]
-dev = ["imagecodecs", "imagecodecs-zarr", "pyarrow>=17", "pytest>=8", "safetensors", "tifffile>=2025.1.1", "xarray"]
+dev = ["imagecodecs", "imagecodecs-zarr", "matplotlib", "pillow", "pyarrow>=17", "pytest>=8", "safetensors", "tifffile>=2025.1.1", "xarray"]
 
 [build-system]
 requires = ["hatchling"]

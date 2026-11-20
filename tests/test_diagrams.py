@@ -1,3 +1,4 @@
+import io
 import xml.etree.ElementTree as ET
 
 from minus80 import diagrams
@@ -143,3 +144,40 @@ def test_cube_divides_its_depth_into_shards():
     canvas = Canvas(400)
     diagrams.cube(canvas, CubeGeometry(0, 0, 100, 100, 30), "a", [], depth_lines=[0.25, 0.5])
     assert len(list(parse(canvas).iter("{http://www.w3.org/2000/svg}polyline"))) == 2
+
+
+def test_picture_embeds_a_thumbnail_and_a_plot_as_data_uris():
+    import base64
+
+    import numpy as np
+    from PIL import Image
+
+    pixels = np.add.outer(np.arange(64.0), np.arange(96.0))
+    jpeg = diagrams.thumbnail(pixels, 48)
+    png = diagrams.plot(lambda axes: axes.plot(np.sin(np.arange(100) / 8)), width=200, height=60)
+    canvas = Canvas(400)
+    y = diagrams.picture(canvas, 10, 10, jpeg, 120, caption="a frame", source="file.tif")
+    bottom = diagrams.picture(canvas, 10, y + 10, png, 200, caption="a trace")
+    images = list(parse(canvas).iter("{http://www.w3.org/2000/svg}image"))
+    assert [i.get("href").split(";")[0] for i in images] == ["data:image/jpeg", "data:image/png"]
+    with Image.open(io.BytesIO(base64.b64decode(images[0].get("href").split(",", 1)[1]))) as image:
+        assert image.size == (48, 32)
+    assert float(images[0].get("height")) == 80
+    assert {"a frame", "file.tif", "a trace"} <= set(texts(canvas))
+    assert canvas.height >= bottom
+    assert canvas.picture_bytes == len(jpeg) + len(png)
+
+
+def test_picture_refuses_an_image_over_its_cap_or_the_budget():
+    import numpy as np
+    import pytest
+
+    noise = np.random.default_rng(0).integers(0, 255, (400, 400), dtype=np.uint8)
+    big = diagrams.thumbnail(noise, 400, quality=95)
+    with pytest.raises(ValueError, match="cap"):
+        diagrams.picture(Canvas(400), 0, 0, big, 100)
+    small = diagrams.thumbnail(noise, 40)
+    canvas = Canvas(400, picture_budget=len(small) + 10)
+    diagrams.picture(canvas, 0, 0, small, 40)
+    with pytest.raises(ValueError, match="budget"):
+        diagrams.picture(canvas, 0, 50, small, 40)

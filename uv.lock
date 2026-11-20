@@ -1398,6 +1398,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+diagrams = [
+    { name = "matplotlib" },
+    { name = "pillow" },
+]
 dicom = [
     { name = "imagecodecs" },
     { name = "imagecodecs-zarr" },
@@ -1434,6 +1438,8 @@ zip = [
 dev = [
     { name = "imagecodecs" },
     { name = "imagecodecs-zarr" },
+    { name = "matplotlib" },
+    { name = "pillow" },
     { name = "pyarrow" },
     { name = "pytest" },
     { name = "safetensors" },
@@ -1454,12 +1460,14 @@ requires-dist = [
     { name = "imagecodecs-zarr", marker = "extra == 'dicom'" },
     { name = "imagecodecs-zarr", marker = "extra == 'tiff'" },
     { name = "jsonschema" },
+    { name = "matplotlib", marker = "extra == 'diagrams'" },
     { name = "nd2", marker = "extra == 'nd2'", specifier = ">=0.10" },
     { name = "ngff-zarr", specifier = ">=0.46" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "obspec-utils" },
     { name = "obstore", specifier = ">=0.7.0" },
     { name = "ome-zarr-models", specifier = ">=1.8" },
+    { name = "pillow", marker = "extra == 'diagrams'" },
     { name = "pyarrow", marker = "extra == 'zip'", specifier = ">=17" },
     { name = "pydicom", marker = "extra == 'dicom'", specifier = ">=3.0" },
     { name = "pynwb", marker = "extra == 'nwb'", specifier = ">=4.2" },
@@ -1470,12 +1478,14 @@ requires-dist = [
     { name = "virtualizarr", extras = ["hdf"], marker = "extra == 'nwb'", git = "https://github.com/ianhi/VirtualiZarr?rev=83da047711558dfb4fc004db45641d28a6687f61" },
     { name = "zarr", specifier = ">=3.1.0" },
 ]
-provides-extras = ["dicom", "flac", "fractal", "nd2", "nwb", "tiff", "zip"]
+provides-extras = ["diagrams", "dicom", "flac", "fractal", "nd2", "nwb", "tiff", "zip"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "imagecodecs" },
     { name = "imagecodecs-zarr" },
+    { name = "matplotlib" },
+    { name = "pillow" },
     { name = "pyarrow", specifier = ">=17" },
     { name = "pytest", specifier = ">=8" },
     { name = "safetensors" },
