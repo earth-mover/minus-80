@@ -17,6 +17,7 @@ import io
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -52,11 +53,25 @@ def say(line: str) -> None:
     print(f"{time.strftime('%H:%M:%S')} {line}", flush=True)
 
 
+#: How often a DANDI API request is tried, and the wait before the first retry,
+#: doubling after each. The API answers a burst of requests with 429 or 5xx
+#: now and then, and a run should outlast a minute of that.
+DANDI_TRIES = 6
+DANDI_BACKOFF_S = 2.0
 
 
 def dandi_json(path: str) -> dict:
-    with urllib.request.urlopen(f"{DANDI_API}/{path}", timeout=60) as response:
-        return json.load(response)
+    for attempt in range(DANDI_TRIES):
+        try:
+            with urllib.request.urlopen(f"{DANDI_API}/{path}", timeout=60) as response:
+                return json.load(response)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            transient = not isinstance(error, urllib.error.HTTPError) or error.code in (429, 500, 502, 503, 504)
+            if not transient or attempt == DANDI_TRIES - 1:
+                raise
+            wait = DANDI_BACKOFF_S * 2**attempt
+            say(f"  DANDI API {path}: {error}; retrying in {wait:.0f} s")
+            time.sleep(wait)
 
 
 @functools.cache
@@ -84,8 +99,9 @@ class DandiFile:
     sha256: str
 
 
+@functools.cache
 def dandi_file(eid: str, desc: str) -> DandiFile:
-    """The session's NWB file of one kind (``raw`` or ``processed``)."""
+    """The session's NWB file of one kind (``raw`` or ``processed``), looked up once per run."""
     matches = [a for a in dandi_assets() if f"ses-{eid}_desc-{desc}_" in a["path"]]
     if len(matches) != 1:
         raise LookupError(f"{len(matches)} {desc} NWB assets for session {eid}")
@@ -137,6 +153,23 @@ def bucket_url(session_path: str, rel_path: str, dataset_id: str) -> str:
     """
     stem, ext = rel_path.rsplit(".", 1)
     return IBL_DATA + quote(f"{session_path}/{stem}.{dataset_id}.{ext}")
+
+
+def pinned_etag(url: str, md5: str) -> str:
+    """The S3 ETag of an IBL file, checked against the MD5 IBL's listing gives.
+
+    The store pins each ALF reference to this ETag, so a read fails if IBL
+    replaces the file. A file uploaded in one part has its MD5 as its ETag;
+    one uploaded in parts has an ETag of its own form (``<hex>-<parts>``),
+    which only the HEAD can give.
+    """
+    from urllib.parse import unquote
+
+    store = obstore.store.S3Store(IBL_BUCKET, region="us-east-1", skip_signature=True)
+    etag = obstore.head(store, unquote(url.removeprefix(f"s3://{IBL_BUCKET}/")))["e_tag"]
+    if "-" not in etag.strip('"') and etag.strip('"') != md5:
+        raise ValueError(f"{url}: ETag {etag} differs from the MD5 {md5} in IBL's listing")
+    return etag
 
 
 def npy_header(url: str) -> tuple[tuple[int, ...], np.dtype, int]:

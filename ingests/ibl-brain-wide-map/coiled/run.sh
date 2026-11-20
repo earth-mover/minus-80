@@ -4,8 +4,13 @@
 # the store check. ARRAYLAKE_TOKEN must be set in the environment.
 # Expected times: install under 2 min; the 2022 pass about 30 s a session
 # (hard limit 40 min); the 2024 pass about 10 s a session (hard limit 20 min);
-# verify about 15 s (hard limit 5 min). A session that is already on main
-# with the pass's sort is skipped, so a stopped job can be run again.
+# verify under 1 min (hard limit 5 min).
+#
+# A relaunch resumes. A pass whose tag (sort-2022, sort-2024) is already in the
+# repo is skipped whole. Inside a pass, a session is skipped when main already
+# holds it with that pass's sort or a later one, so a relaunch never writes the
+# 2022 sort over the 2024 one, and never writes a session's NWB files twice. A
+# pass tags main only when every session holds exactly its sort.
 set -euo pipefail
 REPO=arraylake://earthmover-biology/ibl-brain-wide-map
 # The uploaded directory may land inside the working directory; work where the wheel is.
@@ -16,11 +21,8 @@ echo "host $(hostname), $(nproc --all) cores, $(free -g | awk '/Mem/ {print $2}'
 
 echo "$(now) install: start"
 uv venv -q --python 3.12 .venv
-# A wheel cannot carry the git sources the workspace pins.
-uv pip install -q --python .venv \
-    "./$(ls minus_80-*.whl)[nwb]" "arraylake>=1.7.0" pandas pyarrow xarray \
-    "virtualizarr @ git+https://github.com/ianhi/VirtualiZarr@83da047711558dfb4fc004db45641d28a6687f61" \
-    "shadowzarr @ git+https://github.com/bendichter/zindi@07e6f65938ef30400251f09b29323832a25fda88"
+uv pip install -q --python .venv -r requirements.txt
+uv pip install -q --python .venv --no-deps "./$(ls minus_80-*.whl)"
 echo "$(now) install: done"
 
 export PYTHONUNBUFFERED=1 RUST_LOG=error MINUS80_S3_ANONYMOUS=1
