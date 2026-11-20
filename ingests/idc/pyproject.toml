@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Reference NCI Imaging Data Commons whole-slide images (GTEx, TCGA) and their nuclei segmentations from an OME-Zarr Icechunk store."
 requires-python = ">=3.12"
 dependencies = [
+    "arraylake>=1.7.0",
     "highdicom>=0.25",
     "idc-index>=0.12",
     "minus-80[dicom]",

@@ -961,6 +961,7 @@ name = "idc-ingest"
 version = "0.0.0"
 source = { virtual = "ingests/idc" }
 dependencies = [
+    { name = "arraylake" },
     { name = "highdicom" },
     { name = "idc-index" },
     { name = "minus-80", extra = ["dicom"] },
@@ -969,6 +970,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arraylake", specifier = ">=1.7.0" },
     { name = "highdicom", specifier = ">=0.25" },
     { name = "idc-index", specifier = ">=0.12" },
     { name = "minus-80", extras = ["dicom"], editable = "." },
