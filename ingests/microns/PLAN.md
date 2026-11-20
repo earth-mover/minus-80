@@ -1,307 +1,266 @@
-# MICrONS minnie: ingest plan
+# MICrONS minnie, phase 1: two-photon functional scans
 
 ## Summary
 
-The plan brings the whole MICrONS "minnie" release into one virtual Icechunk
-store: electron microscopy, segmentation, two-photon calcium imaging, behavior,
-stimuli and the tables that link them. All of it was recorded from one mouse.
-Every array references the archive's own bytes in place, in BossDB's bucket
-`s3://bossdb-open-data`, DANDI's bucket `s3://dandiarchive` and the
-consortium's Google Cloud buckets. Nothing is decoded to build the store.
+Phase 1 puts the 19 two-photon functional scans of the MICrONS mouse into
+one virtual Icechunk store. The pixels stay where BossDB published them: each
+chunk is one frame of BossDB's uncompressed TIFFs, read in place. DANDI's NWB
+files of the same scans supply what the TIFFs lack: each field's pixel size,
+depth and position, the frame rate and the time of every volume.
 
-MICrONS is the largest public dataset that combines functional imaging and
-connectomics in one animal. Its parts are published in four places (BossDB,
-DANDI, Google Cloud and a database dump), in five formats, with metadata in a
-sixth. A store a stranger can open, with the EM, every segmentation release and
-every two-photon field in one place and placed in space, is the point of the
-ingest.
+BossDB exported the scans twice, and the store keeps both as two commits on
+`main`. The first commit references the 2021 export (v1) as it declares its
+pixels, uint16, and is tagged `v1`. The second references the 2023 export
+(v2), which declares the same bytes int16, and is tagged `v2`. The trial
+found that the two exports differ only in that declaration.
 
-- **EM and segmentation.** Each Neuroglancer precomputed volume becomes one
-  OME-Zarr 0.6 multiscale image, with one Zarr chunk per precomputed chunk.
-  The EM and every segmentation of a volume sit in one 0.6 scene, placed by
-  translation.
-- **Two-photon scans.** Each imaging field of each of the 19 scans becomes one
-  `(t, y, x)` image, one chunk per frame, referencing the uncompressed BossDB
-  TIFFs. Pixel size, depth, field position and frame times come from the DANDI
-  NWB files.
-- **Processed functional data.** Traces, ROI masks, behavior and the stimulus
-  shown come from the DANDI NWB files, referenced in place.
-- **Tables.** The synapse graphs, nucleus and cell-type tables, the
-  functional-to-EM match and proofreading status go to Iceberg tables beside
-  the store. Meshes, skeletons and other files with no Zarr form are listed by
-  URL.
-- **Releases as versions.** The proofread segmentation exists in four releases
-  (v117 on BossDB; v343, v943 and v1300 on Google Cloud). Each is committed in
-  order and tagged, so a reader can check out the release a paper used.
-
-**Asked of the reviewer:** approve the layout and the trial in step 1, and
-decide the judgement calls below. Nothing is written to a shared resource
-before approval.
+**Asked of the reviewer:** approve the layout and the run below, and decide
+the judgement calls. Nothing has been written outside a local trial repo.
+The run needs a destination repo whose virtual chunk container covers the
+BossDB prefix, which needs a maintainer's approval.
 
 | # | Decision | Recommended |
 |---|---|---|
-| 1 | Scope | Everything in the release. The order is set by risk, not by importance (see "Steps") |
-| 2 | Segmentation is its own image, not an OME-Zarr label image | Image; the spec requires a label image to have its parent's number of levels, and no segmentation here does |
-| 3 | Which copy of each precomputed layer to reference, where a sharded and an unsharded copy both exist | The sharded copy, if the trial finds it complete |
-| 4 | Which copy of the two-photon movies to reference | BossDB's TIFFs, v2 only |
-| 5 | Metadata source for the scans: DANDI NWB or the DataJoint database dump | The NWB; the dump only for what the NWB lacks |
-| 6 | Codecs for `jpeg` and `compressed_segmentation` chunks | Two thin Zarr codecs over maintained decoders (imagecodecs, `compressed-segmentation`), named in the root attributes |
-| 7 | Meshes and skeletons | Listed by URL in tables beside the segmentation they belong to |
-| 8 | The coregistration between two-photon and EM space | Stored as the source's transforms, in attributes; an affine in the scene only after checking it against the match table |
-| 9 | Segmentation and table releases | One commit and tag per release, oldest first |
-| 10 | Destination | A new Arraylake repo, `earthmover-biology/microns-minnie`, after the trial |
+| 1 | Give each field a size-1 z axis, so the scene can place it at its depth | Yes; the alternative is (t, y, x) with depth only in attributes |
+| 2 | Place the fields with a 0.6 scene per scan, not a translation inside each image | Scene |
+| 3 | Keep the volume times once per scan, not once per field | Once per scan; the NWB gives every field the same times |
+| 4 | Keep v1 as the first commit, with its wrong dtype | Yes, as planned; tagged so that an analysis made on v1 can be checked |
+| 5 | Destination | A new Arraylake repo, `earthmover-biology/microns-minnie`, with a container for `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/` |
+
+The figures are in [`diagrams/`](diagrams/): the archive and what phase 1
+takes from it ([`source.svg`](diagrams/source.svg)), how one scan's TIFF and
+NWB file become its groups ([`mapping.svg`](diagrams/mapping.svg)), and the
+store ([`store.svg`](diagrams/store.svg)). [LAYOUTS.md](LAYOUTS.md) records
+the evidence behind each mapping.
 
 ## The archive
 
-{{ARCHIVE}}
+MICrONS imaged the visual cortex of one mouse (17797), first with a
+two-photon mesoscope while it watched movies, then with electron microscopy.
+Phase 1 covers the functional imaging:
+
+- **BossDB TIFFs** (CC BY 4.0), in
+  `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/`,
+  us-east-1, anonymous reads. One TIFF per scan per export, 38 files, 1.34 TB
+  per export. Each file is an uncompressed movie of `volumes × fields` frames,
+  the fields interleaved within each volume. The directory's technical
+  documentation (v2, July 2023) gives the scan groups: 15 scans of 40,000
+  volumes × 8 fields at ~6.3 Hz, scan 4-9 stopped at 35,112 volumes, scans 9-3
+  and 9-4 with 50,000 × 6 at ~8.6 Hz, and scan 9-6 with 57,000 × 4 at ~9.6 Hz
+  and larger frames. That is 144 fields and 5,908,896 frames per export.
+- **DANDI 000402** (CC BY 4.0, version 0.230307.2132), in `s3://dandiarchive`,
+  us-east-2. One NWB file per scan, 62 to 96 GB, holding the same movies again
+  as gzip-compressed HDF5, the field metadata, and the processed data.
+
+People use the scans to relate a neuron's visual responses to its
+connections in the EM volume. Most analyses start from the processed traces
+(phase 2); the movies are what those traces were extracted from, and what a
+reader re-segments or checks them against.
 
 ## Proposed layout
 
 ### The tree
 
 ```
-/                                          annotations: title, citation, DOIs, license, sources, codecs used,
-                                           release history; ome: scene "minnie65" and "minnie35" (decision 8)
-em/minnie65                                image (z, y, x) uint8, 9 levels, 8 × 8 × 40 nm at level 0
-em/minnie35                                image (z, y, x) uint8, 9 levels
-segmentation/minnie65/seg                  image (z, y, x) uint64, proofread segmentation, current release
-segmentation/minnie65/autoseg              image, automated segmentation (v0)
-segmentation/minnie65/ws                   image, watershed supervoxels
-segmentation/minnie65/clefts               image uint32, synaptic clefts
-segmentation/minnie65/nuclei               image uint32, nuclei
-segmentation/minnie35/{seg,autoseg,ws,clefts}
-microct/17797_1R                           image (z, y, x), 0.94 µm micro-CT of the same brain
-two-photon/structural/<stack>              image (z, y, x), the vasculature stacks the fields register into
-two-photon/scans/<session>-<scan>          ome: scene placing the scan's fields; annotations: rate, depths, nframes
-two-photon/scans/<session>-<scan>/field-<n>          image (t, y, x) int16, one chunk per frame
-two-photon/scans/<session>-<scan>/processed          the NWB's processing/ophys, behavior and stimulus, referenced
-tables (Iceberg, beside the store)         synapses_minnie65, synapses_minnie35, nucleus_detection,
-                                           nucleus_neuron_classification, cell_types, proofreading_status,
-                                           functional_coregistration, digital_twin_units, files (meshes,
-                                           skeletons, models, database dump, documentation)
+/                                     title, description, license, citations, sources, tiff_export
+                                      ome: bioformats2raw.layout collection
+OME                                   ome.series: the 144 field image paths
+two-photon                            one entry per scan: fields, volumes, rate
+two-photon/<session>-<scan>           ome.scene: coordinate system "motor" (t, z, y, x), one translation per field
+                                      scan: animal, session, scan, counts, rate, depths, NWB and TIFF URLs
+two-photon/<session>-<scan>/volume_times      (volumes,) float64 seconds, native
+two-photon/<session>-<scan>/field-<n>         image, (t, z, y, x)
+two-photon/<session>-<scan>/field-<n>/0       (volumes, 1, rows, columns), one chunk per TIFF page
 ```
 
-Scan 4-7, field 1, is at `two-photon/scans/4-7/field-1`: an array of shape
-(40000, 440, 248) int16 with chunks (1, 440, 248), whose 40,000 chunks
-reference every eighth frame of `functional_scan_17797_4_7_v2.tif`. The EM's
-level 0 is at `em/minnie65/0`: an array of shape (13088, 180224, 212992) with
-chunks (16, 128, 128).
+Scan 4-7, field 3 is at `two-photon/4-7/field-3`. Its array `0` has shape
+(40000, 1, 440, 248) and chunks (1, 1, 440, 248), and chunk (v, 0, 0, 0)
+references page `v × 8 + 2` of `functional_scan_17797_4_7_v2.tif` (at tag
+`v2`).
 
 ### Axes, units, levels
 
-- **EM and segmentation** are `(z, y, x)` in nanometers, from each layer's
-  `info`: `resolution` gives the scale per level and `voxel_offset` the
-  translation. Precomputed stores a chunk's voxels with x varying fastest,
-  which is C order for `(z, y, x)`, so no transpose codec is needed. Each level
-  is one precomputed scale, in the source's order. The layers' levels differ
-  (the EM has 9, the proofread segmentation 11, nuclei 5), which is why
-  segmentation cannot be a label image of the EM (decision 2).
-- **Two-photon fields** are `(t, y, x)`. The TIFF stores a frame as 440 rows of
-  248 pixels; the documentation says rows run lateral to medial and columns
-  posterior to anterior, and the NWB stores the same field as (…, 248, 440).
-  Which copy is transposed is checked in the trial before the axes are named.
-  `y` and `x` are 2.5 µm for 18 scans and 1.67 µm for scan 9-6. `t` is in
-  seconds, with the scan's rate as the scale and the exact per-field frame
-  times kept as an array beside the image.
-- **Field placement.** Each scan is a 0.6 scene whose coordinate system is the
-  microscope's motor coordinates in micrometers; each field is placed by its
-  center from the NWB's `origin_coords` (equal to the database's `Field` table)
-  and its depth.
-- **Units** are `nanometer` for EM space and `micrometer` and `second` for
-  two-photon space.
+- **Axes (t, z, y, x).** OME-Zarr orders time, then space. `y` runs along the
+  TIFF's rows (lateral to medial), `x` along its columns (posterior to
+  anterior); the trial confirmed `x` against the overlap of coplanar fields.
+- **Scale.** `t` is 1 / rate seconds, from the rate in the NWB series
+  description; `y` and `x` are the NWB `grid_spacing`, 2.5 µm (1.667 µm for
+  scan 9-6); `z` is a placeholder of 1 µm, named as one in the attributes,
+  because a field is one optical section and nothing states its thickness.
+- **Placement.** Each scan is an OME-Zarr 0.6 scene, "for images that share a
+  spatial relationship". Its coordinate system, `motor`, is the microscope's
+  stage coordinates. The scene translates each field by `(t, z, y, x)`: the
+  scan's first volume time, the field's depth, and the center of its first
+  pixel, computed from the field center the NWB states.
+- **Time.** The scale is nominal: over a whole scan the volume times run 2.5
+  to 3.0 s longer than the stated rate implies. `volume_times` is exact.
+- **Levels.** One. The TIFF has no pyramid, and a frame is 440 × 248 pixels,
+  small enough to read whole.
 
 ### Referenced, written, beside
 
-| product | how |
+| Product | How |
 |---|---|
-| EM, segmentation, micro-CT (precomputed) | referenced: one chunk per precomputed chunk, byte ranges inside shards or whole unsharded objects |
-| two-photon movies (BossDB TIFF v2) | referenced: one chunk per frame, uncompressed |
-| structural stacks (BossDB TIFF) | referenced |
-| traces, masks, behavior, stimulus at scan rate (DANDI NWB) | referenced: the NWB's HDF5 chunks |
-| OME documents, scenes, per-scan and per-field metadata | written: JSON attributes |
-| synapse graphs, nucleus and cell-type tables, match table, proofreading status, digital-twin unit properties | Iceberg tables beside the store |
-| meshes, skeletons, model weights, the DataJoint dump and its containers, PDFs | Iceberg table of files: URL, size, what it belongs to |
-| stimulus movies (AVI) | to decide after checking their codec; the NWB holds the stimulus at scan rate in any case |
+| Frames (BossDB TIFF, both exports) | referenced: one chunk per page, uncompressed, Zarr's `bytes` codec only |
+| Volume times (NWB timestamps) | written natively, Blosc zstd with byte shuffle, 280 to 456 KB per scan before compression |
+| Field metadata (NWB imaging planes, series attributes) | attributes on each field image, as the file states them |
+| NWB movies | not referenced; the TIFF frames are the same pixels and cost one request each |
+
+Every array a reader opens is in Zarr's v3 core: any Zarr reader in any
+language decodes it.
 
 ### Layouts considered and rejected
 
-- **Segmentation as label images under the EM.** It is how a viewer pairs
-  segmentation with its image. But "the JSON array associated with the
-  `datasets` key MUST have the same number of entries (scale levels)" (0.6,
-  `labels` metadata), and no MICrONS segmentation has the EM's 9 levels at the
-  EM's resolutions. Resampling to fit would mean decoding and writing
-  hundreds of terabytes.
-- **One array per scan, `(t, field, y, x)`, matching the TIFF.** It mirrors the
-  file. But the fields of a scan are different places at different depths,
-  and an image may have "2 or 3 entries of `type:space`" and one other axis;
-  a field axis would be a custom axis holding positions. One image per field
-  in a scene says where each field is.
-- **Referencing the NWB's copy of the movies.** It would keep each scan in one
-  file. Its chunks are (2254, 14, 14) gzip, so showing one frame reads 576
-  chunks, each 2,254 frames long. The TIFF frame is one uncompressed read.
-- **Merging minnie65 and minnie35 into one EM array.** They are aligned in one
-  coordinate frame, but they are two precomputed volumes with their own chunk
-  grids. Merging them would split or pad chunks, which the source's chunking
-  rule forbids. A scene places both.
+- **(t, y, x) with depth in attributes.** Valid and simpler, but no OME-Zarr
+  reader can then place a field in depth, and the scene could only place it
+  in y and x. See decision 1.
+- **A translation inside each image, no scene.** A viewer that reads only
+  single images would place each field; but each image would carry its
+  scan's coordinate system implicitly, and the spec defines the scene for
+  exactly this case. The zebrafish ingest places its embryos the same way.
+  See decision 2.
+- **One array per scan, (t, field, y, x).** The fields of a scan sit at
+  different places and depths, and one array has one transform, so it cannot
+  place them. OME-Zarr also allows an image only one axis that is neither
+  space nor time.
+- **A `frame_times` array in each field image.** The 8 arrays of a scan would
+  be identical, and an image group holding an extra array is a node the spec
+  does not name. See decision 3.
+- **Referencing the NWB movies.** Their gzip chunks are (2254, 14, 14): one
+  frame touches 576 chunks of 2,254 frames each. A TIFF frame is one 218 KB
+  read.
+- **Only v2.** Simpler, one commit. But v1 was the public export for 18
+  months, and an analysis made on it read different values; the first commit
+  lets that be checked. See decision 4.
 
 ## What has been tested
 
-All checks below ran on 2026-11-12, from a laptop in California unless stated.
+All on a laptop, reading the buckets over the internet, on 2026-11-19.
 
-- **Survey.** {{SURVEY}}
-- **A two-photon TIFF** (`functional_scan_17797_4_7_v2.tif`): an uncompressed
-  BigTIFF written by tifffile, 320,000 pages of 440 × 248 int16, one strip per
-  page, the strips back to back from byte 406. The scan has 40,000 volumes of
-  8 fields, field-major within each volume, as the documentation says. Read
-  from us-east-2, the first 16 frames hold values from −67 to 32,422, 0.2% of
-  them negative, so the data are int16 as the file says and not uint16 as the
-  documentation says. Each field's mean differs (1,528 to 3,484), as eight
-  interleaved fields would.
-- **A DANDI NWB** (`sub-17797_ses-4-scan-7_behavior+image+ophys.nwb`, 71 GB),
-  read from a VM in us-east-2 in 27 s; the same read from the laptop did not
-  finish in 10 minutes:
-  - one `TwoPhotonSeries` per field, (40000, 248, 440) int16, gzip level 4,
-    chunks (2254, 14, 14), with per-field `timestamps`;
-  - one `ImagingPlane` per field: `grid_spacing` 2.5 µm, `origin_coords`,
-    indicator GCaMP6, excitation 920 nm, areas VISp, VISrl, VISlm and VISal,
-    depths 80, 220, 360 and 500 µm; `imaging_rate` is NaN, and the rate (6.3009
-    Hz) is only in each series' description;
-  - per field, fluorescence and deconvolved traces, `PlaneSegmentation` masks
-    with EM identifiers (`pt_root_id`, `pt_supervoxel_id`, `pt_x/y/z_position`),
-    and summary images; eye, pupil and treadmill series; the stimulus movie,
-    (381054, 144, 256, 3) uint8, one frame per chunk; trial tables for the
-    three stimulus types.
-- **The EM's precomputed `info`** for minnie65: 9 scales, 8 × 8 × 40 nm to
-  2048 × 2048 × 1280 nm, all sharded (`neuroglancer_uint64_sharded_v1`). The
-  8 nm scale is `raw` with gzip inside the shard and chunks of 128 × 128 × 16;
-  the eight coarser scales are `jpeg` with 64³ chunks.
+**Field mapping.** In scan 4-7 at volume 1000, a 28 × 42 patch of each NWB
+`TwoPhotonSeries<k>` equals TIFF page `1000 × 8 + (k − 1)`, transposed,
+exactly, and matches no other field's page. Field `n` of the store is NWB
+series `n`. The NWB conversion code fills `origin_coords` from the DataJoint
+`Field` table's field center, so the store treats it as the center.
 
-Nothing has been parsed into a store yet.
+**Layout of every TIFF.** The TIFF parser read every directory of all 38
+files. Every file's pages are contiguous and of one size, and their offsets
+come from the files' own directories. The first directory sits at byte 16,
+before the pixels; the rest are packed after them, 236 bytes each in v2 and
+296 in v1, 51 to 90 MB per file and 3.1 GB in all.
+
+**v1 against v2.** 72 pages compared, in scans 4-7, 9-3 and 9-6. Every v1
+value equals the v2 value read as unsigned: the difference is 0, or exactly
+65,536 where v2 is negative (0.1 to 0.3% of pixels, from −167 to −1). The
+files differ in `SampleFormat` (UINT in v1, INT in v2), in three resolution
+tags that v1 carries (1/1, unit NONE), and so in their offsets. No v2 value
+was near the int16 maximum. The ingest repeats this check on the first,
+middle and last page of every scan before writing the second commit, and its
+message says so.
+
+**Timing.**
+
+| Step | Laptop | Notes |
+|---|---|---|
+| Probe one file's layout | 0.5 to 0.7 s | a HEAD and two range reads |
+| Fetch one file's directory block | 2.4 s for 75.5 MB in one GET; 5 to 9 s in 32 MB blocks under load | |
+| Parse 320,000 directories with tifffile | 8.6 s alone; 17 to 34 s with fetch, 3 files at once, on a loaded machine | peak memory 1.5 GB per parse |
+| All 38 files | 364 s, 3 at a time | |
+| Read one scan's NWB metadata | 1.2 s for one, 12 s for two with the listing | metadata only |
+
+The library parse is fast enough, so the ingest uses tifffile and does not
+read the directories itself.
+
+**Test write.** Scans 4-7 (8 fields) and 9-6 (4 fields, 600 × 372) went into
+a local repo, both commits and both tags, in 57 s, with 2.1 GB peak memory;
+the repo is 13 MB. `verify.py` passed in 16 s, through both tags: the store
+lists both scans and all 12 fields, the OME-Zarr documents validate, the
+volume times equal the NWB timestamps, the scene places every field at the
+center and depth the NWB states, and 8 patches of 14 × 14 pixels equal the
+NWB copy of the same frames. The fixture test (`test_ingest.py`) checks every
+frame of every field of a small synthetic scan, through both tags.
+
+**Reading.** From the laptop, through the local repo: one frame in 0.12 s
+once the repo is open, 100 consecutive frames in 1.45 s.
+
+**Requests per file.** The parser makes a HEAD and two small range reads to
+find the directories, then fetches the first 64 KB and the directory block,
+the block in 32 MB pieces at once. The probe checks that the file's tail is
+a uniform array of directories before the parser fetches all of it; without
+the check, a file laid out otherwise could send the parser to fetch tens of
+gigabytes of pixels.
 
 ## Judgement calls
 
-1. **Scope.**
-   - *Evidence:* the release is one animal, and its value is the links between
-     its parts: a two-photon ROI names its EM cell, a synapse names two
-     segments, a segment has a mesh.
-   - *Recommended:* everything, in the order of the steps below. The first
-     store holds the minnie65 EM and the two-photon data; each later step is
-     its own commit.
-2. **Segmentation as images.**
-   - *Evidence:* the label rule above. Each segmentation is a different volume
-     with its own extent, offset and levels.
-   - *Recommended:* one image per segmentation layer, placed in the scene beside
-     the EM, with `annotations` naming the release and the source. A viewer
-     that pairs a label image with its image will not pair these
-     automatically.
-3. **Sharded or unsharded copies.**
-   - *Evidence:* {{COPIES}}
-   - *Recommended:* the sharded copy where it is complete, because one shard
-     index lists thousands of chunks and an unsharded scale is millions of
-     objects to list. Record the other copy's URL.
-4. **The two-photon movies.**
-   - *Evidence:* the BossDB TIFF is uncompressed with one strip per frame; the
-     NWB copy's chunks span 2,254 frames. v2 of each TIFF (January 2023)
-     "corrected pixel over/under-flow error in export"; v1 is still in the
-     bucket.
-   - *Recommended:* reference the v2 TIFFs, and record v1's URLs.
-   - *Cost:* the store references two files per scan, the TIFF and the NWB.
-5. **Scan metadata.**
-   - *Evidence:* the NWB holds the field geometry, depths, timestamps, areas
-     and the ROI-to-EM links. The DataJoint dump is 116 GB of MySQL and holds
-     more (raster and motion correction, registration into the structural
-     stack, the coregistration transforms).
-   - *Recommended:* the NWB first. Read the dump once, on a VM, for the tables
-     the NWB lacks: `Registration`, `Coregistration`, `RasterCorrection`,
-     `MotionCorrection`.
-6. **Codecs.**
-   - *Evidence:* three chunk encodings occur. `raw` with gzip decodes with
-     Zarr's gzip codec. `jpeg` chunks are one 2-D JPEG of the chunk flattened,
-     which imagecodecs decodes but does not reshape. `compressed_segmentation`
-     has a maintained decoder from the Seung lab. Edge chunks are stored
-     clipped to the volume where a scale's size is not a whole number of
-     chunks, so a codec must pad.
-   - *Recommended:* two Zarr codecs in `minus80`, each a few lines over its
-     library, registered under a name the root attributes record. The trial
-     checks edge chunks against CloudVolume's reads.
-7. **Meshes and skeletons.**
-   - *Evidence:* precomputed meshes are a multi-resolution Draco format and
-     skeletons are SWC files; neither has a Zarr or OME-Zarr convention.
-   - *Recommended:* an Iceberg table of files per segmentation: segment ID,
-     URL, size, format. A viewer pointed at the original layer still finds
-     them.
-8. **Coregistration.**
-   - *Evidence:* the Allen Institute's transforms between two-photon and EM
-     space are linear or spline, both directions, in the database's
-     `Coregistration` table. OME-Zarr 0.6 scenes can hold an affine; readers
-     "SHOULD parse" it. A spline has no 0.6 form short of a displacement
-     field.
-   - *Recommended:* store the transforms as the source gives them, in the root
-     attributes. Add the linear transform to the scene only if it places the
-     match table's units on their EM cells.
-9. **Releases.**
-   - *Evidence:* v117 of the proofread segmentation is on BossDB; v343, v943
-     and v1300 are only in `gs://iarpa_microns`. CAVE's tables are archived
-     per release in `gs://mat_dbs/public/minnie65_phase3_v1/`. Arraylake
-     already references Google Cloud chunks (the SanctSound store).
-   - *Recommended:* commit v117 first, then each later release as a commit
-     that replaces `segmentation/minnie65/seg`, tagged `v343`, `v943`,
-     `v1300`; the tables follow the same tags.
-10. **Destination.**
-    - *Recommended:* `earthmover-biology/microns-minnie` on Arraylake, created
-      after the trial, with virtual chunk containers for
-      `s3://bossdb-open-data/iarpa_microns/`, `s3://dandiarchive/` and
-      `gs://iarpa_microns/`.
+1. **A size-1 z axis.** Each field is one optical section, at one of two to
+   four depths per scan. With a z axis, the scene places it at its depth, and
+   a viewer that reads scenes shows a scan as the stack of planes it was.
+   The cost is an axis of length 1 with a scale nothing states (1 µm, named a
+   placeholder) and an extra index in every read (`field[v, 0]`).
+   **Recommended:** keep z.
+2. **Scene, not image translations.** See "Layouts considered".
+   **Recommended:** scene.
+3. **Volume times once per scan.** Every `TwoPhotonSeries` in a file carries
+   the same timestamps, which the conversion took from one per-scan table.
+   They are the times of each volume, not of each field within it, and the
+   store says so. **Recommended:** one `volume_times` per scan.
+4. **Both exports.** The store reproduces v1's wrong dtype in the first
+   commit and records the finding in LAYOUTS.md, as docs/ingest.md asks for a
+   source's errors. `main` ends at v2. **Recommended:** both, as planned.
+5. **Destination.** The repo and its container need a maintainer's approval.
+   **Recommended:** `earthmover-biology/microns-minnie`, so later phases of
+   the same release join it.
+
+Two smaller choices are recorded in LAYOUTS.md rather than asked here: the
+NWB `origin_coords` is used as the field center, as the conversion code and
+the DataJoint schema state, against NWB's definition of the field; and the
+NWB's inconsistent `field_of_view` and `dimension` orders are kept as stated.
 
 ## Steps, scope and risk
 
-Every step runs on Coiled, beside the data: BossDB is in us-east-1, DANDI in
-us-east-2. Nothing runs from a laptop but tests on fixtures.
+**Scope.** In: the 38 TIFFs and, from the 19 NWB files, the imaging-plane
+metadata and timestamps. Out: EM, segmentation, micro-CT, structural stacks,
+stimulus movies, the processed NWB data, the CAVE tables, and everything else
+in the bucket.
 
-1. **Parsers and codecs.** Add `minus80.parsers.precomputed` (sharded and
-   unsharded layers; the sharding hash and index decoding from CloudVolume's
-   `ShardingSpecification` rather than written here) and the two codecs. Test
-   them on small fixtures served by the local range server.
-2. **Trial, on a branch of a local repo on a VM.** A few hundred shards of the
-   minnie65 EM at every scale, one segmentation layer, one scan (TIFF and
-   NWB). It measures:
-   - references per second when indexing shards, and the real chunk count per
-     shard;
-   - commit time and manifest size per million references in Icechunk 2;
-   - edge chunks and pixels equal to CloudVolume's reads;
-   - the two-photon orientation (decision in "Axes").
-3. **Count every chunk.** Read every shard index of every sharded layer, and
-   list every unsharded scale. This gives the store's true reference count,
-   which the trial's rate turns into a time and a manifest size. Stop here if
-   the count does not fit one repo, and report.
-4. **Phase 1 into Arraylake:** the minnie65 EM, all 19 scans, the structural
-   stacks and the tables. One commit per part.
-5. **Phase 2:** minnie65 segmentation (v117), then minnie35, then micro-CT.
-6. **Phase 3:** releases v343, v943 and v1300, and the CAVE tables per release.
-7. **Verify** each phase with a short store check (`docs/ingest.md`): every
-   source listed is present, the documents validate, and a few chunks per
-   layer equal CloudVolume's or tifffile's decode.
+**Steps.**
 
-**Not a goal:**
-- re-segmenting, re-meshing or recomputing anything the consortium computed;
-- CAVE's live, dynamic segmentation (`graphene://`); the store holds the
-  static releases;
-- the training ground truth on Zenodo.
+1. Approval of this plan and the judgement calls.
+2. A maintainer creates the destination repo and its virtual chunk container
+   for the BossDB prefix. *Needs approval: writes to the shared Arraylake
+   organization.*
+3. Run 1, `runs/01_twophoton.sh`: one Coiled VM (`c6i.4xlarge`, us-east-1)
+   with `coiled batch run`, writing both commits and both tags to `main`,
+   then `verify.py`. *Needs approval: writes the store.*
+4. REPORT.md, with the run's snapshots, timings and verify output.
 
-**Writes that need approval:** the trial repo (own prefix in the sandbox
-account), the Arraylake repo and every phase written to it, the Iceberg tables,
-and any Coiled run expected to cost more than $10.
+**Expected run.** About 2 minutes to install, under 1 minute for the NWB
+metadata of 19 scans, and about 2 minutes per export: 19 scans, 8 at a time,
+each fetching 51 to 90 MB of directories beside the bucket and parsing them
+in 10 to 35 s. Under 10 minutes in all, with a hard limit of 30. The VM costs
+under $1, reads in-region are free, and the cross-region NWB reads are a few
+megabytes.
 
 **Risks.**
 
-- **Reference count.** Up to about 1.9 billion chunks per full-resolution layer
-  if every chunk exists. Icechunk 2 has not been measured at this size. Step 3
-  gives the real count before anything is committed.
-- **Snapshot size.** A reader fetches the snapshot on open. The store has
-  hundreds of arrays, not millions, so this is not expected to bind; the
-  manifests are what grow.
-- **Codecs outside the Zarr core.** A reader needs `minus80`'s codecs
-  installed to decode `jpeg` and `compressed_segmentation` chunks. The root
-  attributes name them.
-- **Clipped edge chunks** could decode to the wrong shape if a codec pads
-  wrongly; the trial compares edge chunks with CloudVolume.
+- *Commit size.* Each export writes 5.9 million chunk references. Locally the
+  two scans' 1.1 million references took 13 MB; the full store should be
+  about 140 MB of manifests, and its commit time against Arraylake is
+  unmeasured.
+- *Reading a pixel over time.* One chunk per frame suits viewing frames and
+  short clips. A pixel's whole trace reads every frame of the field: 8.7 GB
+  for a 40,000-volume field. Traces belong to phase 2's processed data, and a
+  rechunked copy is out of scope.
+- *The NWB clock.* `volume_times` is in the NWB file's clock, which the
+  conversion may have shifted to the earliest behavior timestamp. The store
+  states the clock; phase 2's traces and behavior share it.
+
+## Later phases
+
+- The processed functional data in the NWB files: traces, ROI masks with
+  their EM links, behavior, stimulus.
+- The two-photon structural stacks the fields register into, and the
+  coregistration into EM space.
+- EM and segmentation (Neuroglancer precomputed), with segmentation releases
+  as commits.
+- The CAVE and synapse tables, as Iceberg tables beside the store.
