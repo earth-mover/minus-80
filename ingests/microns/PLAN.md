@@ -306,6 +306,9 @@ megabytes.
 
 ## Later phases
 
+Phase 2, the processed data and the EM matches, is planned in
+[PLAN-phase2.md](PLAN-phase2.md).
+
 - The processed functional data in the NWB files: traces, ROI masks with
   their EM links, behavior, stimulus. The EM links need care. Each
   `PlaneSegmentation<n>` stores `pt_root_id`, `pt_supervoxel_id` and

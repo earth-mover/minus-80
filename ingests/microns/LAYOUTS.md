@@ -188,3 +188,105 @@ field 1 sits at (10.15 s, 80 µm, −783.75 µm, −793.75 µm).
   the field.
 - **Both exports.** v1 is kept, with its wrong dtype, as the first commit, so
   a reader of an analysis made on v1 can check out what it read.
+
+## Phase 2: processed data and EM matches
+
+Proposed in [PLAN-phase2.md](PLAN-phase2.md); nothing below is in the
+published store yet. The figures are `processed-source.svg`,
+`processed-mapping.svg` and `processed-store.svg`.
+
+### The NWB processed data
+
+Each NWB file holds, per field `n`:
+
+| Path | Holds | Store |
+|---|---|---|
+| `processing/ophys/ImageSegmentation/PlaneSegmentation<n>/image_mask` | `(rois, columns, rows)` float32, gzip, chunks `(87, 16, 28)` | `rois-<n>/0`, `(roi, 1, rows, columns)`, transposed |
+| `.../PlaneSegmentation<n>/id` | `1 … n`, int64 | `traces-<n>/roi` |
+| `.../PlaneSegmentation<n>/mask_type` | `soma` or `artifact`, variable-length strings | `traces-<n>/mask_type`, native |
+| `.../PlaneSegmentation<n>/pt_*`, `cave_ids`, `cave_ids_index` | on fields 2, 4, 6 and 8 only: an EM point in 4 × 4 × 40 nm voxels, a root and a supervoxel ID, float64 | `traces-<n>/nwb_em/`, as stated |
+| `processing/ophys/Fluorescence/RoiResponseSeries<n>/data` | `(volumes, rois)` float32, gzip, chunks `(625, 44)` | `traces-<n>/fluorescence` |
+| `.../RoiResponseSeries<n>/timestamps` | equal to the movie's timestamps (field 4 of scan 4-7) | not stored again: phase 1's `volume_times` |
+| `processing/ophys/SegmentationImages<n>/average`, `correlation` | `(columns, rows)` float64, contiguous | `summary-<n>/0`, `(2, 1, rows, columns)` |
+
+Per scan:
+
+| Path | Holds | Store |
+|---|---|---|
+| `acquisition/EyeTracking/eye_position/data` | `(104227, 2)` float64, pixels | `behavior/eye_position` |
+| `acquisition/PupilTracking/pupil_{major,minor}_radius/data` | `(104227,)` float64; only the minor radius has its own `timestamps` | `behavior/pupil_*_radius`, `behavior/eye_times` |
+| `acquisition/treadmill_velocity/{data,timestamps}` | `(480032,)` float64, `conversion` 0.01 to m/s | `behavior/treadmill_velocity`, `behavior/treadmill_times` |
+| `acquisition/Video: stimulus_17797_<s>_<n>_v4/data` | `(frames, 144, 256, 3)` uint8, one frame per gzip chunk | `stimulus/movie/0`, `(frame, 3, 144, 256)` |
+| `intervals/{Clip,Monet2,Trippy}` | one dataset per column; strings among them | `stimulus/trials/<table>/<column>` |
+
+The NWB file has no deconvolved activity: `processing/ophys` holds only
+`Fluorescence`. The trace and mask arrays carry the NWB attributes as stated
+(`unit` "n.a.", `conversion` 1.0).
+
+### The unit rule
+
+CAVE names a two-photon cell by `(session, scan_idx, unit_id)`; the NWB
+names it by field and ROI id. No file states how one maps to the other. Its
+source is DataJoint's `ScanUnit` table, which ships only in the MySQL dump.
+The mapping is:
+
+```
+unit_id = (ROIs in fields 1 … n − 1 of the scan) + ROI id
+```
+
+The evidence:
+
+- In all 19 NWB files, each field's `id` runs 1 to the field's ROI count.
+- Every row of every match table with a `field` column (26 table versions,
+  13,925 to 84,233 rows each) has a `unit_id` that the rule places in that
+  field.
+- In scan 4-7, all 687 rows of v343's `functional_coreg` give the same EM
+  point as the NWB columns of the ROI the rule names.
+
+The store writes `unit_id` beside `roi` in each `traces-<n>`, and `field` and
+`roi` beside `unit_id` in `units`, and says in their attributes that the rule
+is derived. The run checks it again on every table it writes.
+
+### The CAVE match tables
+
+CAVE publishes static dumps of its tables for some versions at
+`gs://mat_dbs/public/minnie65_phase3_v1/<version>/<table>_merged.csv.gz`, each
+a whole-file gzip CSV without a header, with `<table>_merged_header.csv`
+naming the columns and their types. Twelve versions have a directory; eight
+of them (v343, v661, v795, v943, v1078, v1181, v1412, v1507) hold match
+tables. v1300's dump has three tables, none of them matches. The objects are
+dated 2024-09 to 2026-06, later than most of the versions they hold, so the
+store records each object's generation and date.
+
+- **Rows stay, IDs change.** Every table keeps the same rows, with the same
+  `id` and supervoxel ID, in every version that lists it. Only
+  `pt_root_id` changes, in 1.4 to 12.3% of rows from one version to the next.
+- **One row per unit,** except v343's `functional_coreg`, whose 9,518 rows
+  hold 9,434 distinct matches: 84 rows repeat another row in everything but
+  `id`. The store keeps one of each.
+- **The NWB's EM columns are v343's `functional_coreg`:** 9,434 ROIs carry an
+  EM point, the same as the table's distinct matches.
+- **Even fields.** The matches lie on fields 2, 4, 6 and 8; `coregistration_manual_v4` has no row on an odd field, and the
+  combined automatic table has 47, all on field 1.
+- **Scans 5-4, 5-5 and 8-4.** The automatic tables from v943 on cover 22
+  scans: the 19 on DANDI and the three published only in
+  `platinum_camovies/`. Those 11,210 to 12,213 rows per table cannot join an
+  NWB file and stay out of the store.
+
+Each table becomes `units/em/<table>/` in its scan, with one array per
+column on the `units` axis, and each version is a commit: the ingest writes
+the arrays a version changes in place, adds the tables it introduces, and
+deletes the tables it no longer lists. Root and supervoxel IDs are uint64
+and exact, unlike the NWB's float64 copies, which lose the last two or three
+digits of an 18-digit ID.
+
+### Judgement calls
+
+- **Duplicates dropped.** v343's 84 repeated `functional_coreg` rows differ
+  only in `id`, so one of each is kept; the table's `rows` attribute keeps
+  the source count.
+- **Matches in the store, not only in Iceberg.** The columns are
+  coordinates on the `units` axis; PLAN-phase2.md weighs this against the
+  repository's rule for tables.
+- **Masks as an image.** The weights are float32 and overlap, so they are an
+  image with a `roi` axis, not an OME-Zarr label image.
