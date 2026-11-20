@@ -12,9 +12,10 @@ Icechunk store can reference in place:
   carries a binary nuclear mask (SEG, 5.02 TB) and the nuclei's polygons
   (ANN, 1.78 TB). The slides are CC BY 3.0 and the results CC BY 4.0.
 
-**Proposal: build both, GTEx first.** GTEx is cheap and carries no open
-decisions: about $2 of compute, every tile referenced. Its run tests the DICOM
-path at 25,000 slides. TCGA with the nuclei results is the more valuable store,
+**Decided: build both, GTEx first.** GTEx is cheap and carries no open
+decisions: under $5, every tile referenced. Its run tests the DICOM path at
+25,000 slides, and its code, layout, figures, notebook and run script are
+ready for review (*GTEx, ready to run*). TCGA with the nuclei results is the more valuable store,
 for three reasons:
 
 - it pairs every image tile with a mask tile on the same grid;
@@ -23,14 +24,16 @@ for three reasons:
 
 It needs the decisions below, and its run costs about $30.
 
-**Asked of the reviewer:** approve the layout and the two runs, and decide the
-calls below. Each has a recommended default, which the trial code follows.
+**Asked of the reviewer:** review the GTEx run and approve creating its
+repo. Ian approved the calls below on 2026-11-20, as recommended, with one
+change to decision 3: no codec of ours is an option, because a reader must
+never need minus80 or any other code from this repository to read a store.
 
-| # | Decision | Recommended |
+| # | Decision | Decided |
 |---|---|---|
 | 1 | Which collection runs first | GTEx, then TCGA |
 | 2 | One repo per collection, or one IDC repo | One per collection: `earthmover-biology/idc-gtex` and `earthmover-biology/idc-tcga-nuclei` (repo creation needs approval) |
-| 3 | TCGA's 1,716 JPEG 2000 slides whose tiles decode to YCbCr | Leave them out of phase 1; add them with a color-converting codec or a JPEG transcode later (*JPEG 2000*) |
+| 3 | TCGA's 1,716 JPEG 2000 slides whose tiles decode to YCbCr | Left out of phase 1. Later, either a JPEG transcode, or the conversion landing in a codec readers already have; never a codec from minus80 |
 | 4 | TCGA's 318 JPEG 2000 slides whose tiles decode to RGB | Reference them, and state that the JVM cannot decode them yet |
 | 5 | The nuclear mask: virtual or native | Native uint8 0/1, sharded, blosc zstd: about 190 GB |
 | 6 | The polygons for QuPath | The ragged arrays only; no stored GeoJSON (about 5 TB) |
@@ -321,6 +324,89 @@ was on local disk.
 - The trial repos hold about 0.9 MB per GTEx slide and 7 MB per TCGA slide,
   as written, before sharding.
 
+## GTEx, ready to run
+
+The GTEx ingest is finished and waits only for its repo. In this directory:
+
+- `ingest.py`, `plumbing.py`: the pipeline (below);
+- `verify.py`: the store check;
+- `commit_bench.py`: the full-scale commit benchmark (below);
+- `test_ingest.py`, `fixture.py`: the ingest end to end on two synthetic
+  GTEx-like slides served over HTTP with ETags (7 tests, 4 s);
+- `LAYOUTS.md`: every node and attribute;
+- `diagrams.py` and `diagrams/`: the source, mapping and store figures;
+- `gtex.ipynb`: the cold-open notebook;
+- `runs/01_gtex.sh`, `coiled/`: the committed run.
+
+**How it runs.** One Coiled VM, a c6in.4xlarge in us-east-1:
+
+1. List every GTEx slide from idc-index.
+2. Commit the collection and its 971 donor groups.
+3. Write 500 slides per commit. Each slide is written in its own fork by
+   one of 64 worker processes: the series is listed once, which gives every
+   object's ETag, and each instance is read through a block reader that
+   fetches its header, offset table and last Item header. The forks are
+   merged once and committed.
+4. Write the root's attributes, then run `verify.py`.
+
+Processes rather than threads, because pydicom parses a header in Python:
+from the laptop, 16 threads read 4.9 slides a second on about one core.
+Four processes per core, because a slide's reads wait on the bucket more than
+its parse runs. A rerun skips slides already written. The run needs one VM,
+not many: the work is indexing a few hundred kilobytes per slide, and one
+writer commits every batch.
+
+**Measured from the laptop, against the bucket.** 200 real slides with 40
+worker processes read at 10.8 slides a second, about 70 ms per request away
+from us-east-1; the merge and commit of the 200 forks took 4 s. Every
+reference was pinned to its object's ETag, and pinned tiles read back from
+the bucket.
+
+**A commit at full scale, locally.** `commit_bench.py` wrote the real
+GTEx catalog's slides, donors, instances and level shapes (25,503 slides,
+128,708 instances) with made-up offsets into a local repo, 500 slides per
+commit, each merged from one fork per slide:
+
+| Measure | Value |
+|---|---|
+| Nodes | 257,195 |
+| References | 778,715,649 |
+| Snapshot | 26.5 MB, growing about 1 MB per 1,000 slides |
+| Manifests | 7.4 GB in 154,211 files, one per array per commit |
+| Commit of 500 slides | median 13.8 s, 90th percentile 20.9 s; four outliers of 98, 114, 235 and 823 s, not explained |
+| Merge of 500 forks | median 2.7 s |
+| Opening the repo | 0.16 s |
+| Walking every node's metadata | 52 s |
+
+The snapshot holds every node, so it grows with the slide count, and a
+reader fetches all of it on open: 26.5 MB for GTEx, inside Icechunk's
+default cache of 500,000 nodes. Commit time did not grow with the repo: the
+last ten batches took as long as the first ten. The outliers are a reason
+to watch the run's log: a commit past a minute is investigated, not waited
+out.
+
+**Verify gates.** `verify.py` checks every node in one walk of about a
+minute at full scale: completeness against idc-index, every array's codecs
+against the root's `codecs` list, and each slide's levels, units and pixel
+size. On 10 sampled slides it compares a tile with its DICOM fragment and the
+thumbnail with pydicom's decode. The `codecs` list holds only codecs that
+zarr itself or imagecodecs-zarr registers: `bytes`, `transpose`, `zstd`,
+`blosc`, `imagecodecs_jpeg` and `imagecodecs_jpeg2k`. No reader needs code
+from this repository. `--pins` reads the stored ETag of every virtual array of
+the sampled slides with `core-drill`, because Icechunk's Python API does not
+expose a stored reference; it runs from a laptop after the job. All gates
+passed on the 200-slide trial store.
+
+**Cost of run 1.**
+
+| Item | Estimate |
+|---|---|
+| VM | c6in.4xlarge at about $0.91 an hour, for about an hour of indexing and commits, plus verify: about $1 |
+| Reads from the bucket | about 20 GB of headers, in-region, no egress charge |
+| Writes to Arraylake | about 180,000 manifest and chunk objects and about 25 GB, under $2 |
+| Storage | about 25 GB, under $1 a month |
+| Total | under $5 |
+
 ## Judgement calls
 
 1. **GTEx first.** It has no open calls and every tile is JPEG. It costs
@@ -330,11 +416,13 @@ was on local disk.
    nothing a reader needs. GTEx comes to about 380,000 nodes and TCGA's
    phase 1 to about 130,000.
 3. **YCbCr JPEG 2000 left out of phase 1.** Referencing those tiles needs a
-   YCbCr-to-RGB step that no Zarr codec provides. Three ways forward, all
-   priced under *Cost*:
-   - write a small array-to-array codec in minus80;
-   - transcode the 1,716 slides to JPEG natively;
-   - leave them out.
+   YCbCr-to-RGB step that no Zarr codec provides. A codec in minus80 is ruled
+   out: a reader must never need code from this repository to read a store.
+   Two ways forward remain:
+   - transcode the 1,716 slides to JPEG natively, priced under *Cost*;
+   - wait for the conversion to land in a codec readers already have, such
+     as an option on imagecodecs' JPEG 2000 codec to apply the inverse color
+     transform.
 
    The store's root attributes list the left-out slides and the reason.
 4. **RGB JPEG 2000 referenced.** The 318 slides decode correctly in Python.
@@ -358,23 +446,28 @@ was on local disk.
    - a new tag.
 
    Earlier snapshots keep reading, because IDC keeps the prior objects.
-10. **Two parser changes shared through minus80.**
+10. **Changes shared through minus80.**
     - `wsi_level_array` refuses YCbCr JPEG 2000, where it used to reference
       tiles that read as wrong colors.
-    - `encapsulated_frame_ranges` uses a filled offset table.
+    - `encapsulated_frame_ranges` uses a filled offset table, and every
+      DICOM parser function reads a seekable remote file as well as a path.
+    - `icechunk_io.write_pinned` pins each reference to its object's ETag.
 
-    Both are tested on synthetic files.
+    Each is tested: the parser on synthetic files, the pins against a local
+    HTTP server that changes an ETag.
 
 ## Steps, scope and risk
 
 ### Runs
 
 Each run is a committed `runs/NN_*.sh` on Coiled in us-east-1, beside the
-bucket. Many workers each write a fork, and one writer merges them.
+bucket. Each slide is written in its own fork by a worker process, and one
+writer merges the forks and commits.
 
 1. **GTEx** (`runs/01_gtex.sh`). Index every instance from its header and
-   offset table through a remote reader, without downloading pixels. Write
-   one fork per 500 slides and merge. Verify, then tag `idc-v25`.
+   offset table through a remote reader, without downloading pixels. Commit
+   500 slides at a time, each merged from its slides' forks. Verify, then
+   tag `idc-v25`. Details under *GTEx, ready to run*.
 2. **TCGA nuclei, JPEG and RGB JPEG 2000** (`runs/02_tcga_nuclei.sh`), 4,349
    slides. Download each slide's levels to walk their fragments, and each
    SEG to unpack it. Locate the ANN arrays through a remote reader and read
@@ -394,7 +487,8 @@ from the bucket. The VM rate is the SanctSound figure in
 | JPEG 2000 transcode, 1,716 slides (if chosen) | 0.83 TB | about 1 ms decode and 0.2 ms encode per tile, 170 million tiles: 60 core-hours, about $5 | about 0.8 TB of JPEG tiles in about 700,000 shards | about $19 |
 
 The TCGA run is over the $10 threshold, so it waits for a go-ahead. No run
-approaches the threshold for announcing spend.
+approaches the threshold for announcing spend. The GTEx line is refined
+under *GTEx, ready to run*.
 
 ### Writes that need approval
 
@@ -405,10 +499,11 @@ approaches the threshold for announcing spend.
 
 ### Risks
 
-- **Commit and snapshot size.** GTEx's 779 million references and 380,000
-  nodes have not been committed to a real object store. A merge of 50 forks
-  has not been timed. Both are measured on the first 500-slide fork before
-  the rest launches.
+- **Commit and snapshot size.** GTEx's full count of references and nodes
+  was committed locally (*GTEx, ready to run*), not to Arraylake, whose
+  per-object latency makes each commit slower. The first batch's commit time
+  in the run's log is the check: over a minute per 500 slides would stretch
+  the run past its estimate.
 - **In-region rates.** Every rate here was measured from a laptop. The
   TCGA run reads about 9 TB. Its estimate holds only if a VM sustains about
   1.5 GB/s from this bucket, which a short probe checks first.
@@ -416,8 +511,8 @@ approaches the threshold for announcing spend.
   the extension's handling of float32 `coords`, a million polygons on one
   slide, and label overlays.
 - **The nuclei mask and polygons disagree** on 7 to 16% of the pixels either
-  marks as nucleus, per tile. That is a property of the published data, to be recorded in `LAYOUTS.md`,
-  not corrected.
+  marks as nucleus, per tile. That is a property of the published data,
+  to be recorded in `LAYOUTS.md`, not corrected.
 - **IDC can revise again.** A revision moves byte offsets, so a store
   without a new commit keeps reading the prior objects. If IDC ever deletes
   prior versions from the bucket, old snapshots break.
