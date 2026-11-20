@@ -8,6 +8,7 @@ from virtualizarr.manifests import ManifestGroup
 from minus80.core import as_url, registry_for
 from minus80.core.icechunk_io import commit, create_repo, open_repo
 from minus80.parsers.tiff import TiffParser
+from minus80.parsers.tiff.pages import page_tags
 
 
 def _levels(path):
@@ -139,3 +140,29 @@ def test_ome_tiff_stating_no_size_gets_no_scale(tmp_path):
     tifffile.imwrite(path, np.zeros((3, 16, 16), np.uint8), ome=True, metadata={"axes": "ZYX"})
     attrs = _levels(path)["0"].metadata.attributes
     assert "scale" not in attrs and "units" not in attrs
+
+
+def test_page_tags_keep_what_the_file_states_but_not_the_tile_index(tmp_path):
+    path = tmp_path / "tags.tif"
+    tifffile.imwrite(path, _picture((300, 520, 3)), tile=(128, 128), compression="jpeg",
+                     photometric="ycbcr", resolution=(41136.4, 41136.4), resolutionunit="CENTIMETER",
+                     software="scanner 1.0", description="a long description", metadata=None)
+    with tifffile.TiffFile(path) as tif:
+        tags = page_tags(tif.pages.first)
+        with_description = page_tags(tif.pages.first, exclude=())
+    assert tags["Compression"] == "JPEG"
+    assert tags["PhotometricInterpretation"] == "YCBCR"
+    assert tags["ResolutionUnit"] == "CENTIMETER"
+    assert isinstance(tags["XResolution"], list) and len(tags["XResolution"]) == 2
+    assert tags["Software"] == "scanner 1.0"
+    assert tags["ImageWidth"] == 520 and tags["TileLength"] == 128
+    assert not {"TileOffsets", "TileByteCounts", "JPEGTables", "ImageDescription"} & set(tags)
+    assert with_description["ImageDescription"] == "a long description"
+
+
+def test_page_tags_keep_binary_values_as_base64(tmp_path):
+    path = tmp_path / "mask.tif"
+    tifffile.imwrite(path, np.zeros((64, 64), np.uint8), extratags=[(65000, 7, 1, b"\x02", True)])
+    with tifffile.TiffFile(path) as tif:
+        tags = page_tags(tif.pages.first)
+    assert tags["65000"] == {"base64": "Ag=="}
