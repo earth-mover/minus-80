@@ -166,3 +166,27 @@ def test_page_tags_keep_binary_values_as_base64(tmp_path):
     with tifffile.TiffFile(path) as tif:
         tags = page_tags(tif.pages.first)
     assert tags["65000"] == {"base64": "Ag=="}
+
+
+def test_a_philips_level_cropped_short_of_level_0_halved_keeps_the_pages_shape(tmp_path):
+    """tifffile sets a cropped Philips level's length to level 0's halved; the page has fewer rows."""
+    spacing = "".join(
+        f'<DataObject ObjectType="PixelDataRepresentation"><Attribute Name="DICOM_PIXEL_SPACING">'
+        f'"{0.00025 * 2 ** k:g}" "{0.00025 * 2 ** k:g}"</Attribute></DataObject>' for k in range(2))
+    description = f'<?xml version="1.0" encoding="UTF-8" ?><DataObject ObjectType="DPUfsImport"><Array>{spacing}</Array></DataObject>'
+    path = tmp_path / "philips.tif"
+    full = _picture((400, 512, 3))
+    with tifffile.TiffWriter(path, bigtiff=True) as tif:
+        tif.write(full, tile=(128, 128), compression="jpeg", photometric="ycbcr", software="Philips DP v1.0",
+                  description=description, metadata=None)
+        tif.write(full[:256:2, ::2], tile=(128, 128), compression="jpeg", photometric="ycbcr",
+                  software="Philips DP v1.0", description="level=1", metadata=None)
+    with tifffile.TiffFile(path) as tif:
+        assert tif.series[0].levels[1].shape[0] == 200
+    levels = _levels(path)
+    assert levels["1"].shape == (3, 128, 256)
+    with tifffile.TiffFile(path) as tif:
+        page = tif.pages[1]
+        expected = page.asarray()
+    stored = _roundtrip(tmp_path, path, dict(levels))["1"][:]
+    np.testing.assert_array_equal(stored, np.moveaxis(expected, -1, 0)[:, :128])

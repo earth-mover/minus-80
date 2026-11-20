@@ -48,6 +48,12 @@ retired in favour of virtual-tiff.
 | async-tiff's metadata cache holds one contiguous block from byte 0 ([`cache.rs#L99`](https://github.com/developmentseed/async-tiff/blob/7dd6c80062c2f8750bf8b581c6860bce4e37fd94/src/metadata/cache.rs#L99)), so reaching a directory near the end of a file fetches nearly every byte before it. The TIFF parser reads directories through tifffile instead. | `minus80.parsers.tiff` | async-tiff: cache sparse byte ranges. | [async-tiff#344](https://github.com/developmentseed/async-tiff/issues/344), open issue |
 | async-tiff prefetches a prefix of the file sized for a Cloud-Optimized GeoTIFF, which prefetches almost nothing when the directories sit at the end of the file, as bioformats2raw writes them. `directory_layout` detects a contiguous block of equal-sized directories from four reads, and `sparse_local` can then fetch that block alone into a local file. | `minus80.parsers.tiff.inspect`, `minus80.core.fetch` | async-tiff: prefetch the directory region rather than a prefix. | not filed |
 
+## tifffile
+
+| Workaround | Module | Upstream | Status |
+| --- | --- | --- | --- |
+| tifffile's Philips series sets a reduced level's length to level 0's halved even when the page's `ImageLength` is a whole tile shorter, so the level claims a row of tiles the page does not have; for the width it keeps the smaller tag. `level_array` caps a level's shape at its page's own `ImageLength` and `ImageWidth`. 27 of the 200 Philips slides in CAMELYON17 have such a level. | `minus80.parsers.tiff.pages` | `series_philips`: keep `page.imagelength` when it is smaller than the halved length, as it does for the width. | no issue found |
+
 ## imagecodecs
 
 | Workaround | Module | Upstream | Status |
