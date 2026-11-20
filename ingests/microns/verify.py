@@ -2,7 +2,8 @@
 
 ``test_ingest.py`` checks the ingest itself on a small scan where every frame
 is cheap to compare. This script checks what depends on the real archive, in
-about a minute, through both tags:
+about a minute, through both exports' commits on main, which it finds by
+their commit metadata:
 
 - ``complete``: every scan in BossDB's listing has a group, with the fields
   its NWB file states, and the collection lists every field image. One LIST
@@ -17,7 +18,11 @@ about a minute, through both tags:
   references. Each patch is one NWB chunk.
 
     uv run --package microns-ingest python ingests/microns/verify.py \\
-        --repo <dir | arraylake://org/repo>
+        --repo <dir | arraylake://org/repo> [--tag]
+
+With ``--tag``, and only when every check passes, the two commits are tagged
+``v1`` and ``v2``. Icechunk does not let a deleted tag's name be used again,
+so the tags wait for the check rather than being moved off a bad commit.
 """
 
 from __future__ import annotations
@@ -38,7 +43,8 @@ from minus80.core import remote
 from minus80.core.icechunk_io import ARRAYLAKE, arraylake_repository, open_repository
 from minus80.ome.verify import GATES, run_gates
 
-TAGS = ("v1", "v2")
+#: The exports, by the names their commits are tagged with.
+TAGS = tuple(e["export"] for e in ingest.EXPORTS.values())
 
 #: The NWB series' chunks are 14 x 14 pixels in space, so a patch this size
 #: aligned to them costs one chunk read.
@@ -111,12 +117,15 @@ def pixels(roots: dict[str, zarr.Group], name: str, nwb, *, rng: random.Random) 
     return problems
 
 
-def open_tags(location: str) -> dict[str, zarr.Group]:
-    if location.startswith(ARRAYLAKE):
-        repo = arraylake_repository(location)
-    else:
-        repo = open_repository(location)
-    return {tag: zarr.open_group(repo.readonly_session(tag=tag).store, mode="r") for tag in TAGS}
+def open_exports(location: str):
+    """The repo, and each export's commit on main as a read-only group, keyed by its tag name."""
+    repo = arraylake_repository(location) if location.startswith(ARRAYLAKE) else open_repository(location)
+    snapshots = ingest.committed_exports(repo)
+    if missing := sorted(set(ingest.EXPORTS) - set(snapshots)):
+        raise SystemExit(f"main holds no commit for exports {missing}")
+    return repo, {ingest.EXPORTS[e]["export"]: zarr.open_group(
+        repo.readonly_session(snapshot_id=snapshot.id).store, mode="r")
+        for e, snapshot in sorted(snapshots.items())}
 
 
 def main() -> None:
@@ -126,10 +135,12 @@ def main() -> None:
                                         "every scan BossDB lists")
     parser.add_argument("--sample", type=int, default=2, help="scans sampled for times and pixels")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--tag", action="store_true",
+                        help="tag the two commits v1 and v2 if every check passes")
     args = parser.parse_args()
     os.environ.setdefault("MINUS80_S3_ANONYMOUS", "1")
     started = time.monotonic()
-    roots = open_tags(args.repo)
+    repo, roots = open_exports(args.repo)
     names = sorted({f"{m['session']}-{m['scan']}" for n in list_prefix(ingest.SOURCE)
                     if (m := ingest.TIFF_NAME.match(n))})
     if args.scans:
@@ -157,11 +168,14 @@ def main() -> None:
     }
     failed = 0
     for tag in TAGS:
-        print(f"tag {tag}", flush=True)
+        print(f"export {tag}", flush=True)
         failed += run_gates(roots[tag], gates if tag == TAGS[-1] else
                             {k: v for k, v in gates.items() if k != "pixels"},
                             {"version": ingest.VERSION})
     print(f"{'FAILED' if failed else 'passed'} in {time.monotonic() - started:.0f} s")
+    if args.tag and not failed:
+        for tag, snapshot in ingest.tag_exports(repo).items():
+            print(f"tag {tag}: {snapshot}")
     sys.exit(1 if failed else 0)
 
 

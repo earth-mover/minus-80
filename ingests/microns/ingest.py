@@ -19,9 +19,13 @@ files:
 - ``OME`` lists every field image, so a reader that knows OME-Zarr
   collections finds them all.
 
-The store is committed twice. The first commit references the v1 export, as
-it declares its pixels (uint16), and is tagged ``v1``; the second references
-the v2 export (int16) and is tagged ``v2``.
+The store is committed twice on ``main``. The first commit references the v1
+export, as it declares its pixels (uint16); the second references the v2
+export (int16). Each commit's metadata names its export, so a rerun finds
+what is already committed and writes only the rest. The commits are tagged
+``v1`` and ``v2`` by ``verify.py --tag``, only once the store check passes:
+Icechunk does not let a deleted tag's name be used again, so a tag made
+before the check could not be moved off a bad commit.
 
 Running it
 ----------
@@ -266,13 +270,17 @@ def text(value) -> str:
 # v. Taking every F-th page from n - 1 gives field n's time series, still one
 # chunk per page, and a z axis of length one gives the field its depth.
 
-def field_arrays(url: str, facts: ScanFacts) -> tuple[dict[int, ManifestArray], dict]:
+def field_arrays(url: str, facts: ScanFacts, export: int) -> tuple[dict[int, ManifestArray], dict]:
     """Each field's frames in the TIFF at ``url``, as a (t, z, y, x) array, and what the TIFF states.
 
-    Raises when the TIFF's page count or page shape disagrees with the NWB file.
+    Raises when the TIFF's page count or page shape disagrees with the NWB
+    file, or its dtype with the one ``export`` declares.
     """
     parsed = TiffParser(prefetch="directories")(url, registry_for(url, patient=True)).group
     pages = parsed["0"]
+    if str(pages.dtype) != EXPORTS[export]["dtype"]:
+        raise ValueError(f"{url}: pages are {pages.dtype}; export {EXPORTS[export]['export']} "
+                         f"declares {EXPORTS[export]['dtype']}")
     volumes, count = len(facts.volume_times), len(facts.fields)
     first = facts.fields[0]
     if pages.shape != (volumes * count, first.rows, first.columns):
@@ -392,8 +400,14 @@ def field_paths(scans: list[ScanFacts]) -> list[str]:
 
 # One export
 #
-# Each export is one commit. The driver writes the root and the scans group in
-# one session, forks the session once per scan, and runs each scan in its own
+# Each export is one commit, whose metadata names the export, the scans it
+# holds and the offsets of the sample pages the second export is compared
+# on. A rerun reads that metadata from main's history: an export already
+# committed with every scan asked for is not written again, so a run that
+# dies after either commit picks up where it stopped, and the second export
+# can be written alone. Tags come later, from verify.py.
+#
+# The driver writes the root and the scans group in one session, forks the session once per scan, and runs each scan in its own
 # worker process: parse the TIFF, write the scan's groups into the fork.
 # Merging the forks and committing once keeps the workers from rebasing on
 # each other. The collection's list of field images is written after the
@@ -415,7 +429,7 @@ def write_scan(fork, facts: ScanFacts, export: int, earlier: dict[int, int] | No
     """
     started = time.monotonic()
     url = facts.scan.tiffs[export]
-    arrays, tiff = field_arrays(url, facts)
+    arrays, tiff = field_arrays(url, facts, export)
     pages = len(facts.volume_times) * len(facts.fields)
     sample = sample_offsets(arrays, facts, pages)
     if earlier is not None:
@@ -471,12 +485,33 @@ MESSAGES = {
 }
 
 
+def committed_exports(repo) -> dict[int, object]:
+    """The latest snapshot on main that wrote each export, found by its commit metadata."""
+    found: dict[int, object] = {}
+    for snapshot in repo.ancestry(branch="main"):
+        name = ((snapshot.metadata or {}).get("tiff_export") or {}).get("export")
+        for export, stated in EXPORTS.items():
+            if name == stated["export"] and export not in found:
+                found[export] = snapshot
+    return found
+
+
 def commit_export(repo, scans: list[ScanFacts], export: int, *, parallel: int,
-                  earlier: dict[str, dict[int, int]] | None = None) -> dict[str, dict]:
-    """Write one export of every scan as one commit on main, tag it, and return each scan's summary."""
+                  earlier: dict[str, dict[int, int]] | None = None) -> str:
+    """Write one export of every scan as one commit on main, and return the snapshot id.
+
+    An export already committed with every scan in ``scans`` is not written
+    again; its snapshot id is returned. One committed without some of them
+    raises, because writing the rest would leave the export in two commits.
+    """
     tag = EXPORTS[export]["export"]
-    if tag in set(repo.list_tags()):
-        raise ValueError(f"the repo already has a tag {tag}")
+    names = sorted(f.scan.name for f in scans)
+    if (done := committed_exports(repo).get(export)) is not None:
+        missing = sorted(set(names) - set(done.metadata.get("scans", [])))
+        if missing:
+            raise ValueError(f"export {tag} is committed in {done.id} without scans {missing}")
+        print(f"export {tag} is already committed in {done.id}", flush=True)
+        return done.id
     session = repo.writable_session("main")
     zarr.open_group(session.store, mode="a").attrs.put(
         ROOT | root_attrs(VERSION) | {"tiff_export": EXPORTS[export]})
@@ -491,11 +526,38 @@ def commit_export(repo, scans: list[ScanFacts], export: int, *, parallel: int,
     zarr.open_group(session.store, path="OME", mode="a").attrs.update(series_attrs(paths, VERSION))
     message = MESSAGES[export].format(fields=len(paths), scans=len(scans),
                                       pages=sum(s["pages"] for s in done.values()))
+    metadata = {"tiff_export": EXPORTS[export], "scans": names,
+                "sample_pages": {name: {str(page): offset for page, offset in summary["sample"].items()}
+                                 for name, summary in done.items()}}
     with Heartbeat(lambda: f"committing the {tag} export", every=30.0):
-        snapshot = commit(session, message, metadata={"tiff_export": EXPORTS[export]})
-    repo.create_tag(tag, snapshot_id=snapshot)
-    print(f"committed {snapshot} and tagged it {tag}", flush=True)
-    return done
+        snapshot = commit(session, message, metadata=metadata)
+    print(f"committed the {tag} export in {snapshot}", flush=True)
+    return snapshot
+
+
+def sample_pages(snapshot) -> dict[str, dict[int, int]]:
+    """The sample pages' offsets that a commit's metadata records, by scan."""
+    return {name: {int(page): offset for page, offset in pages.items()}
+            for name, pages in snapshot.metadata["sample_pages"].items()}
+
+
+def tag_exports(repo) -> dict[str, str]:
+    """Tag each export's commit on main with the export's name; return tag to snapshot.
+
+    A tag that already names the same snapshot is left alone, and one that
+    names another raises.
+    """
+    tags = set(repo.list_tags())
+    out = {}
+    for export, snapshot in sorted(committed_exports(repo).items()):
+        tag = EXPORTS[export]["export"]
+        if tag in tags:
+            if (held := repo.lookup_tag(tag)) != snapshot.id:
+                raise ValueError(f"tag {tag} names {held}, not the {tag} commit {snapshot.id}")
+        else:
+            repo.create_tag(tag, snapshot_id=snapshot.id)
+        out[tag] = snapshot.id
+    return out
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -522,10 +584,11 @@ def main(argv: list[str] | None = None) -> None:
     print(f"read the NWB metadata of {len(facts)} scans in {time.monotonic() - started:.0f} s", flush=True)
 
     repo = open_for_writing(args.repo, SOURCE)
-    first = commit_export(repo, facts, 1, parallel=args.parallel)
-    commit_export(repo, facts, 2, parallel=args.parallel,
-                  earlier={name: summary["sample"] for name, summary in first.items()})
-    print(f"done in {time.monotonic() - started:.0f} s", flush=True)
+    commit_export(repo, facts, 1, parallel=args.parallel)
+    first = committed_exports(repo)[1]
+    second = commit_export(repo, facts, 2, parallel=args.parallel, earlier=sample_pages(first))
+    print(f"done in {time.monotonic() - started:.0f} s: v1 in {first.id}, v2 in {second}; "
+          f"verify.py --tag tags them once the store check passes", flush=True)
 
 
 if __name__ == "__main__":

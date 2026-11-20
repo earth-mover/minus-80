@@ -254,8 +254,12 @@ bucket.
 2. Write access to `earthmover-biology/MICrONS` for the ingest's token. The
    repo and its container exist.
 3. Run 1, `runs/01_twophoton.sh`: one Coiled VM (`c6i.4xlarge`, us-east-1)
-   with `coiled batch run`, writing both commits and both tags to `main`,
-   then `verify.py`. *Needs approval: writes the store.*
+   with `coiled batch run`, writing both commits to `main`, then
+   `verify.py --tag`, which tags them `v1` and `v2` only if every check
+   passes. Icechunk refuses to reuse a deleted tag's name, so a tag made
+   before the check could never be moved off a bad commit. Each commit's
+   metadata names its export and scans, so a rerun after a failure writes
+   only what is missing. *Needs approval: writes the store.*
 4. REPORT.md, with the run's snapshots, timings and verify output.
 
 **Expected run.** About 2 minutes to install, under 1 minute for the NWB

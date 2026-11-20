@@ -1,6 +1,6 @@
 """The ingest run end to end on the small scan from fixture.py, both exports.
 
-    uv run --package microns-ingest pytest --import-mode=prepend ingests/microns
+    uv run --package microns-ingest pytest ingests/microns
 """
 
 import random
@@ -28,14 +28,19 @@ def scan(tmp_path_factory):
     return found, truth, as_url(root) + "/"
 
 
+def commit_both(repo, facts):
+    ingest.commit_export(repo, [facts], 1, parallel=1)
+    first = ingest.committed_exports(repo)[1]
+    ingest.commit_export(repo, [facts], 2, parallel=1, earlier=ingest.sample_pages(first))
+
+
 @pytest.fixture(scope="module")
 def repo(scan, tmp_path_factory):
     found, _, prefix = scan
-    facts = ingest.read_nwb(found)
     repo = create_repo(tmp_path_factory.mktemp("repo"), [], prefixes=[prefix])
-    first = ingest.commit_export(repo, [facts], 1, parallel=1)
-    ingest.commit_export(repo, [facts], 2, parallel=1,
-                         earlier={name: s["sample"] for name, s in first.items()})
+    commit_both(repo, ingest.read_nwb(found))
+    assert set(repo.list_tags()) == set()
+    ingest.tag_exports(repo)
     return repo
 
 
@@ -123,7 +128,7 @@ def test_a_tiff_that_disagrees_with_the_nwb_is_refused(scan, tmp_path):
     import tifffile
     tifffile.imwrite(short, truth.pages[:-1], bigtiff=True, photometric="minisblack")
     with pytest.raises(ValueError, match="the NWB file states"):
-        ingest.field_arrays(as_url(short), facts)
+        ingest.field_arrays(as_url(short), facts, 2)
 
 
 def test_exports_with_different_bytes_are_refused(scan, tmp_path):
@@ -132,9 +137,41 @@ def test_exports_with_different_bytes_are_refused(scan, tmp_path):
     import tifffile
     tifffile.imwrite(other, truth.pages + 1, bigtiff=True, photometric="minisblack")
     facts = ingest.read_nwb(found)
-    arrays, _ = ingest.field_arrays(as_url(other), facts)
+    arrays, _ = ingest.field_arrays(as_url(other), facts, 2)
     pages = fixture.VOLUMES * fixture.FIELDS
-    first, _ = ingest.field_arrays(found.tiffs[1], facts)
+    first, _ = ingest.field_arrays(found.tiffs[1], facts, 1)
     with pytest.raises(ValueError, match="different bytes"):
         ingest.compare_pages(found.tiffs[1], ingest.sample_offsets(first, facts, pages),
                              as_url(other), ingest.sample_offsets(arrays, facts, pages), arrays)
+
+
+def test_a_tiff_of_the_wrong_dtype_for_its_export_is_refused(scan):
+    found, _, _ = scan
+    with pytest.raises(ValueError, match="declares uint16"):
+        ingest.field_arrays(found.tiffs[2], ingest.read_nwb(found), 1)
+
+
+def test_a_rerun_writes_only_what_is_not_committed(scan, tmp_path):
+    found, _, prefix = scan
+    facts = ingest.read_nwb(found)
+    repo = create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    first = ingest.commit_export(repo, [facts], 1, parallel=1)
+    # The run stops here; a rerun finds the first export and writes the second alone.
+    assert ingest.commit_export(repo, [facts], 1, parallel=1) == first
+    commit_both(repo, facts)
+    commits = [s.id for s in repo.ancestry(branch="main")]
+    commit_both(repo, facts)
+    assert [s.id for s in repo.ancestry(branch="main")] == commits
+    assert len(commits) == 3  # the repo's initial commit and one per export
+    assert ingest.tag_exports(repo) == ingest.tag_exports(repo)
+
+
+def test_an_export_committed_without_a_scan_is_refused(scan, tmp_path):
+    found, _, prefix = scan
+    facts = ingest.read_nwb(found)
+    repo = create_repo(tmp_path / "repo", [], prefixes=[prefix])
+    ingest.commit_export(repo, [facts], 1, parallel=1)
+    other = ingest.ScanFacts(scan=ingest.Scan(found.animal, 9, 9, found.tiffs, found.nwb, found.nwb_path),
+                             rate_hz=facts.rate_hz, volume_times=facts.volume_times, fields=facts.fields)
+    with pytest.raises(ValueError, match="without scans"):
+        ingest.commit_export(repo, [facts, other], 1, parallel=1)
