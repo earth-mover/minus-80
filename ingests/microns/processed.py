@@ -236,7 +236,8 @@ def write_scan(fork, scan: Scan, fields: dict[int, dict]):
     group = zarr.open_group(fork.store, path=f"{SCANS}/{scan.name}", mode="a")
     attrs = dict(group.attrs)
     attrs["scan"] = attrs["scan"] | {"processed": {
-        "nwb": "nwb: DANDI's NWB file of this scan, whole, unified NWB Zarr v3 convention",
+        "nwb": ("nwb: DANDI's NWB file of this scan, whole, unified NWB Zarr v3 convention; its "
+                "acquisition/TwoPhotonSeries<n> holds field-<n>'s frames again, transposed"),
         "rois": "rois-<n>: field n's ROI masks, (roi, z, y, x)",
         "units": "units: unit_id, field and roi of every cell; em/<table>: its EM matches",
         "rois_per_field": {str(n): c for n, c in counts.items()},

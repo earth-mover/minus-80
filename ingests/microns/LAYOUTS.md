@@ -195,33 +195,57 @@ Proposed in [PLAN-phase2.md](PLAN-phase2.md); nothing below is in the
 published store yet. The figures are `processed-source.svg`,
 `processed-mapping.svg` and `processed-store.svg`.
 
-### The NWB processed data
+### The NWB file, whole
 
-Each NWB file holds, per field `n`:
+Each scan's DANDI file is written at `two-photon/<session>-<scan>/nwb` as
+shadowzarr maps it, in the unified NWB Zarr v3 convention: NWB's paths,
+types (`neurodata_type`), links (`_LINKS`) and references stay as the file
+has them, and `dimension_names` are added. What a reader finds there, per
+field `n`:
 
-| Path | Holds | Store |
-|---|---|---|
-| `processing/ophys/ImageSegmentation/PlaneSegmentation<n>/image_mask` | `(rois, columns, rows)` float32, gzip, chunks `(87, 16, 28)` | `rois-<n>/0`, `(roi, 1, rows, columns)`, transposed |
-| `.../PlaneSegmentation<n>/id` | `1 … n`, int64 | `traces-<n>/roi` |
-| `.../PlaneSegmentation<n>/mask_type` | `soma` or `artifact`, variable-length strings | `traces-<n>/mask_type`, native |
-| `.../PlaneSegmentation<n>/pt_*`, `cave_ids`, `cave_ids_index` | on fields 2, 4, 6 and 8 only: an EM point in 4 × 4 × 40 nm voxels, a root and a supervoxel ID, float64 | `traces-<n>/nwb_em/`, as stated |
-| `processing/ophys/Fluorescence/RoiResponseSeries<n>/data` | `(volumes, rois)` float32, gzip, chunks `(625, 44)` | `traces-<n>/fluorescence` |
-| `.../RoiResponseSeries<n>/timestamps` | equal to the movie's timestamps (field 4 of scan 4-7) | not stored again: phase 1's `volume_times` |
-| `processing/ophys/SegmentationImages<n>/average`, `correlation` | `(columns, rows)` float64, contiguous | `summary-<n>/0`, `(2, 1, rows, columns)` |
+| Path under `nwb/` | Holds |
+|---|---|
+| `processing/ophys/ImageSegmentation/PlaneSegmentation<n>/image_mask` | `(rois, columns, rows)` float32 weights, gzip, chunks `(87, 16, 28)` |
+| `.../PlaneSegmentation<n>/id` | `1 … n`, the ROI's id within the field |
+| `.../PlaneSegmentation<n>/mask_type` | `soma` or `artifact` |
+| `.../PlaneSegmentation<n>/pt_*`, `cave_ids`, `cave_ids_index` | on fields 2, 4, 6 and 8 only: the EM point (4 × 4 × 40 nm voxels), root and supervoxel ID that CAVE v343 gave, float64 |
+| `processing/ophys/Fluorescence/RoiResponseSeries<n>/data` | `(time, roi)` float32, gzip, chunks `(625, 44)` |
+| `.../RoiResponseSeries<n>/timestamps` | equal to the movie's timestamps (field 4 of scan 4-7), so to phase 1's `volume_times` |
+| `processing/ophys/SegmentationImages<n>/average`, `correlation` | `(columns, rows)` float64, contiguous |
+| `acquisition/TwoPhotonSeries<n>/data` | field `n`'s movie, the same values as `field-<n>`, transposed |
 
-Per scan:
+and per scan:
 
-| Path | Holds | Store |
-|---|---|---|
-| `acquisition/EyeTracking/eye_position/data` | `(104227, 2)` float64, pixels | `behavior/eye_position` |
-| `acquisition/PupilTracking/pupil_{major,minor}_radius/data` | `(104227,)` float64; only the minor radius has its own `timestamps` | `behavior/pupil_*_radius`, `behavior/eye_times` |
-| `acquisition/treadmill_velocity/{data,timestamps}` | `(480032,)` float64, `conversion` 0.01 to m/s | `behavior/treadmill_velocity`, `behavior/treadmill_times` |
-| `acquisition/Video: stimulus_17797_<s>_<n>_v4/data` | `(frames, 144, 256, 3)` uint8, one frame per gzip chunk | `stimulus/movie/0`, `(frame, 3, 144, 256)` |
-| `intervals/{Clip,Monet2,Trippy}` | one dataset per column; strings among them | `stimulus/trials/<table>/<column>` |
+| Path under `nwb/` | Holds |
+|---|---|
+| `acquisition/EyeTracking/eye_position/data` | `(104227, 2)` float64, pixels |
+| `acquisition/PupilTracking/pupil_{major,minor}_radius/data` | `(104227,)` float64; only the minor radius has its own `timestamps` |
+| `acquisition/treadmill_velocity/{data,timestamps}` | `(480032,)` float64, `conversion` 0.01 to m/s |
+| `acquisition/Video: stimulus_17797_<s>_<n>_v4/data` | `(frames, 144, 256, 3)` uint8, one frame per gzip chunk |
+| `intervals/{Clip,Monet2,Trippy}` | the trial tables, one dataset per column |
 
 The NWB file has no deconvolved activity: `processing/ophys` holds only
-`Fluorescence`. The trace and mask arrays carry the NWB attributes as stated
-(`unit` "n.a.", `conversion` 1.0).
+`Fluorescence`. A RoiResponseSeries' `data` and its `rois` region share the
+`roi` dimension name, and `data` and `timestamps` share `time`, so
+`xr.open_zarr` opens the series as one dataset.
+
+### The masks
+
+`rois-<n>` holds field `n`'s `image_mask` transposed to the TIFF's
+`(rows, columns)`, as `(roi, 1, rows, columns)` float32, one chunk per ROI
+inside one shard, Blosc zstd with byte shuffle. ROI `r` of the image is ROI
+id `r + 1` of the field's PlaneSegmentation. In scan 4-7:
+
+- the masks are 3.66 GB uncompressed, 9.2 MB as DANDI stores them, and
+  4.8 MB written this way;
+- every weight is positive, from 0.012 to 3.38 in field 4, over a median of
+  141 pixels per ROI;
+- of the 653,578 pixels some ROI covers, 374,274 are covered by two or more,
+  which is why the store does not reduce them to a label image.
+
+The image's translation is its field's place in the scene's motor
+coordinates; its `annotations` name the field, the NWB table, the traces and
+the first unit.
 
 ### The unit rule
 
@@ -243,9 +267,9 @@ The evidence:
 - In scan 4-7, all 687 rows of v343's `functional_coreg` give the same EM
   point as the NWB columns of the ROI the rule names.
 
-The store writes `unit_id` beside `roi` in each `traces-<n>`, and `field` and
-`roi` beside `unit_id` in `units`, and says in their attributes that the rule
-is derived. The run checks it again on every table it writes.
+The store writes `field` and `roi` beside `unit_id` in each scan's `units`,
+and says in its attributes that the rule is derived. The run checks it again
+on every row of every table it writes, and raises on one that disagrees.
 
 ### The CAVE match tables
 
@@ -266,8 +290,9 @@ store records each object's generation and date.
   `id`. The store keeps one of each.
 - **The NWB's EM columns are v343's `functional_coreg`:** 9,434 ROIs carry an
   EM point, the same as the table's distinct matches.
-- **Even fields.** The matches lie on fields 2, 4, 6 and 8; `coregistration_manual_v4` has no row on an odd field, and the
-  combined automatic table has 47, all on field 1.
+- **Even fields.** The matches lie on fields 2, 4, 6 and 8;
+  `coregistration_manual_v4` has no row on an odd field, and the combined
+  automatic table has 47, all on field 1.
 - **Scans 5-4, 5-5 and 8-4.** The automatic tables from v943 on cover 22
   scans: the 19 on DANDI and the three published only in
   `platinum_camovies/`. Those 11,210 to 12,213 rows per table cannot join an
@@ -283,10 +308,16 @@ digits of an 18-digit ID.
 ### Judgement calls
 
 - **Duplicates dropped.** v343's 84 repeated `functional_coreg` rows differ
-  only in `id`, so one of each is kept; the table's `rows` attribute keeps
-  the source count.
+  only in `id`, so one of each is kept; the commit's metadata records the
+  dump's row count and how many repeats were dropped.
 - **Matches in the store, not only in Iceberg.** The columns are
-  coordinates on the `units` axis; PLAN-phase2.md weighs this against the
-  repository's rule for tables.
+  coordinates on the `units` axis, and a tag pins them with the traces; the
+  full tables, rows for scans without an NWB file included, go to Iceberg
+  later.
 - **Masks as an image.** The weights are float32 and overlap, so they are an
   image with a `roi` axis, not an OME-Zarr label image.
+- **Masks outside the scene.** A 0.6 scene's images share its axes, (t, z, y,
+  x), and the ROI axis is not time, so each mask image carries its field's
+  translation itself.
+- **The NWB file inside the scan group.** `two-photon/<scan>/nwb`, not a
+  sibling tree, so one group holds everything about a scan.

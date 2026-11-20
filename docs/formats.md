@@ -153,6 +153,13 @@ block size barely matters when the walk is bound by round trips. shadowzarr's
 `generate_rfs` reads the nodes of each index ahead, a level at a time and in
 parallel, and maps the same whole file, both probes, in 7 s.
 
+A file with hundreds of thousands of small chunks is still worth indexing in
+place when the reader walks its index in parallel. A 71 GB MICrONS NWB file
+holds a stimulus movie in 381,054 one-frame chunks. From a laptop, h5py
+visiting the file's 364 object headers alone took 761 s and 8,049 requests;
+`HDFParser`, one group at a time, took 569 s, 476 of them for the movie; and
+`generate_rfs` mapped the whole file, the movie's index included, in 59 s.
+
 ### Probe the layout before walking it
 
 A TIFF's directories form a linked list, but writers often lay them out at a
@@ -167,19 +174,6 @@ and every other directory after them, so a region that started at the first
 directory would take in every pixel: 70 GB for one MICrONS scan instead of
 75 MB. The region starts at the second directory, and the first comes with
 the file's first 64 KB.
-
-### Index only the HDF5 groups the store needs
-
-An HDF5 file's object headers sit wherever the writer put them, and each
-dataset's chunk index is a B-tree spread through the file. A walk over a
-remote file therefore costs round trips in proportion to its objects and its
-chunks, not to its bytes. Pass `HDFParser` one group at a time, with `group`
-and `drop_variables`, and leave out the datasets the store does not
-reference. In a 71 GB MICrONS NWB file, a walk over all 364 objects took
-761 s and 8,049 requests from a laptop, while indexing the 55 processed
-datasets the store needs took 93 s and 792 requests. Price a dataset by its
-chunk count before indexing it: the same file's stimulus movie, one frame per
-chunk, took 476 s and 5,894 requests for 381,054 chunks.
 
 ### Separate fetching from parsing
 

@@ -1,94 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1081" viewBox="0 0 1400 1081">
-<rect x="0" y="0" width="1400" height="1081" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1179" viewBox="0 0 1400 1179">
+<rect x="0" y="0" width="1400" height="1179" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Phase 2 mapping, scan 4-7 field 4</text>
-<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">NWB dataset → store array; every chunk stays a reference except where marked native</text>
-<polygon points="34.0,125.9 60.0,99.9 150.0,99.9 124.0,125.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
-<polygon points="124.0,125.9 150.0,99.9 150.0,159.9 124.0,185.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
-<rect x="34.0" y="125.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
-<text x="34.0" y="207.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image_mask</text>
-<text x="34.0" y="224.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 248, 440)</text>
-<text x="34.0" y="241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks (87, 16, 28)</text>
-<text x="34.0" y="258.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, float32</text>
-<polygon points="760.0,125.9 786.0,99.9 876.0,99.9 850.0,125.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
-<polygon points="850.0,125.9 876.0,99.9 876.0,159.9 850.0,185.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
-<rect x="760.0" y="125.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
-<text x="760.0" y="207.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">rois-4/0</text>
-<text x="760.0" y="224.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 1, 440, 248)</text>
-<text x="760.0" y="241.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">same chunks, transposed</text>
-<text x="760.0" y="258.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + gzip</text>
-<path d="M 158.0 155.9 C 455.0 155.9 455.0 155.9 752.0 155.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
-<polygon points="752.0,155.9 744.0,151.4 744.0,160.4" fill="#64748b"/>
-<rect x="322.7" y="146.9" width="264.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
-<text x="455.0" y="159.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">permute (columns, rows) → (rows, columns)</text>
-<polygon points="34.0,314.9 60.0,288.9 150.0,288.9 124.0,314.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
-<polygon points="124.0,314.9 150.0,288.9 150.0,348.9 124.0,374.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
-<rect x="34.0" y="314.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
-<text x="34.0" y="396.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">RoiResponseSeries data</text>
-<text x="34.0" y="413.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 1,389)</text>
-<text x="34.0" y="430.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks (625, 44)</text>
-<text x="34.0" y="447.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, float32</text>
-<polygon points="760.0,314.9 786.0,288.9 876.0,288.9 850.0,314.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
-<polygon points="850.0,314.9 876.0,288.9 876.0,348.9 850.0,374.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
-<rect x="760.0" y="314.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
-<text x="760.0" y="396.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">traces-4/fluorescence</text>
-<text x="760.0" y="413.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 1,389)</text>
-<text x="760.0" y="430.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">same chunks</text>
-<text x="760.0" y="447.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip</text>
-<path d="M 158.0 344.9 C 455.0 344.9 455.0 344.9 752.0 344.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
-<polygon points="752.0,344.9 744.0,340.4 744.0,349.4" fill="#64748b"/>
-<rect x="387.4" y="335.9" width="135.2" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
-<text x="455.0" y="348.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">referenced as stored</text>
-<polygon points="34.0,503.9 60.0,477.9 150.0,477.9 124.0,503.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
-<polygon points="124.0,503.9 150.0,477.9 150.0,537.9 124.0,563.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
-<rect x="34.0" y="503.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
-<text x="34.0" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">average, correlation</text>
-<text x="34.0" y="602.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(248, 440) float64 each</text>
-<text x="34.0" y="619.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">contiguous</text>
-<polygon points="760.0,503.9 786.0,477.9 876.0,477.9 850.0,503.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
-<polygon points="850.0,503.9 876.0,477.9 876.0,537.9 850.0,563.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
-<rect x="760.0" y="503.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
-<text x="760.0" y="585.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">summary-4/0</text>
-<text x="760.0" y="602.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(2, 1, 440, 248)</text>
-<text x="760.0" y="619.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk per image</text>
-<text x="760.0" y="636.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose</text>
-<path d="M 158.0 533.9 C 455.0 533.9 455.0 533.9 752.0 533.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
-<polygon points="752.0,533.9 744.0,529.4 744.0,538.4" fill="#64748b"/>
-<rect x="372.0" y="524.9" width="166.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
-<text x="455.0" y="537.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">stacked on a channel axis</text>
-<polygon points="34.0,692.9 60.0,666.9 150.0,666.9 124.0,692.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
-<polygon points="124.0,692.9 150.0,666.9 150.0,726.9 124.0,752.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
-<rect x="34.0" y="692.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
-<text x="34.0" y="774.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Video data</text>
-<text x="34.0" y="791.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054, 144, 256, 3)</text>
-<text x="34.0" y="808.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one frame per chunk</text>
-<text x="34.0" y="825.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, uint8</text>
-<polygon points="760.0,692.9 786.0,666.9 876.0,666.9 850.0,692.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
-<polygon points="850.0,692.9 876.0,666.9 876.0,726.9 850.0,752.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
-<rect x="760.0" y="692.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
-<text x="760.0" y="774.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">stimulus/movie/0</text>
-<text x="760.0" y="791.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054, 3, 144, 256)</text>
-<text x="760.0" y="808.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one frame per chunk</text>
-<text x="760.0" y="825.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transpose + gzip</text>
-<path d="M 158.0 722.9 C 455.0 722.9 455.0 722.9 752.0 722.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
-<polygon points="752.0,722.9 744.0,718.4 744.0,727.4" fill="#64748b"/>
-<rect x="341.2" y="713.9" width="227.6" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
-<text x="455.0" y="726.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">permute (t, y, x, c) → (t, c, y, x)</text>
-<polygon points="34.0,881.9 60.0,855.9 150.0,855.9 124.0,881.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
-<polygon points="124.0,881.9 150.0,855.9 150.0,915.9 124.0,941.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
-<rect x="34.0" y="881.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
-<text x="34.0" y="963.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAVE rows (session, scan, unit_id)</text>
-<text x="34.0" y="980.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one row per match</text>
-<text x="34.0" y="997.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">csv.gz, whole-file gzip</text>
-<polygon points="760.0,881.9 786.0,855.9 876.0,855.9 850.0,881.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
-<polygon points="850.0,881.9 876.0,855.9 876.0,915.9 850.0,941.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
-<rect x="760.0" y="881.9" width="90.0" height="60.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
-<text x="760.0" y="963.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">units/em/&lt;table&gt;/pt_root_id</text>
-<text x="760.0" y="980.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(8,395,) uint64</text>
-<text x="760.0" y="997.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk</text>
-<text x="760.0" y="1014.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">blosc zstd, native</text>
-<path d="M 158.0 911.9 C 455.0 911.9 455.0 911.9 752.0 911.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
-<polygon points="752.0,911.9 744.0,907.4 744.0,916.4" fill="#64748b"/>
-<rect x="390.5" y="902.9" width="129.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
-<text x="455.0" y="915.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">unit_id − 1 → index</text>
-<text x="24.0" y="1052.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">unit_id = (ROIs in fields 1 … n−1) + ROI id;  field 4 starts after 2,550, so ROI 23 is unit 2,573</text>
+<text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">NWB dataset or CAVE table → store array, under two-photon/4-7</text>
+<polygon points="34.0,121.9 56.0,99.9 146.0,99.9 124.0,121.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,121.9 146.0,99.9 146.0,149.9 124.0,171.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="121.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image_mask</text>
+<text x="34.0" y="210.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 248, 440)</text>
+<text x="34.0" y="227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks (87, 16, 28)</text>
+<text x="34.0" y="244.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, float32</text>
+<polygon points="760.0,121.9 782.0,99.9 872.0,99.9 850.0,121.9" fill="#ffffff" stroke="#eb6834" stroke-width="1.4"/>
+<polygon points="850.0,121.9 872.0,99.9 872.0,149.9 850.0,171.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#eb6834" stroke-width="1.4"/>
+<rect x="760.0" y="121.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#eb6834" stroke-width="1.4"/>
+<text x="760.0" y="193.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">rois-4/0</text>
+<text x="760.0" y="210.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(1,389, 1, 440, 248)</text>
+<text x="760.0" y="227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk per ROI, one shard</text>
+<text x="760.0" y="244.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">blosc zstd, native</text>
+<path d="M 154.0 146.9 C 453.0 146.9 453.0 146.9 752.0 146.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,146.9 744.0,142.4 744.0,151.4" fill="#64748b"/>
+<rect x="351.5" y="137.9" width="203.0" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="150.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">transposed and written natively</text>
+<polygon points="34.0,292.9 56.0,270.9 146.0,270.9 124.0,292.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,292.9 146.0,270.9 146.0,320.9 124.0,342.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="292.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="364.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">image_mask</text>
+<text x="34.0" y="381.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">the same dataset</text>
+<polygon points="760.0,292.9 782.0,270.9 872.0,270.9 850.0,292.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="850.0,292.9 872.0,270.9 872.0,320.9 850.0,342.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="760.0" y="292.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="760.0" y="364.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nwb/…/PlaneSegmentation4/image_mask</text>
+<text x="760.0" y="381.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">as stored</text>
+<text x="760.0" y="398.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced</text>
+<path d="M 154.0 317.9 C 453.0 317.9 453.0 317.9 752.0 317.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,317.9 744.0,313.4 744.0,322.4" fill="#64748b"/>
+<rect x="382.3" y="308.9" width="141.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="321.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">nwb/ (the whole file)</text>
+<polygon points="34.0,446.9 56.0,424.9 146.0,424.9 124.0,446.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,446.9 146.0,424.9 146.0,474.9 124.0,496.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="446.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="518.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">RoiResponseSeries data</text>
+<text x="34.0" y="535.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 1,389)</text>
+<text x="34.0" y="552.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks (625, 44)</text>
+<text x="34.0" y="569.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, float32</text>
+<polygon points="760.0,446.9 782.0,424.9 872.0,424.9 850.0,446.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="850.0,446.9 872.0,424.9 872.0,474.9 850.0,496.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="760.0" y="446.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="760.0" y="518.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nwb/…/RoiResponseSeries4/data</text>
+<text x="760.0" y="535.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">dims (time, roi)</text>
+<text x="760.0" y="552.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">as stored</text>
+<text x="760.0" y="569.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced</text>
+<path d="M 154.0 471.9 C 453.0 471.9 453.0 471.9 752.0 471.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,471.9 744.0,467.4 744.0,476.4" fill="#64748b"/>
+<rect x="382.3" y="462.9" width="141.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="475.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">nwb/ (the whole file)</text>
+<polygon points="34.0,617.9 56.0,595.9 146.0,595.9 124.0,617.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,617.9 146.0,595.9 146.0,645.9 124.0,667.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="617.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="689.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">TwoPhotonSeries data</text>
+<text x="34.0" y="706.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(40,000, 248, 440)</text>
+<text x="34.0" y="723.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">chunks (2,254, 14, 14)</text>
+<text x="34.0" y="740.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, int16</text>
+<polygon points="760.0,617.9 782.0,595.9 872.0,595.9 850.0,617.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="850.0,617.9 872.0,595.9 872.0,645.9 850.0,667.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="760.0" y="617.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="760.0" y="689.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nwb/acquisition/TwoPhotonSeries4/data</text>
+<text x="760.0" y="706.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">as stored, referenced</text>
+<text x="760.0" y="723.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">same frames as field-4/0,</text>
+<text x="760.0" y="740.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">transposed</text>
+<path d="M 154.0 642.9 C 453.0 642.9 453.0 642.9 752.0 642.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,642.9 744.0,638.4 744.0,647.4" fill="#64748b"/>
+<rect x="382.3" y="633.9" width="141.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="646.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">nwb/ (the whole file)</text>
+<polygon points="34.0,788.9 56.0,766.9 146.0,766.9 124.0,788.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,788.9 146.0,766.9 146.0,816.9 124.0,838.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="788.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="860.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Video data</text>
+<text x="34.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(381,054, 144, 256, 3)</text>
+<text x="34.0" y="894.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one frame per chunk</text>
+<text x="34.0" y="911.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">gzip, uint8</text>
+<polygon points="760.0,788.9 782.0,766.9 872.0,766.9 850.0,788.9" fill="#ffffff" stroke="#1baf7a" stroke-width="1.4"/>
+<polygon points="850.0,788.9 872.0,766.9 872.0,816.9 850.0,838.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#1baf7a" stroke-width="1.4"/>
+<rect x="760.0" y="788.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#1baf7a" stroke-width="1.4"/>
+<text x="760.0" y="860.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">nwb/acquisition/Video: …/data</text>
+<text x="760.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">as stored</text>
+<text x="760.0" y="894.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced</text>
+<path d="M 154.0 813.9 C 453.0 813.9 453.0 813.9 752.0 813.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,813.9 744.0,809.4 744.0,818.4" fill="#64748b"/>
+<rect x="382.3" y="804.9" width="141.4" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="817.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">nwb/ (the whole file)</text>
+<polygon points="34.0,959.9 56.0,937.9 146.0,937.9 124.0,959.9" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<polygon points="124.0,959.9 146.0,937.9 146.0,987.9 124.0,1009.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#2a78d6" stroke-width="1.4"/>
+<rect x="34.0" y="959.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="34.0" y="1031.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">CAVE rows (session, scan, unit_id)</text>
+<text x="34.0" y="1048.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one row per match</text>
+<text x="34.0" y="1065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">csv.gz, whole-file gzip</text>
+<polygon points="760.0,959.9 782.0,937.9 872.0,937.9 850.0,959.9" fill="#ffffff" stroke="#eb6834" stroke-width="1.4"/>
+<polygon points="850.0,959.9 872.0,937.9 872.0,987.9 850.0,1009.9" fill="#cbd5e1" fill-opacity="0.45" stroke="#eb6834" stroke-width="1.4"/>
+<rect x="760.0" y="959.9" width="90.0" height="50.0" fill="#f1f5f9" stroke="#eb6834" stroke-width="1.4"/>
+<text x="760.0" y="1031.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">units/em/&lt;table&gt;/pt_root_id</text>
+<text x="760.0" y="1048.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">(8,395,) uint64</text>
+<text x="760.0" y="1065.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">one chunk</text>
+<text x="760.0" y="1082.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">blosc zstd, native</text>
+<path d="M 154.0 984.9 C 453.0 984.9 453.0 984.9 752.0 984.9" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polygon points="752.0,984.9 744.0,980.4 744.0,989.4" fill="#64748b"/>
+<rect x="314.6" y="975.9" width="276.9" height="18" rx="9" fill="#ffffff" stroke="#cbd5e1"/>
+<text x="453.0" y="988.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="middle" xml:space="preserve">unit_id − 1 → index; one commit per version</text>
+<text x="24.0" y="1116.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">unit_id = (ROIs in fields 1 … n−1) + ROI id;  field 4 starts after 2,550, so ROI 23 is unit 2,573</text>
+<rect x="24.0" y="1138.9" width="14" height="14" rx="3" fill="#2a78d6"/>
+<text x="44.0" y="1149.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">source</text>
+<rect x="104.6" y="1138.9" width="14" height="14" rx="3" fill="#1baf7a"/>
+<text x="124.6" y="1149.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">referenced</text>
+<rect x="211.0" y="1138.9" width="14" height="14" rx="3" fill="#eb6834"/>
+<text x="231.0" y="1149.9" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">written natively</text>
 </svg>

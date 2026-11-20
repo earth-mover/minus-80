@@ -141,37 +141,44 @@ def mapping_figure(catalog: dict, rois: dict) -> Canvas:
     n = rois[EXAMPLE_SCAN][k - 1][0]
     units = sum(c[0] for c in rois[EXAMPLE_SCAN])
     y = d.heading(canvas, f"Phase 2 mapping, scan {EXAMPLE_SCAN} field {k}",
-                  "NWB dataset → store array; every chunk stays a reference except where marked native") + 30
+                  "NWB dataset or CAVE table → store array, under two-photon/" + EXAMPLE_SCAN) + 30
     masks = dataset(catalog, f"processing/ophys/ImageSegmentation/PlaneSegmentation{k}/image_mask")
     traces = dataset(catalog, f"processing/ophys/Fluorescence/RoiResponseSeries{k}/data")
     video = dataset(catalog, "acquisition/Video: stimulus_17797_4_7_v4/data")
+    movie = dataset(catalog, f"acquisition/TwoPhotonSeries{k}/data")
+    nwb = "nwb/ (the whole file)"
     pairs = [
         ("image_mask", [shape_text(masks["shape"]), f"chunks {shape_text(masks['chunks'])}", "gzip, float32"],
-         f"rois-{k}/0", [shape_text((n, 1, 440, 248)), "same chunks, transposed", "transpose + gzip"],
-         "permute (columns, rows) → (rows, columns)"),
+         f"rois-{k}/0", [shape_text((n, 1, 440, 248)), "one chunk per ROI, one shard", "blosc zstd, native"],
+         "transposed and written natively", ACCENTS["highlight"]),
+        ("image_mask", ["the same dataset"],
+         f"nwb/…/PlaneSegmentation{k}/image_mask", ["as stored", "referenced"],
+         nwb, ACCENTS["store"]),
         ("RoiResponseSeries data", [shape_text(traces["shape"]), f"chunks {shape_text(traces['chunks'])}", "gzip, float32"],
-         f"traces-{k}/fluorescence", [shape_text(traces["shape"]), "same chunks", "gzip"],
-         "referenced as stored"),
-        ("average, correlation", ["(248, 440) float64 each", "contiguous"],
-         f"summary-{k}/0", ["(2, 1, 440, 248)", "one chunk per image", "transpose"],
-         "stacked on a channel axis"),
+         f"nwb/…/RoiResponseSeries{k}/data", [f"dims (time, roi)", "as stored", "referenced"],
+         nwb, ACCENTS["store"]),
+        ("TwoPhotonSeries data", [shape_text(movie["shape"]), f"chunks {shape_text(movie['chunks'])}", "gzip, int16"],
+         f"nwb/acquisition/TwoPhotonSeries{k}/data", ["as stored, referenced", f"same frames as field-{k}/0,", "transposed"],
+         nwb, ACCENTS["store"]),
         ("Video data", [shape_text(video["shape"]), "one frame per chunk", "gzip, uint8"],
-         "stimulus/movie/0", [shape_text((video["shape"][0], 3, 144, 256)), "one frame per chunk", "transpose + gzip"],
-         "permute (t, y, x, c) → (t, c, y, x)"),
+         "nwb/acquisition/Video: …/data", ["as stored", "referenced"],
+         nwb, ACCENTS["store"]),
         ("CAVE rows (session, scan, unit_id)", ["one row per match", "csv.gz, whole-file gzip"],
          "units/em/<table>/pt_root_id", [f"({units:,},) uint64", "one chunk", "blosc zstd, native"],
-         "unit_id − 1 → index"),
+         "unit_id − 1 → index; one commit per version", ACCENTS["highlight"]),
     ]
-    for left, left_lines, right, right_lines, label in pairs:
-        a = CubeGeometry(LEFT + 10, y, 90, 60, 26)
+    for left, left_lines, right, right_lines, label, accent in pairs:
+        a = CubeGeometry(LEFT + 10, y, 90, 50, 22)
         bottom_a = d.cube(canvas, a, left, left_lines, accent=ACCENTS["source"], label_width=360)
-        b = CubeGeometry(760, y, 90, 60, 26)
-        bottom_b = d.cube(canvas, b, right, right_lines, accent=ACCENTS["store"], label_width=520)
-        d.link(canvas, (a.right + 8, a.face_top + 30), (b.x - 8, b.face_top + 30), label=label)
-        y = max(bottom_a, bottom_b) + 26
+        b = CubeGeometry(760, y, 90, 50, 22)
+        bottom_b = d.cube(canvas, b, right, right_lines, accent=accent, label_width=560)
+        d.link(canvas, (a.right + 8, a.face_top + 25), (b.x - 8, b.face_top + 25), label=label)
+        y = max(bottom_a, bottom_b) + 22
     edges = [sum(c[0] for c in rois[EXAMPLE_SCAN][:i]) for i in range(len(rois[EXAMPLE_SCAN]))]
     canvas.text(LEFT, y + 8, f"unit_id = (ROIs in fields 1 … n−1) + ROI id;  field {k} starts after "
                 f"{edges[k - 1]:,}, so ROI 23 is unit {edges[k - 1] + 23:,}", size=12.5, mono=True)
+    d.legend(canvas, LEFT, y + 28, [(ACCENTS["source"], "source"), (ACCENTS["store"], "referenced"),
+                                    (ACCENTS["highlight"], "written natively")])
     return canvas
 
 
@@ -183,37 +190,35 @@ def store_figure(catalog: dict, rois: dict, cave: pd.DataFrame) -> Canvas:
     units = sum(c[0] for c in rois[EXAMPLE_SCAN])
     spacing = 46
     entries = [
-        (TreeNode(f"two-photon/{EXAMPLE_SCAN}", 0, 0, subtitle="scene: adds rois-n and summary-n"),
-         "scene", [Row("ome.scene", "field-n, rois-n, summary-n placed in motor")], None),
-        (TreeNode("field-n", 0, 1, count=8, subtitle="phase 1"), "image", [Row("0", "(40,000, 1, 440, 248) int16 TIFF pages")], None),
-        (TreeNode("rois-n", 0, 1, count=8, status="added"), "image", [
-            Row("0", f"(roi, z, y, x) float32, {n:,} ROIs in field {k}"), Row("axes", "roi (other), z, y, x µm")], "added"),
-        (TreeNode("summary-n", 0, 1, count=8, status="added"), "image", [
-            Row("0", "(c, z, y, x) float64; c = average, correlation")], "added"),
-        (TreeNode("traces-n", 0, 1, count=8, status="added"), "group", [
-            Row("fluorescence", "(volume, roi) float32"), Row("roi, unit_id, mask_type", "(roi,)"),
-            Row("nwb_em", "pt_* as the NWB states them, float64")], "added"),
-        (TreeNode("units", 0, 1, status="added"), "group", [
+        (TreeNode(f"two-photon/{EXAMPLE_SCAN}", 0, 0, subtitle="scene; scan attribute gains 'processed'"),
+         "scene", [Row("ome.scene", "field-n placed in motor (t, z, y, x)")]),
+        (TreeNode("field-n", 0, 1, count=8, subtitle="phase 1"), "image",
+         [Row("0", "(40,000, 1, 440, 248) int16, TIFF pages")]),
+        (TreeNode("volume_times", 0, 1, subtitle="phase 1"), "array", [Row("", "(40,000,) float64")]),
+        (TreeNode("rois-n", 0, 1, count=8, status="added"), "image, written natively", [
+            Row("0", f"(roi, z, y, x) float32; {n:,} ROIs in field {k}"),
+            Row("chunks", "one per ROI, one shard per field, blosc zstd"),
+            Row("placed", "its own translation = field-n's place")]),
+        (TreeNode("units", 0, 1, status="added"), "group, written natively", [
             Row("unit_id, field, roi", f"({units:,},) int64"),
-            Row("em/<table>/", "pt_root_id, pt_supervoxel_id, target_id, pt_position, residual, score")], "added"),
-        (TreeNode("behavior", 0, 1, status="added"), "group", [
-            Row("eye, pupil, treadmill", "data and times, referenced")], "added"),
-        (TreeNode("stimulus", 0, 1, status="added"), "group", [
-            Row("movie/0", "image (t, c, y, x) uint8, (381,054, 3, 144, 256), one frame per chunk"),
-            Row("times", "(381,054,) float64"),
-            Row("trials/", "Clip, Monet2, Trippy: one array per column")], "added"),
+            Row("em/<table>/", "pt_root_id, pt_supervoxel_id, id, target_id, pt_position, residual, score")]),
+        (TreeNode("nwb", 0, 1, status="added"), "NWBFile, unified NWB Zarr v3, referenced", [
+            Row("processing/ophys/", "PlaneSegmentation, Fluorescence, SegmentationImages × 8"),
+            Row("acquisition/", "TwoPhotonSeries × 8, eye, pupil, treadmill, stimulus Video"),
+            Row("intervals/", "Clip, Monet2, Trippy"),
+            Row("general/, specifications/", "imaging planes, device, NWB schema")]),
     ]
     versions = list(dict.fromkeys(cave.version))
-    entries.append((TreeNode("tags", 0, 0, count=len(versions) + 2, status="added"), "icechunk", [
-        Row("v1, v2", "phase 1"), Row("processed", "phase 2 data, EM matches as the NWB states them"),
+    entries.append((TreeNode("tags", 0, 0, count=len(versions) + 3, status="added"), "icechunk", [
+        Row("v1, v2", "phase 1"), Row("processed", "nwb, rois-n, units"),
         Row(", ".join(f"cave-{v}" for v in versions[:4]), "one commit per CAVE version"),
-        Row(", ".join(f"cave-{v}" for v in versions[4:]), "")], "added"))
+        Row(", ".join(f"cave-{v}" for v in versions[4:]), "")]))
     nodes, top = [], y
-    for node, _, rows, _ in entries:
+    for node, _, rows in entries:
         nodes.append(TreeNode(node.name, top, node.depth, node.count, node.subtitle, node.status))
         top += max(spacing, d.panel_height(len(rows), source=True) + 16)
     d.tree(canvas, LEFT, nodes, leader_to=380)
-    for node, (_, kind, rows, _) in zip(nodes, entries):
+    for node, (_, kind, rows) in zip(nodes, entries):
         d.panel(canvas, 380, node.y - 14, 960, node.name, rows,
                 accent=ACCENTS["highlight"] if node.status else ACCENTS["store"], source=kind)
     d.legend(canvas, LEFT, top + 10, [(ACCENTS["store"], "phase 1"), (ACCENTS["highlight"], "proposed")])

@@ -4,10 +4,10 @@
 # version's commit only if every check passes. ARRAYLAKE_TOKEN must be set.
 #   bash run_processed.sh [scan,scan,...]
 # Expected times, from the laptop trial of scan 4-7 (a VM beside DANDI should
-# be faster): install under 2 min; the processed commit about 25 min for 19
+# be faster): install under 2 min; the processed commit about 5 min for 19
 # scans, 8 at a time (each scan maps its NWB file in about 60 s and reads its
-# masks in about 20 s); the eight CAVE commits about 1 min each; verify about
-# 5 min, most of it fetching the CAVE dumps again. Hard limits: 90 min for the
+# masks in about 10 s); the eight CAVE commits about 1 min each; verify about
+# 2 min, most of it fetching the CAVE dumps again. Hard limits: 90 min for the
 # ingest, 20 min for verify.
 set -euo pipefail
 REPO=arraylake://earthmover-biology/MICrONS
