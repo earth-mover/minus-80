@@ -25,7 +25,8 @@ BossDB prefix, which needs a maintainer's approval.
 | 2 | Place the fields with a 0.6 scene per scan, not a translation inside each image | Scene |
 | 3 | Keep the volume times once per scan, not once per field | Once per scan; the NWB gives every field the same times |
 | 4 | Keep v1 as the first commit, with its wrong dtype | Yes, as planned; tagged so that an analysis made on v1 can be checked |
-| 5 | Destination | A new Arraylake repo, `earthmover-biology/microns-minnie`, with a container for `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/` |
+| 5 | Scans 5-4, 5-5 and 8-4, published only in `platinum_camovies/` and absent from DANDI | Leave out of phase 1: they have no NWB metadata |
+| 6 | Destination | A new Arraylake repo, `earthmover-biology/microns-minnie`, with a container for `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/` |
 
 The figures are in [`diagrams/`](diagrams/): the archive and what phase 1
 takes from it ([`source.svg`](diagrams/source.svg)), how one scan's TIFF and
@@ -48,6 +49,11 @@ Phase 1 covers the functional imaging:
   volumes × 8 fields at ~6.3 Hz, scan 4-9 stopped at 35,112 volumes, scans 9-3
   and 9-4 with 50,000 × 6 at ~8.6 Hz, and scan 9-6 with 57,000 × 4 at ~9.6 Hz
   and larger frames. That is 144 fields and 5,908,896 frames per export.
+- **`functional_data/platinum_camovies/`** holds 22 TIFFs named
+  `CaMovie_17797-<session>-<scan>-v1.tif`. Nineteen have the same ETag as the
+  v1 file of the same scan, so they are copies of it, and the store leaves
+  them out. The other three, scans 5-4, 5-5 and 8-4, appear nowhere else in
+  the bucket (see decision 5).
 - **DANDI 000402** (CC BY 4.0, version 0.230307.2132), in `s3://dandiarchive`,
   us-east-2. One NWB file per scan, 62 to 96 GB, holding the same movies again
   as gzip-compressed HDF5, the field metadata, and the processed data.
@@ -126,9 +132,10 @@ language decodes it.
 - **A `frame_times` array in each field image.** The 8 arrays of a scan would
   be identical, and an image group holding an extra array is a node the spec
   does not name. See decision 3.
-- **Referencing the NWB movies.** Their gzip chunks are (2254, 14, 14): one
-  frame touches 576 chunks of 2,254 frames each. A TIFF frame is one 218 KB
-  read.
+- **Referencing the NWB movies.** They repeat the TIFF pixels exactly,
+  transposed (see "Field mapping" below), so they add no data. Their gzip
+  chunks are (2254, 14, 14): one frame touches 576 chunks of 2,254 frames
+  each. A TIFF frame is one uncompressed strip, one 218 KB read.
 - **Only v2.** Simpler, one commit. But v1 was the public export for 18
   months, and an analysis made on it read different values; the first commit
   lets that be checked. See decision 4.
@@ -137,9 +144,10 @@ language decodes it.
 
 All on a laptop, reading the buckets over the internet, on 2026-11-19.
 
-**Field mapping.** In scan 4-7 at volume 1000, a 28 × 42 patch of each NWB
-`TwoPhotonSeries<k>` equals TIFF page `1000 × 8 + (k − 1)`, transposed,
-exactly, and matches no other field's page. Field `n` of the store is NWB
+**Field mapping.** The NWB movies repeat the TIFF pixels exactly,
+transposed, which proves the mapping. In scan 4-7 at volume 1000, a 28 × 42
+patch of each NWB `TwoPhotonSeries<k>` equals TIFF page `1000 × 8 + (k − 1)`,
+transposed, exactly, and matches no other field's page. Field `n` of the store is NWB
 series `n`. The NWB conversion code fills `origin_coords` from the DataJoint
 `Field` table's field center, so the store treats it as the center.
 
@@ -149,9 +157,12 @@ come from the files' own directories. The first directory sits at byte 16,
 before the pixels; the rest are packed after them, 236 bytes each in v2 and
 296 in v1, 51 to 90 MB per file and 3.1 GB in all.
 
-**v1 against v2.** 72 pages compared, in scans 4-7, 9-3 and 9-6. Every v1
-value equals the v2 value read as unsigned: the difference is 0, or exactly
-65,536 where v2 is negative (0.1 to 0.3% of pixels, from −167 to −1). The
+**v1 against v2.** The two exports hold the same pixel bytes. 72 pages
+compared byte for byte, in scans 4-7, 9-3 and 9-6, are identical, so the
+second commit reinterprets the same values: the dtype changes from uint16 to
+int16, and v1 values above 32,767 read as negative in v2 (0.1 to 0.3% of
+pixels, from −167 to −1). The second commit still references the v2 files,
+because they are the objects BossDB publishes as current. The
 files differ in `SampleFormat` (UINT in v1, INT in v2), in three resolution
 tags that v1 carries (1/1, unit NONE), and so in their offsets. No v2 value
 was near the int16 maximum. The ingest repeats this check on the first,
@@ -207,7 +218,15 @@ gigabytes of pixels.
 4. **Both exports.** The store reproduces v1's wrong dtype in the first
    commit and records the finding in LAYOUTS.md, as docs/ingest.md asks for a
    source's errors. `main` ends at v2. **Recommended:** both, as planned.
-5. **Destination.** The repo and its container need a maintainer's approval.
+5. **Scans 5-4, 5-5 and 8-4.** `platinum_camovies/` holds three scans that
+   are in neither the scan directory nor DANDI 000402. Each has the v1
+   layout: 320,000 pages, the first directory at byte 16, directories of 14
+   tags (296 bytes) packed after the pixels from byte 69,836,800,512. Without
+   an NWB file there is no pixel size, field position, depth or volume time,
+   and no v2 export, so they could only be stored as uint16 movies with
+   placeholder geometry. **Recommended:** leave them out of phase 1, and ask
+   the MICrONS team whether NWB metadata or a v2 export exists for them.
+6. **Destination.** The repo and its container need a maintainer's approval.
    **Recommended:** `earthmover-biology/microns-minnie`, so later phases of
    the same release join it.
 
@@ -218,10 +237,11 @@ NWB's inconsistent `field_of_view` and `dimension` orders are kept as stated.
 
 ## Steps, scope and risk
 
-**Scope.** In: the 38 TIFFs and, from the 19 NWB files, the imaging-plane
+**Scope.** In: the 38 TIFFs in the scan directory and, from the 19 NWB files, the imaging-plane
 metadata and timestamps. Out: EM, segmentation, micro-CT, structural stacks,
-stimulus movies, the processed NWB data, the CAVE tables, and everything else
-in the bucket.
+stimulus movies, the processed NWB data, the CAVE tables, `platinum_camovies/`
+(copies of v1 plus three scans without metadata), and everything else in the
+bucket.
 
 **Steps.**
 
@@ -258,7 +278,13 @@ megabytes.
 ## Later phases
 
 - The processed functional data in the NWB files: traces, ROI masks with
-  their EM links, behavior, stimulus.
+  their EM links, behavior, stimulus. The EM links need care. Each
+  `PlaneSegmentation<n>` stores `pt_root_id`, `pt_supervoxel_id` and
+  `cave_ids` as float64, which holds integers exactly only up to 2^53, so
+  18-digit segment IDs come back rounded. The root IDs are also from the v343
+  proofread segmentation (the conversion's `CAVEclient("minnie65_public_v343")`),
+  long superseded. Join on the EM position (`pt_position`), which is exact,
+  and look the IDs up again in the release in use.
 - The two-photon structural stacks the fields register into, and the
   coregistration into EM space.
 - EM and segmentation (Neuroglancer precomputed), with segmentation releases

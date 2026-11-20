@@ -29,6 +29,12 @@ file per scan, `sub-17797/sub-17797_ses-<session>-scan-<scan>_behavior+image+oph
 movie again, gzip-compressed, beside the processed data. The store reads only
 the metadata the TIFFs lack.
 
+**Copies.** `functional_data/platinum_camovies/` holds 22 TIFFs,
+`CaMovie_17797-<session>-<scan>-v1.tif`. Nineteen have the same ETag as the
+v1 file of the same scan and are left out as copies. Scans 5-4, 5-5 and 8-4
+are only there, with the v1 layout (320,000 pages, 14-tag directories after
+the pixels) and no DANDI NWB file; phase 1 leaves them out (PLAN.md).
+
 ## Each TIFF
 
 tifffile wrote every file as one shaped series, with

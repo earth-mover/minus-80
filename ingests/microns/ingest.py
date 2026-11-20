@@ -461,11 +461,13 @@ MESSAGES = {
         "({pages:,} frames), referencing BossDB's v1 TIFF export (2021-07-02) in place. "
         "The v1 export declares its pixels uint16, and so does this commit."),
     2: ("Reference BossDB's v2 TIFF export (2023-01-13) for the same {fields} fields. "
-        "The v2 files hold the same pixel bytes as v1, at other offsets, and declare them "
-        "int16 where v1 declared uint16. The pixels are int16: the frames hold a few "
-        "negative values, which v1 read as 65,431 to 65,535. Every field's dtype is now "
-        "int16 and its chunks reference the v2 files. Checked on the first, middle and "
-        "last page of each scan, byte for byte."),
+        "The v2 files hold the same pixel bytes as v1, at other offsets; only the declared "
+        "sample format differs, int16 in v2 where v1 declared uint16. This commit "
+        "reinterprets the same values: every field's dtype changes from uint16 to int16, "
+        "so v1 values above 32,767 read as the small negative values motion correction "
+        "left. Every field's chunks now reference the v2 files, the objects BossDB "
+        "publishes as current. The bytes were compared on the first, middle and last "
+        "page of each scan."),
 }
 
 
