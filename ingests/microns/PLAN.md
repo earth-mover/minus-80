@@ -271,8 +271,13 @@ bucket.
    brings run 1's store to the layout without the root collection. It
    deletes the `OME` group and the root's `bioformats2raw.layout`, and sets
    every group's attributes to what the ingest now writes; no array or chunk
-   reference changes, and tags `v1` and `v2` stay on run 1's commits.
-   *Needs approval: writes the store.*
+   reference changes, and tags `v1` and `v2` stay on run 1's commits. It uses
+   only Zarr's own operations on the Icechunk session: `del root["OME"]`
+   deletes the group, and `group.attrs.put` replaces a group's attributes,
+   which rewrites that group's `zarr.json` and nothing else. No node is
+   renamed or moved, so the script needs no move. Icechunk's diff of the
+   trial update lists two groups updated and one deleted, and no arrays or
+   chunks. *Needs approval: writes the store.*
 5. REPORT.md, with the run's snapshots, timings and verify output.
 
 **Expected run.** About 2 minutes to install, under 1 minute for the NWB

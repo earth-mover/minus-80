@@ -15,8 +15,10 @@ to the current layout without rewriting any array:
   with the NWB metadata read again and each field's ``tiff`` attributes kept
   as stored.
 
-Only group attributes change and one group goes, so no array's shape, dtype,
-codecs or chunk references move. A group whose attributes already match is
+Both are Zarr's own operations on the Icechunk session: ``del root["OME"]``
+deletes the group, and ``group.attrs.put`` replaces a group's attributes. No
+node is renamed or moved. Only group attributes change and one group goes,
+so no array's shape, dtype, codecs or chunk references move. A group whose attributes already match is
 left alone, and nothing is committed when nothing differs, so a second run
 is a no-op. The commit carries no export in its metadata: ingest.py and
 verify.py find each export by its own commit, below this one.
