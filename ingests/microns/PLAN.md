@@ -16,8 +16,9 @@ found that the two exports differ only in that declaration.
 
 **Asked of the reviewer:** approve the layout and the run below, and decide
 the judgement calls. Nothing has been written outside a local trial repo.
-The run needs a destination repo whose virtual chunk container covers the
-BossDB prefix, which needs a maintainer's approval.
+The destination repo, `earthmover-biology/microns` (private), exists with one
+virtual chunk container for the BossDB scan prefix; the run waits on write
+access to it.
 
 | # | Decision | Recommended |
 |---|---|---|
@@ -26,7 +27,7 @@ BossDB prefix, which needs a maintainer's approval.
 | 3 | Keep the volume times once per scan, not once per field | Once per scan; the NWB gives every field the same times |
 | 4 | Keep v1 as the first commit, with its wrong dtype | Yes, as planned; tagged so that an analysis made on v1 can be checked |
 | 5 | Scans 5-4, 5-5 and 8-4, published only in `platinum_camovies/` and absent from DANDI | Leave out of phase 1: they have no NWB metadata |
-| 6 | Destination | A new Arraylake repo, `earthmover-biology/microns-minnie`, with a container for `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/` |
+| 6 | Destination | Decided: `arraylake://earthmover-biology/microns` (private), container `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/`, anonymous, us-east-1 |
 
 The figures are in [`diagrams/`](diagrams/): the archive and what phase 1
 takes from it ([`source.svg`](diagrams/source.svg)), how one scan's TIFF and
@@ -226,9 +227,13 @@ gigabytes of pixels.
    and no v2 export, so they could only be stored as uint16 movies with
    placeholder geometry. **Recommended:** leave them out of phase 1, and ask
    the MICrONS team whether NWB metadata or a v2 export exists for them.
-6. **Destination.** The repo and its container need a maintainer's approval.
-   **Recommended:** `earthmover-biology/microns-minnie`, so later phases of
-   the same release join it.
+6. **Destination.** Decided: `earthmover-biology/microns`, a private
+   Arraylake repo. Its one virtual chunk container is `s3://bossdb-open-data/iarpa_microns/minnie/functional_data/two_photon_functional_scans/`,
+   read anonymously in us-east-1, and the organization's access policy
+   covers only that prefix. The ingest's source prefix is that exact string,
+   so `arraylake_repository`'s container check passes. Later phases that
+   reference other prefixes (DANDI's bucket, the EM) need their own
+   containers and policy.
 
 Two smaller choices are recorded in LAYOUTS.md rather than asked here: the
 NWB `origin_coords` is used as the field center, as the conversion code and
@@ -246,9 +251,8 @@ bucket.
 **Steps.**
 
 1. Approval of this plan and the judgement calls.
-2. A maintainer creates the destination repo and its virtual chunk container
-   for the BossDB prefix. *Needs approval: writes to the shared Arraylake
-   organization.*
+2. Write access to `earthmover-biology/microns` for the ingest's token. The
+   repo and its container exist.
 3. Run 1, `runs/01_twophoton.sh`: one Coiled VM (`c6i.4xlarge`, us-east-1)
    with `coiled batch run`, writing both commits and both tags to `main`,
    then `verify.py`. *Needs approval: writes the store.*

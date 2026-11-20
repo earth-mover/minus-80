@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Ingest the MICrONS two-photon scans on one Coiled VM in us-east-1, beside
-# the BossDB bucket, committing both exports to the repo named.
-#   ARRAYLAKE_TOKEN=... bash launch.sh <arraylake://org/repo> [scan,scan,...]
+# the BossDB bucket, committing both exports to the repo named,
+# arraylake://earthmover-biology/microns for every run so far planned.
+#   ARRAYLAKE_TOKEN=... bash launch.sh arraylake://earthmover-biology/microns [scan,scan,...]
 #
 # The job runs the committed code only: launching refuses a working tree with
 # changes to the package or this ingest, and the job prints the commit it ran
