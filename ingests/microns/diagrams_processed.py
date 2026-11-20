@@ -4,8 +4,8 @@
         --catalog <catalog.json> --rois <roi_counts.json> --cave <directory of CAVE dumps>
 
 Writes ``processed-source.svg``, ``processed-mapping.svg`` and ``processed-store.svg`` into
-``diagrams/`` beside this file. They are proposals: nothing in them has been written to the
-published store. The values come from three inputs, all read from the sources:
+``diagrams/`` beside this file. The store figure is read from the published store (``--repo``);
+the other two from three inputs, all read from the sources:
 
 - ``catalog.json``: every object in the NWB file of scan 4-7 with its shape, dtype, chunks and
   compression, from a remote walk with h5py.
@@ -182,37 +182,67 @@ def mapping_figure(catalog: dict, rois: dict) -> Canvas:
     return canvas
 
 
-def store_figure(catalog: dict, rois: dict, cave: pd.DataFrame) -> Canvas:
+def read_published(location: str) -> dict:
+    """What the store holds for the example scan at main, and its tags, from the store itself."""
+    import zarr
+
+    from minus80.core.icechunk_io import arraylake_repository, open_repository
+
+    repo = (arraylake_repository(location) if location.startswith("arraylake://")
+            else open_repository(location))
+    root = zarr.open_group(repo.readonly_session("main").store, mode="r")
+    scan = root[f"two-photon/{EXAMPLE_SCAN}"]
+    rois = scan[f"rois-{EXAMPLE_FIELD}/0"]
+    field = scan["field-1/0"]
+    units = scan["units"]
+    tables = sorted(units["em"].group_keys())
+    columns = sorted(units[f"em/{tables[0]}"].array_keys()) if tables else []
+    nwb = scan["nwb"]
+    tags = {t: repo.lookup_tag(t) for t in repo.list_tags()}
+    return {
+        "fields": sum(1 for k in scan.group_keys() if k.startswith("field-")),
+        "field_shape": field.shape, "field_dtype": str(field.dtype),
+        "times": scan["volume_times"].shape,
+        "rois_shape": rois.shape, "rois_chunks": rois.chunks, "rois_shards": rois.shards,
+        "units": units["unit_id"].shape[0], "tables": tables, "columns": columns,
+        "nwb": {k: sorted(nwb[k].group_keys()) for k in ("acquisition", "processing", "intervals")},
+        "nwb_arrays": sum(1 for _, n in nwb.members(max_depth=None) if isinstance(n, zarr.Array)),
+        "tags": tags, "main": repo.lookup_branch("main"),
+    }
+
+
+def store_figure(published: dict) -> Canvas:
     canvas = Canvas(WIDTH)
-    y = d.heading(canvas, "Phase 2 store, one scan", "proposed nodes beside phase 1's; tags after the run") + 30
+    y = d.heading(canvas, f"The store after phase 2, scan {EXAMPLE_SCAN}",
+                  f"earthmover-biology/MICrONS at main ({published['main']})") + 30
+    p = published
     k = EXAMPLE_FIELD
-    n = rois[EXAMPLE_SCAN][k - 1][0]
-    units = sum(c[0] for c in rois[EXAMPLE_SCAN])
     spacing = 46
+    shards = p["rois_shards"][0] if p["rois_shards"] else p["rois_shape"][0]
+    ophys = ", ".join(f"{g}" for g in p["nwb"]["processing"])
     entries = [
-        (TreeNode(f"two-photon/{EXAMPLE_SCAN}", 0, 0, subtitle="scene; scan attribute gains 'processed'"),
-         "scene", [Row("ome.scene", "field-n placed in motor (t, z, y, x)")]),
-        (TreeNode("field-n", 0, 1, count=8, subtitle="phase 1"), "image",
-         [Row("0", "(40,000, 1, 440, 248) int16, TIFF pages")]),
-        (TreeNode("volume_times", 0, 1, subtitle="phase 1"), "array", [Row("", "(40,000,) float64")]),
-        (TreeNode("rois-n", 0, 1, count=8, status="added"), "image, written natively", [
-            Row("0", f"(roi, z, y, x) float32; {n:,} ROIs in field {k}"),
-            Row("chunks", "one per ROI, in shards of 261 ROIs, blosc zstd"),
-            Row("placed", "its own translation = field-n's place")]),
-        (TreeNode("units", 0, 1, status="added"), "group, written natively", [
-            Row("unit_id, field, roi", f"({units:,},) int64"),
-            Row("em/<table>/", "pt_root_id, pt_supervoxel_id, id, target_id, pt_position, residual, score")]),
-        (TreeNode("nwb", 0, 1, status="added"), "NWBFile, unified NWB Zarr v3, referenced", [
-            Row("processing/ophys/", "PlaneSegmentation, Fluorescence, SegmentationImages × 8"),
-            Row("acquisition/", "TwoPhotonSeries × 8, eye, pupil, treadmill, stimulus Video"),
-            Row("intervals/", "Clip, Monet2, Trippy"),
-            Row("general/, specifications/", "imaging planes, device, NWB schema")]),
+        (TreeNode(f"two-photon/{EXAMPLE_SCAN}", 0, 0, subtitle="phase 1, restated in phase 2"),
+         "scene", [Row("ome.scene", f"field-1 … field-{p['fields']} placed in motor (t, z, y, x)")]),
+        (TreeNode("field-n", 0, 1, count=p["fields"], subtitle="phase 1"), "image",
+         [Row("0", f"{shape_text(p['field_shape'])} {p['field_dtype']}")]),
+        (TreeNode("volume_times", 0, 1, subtitle="phase 1"), "array", [Row("", f"{shape_text(p['times'])} float64")]),
+        (TreeNode("rois-n", 0, 1, count=p["fields"], status="added"), "image", [
+            Row("0", f"(roi, z, y, x) float32; rois-{k} is {shape_text(p['rois_shape'])}"),
+            Row("chunks", f"{shape_text(p['rois_chunks'])}, in shards of {shards} ROIs")]),
+        (TreeNode("units", 0, 1, status="added"), "group", [
+            Row("unit_id, field, roi", f"({p['units']:,},) int64"),
+            Row("em/", ", ".join(p["tables"])),
+            Row("per table", ", ".join(p["columns"]))]),
+        (TreeNode("nwb", 0, 1, status="added"), f"NWBFile, {p['nwb_arrays']} arrays", [
+            Row("processing/", ophys),
+            Row("acquisition/", ", ".join(g.replace("TwoPhotonSeries", "TPS") for g in p["nwb"]["acquisition"][:6]) + " …"),
+            Row("intervals/", ", ".join(p["nwb"]["intervals"]))]),
     ]
-    versions = list(dict.fromkeys(cave.version))
-    entries.append((TreeNode("tags", 0, 0, count=len(versions) + 3, status="added"), "icechunk", [
-        Row("v1, v2", "phase 1"), Row("processed", "nwb, rois-n, units"),
-        Row(", ".join(f"cave-{v}" for v in versions[:4]), "one commit per CAVE version"),
-        Row(", ".join(f"cave-{v}" for v in versions[4:]), "")]))
+    cave = sorted((t for t in p["tags"] if t.startswith("cave-")), key=lambda t: int(t[6:]))
+    entries.append((TreeNode("tags", 0, 0, count=len(p["tags"]), status="added"), "icechunk", [
+        Row("v1, v2", f"phase 1: {p['tags']['v1']}, {p['tags']['v2']}"),
+        Row("processed", p["tags"]["processed"]),
+        *[Row(t, p["tags"][t]) for t in cave]]))
     nodes, top = [], y
     for node, _, rows in entries:
         nodes.append(TreeNode(node.name, top, node.depth, node.count, node.subtitle, node.status))
@@ -221,7 +251,7 @@ def store_figure(catalog: dict, rois: dict, cave: pd.DataFrame) -> Canvas:
     for node, (_, kind, rows) in zip(nodes, entries):
         d.panel(canvas, 380, node.y - 14, 960, node.name, rows,
                 accent=ACCENTS["highlight"] if node.status else ACCENTS["store"], source=kind)
-    d.legend(canvas, LEFT, top + 10, [(ACCENTS["store"], "phase 1"), (ACCENTS["highlight"], "proposed")])
+    d.legend(canvas, LEFT, top + 10, [(ACCENTS["store"], "phase 1"), (ACCENTS["highlight"], "phase 2")])
     return canvas
 
 
@@ -230,15 +260,17 @@ def main() -> None:
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--rois", type=Path, required=True)
     parser.add_argument("--cave", type=Path, required=True)
+    parser.add_argument("--repo", required=True, help="the published store, arraylake://org/repo, or a local copy")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
     catalog = json.loads(args.catalog.read_text())
     rois = json.loads(args.rois.read_text())
     cave = read_cave(args.cave)
+    published = read_published(args.repo)
     args.out.mkdir(parents=True, exist_ok=True)
     for name, figure in (("processed-source", lambda: source_figure(catalog, rois, cave)),
                          ("processed-mapping", lambda: mapping_figure(catalog, rois)),
-                         ("processed-store", lambda: store_figure(catalog, rois, cave))):
+                         ("processed-store", lambda: store_figure(published))):
         size = figure().write(args.out / f"{name}.svg")
         print(f"{name}.svg  {size / 1e3:.0f} kB")
 

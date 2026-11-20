@@ -235,8 +235,17 @@ class Store:
     fields: list[dict]
 
 
-def read_store(path: Path) -> Store:
-    repo = open_repository(str(path))
+def open_store(location: str):
+    """An Icechunk repository directory, or an ``arraylake://org/repo``."""
+    if str(location).startswith("arraylake://"):
+        from minus80.core.icechunk_io import arraylake_repository
+
+        return arraylake_repository(str(location))
+    return open_repository(str(location))
+
+
+def read_store(path) -> Store:
+    repo = open_store(path)
     root = {}
     array = {}
     for tag in ("v1", "v2"):
@@ -1062,7 +1071,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--survey", type=Path, required=True)
     parser.add_argument("--layouts", type=Path)
-    parser.add_argument("--repo", type=Path, help="an Icechunk repository directory written by ingest.py")
+    parser.add_argument("--repo", help="an Icechunk repository directory or arraylake://org/repo written by ingest.py")
     parser.add_argument("--archive", type=Path, metavar="SAMPLES",
                         help="draw archive.svg only, with pictures from this .npz cache of samples, "
                              "fetched by archive_samples.py when it does not exist")
