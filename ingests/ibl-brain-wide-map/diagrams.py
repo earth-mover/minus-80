@@ -1,7 +1,7 @@
 """Draw the IBL Brain-Wide Map ingest: the two source hosts, how they map onto the store, and the store.
 
     MINUS80_S3_ANONYMOUS=1 uv run --package ibl-brain-wide-map-ingest python \\
-        ingests/ibl-brain-wide-map/diagrams.py --repo <repo directory>
+        ingests/ibl-brain-wide-map/diagrams.py --repo arraylake://earthmover-biology/ibl-brain-wide-map
 
 Writes ``source.svg``, ``mapping.svg``, ``store.svg`` and ``archive.svg`` into ``diagrams/``
 beside this file. ``archive.py`` draws the last, the whole archive with pictures of its data,
@@ -30,10 +30,10 @@ from pathlib import Path
 import zarr
 from archive import archive_figure
 from ingest import OBJECTS, SORTS, SPIKE_ROWS_PER_CHUNK, session_record
-from sources import dandi_assets, one_cache
+from sources import dandi_assets, one_cache, open_repo
 
 from minus80 import diagrams as d
-from minus80.core.icechunk_io import open_repository
+
 from minus80.diagrams import ACCENTS, Canvas, CubeGeometry, Row, TreeNode
 
 OUT = Path(__file__).parent / "diagrams"
@@ -165,7 +165,7 @@ def source_figure(repo, session) -> None:
     processed_rows = [Row(name, f"{len(arrays_under(group['processed'][name]))} arrays")
                       for name in ("intervals/trials", "units")]
     processed_rows += [Row(f"processing/{name}", f"{len(arrays_under(member))} arrays")
-                       for name, member in group["processed/processing"].groups()]
+                       for name, member in sorted(group["processed/processing"].groups())]
     d.panel(canvas, left + 70, y + 40, 700, "groups", processed_rows,
             accent=ACCENTS["source"], source=processed_name, key_width=330)
     d.tree(canvas, left, nodes)
@@ -321,7 +321,7 @@ def store_figure(repo, session) -> None:
 
     def series_rows():
         rows = []
-        for name, array in series.arrays():
+        for name, array in sorted(series.arrays()):
             dimensions = ", ".join(array.metadata.dimension_names)
             rows.append(Row(name, f"{d.dims([d.count_text(n) for n in array.shape])} {dtype_text(array)} ({dimensions})"))
         return rows + attr_rows({k: v for k, v in series.attrs.items() if k == "spikeglx_meta"})
@@ -330,8 +330,8 @@ def store_figure(repo, session) -> None:
         return [Row(name, f"{len(list(sorting[name].arrays()))} arrays · "
                     + ", ".join(sorted(n for n, _ in sorting[name].arrays()))[:60]) for name in OBJECTS]
 
-    raw_children = [name for name, _ in group["raw"].groups() if arrays_under(group["raw"][name])]
-    processed_children = [name for name, _ in group["processed"].groups() if arrays_under(group["processed"][name])]
+    raw_children = [name for name, _ in sorted(group["raw"].groups()) if arrays_under(group["raw"][name])]
+    processed_children = [name for name, _ in sorted(group["processed"].groups()) if arrays_under(group["processed"][name])]
     items = [
         ("/", 0, attr_rows(root.attrs), None, "root attributes"),
         (group_path, 1, attr_rows(group.attrs), None, "session attributes"),
@@ -363,10 +363,10 @@ def store_figure(repo, session) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--repo", required=True, help="directory or URL of the store to draw")
+    parser.add_argument("--repo", required=True, help="directory or arraylake://org/repo of the store to draw")
     args = parser.parse_args()
     OUT.mkdir(exist_ok=True)
-    repo = open_repository(args.repo)
+    repo = open_repo(args.repo)
     session = repo.readonly_session("main")
     for figure in (source_figure, mapping_figure, store_figure):
         figure(repo, session)

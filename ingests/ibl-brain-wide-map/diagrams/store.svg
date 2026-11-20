@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1284" viewBox="0 0 1180 1284">
-<rect x="0" y="0" width="1180" height="1284" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1304" viewBox="0 0 1180 1304">
+<rect x="0" y="0" width="1180" height="1304" fill="#ffffff"/>
 <text x="24.0" y="44.0" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">Store: the hierarchy</text>
 <text x="24.0" y="66.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">main at the 2024 sort; sub-ZM-2241/ses-465c44bd-2e67-4112-977b-36e1ac7e3f8c · probe00</text>
 <rect x="480.0" y="93.9" width="670.0" height="176.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
@@ -49,12 +49,12 @@
 <text x="494.0" y="573.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">raw</text>
 <text x="494.0" y="597.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">acquisition</text>
 <text x="724.0" y="597.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">22 arrays</text>
-<text x="494.0" y="617.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">specifications</text>
-<text x="724.0" y="617.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">28 arrays</text>
+<text x="494.0" y="617.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general</text>
+<text x="724.0" y="617.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">51 arrays</text>
 <text x="494.0" y="637.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">intervals</text>
 <text x="724.0" y="637.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 arrays</text>
-<text x="494.0" y="657.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general</text>
-<text x="724.0" y="657.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">51 arrays</text>
+<text x="494.0" y="657.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">specifications</text>
+<text x="724.0" y="657.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">28 arrays</text>
 <rect x="480.0" y="683.9" width="670.0" height="116.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
 <rect x="480.0" y="683.9" width="4" height="116.0" rx="2" fill="#1baf7a"/>
 <text x="494.0" y="703.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">acquisition series</text>
@@ -69,18 +69,18 @@
 <rect x="480.0" y="813.9" width="670.0" height="136.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
 <rect x="480.0" y="813.9" width="4" height="136.0" rx="2" fill="#1baf7a"/>
 <text x="494.0" y="833.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">processed</text>
-<text x="494.0" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">specifications</text>
-<text x="724.0" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">28 arrays</text>
-<text x="494.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general</text>
-<text x="724.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">73 arrays</text>
+<text x="494.0" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">general</text>
+<text x="724.0" y="857.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">73 arrays</text>
+<text x="494.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">intervals</text>
+<text x="724.0" y="877.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">23 arrays</text>
 <text x="494.0" y="897.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">processing</text>
 <text x="724.0" y="897.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">117 arrays</text>
-<text x="494.0" y="917.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">intervals</text>
-<text x="724.0" y="917.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">23 arrays</text>
+<text x="494.0" y="917.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">specifications</text>
+<text x="724.0" y="917.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">28 arrays</text>
 <text x="494.0" y="937.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">units</text>
 <text x="724.0" y="937.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">32 arrays</text>
-<rect x="480.0" y="963.9" width="670.0" height="196.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="480.0" y="963.9" width="4" height="196.0" rx="2" fill="#1baf7a"/>
+<rect x="480.0" y="963.9" width="670.0" height="216.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="480.0" y="963.9" width="4" height="216.0" rx="2" fill="#1baf7a"/>
 <text x="494.0" y="983.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">pykilosort</text>
 <text x="494.0" y="1007.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">description</text>
 <text x="724.0" y="1007.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">The spike sorting of probe00 in IBL's 2024 release, by IBL…</text>
@@ -90,14 +90,16 @@
 <text x="724.0" y="1047.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">2024-05-06</text>
 <text x="494.0" y="1067.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">ibl_release_cache</text>
 <text x="724.0" y="1067.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">Brainwidemap</text>
-<text x="494.0" y="1087.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">spikes</text>
-<text x="724.0" y="1087.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6 arrays</text>
-<text x="494.0" y="1107.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">clusters</text>
-<text x="724.0" y="1107.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">7 arrays</text>
-<text x="494.0" y="1127.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">channels</text>
-<text x="724.0" y="1127.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 arrays</text>
-<text x="494.0" y="1147.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">templates</text>
-<text x="724.0" y="1147.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 arrays</text>
+<text x="494.0" y="1087.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">left_out</text>
+<text x="724.0" y="1087.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">0 entries</text>
+<text x="494.0" y="1107.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">spikes</text>
+<text x="724.0" y="1107.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">6 arrays</text>
+<text x="494.0" y="1127.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">clusters</text>
+<text x="724.0" y="1127.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">7 arrays</text>
+<text x="494.0" y="1147.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">channels</text>
+<text x="724.0" y="1147.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">5 arrays</text>
+<text x="494.0" y="1167.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">templates</text>
+<text x="724.0" y="1167.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">3 arrays</text>
 <circle cx="24.0" cy="103.9" r="4.5" fill="#0f172a"/>
 <text x="35.0" y="108.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">/</text>
 <line x1="51.3" y1="103.9" x2="478.0" y2="103.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
@@ -124,11 +126,11 @@
 <text x="79.0" y="978.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">alf/probe00/pykilosort</text>
 <text x="79.0" y="994.9" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">21 arrays</text>
 <line x1="270.2" y1="973.9" x2="478.0" y2="973.9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3 4"/>
-<rect x="480.0" y="1183.9" width="670.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
-<rect x="480.0" y="1183.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
-<text x="494.0" y="1203.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tags</text>
-<text x="494.0" y="1227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sort-2022</text>
-<text x="724.0" y="1227.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8,701,439 spikes · revision default</text>
-<text x="494.0" y="1247.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sort-2024</text>
-<text x="724.0" y="1247.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">21,415,765 spikes · revision 2024-05-06</text>
+<rect x="480.0" y="1203.9" width="670.0" height="76.0" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="480.0" y="1203.9" width="4" height="76.0" rx="2" fill="#1baf7a"/>
+<text x="494.0" y="1223.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="bold" fill="#0f172a" text-anchor="start" xml:space="preserve">tags</text>
+<text x="494.0" y="1247.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sort-2022</text>
+<text x="724.0" y="1247.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">8,701,439 spikes · revision default</text>
+<text x="494.0" y="1267.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#64748b" text-anchor="start" xml:space="preserve">sort-2024</text>
+<text x="724.0" y="1267.9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#0f172a" text-anchor="start" xml:space="preserve">21,415,765 spikes · revision 2024-05-06</text>
 </svg>
