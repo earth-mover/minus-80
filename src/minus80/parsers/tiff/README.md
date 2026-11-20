@@ -32,9 +32,11 @@ registry, and the manifest records the URL as given.
 - `prefetch` chooses how a remote file's directories are read; a local file is
   always read in ranges:
   - `"ranges"` walks them through a block-cached range reader;
-  - `"directories"` fetches the header and the directory region into a sparse
-    local file, when `inspect.directory_layout` finds the directories packed
-    at the end of a BigTIFF;
+  - `"directories"` fetches the file's first 64 KB and the directory region
+    into a sparse local file, when `inspect.directory_layout` finds the
+    directories packed at the end of a BigTIFF. The first 64 KB hold the
+    header and, in a file tifffile wrote, the first directory, which tifffile
+    puts before the pixels;
   - `"whole"` downloads the file into the cache first.
 - `attributes` are merged into every level's attributes.
 

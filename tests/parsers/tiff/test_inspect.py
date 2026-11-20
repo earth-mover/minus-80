@@ -40,3 +40,17 @@ def test_codec_chain_reports_the_parser_chain_and_its_refusals(tmp_path):
     assert chain["codecs"] == ["bytes", "imagecodecs_lzw"] and not chain["portable"]
     refused = codec_chain(deflate)
     assert not refused["supported"] and "compression" in refused["reason"]
+
+
+def test_region_leaves_out_the_pixels_after_a_leading_directory(tmp_path):
+    # tifffile writes the first directory before the pixel data and the rest after it.
+    path = tmp_path / "contiguous.tif"
+    tifffile.imwrite(path, np.zeros((100, 64, 64), np.uint16), bigtiff=True,
+                     photometric="minisblack", metadata=None)
+    with tifffile.TiffFile(path) as tf:
+        first, second = tf.pages[0].offset, tf.pages[1].offset
+        pixels_end = tf.pages[-1].dataoffsets[0] + tf.pages[-1].databytecounts[0]
+    layout = directory_layout(path.as_uri())
+    assert layout.first_directory == first < pixels_end <= second
+    assert layout.region == (second, path.stat().st_size)
+    assert layout.directories == 100
