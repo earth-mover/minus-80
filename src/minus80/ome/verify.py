@@ -23,7 +23,7 @@ import zarr
 from minus80.core.aio import run_sync
 
 from .annotations import KEY as ANNOTATIONS
-from .hierarchy import OME, declared, images, multiscale_groups
+from .hierarchy import OME, declared, derived, images, multiscale_groups, scene_images
 from .image import validate
 
 #: The least a coarse level may correlate with the next finer level averaged
@@ -83,6 +83,8 @@ def schema(root, version: str) -> list[str]:
                 documents.append(("/".join(p for p in (path, OME) if p), node[OME], "ome"))
         if "well" in ome:
             documents.append((path, node, "well"))
+        if "scene" in ome:
+            documents.append((path, node, "scene"))
     for path, node, model in documents:
         try:
             validate(dict(node.attrs)["ome"], version, model=model)
@@ -150,10 +152,21 @@ def physical_size(root) -> list[str]:
 
 
 def series_matches(root) -> list[str]:
-    """The collection's series and plates declare exactly the images it holds."""
+    """The collection's series and plates, and each scene, name exactly the images they hold.
+
+    A scene names its images by path; they must be the multiscale groups
+    under the scene, apart from images derived from them.
+    """
     listed = set(declared(root))
     present = set(multiscale_groups(root))
     problems = []
+    for path, names in scene_images(root).items():
+        prefix = f"{path}/" if path else ""
+        under = {p for p in present if p.startswith(prefix)} - set(derived(root, names))
+        if missing := sorted(set(names) - under):
+            problems.append(f"scene {path or '/'} names {len(missing)} images it does not hold: {missing[:3]}")
+        if extra := sorted(under - set(names)):
+            problems.append(f"scene {path or '/'} holds {len(extra)} images it does not name: {extra[:3]}")
     if listed - present:
         problems.append(f"series or plates name {len(listed - present)} absent groups: "
                         f"{sorted(listed - present)[:3]}")

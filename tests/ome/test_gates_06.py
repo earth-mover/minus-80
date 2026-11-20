@@ -63,3 +63,21 @@ def test_a_level_with_the_wrong_scale_fails():
         level_scales=[{"y": 0.65, "x": 0.65}, {"y": 2.6, "x": 2.6}],
     )
     assert any("scale 2.6" in p for p in levels_aligned(root, sample=1))
+
+
+def test_a_study_without_a_collection_declares_the_images_it_holds():
+    """CAMELYON17's layout: unrelated slides in patient groups, with labels and no collection or scene."""
+    from minus80.ome.verify import series_matches
+
+    root = zarr.open_group(zarr.storage.MemoryStore(), mode="w")
+    for path in ("patient_1/node_0/image", "patient_1/node_1/image", "patient_1/node_1/macro"):
+        image = root.require_group(path)
+        image.attrs["ome"] = image_attrs(name=path, dims=("y", "x"), level_shapes=[(64, 64), (32, 32)],
+                                         scale={"y": 0.5, "x": 0.5}, units=UNITS, version="0.6")
+        for i, shape in enumerate([(64, 64), (32, 32)]):
+            image.create_array(str(i), data=np.indices(shape).sum(0).astype("u2"), dimension_names=("y", "x"))
+    label = root.require_group("patient_1/node_0/image/labels/mask")
+    label.attrs["ome"] = dict(root["patient_1/node_0/image"].attrs)["ome"]
+    assert list(images(root)) == ["patient_1/node_0/image", "patient_1/node_1/image", "patient_1/node_1/macro"]
+    assert series_matches(root) == []
+    assert levels_aligned(root, sample=3) == [] and physical_size(root) == []

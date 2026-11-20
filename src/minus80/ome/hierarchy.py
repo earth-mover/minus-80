@@ -13,6 +13,16 @@ carries both ``bioformats2raw.layout`` and ``plate``, and the spec says the
 plate takes precedence, so such a group is read as a plate. The spec does not
 let a collection list plates among its images.
 
+OME-Zarr 0.6 keeps ``bioformats2raw.layout`` only as transitional metadata
+and has no structure for a set of unrelated images (RFC-8, collections, is
+in review). A study that declares no collection and no plate therefore
+declares its images by holding them: every multiscale group under it,
+outside ``labels``. A 0.6 scene is the group above images that share a
+spatial relationship, and names each by the ``path`` of a coordinate
+transformation's input or output. Its images are found by the same walk;
+:func:`scene_images` returns what each scene names, so a check can compare
+the two.
+
 An image may also hold images derived from it, such as a projection, as
 subgroups. The spec names no such subgroup, so the image lists them in its
 :data:`DERIVED` attribute, and a reader finds them there rather than by
@@ -83,6 +93,23 @@ def collection_series(study) -> list[str]:
     return found
 
 
+def scene_images(study) -> dict[str, list[str]]:
+    """Each 0.6 scene in the study, by its path, with the image paths its transformations name."""
+    found = {}
+    for path, node in _groups(study):
+        scene = _ome(node).get("scene")
+        if not isinstance(scene, dict):
+            continue
+        names = []
+        for transform in scene.get("coordinateTransformations", []):
+            for end in ("input", "output"):
+                ref = transform.get(end)
+                if isinstance(ref, dict) and ref.get("path"):
+                    names.append(_join(path, ref["path"]))
+        found[path] = list(dict.fromkeys(names))
+    return found
+
+
 def derived(study, images: list[str]) -> list[str]:
     """The derived images each of ``images`` lists in its :data:`DERIVED` attribute."""
     found = []
@@ -96,9 +123,18 @@ def derived(study, images: list[str]) -> list[str]:
 
 
 def declared(study) -> list[str]:
-    """Every image path the study declares: collection series, plate fields and derived images."""
-    primary = collection_series(study) + plate_fields(study)
-    return primary + derived(study, primary)
+    """Every image path the study declares, and the images derived from them.
+
+    A study with a ``bioformats2raw.layout`` collection or a plate declares
+    the images those list. Any other study, an OME-Zarr 0.6 group of scenes
+    or of unrelated images, declares every multiscale group it holds outside
+    ``labels``.
+    """
+    if any("bioformats2raw.layout" in _ome(node) or "plate" in _ome(node) for _, node in _groups(study)):
+        primary = collection_series(study) + plate_fields(study)
+    else:
+        primary = sorted(multiscale_groups(study))
+    return list(dict.fromkeys(primary + derived(study, primary)))
 
 
 def multiscale_groups(study) -> dict[str, zarr.Group]:

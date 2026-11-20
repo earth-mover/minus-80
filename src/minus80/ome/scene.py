@@ -9,7 +9,7 @@ well out as one picture without the pixels being pasted into one array.
 > For images that share a spatial relationship, the ``scene`` metadata layout
 > can be used to describe the relationship between images.
 >
-> -- OME-Zarr 0.6, https://ngff.openmicroscopy.org/0.6/index.html#scene-md
+> -- OME-Zarr 0.6, https://ngff.openmicroscopy.org/specifications/0.6/index.html#scene-md
 
 Only 0.6 defines scenes. A scene's group may also be a well: neither schema
 forbids the other's key, so one ``ome`` block can carry both.
