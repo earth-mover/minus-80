@@ -296,7 +296,10 @@ def provenance(root) -> list[str]:
     counts as the group's own attrs.
 
     Every declared URL must also be one the store's virtual chunks actually
-    reference, so the attr cannot drift from the manifests. Icechunk lists
+    reference, so the attr cannot drift from the manifests. A declared URL
+    ending in ``/`` is a directory, which ``minus80.core.manifest`` writes for
+    an array of more than ``SOURCE_URL_LIMIT`` files, and must hold at least
+    one location. Icechunk lists
     virtual chunk locations only for the whole store, not per array, so the
     check is that the declared URLs are a subset of all locations: an array
     naming another array's file passes. The listing has one entry per virtual
@@ -326,7 +329,11 @@ def provenance(root) -> list[str]:
                 if located is None:
                     located = set(session.all_virtual_chunk_locations())
                 for url in declared:
-                    if url not in located:
+                    if url.endswith("/"):
+                        if not any(location.startswith(url) for location in located):
+                            problems.append(f"{where}: source_url {url} holds none of the store's "
+                                            f"virtual chunk locations")
+                    elif url not in located:
                         problems.append(f"{where}: source_url {url} is not among the store's "
                                         f"virtual chunk locations")
     return problems

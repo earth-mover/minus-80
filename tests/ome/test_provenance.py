@@ -57,6 +57,12 @@ def test_source_url_not_among_references():
     assert problem.startswith("slide/labels/mask/0: source_url s3://bucket/masks/other.tif is not")
 
 
+def test_directory_source_url_passes_when_it_holds_a_location():
+    assert provenance(_store({"source_url": "s3://bucket/slides/"})) == []
+    (problem,) = provenance(_store({"source_url": "s3://bucket/other/"}))
+    assert problem.startswith("slide/0: source_url s3://bucket/other/ holds none")
+
+
 def test_non_icechunk_store_is_flagged():
     root = zarr.group(zarr.storage.MemoryStore())
     (problem,) = provenance(root)

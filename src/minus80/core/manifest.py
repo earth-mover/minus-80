@@ -128,9 +128,25 @@ def _check_per_dimension(attrs: Mapping, dimension_names: Sequence[str | None] |
             raise TypeError(f"dimensions[{name!r}] is {axis!r}; each axis needs a 'type' string")
 
 
+#: The most files ``source_url`` lists by name. An array whose chunks are whole
+#: files, such as a stack of PNGs, can reference hundreds of thousands, and
+#: naming each would put megabytes of JSON in its metadata document, which
+#: every reader fetches to open the array. The manifest already names them.
+SOURCE_URL_LIMIT = 1_000
+
+
 def source_urls(manifest: ChunkManifest) -> str | list[str]:
-    """The distinct non-missing URLs ``manifest`` references: a string for one, a sorted list for several."""
+    """The distinct non-missing URLs ``manifest`` references: a string for one, a sorted list for several.
+
+    Above :data:`SOURCE_URL_LIMIT` files, the directory that holds them all,
+    ending in ``/``: the longest common prefix of the URLs, cut back to a
+    ``/``. ``minus80.ome.verify.provenance`` accepts such a prefix.
+    """
     found = sorted(set(manifest.iter_nonempty_paths()))
+    if len(found) > SOURCE_URL_LIMIT:
+        common = found[0][: next((i for i, (a, b) in enumerate(zip(found[0], found[-1])) if a != b),
+                                 min(len(found[0]), len(found[-1])))]
+        return common[: common.rfind("/") + 1]
     return found[0] if len(found) == 1 else found
 
 

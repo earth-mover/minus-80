@@ -72,6 +72,15 @@ def test_source_url_lists_every_referenced_file_but_not_missing_chunks():
     assert marr.metadata.attributes["source_url"] == ["file:///a.bin", "file:///b.bin"]
 
 
+def test_source_url_names_the_directory_above_the_limit(monkeypatch):
+    monkeypatch.setattr("minus80.core.manifest.SOURCE_URL_LIMIT", 2)
+    paths = np.array([["s3://b/train/s1/a/1.png", "s3://b/train/s1/a/2.png", "s3://b/train/s1/b/3.png"]],
+                     dtype=object)
+    marr = manifest_array(paths, [[0, 0, 0]], [[4, 4, 4]], shape=(1, 6), chunk_shape=(1, 2),
+                          dtype="uint16", codecs=BYTES)
+    assert marr.metadata.attributes["source_url"] == "s3://b/train/s1/"
+
+
 def test_nan_attribute_becomes_null():
     marr = manifest_array("file:///a.bin", [[0]], [[4]], shape=(1, 2), chunk_shape=(1, 2),
                           dtype="uint16", codecs=BYTES, attributes={"gain": float("nan")})
