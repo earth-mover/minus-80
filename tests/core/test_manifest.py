@@ -11,6 +11,7 @@ from minus80.core.manifest import (
     manifest_array,
     permute_dims,
     stack,
+    take,
 )
 from minus80.core.registry import as_url, registry_for
 
@@ -267,3 +268,37 @@ def test_permute_dims_refuses_a_partial_order(tmp_path):
     a = _volume(tmp_path, "a.bin", _zcyx(), chunks=(1, 1, 4, 5))
     with pytest.raises(ValueError, match="not a permutation"):
         permute_dims(a, ("c", "z", "y"))
+
+
+def _pages(tmp_path, volumes=5, fields=3):
+    """A stack of ``volumes * fields`` pages, one chunk each, page ``v * fields + f``."""
+    data = np.arange(volumes * fields * 4 * 5, dtype=np.int16).reshape(volumes * fields, 4, 5)
+    a = _volume(tmp_path, "pages.bin", data, chunks=(1, 4, 5))
+    return a, data
+
+
+def test_take_selects_every_nth_page_and_names_the_axis(tmp_path):
+    pages, data = _pages(tmp_path)
+    field = take(pages, np.arange(1, 15, 3), along=0, dim="t", axis={"type": "time"})
+    assert field.shape == (5, 4, 5)
+    assert field.metadata.dimension_names == ("t", "y", "x")
+    assert field.metadata.attributes["dimensions"]["t"] == {"type": "time"}
+    assert field.metadata.attributes["source_url"] == as_url(tmp_path / "pages.bin")
+    np.testing.assert_array_equal(_through_icechunk(tmp_path, field), data[1::3])
+
+
+def test_take_moves_the_renamed_axis_attributes(tmp_path):
+    data = _zcyx()
+    a = _volume(tmp_path, "a.bin", data, chunks=(1, 1, 4, 5),
+                attributes={"scale": {"z": 0.5}, "dimensions": {"z": {"type": "space"}}})
+    picked = take(a, [2, 0], along="z", dim="depth")
+    assert picked.metadata.dimension_names == ("depth", "c", "y", "x")
+    assert picked.metadata.attributes["scale"] == {"depth": 0.5}
+    assert picked.metadata.attributes["dimensions"] == {"depth": {"type": "space"}}
+    np.testing.assert_array_equal(_through_icechunk(tmp_path, picked), data[[2, 0]])
+
+
+def test_take_refuses_an_axis_of_longer_chunks(tmp_path):
+    a = _volume(tmp_path, "a.bin", _zcyx(), chunks=(1, 2, 4, 5))
+    with pytest.raises(ValueError, match="one element per chunk"):
+        take(a, [0], along="c")

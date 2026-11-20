@@ -6,9 +6,9 @@ per tile, strip, frame or member, restated as a VirtualiZarr ``ManifestArray``.
 is, what attributes may hold, which file the array names as its source) are
 applied in one place.
 
-:func:`stack`, :func:`concatenate` and :func:`permute_dims` build an ingest's
-arrays from parsed ones, by dimension name, with attributes that still
-describe the result.
+:func:`stack`, :func:`concatenate`, :func:`permute_dims` and :func:`take`
+build an ingest's arrays from parsed ones, by dimension name, with attributes
+that still describe the result.
 """
 
 from __future__ import annotations
@@ -239,6 +239,61 @@ def permute_dims(array: ManifestArray, order: Sequence[str | int]) -> ManifestAr
              "dimension_names": None if array.metadata.dimension_names is None else new_names,
              "attributes": _ordered(attrs, new_names)}
     return ManifestArray(metadata=ArrayV3Metadata.from_dict(meta), chunkmanifest=manifest)
+
+
+def take(array: ManifestArray, indices: npt.ArrayLike, *, along: str | int,
+         dim: str | None = None, axis: Mapping | None = None) -> ManifestArray:
+    """The chunks at ``indices`` along the axis ``along``, as ``numpy.take`` selects elements.
+
+    ``along`` is an axis name or index, and its chunks must be one element
+    long, because a chunk is never split. That is the case for a stack of
+    pages, one chunk per page, whose pages interleave several series: page
+    ``volume * F + field`` of a scan of ``F`` fields, say, where every
+    ``F``-th page from ``field`` is one field's time series.
+
+    ``dim`` renames the selected axis, for a selection that gives an axis
+    the file left unnamed a meaning, and moves its per-dimension attributes
+    to the new name. ``axis`` is its entry in the ``dimensions`` attribute,
+    as for :func:`stack`.
+
+    VirtualiZarr refuses a slice with a step here, even with one element per
+    chunk, with ``SubChunkIndexingError``, so the manifest's grid is indexed
+    directly (docs/upstream.md).
+    """
+    names = tuple(array.metadata.dimension_names or (None,) * array.ndim)
+    k = names.index(along) if isinstance(along, str) else int(along)
+    chunks = manifest_chunk_shape(array.metadata)
+    if chunks[k] != 1:
+        raise ValueError(f"axis {names[k] or k} has chunks of {chunks[k]}; "
+                         f"only an axis of one element per chunk can be taken from")
+    index = np.asarray(indices, dtype=np.intp)
+    if index.ndim != 1:
+        raise ValueError(f"indices have shape {index.shape}; expected one dimension")
+    m = array.manifest
+    if m._inlined:
+        raise NotImplementedError("taking from an array with inlined chunks")
+    manifest = ChunkManifest.from_arrays(
+        paths=np.take(m._paths, index, axis=k), offsets=np.take(m._offsets, index, axis=k),
+        lengths=np.take(m._lengths, index, axis=k), validate_paths=False)
+    attrs = {key: dict(v) if key in _PER_DIMENSION and isinstance(v, dict) else v
+             for key, v in (array.metadata.attributes or {}).items()}
+    new_names = list(names)
+    if dim is not None:
+        if dim in names and dim != names[k]:
+            raise ValueError(f"{dim!r} is already a dimension of {names}")
+        for key in _PER_DIMENSION:
+            if isinstance(attrs.get(key), dict) and names[k] in attrs[key]:
+                attrs[key][dim] = attrs[key].pop(names[k])
+        new_names[k] = dim
+    if axis is not None:
+        if new_names[k] is None:
+            raise ValueError("an unnamed axis cannot have a dimensions entry; pass dim")
+        attrs["dimensions"] = {**attrs.get("dimensions", {}), new_names[k]: jsonable(dict(axis))}
+    shape = list(array.shape)
+    shape[k] = len(index)
+    taken = ManifestArray(metadata=ArrayV3Metadata.from_dict(array.metadata.to_dict() | {"shape": shape}),
+                          chunkmanifest=manifest)
+    return _replaced(taken, names=new_names, attributes=attrs)
 
 
 def _common(arrays: Sequence[ManifestArray]) -> tuple[tuple, dict]:
