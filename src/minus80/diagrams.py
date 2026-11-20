@@ -12,7 +12,7 @@ How a figure is built
 ---------------------
 A :class:`Canvas` collects elements. Each block (:func:`panel`,
 :func:`tree`, :func:`link`, :func:`cube`, :func:`table`, :func:`legend`,
-:func:`heading`) takes the canvas and a position, adds its elements, and
+:func:`heading`, :func:`picture`) takes the canvas and a position, adds its elements, and
 returns the y coordinate of its bottom edge. A figure is laid out with a
 running y: the next block starts below the bottom the last one returned.
 The canvas tracks the lowest edge any block reached and sizes the SVG to
@@ -20,6 +20,16 @@ it, so nothing is clipped however the content grows.
 
 Data stays out of this module. An ingest's ``diagrams.py`` reads its source
 listing and its store, and passes the values in as strings and numbers.
+
+Pictures
+--------
+A figure of an archive can show a thumbnail of the data each part holds: a
+frame, a slice, a voltage trace. :func:`thumbnail` encodes an array as a small
+JPEG or WebP, :func:`plot` draws a small line or raster plot with matplotlib
+and returns a PNG, and :func:`picture` embeds either in the SVG as a base64
+data URI. Every picture has a byte cap and the canvas a total budget, so one
+figure stays under the repository's 1 MB file limit. Pillow and matplotlib
+are imported only by these functions (the ``diagrams`` extra).
 
 The style
 ---------
@@ -31,6 +41,8 @@ name or a value, never a sentence.
 
 from __future__ import annotations
 
+import base64
+import io
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -149,6 +161,11 @@ class Canvas:
     margin: float = 24
     parts: list[str] = field(default_factory=list)
     bottom: float = 0.0
+    #: Bytes of embedded pictures so far, and the most a figure may hold. A
+    #: base64 data URI is four thirds of its image, and the repository's
+    #: pre-commit hook refuses files over 1 MB.
+    picture_bytes: int = 0
+    picture_budget: int = 650_000
 
     def add(self, element: str, bottom: float) -> float:
         """Add one element whose lowest edge is ``bottom``, and return ``bottom``."""
@@ -576,3 +593,100 @@ def table(
             f'stroke="{RULE}" stroke-width="1"/>'
         )
     return canvas.add("\n".join(parts), y + TABLE_HEADER + len(rows) * row_height)
+
+
+#: The most bytes one embedded picture may take, before base64.
+PICTURE_MAX_BYTES = 40_000
+
+#: The media types :func:`picture` embeds, by the format names Pillow reports.
+PICTURE_TYPES = {"JPEG": "image/jpeg", "WEBP": "image/webp", "PNG": "image/png"}
+
+
+def thumbnail(pixels, width: int, *, format: str = "JPEG", quality: int = 70,
+              contrast: tuple[float, float] = (1, 99)) -> bytes:
+    """A small JPEG, WebP or PNG of an image array, ``width`` pixels wide.
+
+    ``pixels`` is 2-D (grayscale) or 3-D with three channels last. A
+    non-uint8 array is stretched between the ``contrast`` percentiles first,
+    as a viewer would display it; a uint8 array is taken as it is.
+    """
+    import numpy as np
+    from PIL import Image
+
+    array = np.asarray(pixels)
+    if array.dtype != np.uint8:
+        values = array.astype("float64")
+        low, high = np.nanpercentile(values, contrast)
+        scale = (high - low) or 1.0
+        array = (np.clip((values - low) / scale, 0, 1) * 255).astype(np.uint8)
+    image = Image.fromarray(array)
+    height = max(1, round(image.height * width / image.width))
+    image = image.resize((width, height), Image.LANCZOS)
+    out = io.BytesIO()
+    image.save(out, format=format, quality=quality) if format != "PNG" else image.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def plot(draw: Callable, *, width: int = 320, height: int = 120, dpi: int = 100) -> bytes:
+    """A small plot as PNG bytes: ``draw(axes)`` draws into one bare matplotlib axes.
+
+    The axes start without ticks or frame; ``draw`` adds what the plot needs.
+    The Agg backend is used, so no display is needed.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    figure = Figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    FigureCanvasAgg(figure)
+    axes = figure.add_axes((0.02, 0.04, 0.96, 0.92))
+    axes.set_axis_off()
+    draw(axes)
+    out = io.BytesIO()
+    figure.savefig(out, format="png", dpi=dpi, facecolor=BACKGROUND)
+    return out.getvalue()
+
+
+def picture(
+    canvas: Canvas,
+    x: float,
+    y: float,
+    image: bytes,
+    width: float,
+    *,
+    caption: str | None = None,
+    source: str | None = None,
+    max_bytes: int = PICTURE_MAX_BYTES,
+) -> float:
+    """Embed ``image`` (JPEG, WebP or PNG bytes) ``width`` wide, framed, with a caption under it.
+
+    ``caption`` says what the picture shows and ``source`` the file it was read
+    from; keep both short. Raises ``ValueError`` when the image is over
+    ``max_bytes`` or would take the canvas past its ``picture_budget``, so a
+    figure fails loudly instead of growing past the repository's file limit.
+    """
+    from PIL import Image
+
+    if len(image) > max_bytes:
+        raise ValueError(f"picture of {len(image):,} bytes is over the {max_bytes:,}-byte cap")
+    if canvas.picture_bytes + len(image) > canvas.picture_budget:
+        raise ValueError(f"pictures would take the figure past its {canvas.picture_budget:,}-byte budget")
+    with Image.open(io.BytesIO(image)) as opened:
+        kind, size = opened.format, opened.size
+    if kind not in PICTURE_TYPES:
+        raise ValueError(f"cannot embed a {kind} image; use JPEG, WebP or PNG")
+    canvas.picture_bytes += len(image)
+    height = width * size[1] / size[0]
+    data = base64.b64encode(image).decode("ascii")
+    parts = [
+        f'<image x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" '
+        f'preserveAspectRatio="xMidYMid meet" href="data:{PICTURE_TYPES[kind]};base64,{data}"/>',
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" fill="none" stroke="{RULE}"/>',
+    ]
+    bottom = y + height
+    if caption:
+        bottom += 16
+        parts.append(text(x, bottom, fit(caption, width, 11), size=11))
+    if source:
+        bottom += 14
+        parts.append(text(x, bottom, fit(source, width, 10, mono=True), size=10, color=MUTED, mono=True))
+    return canvas.add("\n".join(parts), bottom + 4)

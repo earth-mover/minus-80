@@ -46,6 +46,18 @@ the repo config, where `minus80.core.icechunk_io.open_repo` reads them to
 authorize virtual reads, and a codec outside the Zarr core is named in the root
 attributes.
 
+### Describe the data, not the storage
+
+A reader opens the store to find out what the data is. Titles, `description`
+attributes, repo descriptions, the opening of the notebook and the commit
+messages a run writes say what was measured, from what, by whom, under which
+license and how to cite it: "Neuropixels recordings from mice making visual
+decisions, with raw voltage, spike sorting and trials", not "NWB files
+referenced in place". How the store holds the data (references, codecs, the
+convention it follows, the tool that mapped it) goes in a `layout` or
+`conventions` attribute, in `LAYOUTS.md` or in `PLAN.md`. A limit a reader
+will hit is stated in the reader's terms: "to open a session with pynwb...".
+
 ## Layout
 
 ### Read the spec's structures before designing a hierarchy
