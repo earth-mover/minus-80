@@ -19,7 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from minus80.core.icechunk_io import open_repo
 
-from verify import slides
+
+
+def slides(root) -> list[str]:
+    return [path for path, node in root.members(max_depth=3) if path.count("/") == 2]
 
 
 def tissue_tiles(slide, rng: random.Random, n: int) -> list[tuple[int, int]]:
@@ -41,7 +44,7 @@ def main() -> None:
     a = p.parse_args()
     root = open_repo(a.repo)
     rng = random.Random(1)
-    paths = list(slides(root))
+    paths = slides(root)
     per = a.samples // len(paths) + 1
     work = []
     for path in paths:

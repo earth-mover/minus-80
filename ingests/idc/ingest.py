@@ -1,151 +1,178 @@
-"""Reference IDC whole-slide images, and the Pan-Cancer nuclei results on TCGA, from an OME-Zarr store.
+"""Reference IDC's whole-slide images from an OME-Zarr Icechunk store, slide by slide.
 
 NCI Imaging Data Commons (IDC) publishes slide microscopy as DICOM in the
 public bucket ``s3://idc-open-data``: one prefix per series, one object per
-instance. A slide is one series, and each of its pyramid levels is one tiled
-instance whose frames are the JPEG or JPEG 2000 tiles. The store references
-those tiles where they lie, so every slide stays one bucket away from its
-pixels.
-
-For TCGA, IDC also publishes the Pan-Cancer-Nuclei-Seg results (Stony Brook)
-as two DICOM series per slide:
-
-- a SEG, the binary nuclear mask, one instance per slide level, on the slide's
-  own tile grid, 1 bit per pixel;
-- an ANN, the outline of every nucleus as a polygon in level-0 pixels, with
-  its area.
+instance. A slide is one series. Each pyramid level is one tiled instance,
+whose frames are the level's JPEG (or JPEG 2000) tiles. The store references
+those tiles where they lie, each reference pinned to its object's ETag, so
+every slide stays one bucket away from its pixels and a rewritten object is
+refused instead of read at stale offsets.
 
 The store holds, per slide::
 
     <collection>/<patient>/<slide>/
-        image/            OME-Zarr multiscale (c, y, x), every level virtual
-            labels/nuclei/  the SEG mask, native, one level per image level   (TCGA)
-        thumbnail/        the series' THUMBNAIL instance, virtual
-        overview/         the series' OVERVIEW instance (macro photo), virtual (GTEx)
-        nuclei/           the ANN polygons: coords and area virtual, offsets native (TCGA)
-        dicom/            each instance's DICOM JSON, native bytes
+        image/       OME-Zarr multiscale (c, y, x), every VOLUME level, virtual
+        thumbnail/   the THUMBNAIL instance, one uncompressed frame, virtual
+        overview/    the OVERVIEW instance (photograph of the glass), virtual
+        dicom        every instance's DICOM JSON header, one native document
+
+For TCGA, ``nuclei.py`` adds the Pan-Cancer-Nuclei-Seg mask and outlines
+(phase 2 of PLAN.md, trial code).
 
 Run::
 
-    uv run --package idc-ingest python ingests/idc/ingest.py REPO --collection gtex SLIDE ...
-    uv run --package idc-ingest python ingests/idc/ingest.py REPO --collection tcga SLIDE ...
+    uv run --package idc-ingest python ingests/idc/ingest.py REPO --collection gtex [--limit N]
 """
 
 from __future__ import annotations
 
 import argparse
-import math
+import json
+import os
+import time
+from collections import Counter
+from functools import partial
+from importlib.metadata import version
 
 import numpy as np
 import pydicom
+import zarr
 from minus80.core.icechunk_io import commit
-from minus80.ome import image_attrs, label_attrs, labels_attrs, rgb_omero
-from minus80.parsers.dicom import dicom_json, native_pixeldata_byte_range, wsi_level_array
-from minus80.parsers.dicom.ann import CHUNK, bulk_annotation_groups
+from minus80.ome import image_attrs, rgb_omero
+from minus80.parsers.dicom import dicom_json, wsi_level_array
 
-from plumbing import BLOSC, SOURCE, Writer, local, open_repository, say, series_objects
+from plumbing import Source, Writer, in_forks, open_repository, say
 
 UM = {"c": None, "y": "micrometer", "x": "micrometer"}
-ANALYSIS = "pan_cancer_nuclei_seg_dicom"
+
+#: Slides per commit. Each slide adds about ten nodes and five manifests,
+#: and one batch is one merge of that many forks.
+BATCH = 500
+
+#: The codecs a reader needs, and the package that registers each with zarr.
+#: verify.py refuses any other codec name in the store.
+CODECS = {
+    "bytes": "zarr", "transpose": "zarr", "zstd": "zarr", "blosc": "zarr",
+    "imagecodecs_jpeg": "imagecodecs-zarr", "imagecodecs_jpeg2k": "imagecodecs-zarr",
+}
 
 
 # Selection
 #
 # idc-index is IDC's own catalog: one row per series, with the collection,
-# patient, license and the bucket prefix. A slide is chosen by its
-# ContainerIdentifier, the barcode on the glass. For TCGA a slide is taken
-# only with both of its nuclei series, found by the slide series they
-# reference, not by patient: a TCGA patient has several slides, and the
-# results cover one of them.
+# patient, license and the bucket prefix, and per slide its tissue, stain and
+# preparation (sm_index). Its version names the IDC release the store
+# reflects. A slide's name is its ContainerIdentifier, the barcode on the
+# glass; a patient is a TCGA participant or a GTEx donor.
 
-def select(collection: str, slides: list[str]) -> list[dict]:
+def catalog(collection: str) -> list[dict]:
     from idc_index import IDCClient
 
     client = IDCClient()
-    for name in ("sm_index", "ann_index", "seg_index"):
-        client.fetch_index(name)
-    index, sm = client.index, client.sm_index
-    rows = index.merge(sm[["SeriesInstanceUID", "ContainerIdentifier",
-                            "primaryAnatomicStructure_CodeMeaning"]], on="SeriesInstanceUID")
-    rows = rows[rows.ContainerIdentifier.isin(slides)]
-    if collection == "gtex":
-        rows = rows[rows.collection_id == "gtex"]
-    else:
-        rows = rows[rows.collection_id.str.startswith("tcga_")]
-    if sorted(rows.ContainerIdentifier) != sorted(set(slides)):
-        raise ValueError(f"not found exactly once: {sorted(set(slides) - set(rows.ContainerIdentifier))}")
-    results = index[index.analysis_result_id == ANALYSIS]
-    ann = client.ann_index.merge(results, on="SeriesInstanceUID")
-    seg = client.seg_index.merge(results, on="SeriesInstanceUID")
-    picked = []
-    for _, r in rows.iterrows():
-        slide = {"collection": r.collection_id, "patient": r.PatientID, "slide": r.ContainerIdentifier,
-                 "series": r.SeriesInstanceUID, "crdc_series_uuid": r.crdc_series_uuid,
-                 "license": r.license_short_name, "doi": r.source_DOI,
-                 "tissue": r.primaryAnatomicStructure_CodeMeaning}
-        if collection == "tcga":
-            a = ann[ann.referenced_SeriesInstanceUID == r.SeriesInstanceUID]
-            s = seg[seg.segmented_SeriesInstanceUID == r.SeriesInstanceUID]
-            if len(a) != 1 or len(s) != 1:
-                raise ValueError(f"{r.ContainerIdentifier}: {len(a)} ANN and {len(s)} SEG series")
-            slide["ann"] = a.iloc[0][["SeriesInstanceUID", "crdc_series_uuid", "license_short_name",
-                                      "source_DOI"]].to_dict()
-            slide["seg"] = s.iloc[0][["SeriesInstanceUID", "crdc_series_uuid", "license_short_name",
-                                      "source_DOI"]].to_dict()
-        picked.append(slide)
-    return picked
+    client.fetch_index("sm_index")
+    rows = client.index.merge(client.sm_index, on="SeriesInstanceUID")
+    rows = rows[rows.collection_id == collection] if collection == "gtex" else \
+        rows[rows.collection_id.str.startswith("tcga_")]
+    slides = []
+    for _, r in rows.sort_values("ContainerIdentifier").iterrows():
+        slides.append({
+            "collection": r.collection_id, "patient": r.PatientID, "slide": r.ContainerIdentifier,
+            "crdc_series_uuid": r.crdc_series_uuid,
+            "idc": {"SeriesInstanceUID": r.SeriesInstanceUID, "StudyInstanceUID": r.StudyInstanceUID,
+                    "crdc_series_uuid": r.crdc_series_uuid, "license": r.license_short_name,
+                    "source_DOI": r.source_DOI, "series_init_idc_version": int(r.series_init_idc_version),
+                    "series_revised_idc_version": int(r.series_revised_idc_version)},
+            # sm_index holds a list where a slide states several codes, such as
+            # its two stains.
+            "specimen": {k: (list(map(str, v)) if isinstance(v, np.ndarray) else v) for k, v in {
+                "tissue": r.primaryAnatomicStructure_CodeMeaning,
+                "tissue_code": r.primaryAnatomicStructure_code_designator_value_str,
+                "stain": r.staining_usingSubstance_CodeMeaning,
+                "embedding_medium": r.embeddingMedium_CodeMeaning,
+                "fixative": r.tissueFixative_CodeMeaning,
+            }.items()},
+        })
+    if not slides:
+        raise ValueError(f"idc-index lists no slides for {collection!r}")
+    duplicates = [name for name, n in Counter(s["slide"] for s in slides).items() if n > 1]
+    if duplicates:
+        raise ValueError(f"slides named twice: {sorted(duplicates)[:5]}")
+    return slides
+
+
+def about(collection: str) -> dict:
+    """What IDC states about the collection as a whole: its release and citations."""
+    from idc_index import IDCClient
+
+    client = IDCClient()
+    ids = ["gtex"] if collection == "gtex" else None
+    return {"idc_version": client.get_idc_version(), "idc_index_data": version("idc-index-data"),
+            "citations": [c.strip() for c in client.citations_from_selection(collection_id=ids)]}
 
 
 # The slide
 #
-# A slide series holds one VOLUME instance per pyramid level, a THUMBNAIL and,
-# for GTEx, an OVERVIEW photograph of the glass slide. Every level shares the
-# total pixel matrix's top-left corner, so the levels' translations make the
-# corners coincide. The pixel size is the shared functional group's
-# PixelSpacing, stated in millimeters; each level's own stated value is kept
-# beside the shape-derived scale OME-Zarr receives.
-
-def instances(objects: list[tuple[str, int]]) -> dict[str, list[tuple[str, str, pydicom.Dataset]]]:
-    kinds: dict[str, list] = {}
-    for url, _ in objects:
-        path = local(url)
-        ds = pydicom.dcmread(path, stop_before_pixels=True)
-        kinds.setdefault(str(ds.ImageType[2]), []).append((url, path, ds))
-    return kinds
-
+# A slide series holds one VOLUME instance per pyramid level, a THUMBNAIL, and
+# for GTEx an OVERVIEW photograph of the glass slide. Each instance is read
+# through a block reader that fetches its header and, for a level whose Basic
+# Offset Table is filled in, that table and the last frame's Item header:
+# about 200 KB of a file of tens or hundreds of megabytes. A level whose
+# table is empty is read whole by the parser's walk.
+#
+# The levels share the total pixel matrix's top-left corner, so their
+# translations make the corners coincide. The pixel size is the shared
+# functional group's PixelSpacing, stated in millimeters; each level's own
+# stated value is kept beside the shape-derived scale OME-Zarr receives.
+#
+# Every instance's DICOM JSON goes into one document per slide, keyed as the
+# store names the instance. The five headers of a GTEx slide repeat the same
+# 140 KB ICC profile, which compression stores about once.
 
 def pixel_spacing_um(ds: pydicom.Dataset) -> list[float]:
     measures = ds.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0]
     return [float(v) * 1000 for v in measures.PixelSpacing]
 
 
-def write_slide(w: Writer, s: dict, group: str) -> dict:
-    kinds = instances(series_objects(s["crdc_series_uuid"]))
+def write_slide(w: Writer, source: Source, s: dict, group: str) -> dict:
+    kinds: dict[str, list] = {}
+    etags = {}
+    for url, _, etag in source.objects(s["crdc_series_uuid"]):
+        f = source.reader(url)
+        ds = pydicom.dcmread(f, stop_before_pixels=True)
+        kinds.setdefault(str(ds.ImageType[2]), []).append((url, f, ds))
+        etags[url] = etag
+    unknown = set(kinds) - {"VOLUME", "THUMBNAIL", "OVERVIEW", "LABEL"}
+    if unknown or "VOLUME" not in kinds:
+        raise ValueError(f"{s['slide']}: instance types {sorted(kinds)}")
+    if "LABEL" in kinds:
+        raise ValueError(f"{s['slide']}: has a LABEL photograph, which this ingest does not place")
+
     levels = sorted(kinds["VOLUME"], key=lambda t: -int(t[2].TotalPixelMatrixRows))
-    arrays = {str(k): wsi_level_array(path, url_for=lambda _p, u=url: u)
-              for k, (url, path, _) in enumerate(levels)}
+    arrays = {str(k): wsi_level_array(f, url_for=lambda _f, u=url: u) for k, (url, f, _) in enumerate(levels)}
     shapes = [a.shape for a in arrays.values()]
     spacing = [pixel_spacing_um(ds) for _, _, ds in levels]
     tile = arrays["0"].metadata.chunk_grid.chunk_shape[1:]
     codec = arrays["0"].metadata.codecs[-1].to_dict()["name"]
-    headers = {}
-    for k, (url, path, ds) in enumerate(levels):
-        headers[str(k)] = w.document(f"{group}/dicom/image_{k}", dicom_json(path))
+    headers = {f"image/{k}": dicom_json(f) for k, (_, f, _) in enumerate(levels)}
     w.virtual(f"{group}/image", arrays, {
         "ome": image_attrs(name=s["slide"], dims=("c", "y", "x"), level_shapes=shapes,
                            scale={"c": 1, "y": spacing[0][0], "x": spacing[0][1]},
                            translation={"c": 0, "y": 0, "x": 0}, units=UM, omero=rgb_omero(),
                            description="The scanner's pyramid as IDC's DICOM conversion keeps it: "
                                        "each level is one tiled instance."),
-        "description": (f"Slide {s['slide']}, RGB, H&E. Each chunk is one {tile[0]} x {tile[1]} "
-                        f"{codec.removeprefix('imagecodecs_')} tile of the level's DICOM instance."),
+        "description": (f"Slide {s['slide']}, RGB, stained with {' and '.join(s['specimen']['stain'])}. "
+                        f"Each chunk is one {tile[0]} x {tile[1]} {codec.removeprefix('imagecodecs_')} "
+                        "tile of the level's DICOM instance; level k is ../dicom['image/k']."),
         "stated_pixel_spacing_um": spacing,
-        "dicom": headers,
-    })
+    }, etags)
+
     extras = []
     for kind, name in (("THUMBNAIL", "thumbnail"), ("OVERVIEW", "overview")):
-        for url, path, ds in kinds.get(kind, []):
-            marr = wsi_level_array(path, url_for=lambda _p, u=url: u)
+        found = kinds.get(kind, [])
+        if len(found) > 1:
+            raise ValueError(f"{s['slide']}: {len(found)} {kind} instances")
+        for url, f, ds in found:
+            marr = wsi_level_array(f, url_for=lambda _f, u=url: u)
             if kind == "THUMBNAIL":
                 um = pixel_spacing_um(ds)
                 ome = image_attrs(name=f"{s['slide']} {name}", dims=("c", "y", "x"), level_shapes=[marr.shape],
@@ -154,178 +181,130 @@ def write_slide(w: Writer, s: dict, group: str) -> dict:
             else:
                 ome = image_attrs(name=f"{s['slide']} {name}", dims=("c", "y", "x"), level_shapes=[marr.shape],
                                   scale={"c": 1, "y": 1, "x": 1}, omero=rgb_omero())
-                about = ("A photograph of the whole glass slide, one uncompressed frame. It shares no frame "
-                         "with the scan, so its axes carry no unit.")
-            w.virtual(f"{group}/{name}", {"0": marr}, {
-                "ome": ome, "description": about,
-                "dicom": w.document(f"{group}/dicom/{name}", dicom_json(path))})
+                about = ("A photograph of the whole glass slide, one uncompressed frame. It shares no "
+                         "frame of reference with the scan, so its axes carry no unit.")
+            w.virtual(f"{group}/{name}", {"0": marr}, {"ome": ome, "description": about}, etags)
+            headers[name] = dicom_json(f)
             extras.append(name)
-    return {"shapes": shapes, "tile": tile, "spacing": spacing, "extras": extras,
-            "codec": codec, "instances": sum(len(v) for v in kinds.values())}
 
-
-# The nuclear mask
-#
-# The SEG is BINARY with one segment, uncompressed, 1 bit per pixel, packed
-# least significant bit first, in frames on the slide's own tile grid: one
-# instance per slide level, the same total pixel matrix and the same tile
-# size, plus one at the thumbnail's size. A frame of 240 x 240 bits is 7,200
-# whole bytes, so each frame could be referenced in place, but no Zarr codec
-# in zarr-python or zarr-java unpacks bits in that order. The mask is
-# therefore written natively as uint8 0/1, one chunk per tile, blosc zstd with
-# bit shuffling; an all-background tile is not stored.
-
-def write_mask(w: Writer, s: dict, group: str, slide: dict) -> dict:
-    kinds = {}
-    for url, _ in series_objects(s["seg"]["crdc_series_uuid"]):
-        path = local(url)
-        ds = pydicom.dcmread(path, stop_before_pixels=True)
-        kinds[(int(ds.TotalPixelMatrixRows), int(ds.TotalPixelMatrixColumns))] = (url, path, ds)
-    by_shape = {tuple(shape[1:]): k for k, shape in enumerate(slide["shapes"])}
-    missing = [k for shape, k in by_shape.items() if shape not in kinds]
-    if missing:
-        raise ValueError(f"{s['slide']}: no SEG instance for image levels {missing}")
-    label = f"{group}/image/labels/nuclei"
-    total = 0
-    for shape, k in sorted(by_shape.items(), key=lambda t: t[1]):
-        url, path, ds = kinds[shape]
-        if (str(ds.SegmentationType), int(ds.BitsAllocated), str(ds.DimensionOrganizationType)) != \
-                ("BINARY", 1, "TILED_FULL") or len(ds.SegmentSequence) != 1:
-            raise ValueError(f"{s['slide']}: SEG level {k} is not one binary TILED_FULL segment")
-        ty, tx = int(ds.Rows), int(ds.Columns)
-        if (ty, tx) != tuple(slide["tile"]):
-            raise ValueError(f"{s['slide']}: SEG tile {ty}x{tx}, image tile {slide['tile']}")
-        n = int(ds.NumberOfFrames)
-        rows, cols = math.ceil(shape[0] / ty), math.ceil(shape[1] / tx)
-        if n != rows * cols:
-            raise ValueError(f"{s['slide']}: SEG level {k} has {n} frames for a {rows}x{cols} grid")
-        frame_bytes = ty * tx // 8
-        offset, _ = native_pixeldata_byte_range(path, n * frame_bytes)
-        with open(path, "rb") as f:
-            f.seek(offset)
-            packed = np.frombuffer(f.read(n * frame_bytes), np.uint8)
-        frames = np.unpackbits(packed, bitorder="little").reshape(rows, cols, ty, tx)
-        full = frames.transpose(0, 2, 1, 3).reshape(rows * ty, cols * tx)[:shape[0], :shape[1]]
-        w.native(f"{label}/{k}", full, dims=("y", "x"), chunks=(ty, tx), compressors=BLOSC)
-        total += rows * cols
-    seg_ds = next(iter(kinds.values()))[2]
-    segment = seg_ds.SegmentSequence[0]
-    ome = label_attrs(name="nuclei", dims=("y", "x"), level_shapes=[sh[1:] for sh in slide["shapes"]],
-                      scale={"y": slide["spacing"][0][0], "x": slide["spacing"][0][1]},
-                      translation={"y": 0, "x": 0}, units={"y": "micrometer", "x": "micrometer"},
-                      properties=[{"label-value": 1, "SegmentLabel": str(segment.SegmentLabel),
-                                   "SegmentedPropertyType": str(segment.SegmentedPropertyTypeCodeSequence[0].CodeMeaning)}])
-    w.group(label, {
-        "ome": ome,
-        "description": ("Pan-Cancer-Nuclei-Seg nuclear mask: 1 inside a nucleus, 0 elsewhere. Each level is "
-                        "the SEG instance at that image level's size, unpacked from 1 bit per pixel."),
-        "source_url": sorted(u for u, _, _ in kinds.values()),
-        "idc": {"SeriesInstanceUID": s["seg"]["SeriesInstanceUID"], "license": s["seg"]["license_short_name"],
-                "source_DOI": s["seg"]["source_DOI"], "analysis_result_id": ANALYSIS},
-        "dicom": w.document(f"{group}/dicom/seg", dicom_json(next(iter(kinds.values()))[1])),
+    text = json.dumps(headers).encode()
+    w.native(f"{group}/dicom", np.frombuffer(text, np.uint8), dims=("byte",), attrs={
+        "description": ("The DICOM JSON (PS3.18) header of each instance of this slide's series, pixel "
+                        "data excluded, as one UTF-8 JSON object keyed by the store node that holds the "
+                        "instance's pixels: image/0, image/1, ..., thumbnail, overview."),
+        "format": "JSON, UTF-8",
     })
-    w.group(f"{group}/image/labels", {"ome": labels_attrs(["nuclei"])})
-    return {"levels": len(by_shape), "tiles": total, "unused_seg_instances": len(kinds) - len(by_shape)}
-
-
-# The nuclear outlines
-#
-# The ANN holds one annotation group, "Nuclei": every nucleus as a POLYGON
-# (not closed: the last vertex does not repeat the first), as float32 x, y in
-# level-0 pixels, the 1-based position of each polygon's first value, and one
-# float32 area per nucleus in square micrometers. The three flat arrays are
-# referenced in 65,536-row chunks; the last, partial chunk of each is written
-# natively, because Zarr decodes only whole chunks. ``offset0`` is derived
-# natively: each polygon's first vertex as a 0-based row of ``coords``, then
-# the vertex count, the layout CAMELYON's outlines use.
-
-def write_nuclei(w: Writer, s: dict, group: str) -> dict:
-    (url, _), = series_objects(s["ann"]["crdc_series_uuid"])
-    path = local(url)
-    groups = bulk_annotation_groups(path, url_for=lambda _p: url)
-    if len(groups) != 1 or groups[0].label != "Nuclei" or groups[0].graphic_type != "POLYGON":
-        raise ValueError(f"{s['slide']}: unexpected annotation groups {[g.label for g in groups]}")
-    g = groups[0]
-    data = memoryview(open(path, "rb").read())
-    nuclei = f"{group}/nuclei"
-    arrays = {"coords": g.coords.array, "point_index": g.point_index.array}
-    area, unit = g.measurements["Area"]
-    arrays["area"] = area.array
-    w.virtual(nuclei, arrays, {
-        "description": (f"Pan-Cancer-Nuclei-Seg outlines of {g.count:,} nuclei on slide {s['slide']}. "
-                        "coords: polygon vertices (x, y) in level-0 pixels of ../image, unclosed. "
-                        "point_index: 1-based position of each polygon's first value in coords as a flat "
-                        "array, as DICOM stores it. offset0: each polygon's first vertex row, then the total. "
-                        f"area: each nucleus's area in {unit}."),
-        "count": g.count,
-        "idc": {"SeriesInstanceUID": s["ann"]["SeriesInstanceUID"], "license": s["ann"]["license_short_name"],
-                "source_DOI": s["ann"]["source_DOI"], "analysis_result_id": ANALYSIS},
-        "dicom": w.document(f"{group}/dicom/ann", with_bulk_uris(dicom_json(path), {
-            "00660016": f"{nuclei}/coords", "00660040": f"{nuclei}/point_index", "00660125": f"{nuclei}/area"})),
-        "source_url": url,
-    })
-    for name, ref in (("coords", g.coords), ("point_index", g.point_index), ("area", area)):
-        if ref.tail_length:
-            w.root[f"{nuclei}/{name}"][ref.tail_start:] = ref.tail(data)
-    point_index = g.point_index.values(data)
-    offset0 = np.append((point_index.astype(np.int64) - 1) // 2, g.coords.array.shape[0])
-    w.native(f"{nuclei}/offset0", offset0, dims=("boundary",), chunks=(CHUNK,))
-    return {"nuclei": g.count, "points": int(g.coords.array.shape[0])}
-
-
-def with_bulk_uris(document: dict, uris: dict[str, str]) -> dict:
-    """``document`` with each listed tag's inline value replaced by a ``BulkDataURI``.
-
-    DICOM JSON (PS3.18 F.2.7) lets a large value be a URI instead of inline
-    base64. The ANN's coordinate, index and measurement values are already
-    arrays in the store, tens of megabytes per slide, so the header points at
-    them instead of repeating them.
-    """
-    def walk(node):
-        if isinstance(node, dict):
-            return {k: ({"vr": v["vr"], "BulkDataURI": uris[k]} if k in uris else walk(v)) for k, v in node.items()}
-        if isinstance(node, list):
-            return [walk(v) for v in node]
-        return node
-    return walk(document)
+    return {"levels": len(shapes), "codec": codec, "extras": extras, "shape": list(shapes[0][1:]),
+            "tile": list(tile), "instances": sum(len(v) for v in kinds.values()),
+            "header_bytes": len(text)}
 
 
 # The hierarchy
 #
-# A collection group states its license and citation once; a patient group
-# groups that patient's slides, because a TCGA patient has several. Each
-# slide is committed on its own.
+# A collection group states its license, DOI and citation once. A patient
+# group holds that patient's slides, since a TCGA patient has several and a
+# GTEx donor dozens. Every collection and patient group is committed before
+# the slides, because two forks that each create the same group cannot be
+# merged. Slides are then written in batches, each slide in its own fork, and
+# every batch is one commit. A rerun skips slides already present, so a
+# stopped run resumes where it stopped.
 
-def run(location: str, collection: str, slides: list[str]) -> None:
-    repo = open_repository(location)
-    for s in select(collection, slides):
+def prepare(w: Writer, slides: list[dict], facts: dict) -> None:
+    for name, s in {s["collection"]: s for s in slides}.items():
+        if name not in w.root:
+            w.group(name, {"license": s["idc"]["license"], "source_DOI": s["idc"]["source_DOI"],
+                           "citations": facts["citations"]})
+    for name in sorted({f"{s['collection']}/{s['patient']}" for s in slides}):
+        if name not in w.root:
+            w.group(name, {"PatientID": name.rsplit("/", 1)[1]})
+
+
+def slide_path(s: dict) -> str:
+    return f"{s['collection']}/{s['patient']}/{s['slide']}"
+
+
+def root_attributes(collection: str, facts: dict, source: Source, refused: dict[str, str]) -> dict:
+    return {
+        "title": {"gtex": "GTEx whole-slide images from NCI Imaging Data Commons"}.get(
+            collection, "TCGA whole-slide images from NCI Imaging Data Commons"),
+        "description": (
+            "H&E whole-slide images as NCI Imaging Data Commons (IDC) publishes them in DICOM, each an "
+            f"OME-Zarr 0.6 image whose chunks are the DICOM instances' own tiles in {source.root}, "
+            "read anonymously. Groups: <collection>/<patient>/<slide>, named as IDC names them."),
+        "idc_version": facts["idc_version"],
+        "idc_index_data": facts["idc_index_data"],
+        "source": source.root,
+        "references_pinned_by": "the ETag of each source object, as the bucket listing reported it",
+        "codecs": dict(CODECS),
+        "left_out": refused,
+    }
+
+
+def slide_job(source: Source, fork, s: dict) -> dict:
+    """One slide written into its own fork, in a worker process."""
+    return write_slide(Writer(fork), source, s, slide_path(s))
+
+
+def run(location: str, collection: str, slides: list[dict], source: Source, facts: dict, *,
+        workers: int) -> None:
+    repo = open_repository(location, source.root)
+    session = repo.writable_session("main")
+    w = Writer(session)
+    todo = [s for s in slides if slide_path(s) + "/image" not in w.root]
+    say(f"{len(slides)} slides listed, {len(slides) - len(todo)} already in the store, {len(todo)} to write")
+    prepare(w, slides, facts)
+    if session.has_uncommitted_changes:
+        say(f"groups: {commit(session, f'Add the {collection} collection and patient groups')}")
+
+    refused: dict[str, str] = dict(w.root.attrs.get("left_out", {}))
+    by_name = {s["slide"]: s for s in todo}
+    job = partial(slide_job, source)
+
+    for start in range(0, len(todo), BATCH):
+        batch = [s["slide"] for s in todo[start:start + BATCH]]
         session = repo.writable_session("main")
+        began = time.monotonic()
+        done, failed = in_forks(session, {name: by_name[name] for name in batch}, job, workers=workers)
+        session.merge(*(fork for fork, _ in done.values()))
         w = Writer(session)
-        w.group(s["collection"], {"license": s["license"], "source_DOI": s["doi"]})
-        w.group(f"{s['collection']}/{s['patient']}", {"PatientID": s["patient"]})
-        group = f"{s['collection']}/{s['patient']}/{s['slide']}"
-        try:
-            slide = write_slide(w, s, group)
-        except ValueError as e:
-            say(f"{s['slide']}: refused: {e}")
+        for name, (_, result) in done.items():
+            s = by_name[name]
+            w.group(slide_path(s), {"ContainerIdentifier": name, "PatientID": s["patient"],
+                                    "specimen": s["specimen"], "idc": s["idc"],
+                                    "source_prefix": f"{source.root}{s['crdc_series_uuid']}/",
+                                    "levels": result["levels"], "level_0_shape": result["shape"]})
+        refused.update(failed)
+        for name, reason in failed.items():
+            say(f"{name}: left out: {reason}")
+        read = time.monotonic() - began
+        if not done:
             continue
-        summary = {"levels": len(slide["shapes"]), "codec": slide["codec"]}
-        if collection == "tcga":
-            summary["mask"] = write_mask(w, s, group, slide)
-            summary["nuclei"] = write_nuclei(w, s, group)
-        w.group(group, {"ContainerIdentifier": s["slide"], "tissue": s["tissue"],
-                        "idc": {k: s[k] for k in ("collection", "series", "crdc_series_uuid", "license", "doi")},
-                        "source_prefix": f"{SOURCE}{s['crdc_series_uuid']}/"})
-        say(f"{s['slide']}: {summary} -> {commit(session, f"Add slide {s['slide']}")}")
+        snapshot = commit(session, f"Add {len(done)} {collection} slides, {batch[0]} to {batch[-1]}",
+                          metadata={"slides": len(done), "left_out": len(failed)})
+        say(f"batch {start // BATCH + 1}: {len(done)} slides in {read:.0f} s, committed "
+            f"{snapshot} in {time.monotonic() - began - read:.0f} s")
+
+    session = repo.writable_session("main")
+    Writer(session).group("", root_attributes(collection, facts, source, refused))
+    if session.has_uncommitted_changes:
+        say(f"root: {commit(session, 'Describe the store and list the slides left out')}")
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("repo")
-    p.add_argument("--collection", choices=("gtex", "tcga"), required=True)
-    p.add_argument("slides", nargs="+")
+    p.add_argument("--collection", choices=("gtex",), default="gtex")
+    p.add_argument("--slides", nargs="*", help="only these ContainerIdentifiers")
+    p.add_argument("--limit", type=int, help="only the first N slides, by name")
+    p.add_argument("--workers", type=int, default=os.cpu_count(),
+                   help="worker processes; the parse is CPU-bound, so one per core")
     a = p.parse_args()
-    run(a.repo, a.collection, a.slides)
+    slides = catalog(a.collection)
+    if a.slides:
+        slides = [s for s in slides if s["slide"] in set(a.slides)]
+    if a.limit:
+        slides = slides[:a.limit]
+    run(a.repo, a.collection, slides, Source(), about(a.collection), workers=a.workers)
 
 
 if __name__ == "__main__":
