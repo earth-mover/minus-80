@@ -130,6 +130,32 @@ The ten cover ten labs and all ten Cosmos regions.
 
 Their raw NWB files total 1.25 TB. The eids are in `ingest.SESSIONS`.
 
+## The archive map
+
+`diagrams/archive.svg` is a tour of the whole archive, top down: DANDI
+000409's three kinds of file, then the release's collections in the IBL
+bucket's `data/`, then the bucket's other prefixes, then the release
+history. Each part has a panel saying what it is, where it lives, its format,
+file count, size and license, and whether the store holds it, and most have
+small pictures of the trial session's data:
+
+- the raw NWB: a third of a second of AP voltage on every other channel
+  (each channel's median removed), and five seconds of LF on six channels;
+- the processed NWB: each trial's contrast by side, colored by reward, and two
+  minutes of wheel position and pupil diameter;
+- the videos: one left-camera frame, a minute in;
+- the two sorts: twenty seconds of spikes by depth at each tag, and the
+  largest 2024 cluster's mean waveform on eight channels;
+- the release tables: units and good units in each release's cluster table;
+- the atlas: a sagittal slice of IBL's 200 µm Allen template at probe00,
+  with the probe's channels at their Allen CCF positions.
+
+Counts and sizes come from DANDI's asset list, IBL's `Brainwidemap` ONE cache
+(the release), its bucket-wide ONE cache (everything public in `data/`,
+3,124,616 files and 488 TB on 2026-04-06) and listings of the other
+prefixes. No histology images are public: the bucket-wide cache lists no
+histology dataset.
+
 ## From source to store
 
 The figures are in [diagrams/](diagrams/): `source.svg`, `mapping.svg` and

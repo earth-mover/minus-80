@@ -83,7 +83,9 @@ million), and DANDI's `+` filenames never reach the store.
 
 The figures, drawn from the trial store and the source listings:
 [source](diagrams/source.svg), [mapping](diagrams/mapping.svg),
-[store](diagrams/store.svg).
+[store](diagrams/store.svg). [archive](diagrams/archive.svg) maps everything
+the Brain-Wide Map publishes, on DANDI and in the IBL bucket, with pictures of
+the trial session's data, and marks what the store holds.
 
 ```
 /                                            title, what the store holds, license, citations, sources, conventions

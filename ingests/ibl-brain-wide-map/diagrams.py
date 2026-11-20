@@ -3,8 +3,10 @@
     MINUS80_S3_ANONYMOUS=1 uv run --package ibl-brain-wide-map-ingest python \\
         ingests/ibl-brain-wide-map/diagrams.py --repo <repo directory>
 
-Writes ``source.svg``, ``mapping.svg`` and ``store.svg`` into ``diagrams/`` beside this file,
-for one session and probe (``EID``, ``PROBE``). The values come from three inputs:
+Writes ``source.svg``, ``mapping.svg``, ``store.svg`` and ``archive.svg`` into ``diagrams/``
+beside this file. ``archive.py`` draws the last, the whole archive with pictures of its data,
+and documents its own inputs. The first three are drawn for one session and probe (``EID``,
+``PROBE``), and their values come from three inputs:
 
 - the DANDI asset list (``sources.dandi_assets``) gives the dandiset's totals, the totals per
   kind of file and the session's raw and processed NWB sizes;
@@ -26,6 +28,7 @@ import math
 from pathlib import Path
 
 import zarr
+from archive import archive_figure
 from ingest import OBJECTS, SORTS, SPIKE_ROWS_PER_CHUNK, session_record
 from sources import dandi_assets, one_cache
 
@@ -367,6 +370,7 @@ def main() -> None:
     session = repo.readonly_session("main")
     for figure in (source_figure, mapping_figure, store_figure):
         figure(repo, session)
+    archive_figure(repo, OUT)
     print(f"wrote {', '.join(sorted(p.name for p in OUT.glob('*.svg')))} to {OUT.name}/")
 
 

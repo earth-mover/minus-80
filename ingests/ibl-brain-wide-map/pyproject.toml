@@ -17,4 +17,4 @@ dependencies = [
 package = false
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["av", "matplotlib", "pillow", "pytest>=8"]
