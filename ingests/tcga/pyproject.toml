@@ -13,4 +13,4 @@ dependencies = [
 package = false
 
 [dependency-groups]
-notebook = ["ipykernel", "matplotlib"]
+notebook = ["ipykernel", "matplotlib", "pandas", "pyarrow", "s3fs"]
